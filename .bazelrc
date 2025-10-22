@@ -24,8 +24,8 @@ build:sanitize_thread --copt=-fno-omit-frame-pointer
 build:sanitize_thread --copt=-g
 build:sanitize_thread --copt=-Wno-error=maybe-uninitialized
 build:sanitize_thread --strip=never
-# Replace external dependencies with huawei mirror.
-
+# Replace external dependencies with huaweicloud mirror.
+build --experimental_downloader_config=.bazel_redirect.cfg
 #default build with optimization enabled
 build -c opt
 build:release --copt '-fPIC'

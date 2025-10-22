@@ -304,7 +304,7 @@ while getopts 'thr:v:S:DcCgPET:p:bm:j:g' opt; do
 done
 
 if [ "$BAZEL_COMMAND" != "clean" ]; then
-   bash ${BASE_DIR}/tools/download_dependency.sh
+   bash -x ${BASE_DIR}/tools/download_dependency.sh
 fi
 
 API_DIR="${BASE_DIR}/api"

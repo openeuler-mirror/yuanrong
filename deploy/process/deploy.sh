@@ -85,7 +85,7 @@ function print_info() {
     log_info "${MASTER_INFO_STRING}"
   fi
   [ "X${MASTER_INFO_OUT_FILE}" != "X" ] && echo "${MASTER_INFO_STRING}" > "${MASTER_INFO_OUT_FILE}"
-  printf "YuanRong Deployment Info:\n"
+  printf "OpenYuanrong Deployment Info:\n"
   if [ "X${ENABLE_MASTER}" = "Xtrue" ] ; then
     printf "%30s %10s\n" "CONTROL PLANE INSTALL_DIR:" "${INSTALL_DIR_PARENT}"
   fi

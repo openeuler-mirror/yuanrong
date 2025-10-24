@@ -422,6 +422,17 @@ bool RequestResource::operator==(const RequestResource &r) const
     if (r.opts.device.name != opts.device.name) {
         return false;
     }
+    if (r.opts.envVars.size() != opts.envVars.size()) {
+        return false;
+    }
+    for (const auto &envPair: r.opts.envVars) {
+        const auto &key = envPair.first;
+        const auto &value = envPair.second;
+        auto it = opts.envVars.find(key);
+        if (it == opts.envVars.end() || it->second != value) {
+            return false;
+        }
+    }
     return (functionMeta.languageType == r.functionMeta.languageType) &&
            (functionMeta.functionId == r.functionMeta.functionId) && (opts.cpu == r.opts.cpu) &&
            (opts.memory == r.opts.memory) &&
@@ -460,6 +471,11 @@ std::size_t HashFn::operator()(const RequestResource &r) const
     if (r.opts.instanceSession) {
         std::size_t h10 = std::hash<std::string>()(r.opts.instanceSession->sessionID);
         result = result ^ h10;
+    }
+    for (const auto &envPair: r.opts.envVars) {
+        std::size_t h11 = std::hash<std::string>()(envPair.first);
+        std::size_t h12 = std::hash<std::string>()(envPair.second);
+        result = result ^ h11 ^ h12;
     }
     return result;
 }

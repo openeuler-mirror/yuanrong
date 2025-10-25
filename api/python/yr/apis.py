@@ -657,7 +657,7 @@ def _check_object_ref(obj_refs: List[ObjectRef]):
     for ref in obj_refs:
         if not isinstance(ref, ObjectRef):
             raise TypeError(
-                f"obj_refs type error, actual: [{type(obj_refs)}], element expect: <class 'ObjectRef'>")
+                f"obj_refs type error, actual: [{type(ref)}], element expect: <class 'ObjectRef'>")
         ref.exception()
 
 

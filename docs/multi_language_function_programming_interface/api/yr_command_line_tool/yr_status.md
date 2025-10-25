@@ -22,12 +22,10 @@ yr status [flags]
 ```shell
 [yuanrong@example ~]$ yr status --etcd_endpoint xxx.xxx.xxx.xxx:xxxxxx
 YuanRong is running normally,
-
 YuanRong cluster addresses:
-                     bus: 172.17.0.25:23426
-                  worker: 172.17.0.25:39113
+              functionsystem: x.x.x.x:30839
+                  datasystem: x.x.x.x:39133
 
 YuanRong cluster status:
   current running agents: 1
 ```
-

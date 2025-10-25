@@ -144,10 +144,10 @@ nlohmann::json GetExportConfigs()
 std::string GetLibPath()
 {
     auto path = GetCurrentPath();
-    auto idx = path.find("kernel/runtime");
+    auto idx = path.find("runtime");
     if (idx != std::string::npos) {
         std::string subPath = path.substr(0, idx);
-        return subPath + "kernel/common/metrics/output/lib";
+        return subPath + "metrics/lib";
     }
     return "";
 }

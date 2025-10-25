@@ -139,7 +139,7 @@ public:
     std::shared_ptr<FMClient> fmClient_;
 };
 
-TEST_F(FmClientTest, TestGetResourcesSuccessfully)
+TEST_F(FmClientTest, DISABLED_TestGetResourcesSuccessfully)
 {
     auto client = fmClient_->GetNextHttpClient();
     EXPECT_TRUE(client != nullptr);

@@ -98,7 +98,7 @@ TEST_F(InvokeOrderManagerTest, InvokeOrderInvokeTest)
     spec->opts = opts;
     spec->functionMeta = meta;
     invokeOrderMgr->Invoke(spec);
-    ASSERT_EQ(invokeOrderMgr->instances.find("instanceId")->second->orderingCounter, 1);
+    ASSERT_EQ(invokeOrderMgr->instances.find("yr_defalut_namespace-instanceId")->second->orderingCounter, 1);
 }
 
 TEST_F(InvokeOrderManagerTest, RemoveInstanceTest)

@@ -45,9 +45,9 @@ TEST_F(CodeManagerTest, LoadFunctionsSuccessfullyTest)
 {
     fs::path currentPath = fs::current_path();
     auto path = currentPath.string();
-    auto idx = path.find("kernel/runtime");
+    auto idx = path.find("runtime");
     std::string subPath = path.substr(0, idx);
-    auto libPath = subPath + "kernel/common/metrics/output/lib";
+    auto libPath = subPath + "metrics/lib";
     InitGlobalTimer();
     YR::Libruntime::ErrorInfo err;
     err = YR::internal::CodeManager::Singleton().LoadFunctions({libPath});

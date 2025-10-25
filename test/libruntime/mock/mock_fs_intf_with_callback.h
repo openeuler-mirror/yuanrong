@@ -154,7 +154,11 @@ public:
         AccelerateMsgQueueHandle handler{.name = "name"};
         resp.set_message(handler.ToJson());
         callback(resp);
-        killCallbackPromise.set_value(1);
+        try {
+            killCallbackPromise.set_value(1);
+        } catch (const std::exception &e) {
+            std::cout << "Promise already satisfied" << std::endl;
+        }
     };
     void ExitAsync(const ExitRequest &req, ExitCallBack callback) override{};
     void StateSaveAsync(const StateSaveRequest &req, StateSaveCallBack callback) override{};

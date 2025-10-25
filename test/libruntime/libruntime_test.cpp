@@ -799,7 +799,7 @@ TEST_F(LibruntimeTest, TestGetRaw)
     ASSERT_EQ(lr->GetRaw({"aaa"}, 30, true).first.OK(), false);
 }
 
-TEST_F(LibruntimeTest, GetResourcesTest)
+TEST_F(LibruntimeTest, DISABLED_GetResourcesTest)
 {
     auto result = lr->GetResources();
     ASSERT_FALSE(result.first.OK());

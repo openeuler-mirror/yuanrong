@@ -83,7 +83,7 @@ yr start --gpu_collection_enable true --master_info "local_ip:x.x.x.x,master_ip:
 yr start --master --etcd_addr_list={master-1_ip:etcd-1_port:etcd-1_peer_port,master-2_ip:etcd-2_port:etcd-2_peer_port,master-3_ip:etcd-3_port:etcd-3_peer_port}
 ```
 
-部署从节点：
+部署备节点：
 
 ```bash
 # etcd_addr_list 的配置和主节点保持一致
@@ -109,9 +109,8 @@ openYuanrong 默认未开启安全通信选项，如需开启请参考[安全通
 
 ```bash
 YuanRong cluster addresses:
-                    bus: x.x.x.x:22773
-                 worker: x.x.x.x:31501
-       global scheduler: x.x.x.x:22770
+              functionsystem: x.x.x.x:30839
+                  datasystem: x.x.x.x:39133
 
 YuanRong cluster status:
   current running agents: 2

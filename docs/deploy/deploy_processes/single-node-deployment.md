@@ -32,8 +32,8 @@ $ yr start --master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etc
 # x.x.x.x:15903替换为部署步骤打印的etcd_ip和etcd_port
 $ yr status --etcd_endpoint x.x.x.x:15903
 YuanRong cluster addresses:
-                    bus: x.x.x.x:22773
-                 worker: x.x.x.x:31501
+              functionsystem: x.x.x.x:12729
+                  datasystem: x.x.x.x:33210
 
 YuanRong cluster status:
   current running agents: 2

@@ -1,7 +1,7 @@
 yr.create_resource_group
 ==========================
 
-.. py:function:: yr.create_resource_group(bundles: List[Dict[str, float]], name: Optional[str] = None) -> ResourceGroup
+.. py:function:: yr.create_resource_group(bundles: List[Dict[str, float]], name: Optional[str] = None, strategy: Optional[str] = "PACK") -> ResourceGroup
 
     异步创建一个 ResourceGroup。 
 
@@ -17,7 +17,12 @@ yr.create_resource_group
         - **bundles** (List[Dict[str, float]]) - 一组代表资源请求的 `bundles`，不能为空。
         - **name** (Optional[str]，可选) - 待创建 ResourceGroup 的名称，具有唯一性，且不能是 'primary' 或者空字符串。
           该参数可选，默认值为 ``None`` ，即随机生成 rgroup-{uuid} 类型的字符串作为 `resource group name` 。
-
+        - **strategy** (Optional[str]，可选) - 创建 ResourceGroup 的策略，默认策略为 ``'PACK'`` 。
+          - ``'NONE'``：无策略
+          - ``'PACK'``：将 `bundles` 尽可能分散在同一个节点。
+          - ``'SPREAD'``：将 `bundles` 尽可能分散在不同节点。
+          - ``'STRICT_PACK'``：将 `bundles` 尽可能分散在同一个节点，不允许在多个节点上创建 `bundles` 。
+          - ``'STRICT_SPREAD'``：将 `bundles` 尽可能分散在不同节点，不允许在同个节点上创建多个 `bundles` 。
     返回：
         一个 ResourceGroup_ 句柄。
 

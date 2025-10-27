@@ -1223,7 +1223,7 @@ def create_resource_group(bundles: List[Dict[str, float]], name: Optional[str] =
         name (Optional[str], optional): The name of the ResourceGroup to be created, which must be unique and
             cannot be 'primary' or an empty string. This parameter is optional, with a default value of ``None``,
             meaning a rgroup-{uuid} type string will be randomly generated as the `resource group name`.
-        strategy: The strategy to create the resource group.
+        strategy (OptionsOptional[str], optional): The strategy to create the resource group, defalut strategy is ``PACK``
             - None: No strategy.
             - PACK: Packs Bundles into as few nodes as possible.
             - SPREAD: Places Bundles across distinct nodes as even as possible.

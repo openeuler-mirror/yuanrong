@@ -57,6 +57,7 @@ public class LoadUtil {
         "libtbb.so.2",
         "libcrypto.so.1.1",
         "libssl.so.1.1",
+        "libcurl.so.4.8.0",
         "libds-spdlog.so.1.12.0",
         "libzmq.so.5.2.5",
         "libcrypto.so.1.1",

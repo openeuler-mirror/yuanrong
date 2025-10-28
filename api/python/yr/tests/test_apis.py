@@ -119,7 +119,7 @@ class TestApi(unittest.TestCase):
 
         with pytest.raises(TypeError) as e:
             yr.cancel(["aaa"])
-        assert e.value.__str__() == "obj_refs type error, actual: [<class 'list'>], element expect: <class 'ObjectRef'>"
+        assert e.value.__str__() == "obj_refs type error, actual: [<class 'str'>], element expect: <class 'ObjectRef'>"
 
     def test_double_counter(self):
         with self.assertRaises(ValueError):

@@ -1,0 +1,4 @@
+contact_links:
+  - name: Security report
+    url: https://www.openeuler.org/zh/security/vulnerability-reporting/
+    about: Reported to openYuanrong team through the openEuler community vulnerability management system.

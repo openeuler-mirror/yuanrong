@@ -47,9 +47,9 @@ function install_ds_master() {
       -max_log_size=${DS_LOG_ROLLING_MAX_SIZE} -max_log_file_num=${DS_LOG_ROLLING_MAX_FILES} \
       -node_dead_timeout_s=${DS_NODE_DEAD_TIMEOUT_S} \
       -node_timeout_s=${DS_NODE_TIMEOUT_S} \
-      -backend_store_dir="${data_system_install_dir}/rocksdb" \
+      -rocksdb_store_dir="${data_system_install_dir}/rocksdb" \
       -etcd_address="${ETCD_CLUSTER_ADDRESS}" \
-      -other_az_names="${ETCD_TABLE_PREFIX}" \
+      -az_name="${ETCD_TABLE_PREFIX}" \
       -etcd_target_name_override="${ETCD_TARGET_NAME_OVERRIDE}" \
       -enable_etcd_auth=${ENABLE_ETCD_AUTH} \
       -arena_per_tenant=${DS_ARENA_PER_TENANT} \
@@ -59,7 +59,7 @@ function install_ds_master() {
       -etcd_ca=${ETCD_SSL_BASE_PATH}/${ETCD_CA_FILE} \
       -etcd_cert=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_CERT_FILE} \
       -etcd_key=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_KEY_FILE} \
-      -enable_component_auth=${DS_COMPONENT_AUTH_ENABLE} \
+      -enable_curve_zmq=${DS_COMPONENT_AUTH_ENABLE} \
       -curve_key_dir=${CURVE_KEY_PATH} \
       -logfile_mode=416 \
       -l2_cache_type=${DS_L2_CACHE_TYPE} \
@@ -131,19 +131,19 @@ function install_ds_worker() {
     -memory_reclamation_time_second=${DS_MEMORY_RECLAMATION_TIME_SECOND} \
     -node_dead_timeout_s=${DS_NODE_DEAD_TIMEOUT_S} \
     -node_timeout_s=${DS_NODE_TIMEOUT_S} \
-    -backend_store_dir="${data_system_install_path}/rocksdb" \
+    -rocksdb_store_dir="${data_system_install_path}/rocksdb" \
     -arena_per_tenant=${DS_ARENA_PER_TENANT} \
     -enable_fallocate=${DS_ENABLE_FALLOCATE} \
     -enable_huge_tlb=${DS_ENABLE_HUGE_TLB} \
     -enable_thp=${DS_ENABLE_THP} \
     -etcd_address="${ETCD_CLUSTER_ADDRESS}" \
-    -other_az_names="${ETCD_TABLE_PREFIX}" \
+    -az_name="${ETCD_TABLE_PREFIX}" \
     -etcd_target_name_override="${ETCD_TARGET_NAME_OVERRIDE}" \
     -enable_etcd_auth=${ENABLE_ETCD_AUTH} \
     -etcd_ca=${ETCD_SSL_BASE_PATH}/${ETCD_CA_FILE} \
     -etcd_cert=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_CERT_FILE} \
     -etcd_key=${ETCD_SSL_BASE_PATH}/${ETCD_CLIENT_KEY_FILE} \
-    -enable_component_auth=${DS_COMPONENT_AUTH_ENABLE} \
+    -enable_curve_zmq=${DS_COMPONENT_AUTH_ENABLE} \
     -curve_key_dir=${CURVE_KEY_PATH} -logfile_mode=416 \
     -l2_cache_type=${DS_L2_CACHE_TYPE} \
     -sfs_path=${DS_SFS_PATH} \

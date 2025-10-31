@@ -21,7 +21,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/beast/core/detail/base64.hpp>
-
+#include "re2/re2.h"
 namespace YR {
 namespace utility {
 inline void Split(const std::string &source, std::vector<std::string> &result, const char sep)
@@ -80,6 +80,31 @@ inline std::string DecodedToString(const std::string &inStr)
     uint8_t data[len + 1] = {0};
     boost::beast::detail::base64::decode(data, inStr.data(), inStr.size());
     return reinterpret_cast<const char *>(data);
+}
+
+inline std::vector<std::string> SplitToStr(const std::string &info, const std::string &pattern)
+{
+    if (info.empty()) {
+        return {};
+    }
+    re2::StringPiece text(info);
+    re2::RE2 re2Pattern(pattern);
+    std::vector<std::string> result;
+    size_t lastPos = 0;
+ 
+    re2::StringPiece match;
+    while (re2Pattern.Match(text, lastPos, text.size(), RE2::UNANCHORED, &match, 1)) {
+        uint64_t splitIndex = match.data() - text.data();
+        if (match.data() - (text.data() + lastPos) > 0) {
+            result.push_back(std::string(text.data() + lastPos, match.data() - (text.data() + lastPos)));
+        }
+        lastPos = splitIndex + match.size();
+    }
+ 
+    if (lastPos < text.size()) {
+        result.push_back(std::string(text.data() + lastPos));
+    }
+    return result;
 }
 }  // namespace utility
 }  // namespace YR

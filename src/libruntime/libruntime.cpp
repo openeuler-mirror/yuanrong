@@ -15,7 +15,7 @@
  */
 
 #include <iostream>
-
+#include "re2/re2.h"
 #include "invoke_order_manager.h"
 #include "src/dto/config.h"
 #include "src/dto/data_object.h"
@@ -42,8 +42,8 @@ const std::string ACTOR_INSTANCE_TYPE = "actor";
 const char *DEFAULT_DELEGATE_DIRECTORY_QUOTA = "512";  // 512MB
 const int MAX_DELEGATE_DIRECTORY_QUOTA = 1024 * 1024;  // 1TB
 const std::string QUOTA_NO_LIMIT = "-1";
-const std::regex POD_LABELS_KEY_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?$");
-const std::regex POD_LABELS_VALUE_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?$|^$");
+const re2::RE2 POD_LABELS_KEY_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?$");
+const re2::RE2 POD_LABELS_VALUE_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?$|^$");
 const std::string DISPATCHER = "dis";
 const size_t NUM_DISPATCHER = 2;
 
@@ -126,12 +126,12 @@ ErrorInfo Libruntime::CheckSpec(std::shared_ptr<InvokeSpec> spec)
                          "The number of pod labels is invalid, please set the pod labels less than and equal to 5");
     }
     for (auto &iter : spec->opts.podLabels) {
-        if (!std::regex_match(iter.first, POD_LABELS_KEY_REGEX)) {
+        if (!RE2::FullMatch(iter.first, POD_LABELS_KEY_REGEX)) {
             return ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, YR::Libruntime::ModuleCode::RUNTIME,
                              "The pod label key is invalid, please set the pod label key with letters, digits and '-' "
                              "which cannot start or end with '-' and cannot exceed 63 characters.");
         }
-        if (!std::regex_match(iter.second, POD_LABELS_VALUE_REGEX)) {
+        if (!RE2::FullMatch(iter.second, POD_LABELS_VALUE_REGEX)) {
             return ErrorInfo(
                 YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, YR::Libruntime::ModuleCode::RUNTIME,
                 "The pod label value is invalid, please set the pod label value with letters, digits and '-' which "
@@ -141,8 +141,8 @@ ErrorInfo Libruntime::CheckSpec(std::shared_ptr<InvokeSpec> spec)
     }
     if (spec->opts.customExtensions.find(DELEGATE_DIRECTORY_QUOTA) != spec->opts.customExtensions.end()) {
         auto quota = spec->opts.customExtensions[DELEGATE_DIRECTORY_QUOTA];
-        std::regex pattern(R"(^[0-9]+$)");
-        if (quota != QUOTA_NO_LIMIT && !std::regex_match(quota, pattern)) {
+        re2::RE2 pattern(R"(^[0-9]+$)");
+        if (quota != QUOTA_NO_LIMIT && !RE2::FullMatch(quota, pattern)) {
             return ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, YR::Libruntime::ModuleCode::RUNTIME,
                              "The DELEGATE_DIRECTORY_QUOTA value: {" + quota + "} is invalid, not composed of numbers");
         }

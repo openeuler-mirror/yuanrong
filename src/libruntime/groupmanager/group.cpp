@@ -113,7 +113,7 @@ void Group::Terminate()
     killReq.set_instanceid(groupId);
     killReq.set_payload("");
     killReq.set_signal(libruntime::Signal::KillGroupInstance);
-    this->fsClient->KillAsync(killReq, [](KillResponse resp) -> void {
+    this->fsClient->KillAsync(killReq, [](KillResponse resp, ErrorInfo err) -> void {
         YRLOG_ERROR("get termiate group ins response, resp code is {}, resp msg is {}", resp.code(), resp.message());
     });
     SetTerminateError();

@@ -21,7 +21,7 @@
 #include <experimental/filesystem>
 #endif
 #include "src/dto/config.h"
-
+#include "src/utility/string_utility.h"
 namespace YR {
 namespace Libruntime {
 
@@ -65,18 +65,16 @@ void ClusterAccessInfo::ParseFromMasterInfo(const std::string &masterInfoPath)
 
     std::map<std::string, std::string> kvMap;
     std::map<std::string, std::vector<std::string>> kvsMap;
-    std::regex regex("[,:]");
-    std::sregex_token_iterator iter(masterInfo.begin(), masterInfo.end(), regex, -1);
-    std::sregex_token_iterator end;
-
-    while (iter != end) {
-        std::string key = *iter;
-        iter++;
-        if (iter == end) {
+    std::string pattern = "[,:]";
+    auto result = YR::utility::SplitToStr(masterInfo, pattern);
+    for (size_t i = 0; i < result.size();) {
+        std::string key = result[i];
+        ++i;
+        if (i >= result.size()) {
             break;
         }
-        std::string value = *iter;
-        iter++;
+        std::string value = result[i];
+        ++i;
         if (kvMap.find(key) != kvMap.end()) {
             if (kvsMap.find(key) == kvsMap.end()) {
                 kvsMap[key].push_back(kvMap[key]);
@@ -187,13 +185,10 @@ void ClusterAccessInfo::ParseDsAddr()
 
 std::pair<std::string, std::string> ClusterAccessInfo::ParseURLWithProtocol(const std::string &url)
 {
-    std::regex urlPattern(R"((^[a-zA-Z]+://)?(.*))");
-    std::smatch matches;
-
-    if (std::regex_match(url, matches, urlPattern)) {
-        std::string protocol = matches[1].str();
-        std::string remainder = matches[2].str();
-
+    re2::RE2 urlPattern(R"((^[a-zA-Z]+://)?(.*))");
+    std::string protocol;
+    std::string remainder;
+    if (RE2::PartialMatch(url, urlPattern, &protocol, &remainder)) {
         if (protocol.empty()) {
             return {"", remainder};
         } else {
@@ -315,14 +310,14 @@ ClusterAccessInfo AutoCreateYuanRongCluster(std::vector<std::string> &args)
 
 bool IsValidIPPort(const std::string &input)
 {
-    std::regex pattern(R"((\d{1,3}\.){3}\d{1,3}:\d{1,5})");
-    return std::regex_match(input, pattern);
+    re2::RE2 pattern(R"((\d{1,3}\.){3}\d{1,3}:\d{1,5})");
+    return RE2::FullMatch(input, pattern);
 }
 
 bool IsURLHasProtocalPrefix(const std::string &input)
 {
-    std::regex pattern(R"((http|https|grpc)://([a-zA-Z0-9.-]+|\d{1,3}(\.\d{1,3}){3}):\d{1,5})");
-    return std::regex_match(input, pattern);
+    re2::RE2 pattern(R"((http|https|grpc)://([a-zA-Z0-9.-]+|\d{1,3}(\.\d{1,3}){3}):\d{1,5})");
+    return RE2::FullMatch(input, pattern);
 }
 
 bool NeedToBeParsed(ClusterAccessInfo info)

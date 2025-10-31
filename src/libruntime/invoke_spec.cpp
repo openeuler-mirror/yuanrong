@@ -15,7 +15,6 @@
  */
 
 #include "src/libruntime/invoke_spec.h"
-#include <regex>
 namespace YR {
 namespace Libruntime {
 const std::string LOW_RELIABILITY_TYPE = "low";

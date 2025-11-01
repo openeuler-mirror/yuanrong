@@ -67,7 +67,7 @@ def preload_grpc():
 
     http_archive(
         name = "com_googlesource_code_re2",
-        url = "https://cmc.cloudartifact.szv.dragon.tools.huawei.com/artifactory/opensource_general/re2/2022-04-01/package/re2-2022-04-01.zip",
+        url = "https://gitee.com/mirrors/re2/repository/archive/2022-04-01.zip",
         sha256 = "e7a7a796c5c207f1cd0a909799077640594c1aaa46518bd4eb5efbde62b7e753",
         strip_prefix = "re2-2022-04-01",
     )

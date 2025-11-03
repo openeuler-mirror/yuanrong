@@ -38,7 +38,8 @@ test/st/functions/pkg
 test/st/functions/**/*.so
 test/st/functions/**/*.zip
 test/st/functions/**/*.xml
-
+functionsystem
+datasystem
 #thirdparty
 thirdparty
 go/pkg/mod/

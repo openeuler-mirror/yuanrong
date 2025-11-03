@@ -32,7 +32,8 @@ BASE_DIR=$(
     pwd
 )
 RUNTIME_SRC_DIR="${BASE_DIR}/../"
-YR_DATASYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/.."
+YR_DATASYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/../datasystem"
+YR_FUNCTIONSYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/../functionsystem"
 YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/../metrics"
 THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/../thirdparty/"
 MODULES="runtime"
@@ -65,7 +66,7 @@ function download_datasystem() {
     DS_OUT_DIR="${YR_DATASYSTEM_BIN_DIR}/datasystem/output"
     mkdir -p "${DS_OUT_DIR}"
     pushd "${DS_OUT_DIR}"
-    curl -S -o datasystem.tar.gz ${DATA_SYSTEM_CACHE}
+    wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
     tar --no-same-owner -zxf datasystem.tar.gz
     popd
 }
@@ -79,11 +80,38 @@ function download_metrics() {
     METRICS_OUT_DIR="${YR_METRICS_BIN_DIR}/"
     mkdir -p "${METRICS_OUT_DIR}"
     pushd "${METRICS_OUT_DIR}"
-    curl -S -o functionsystem.tar.gz ${FUNCTION_SYSTEM_CACHE}
+    wget -O functionsystem.tar.gz ${FUNCTION_SYSTEM_CACHE}
     tar --no-same-owner -zxf functionsystem.tar.gz
     mv function_system/metrics/* .
     rm -rf function_system
     popd
+}
+
+function compile_datasystem() {
+    # check whether datasystem exist
+    if [ -d "${YR_DATASYSTEM_BIN_DIR}"/output/sdk/cpp/include ]; then
+        echo "datasystem sdk exist."
+        return
+    fi
+    cd ${YR_DATASYSTEM_BIN_DIR}
+    bash build.sh -X off
+    cd output
+    ds_filename=$(ls *.tar.gz)
+    tar -xf $ds_filename -C ${YR_DATASYSTEM_BIN_DIR}/output/
+    mkdir -p ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
+    tar -xf $ds_filename -C ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
+}
+
+function compile_functionsystem() {
+    if [ -d "${YR_METRICS_BIN_DIR}"/lib ]; then
+        echo "metrics sdk exist."
+        return
+    fi
+    cd ${YR_FUNCTIONSYSTEM_BIN_DIR}
+    bash build.sh
+    cd output
+    tar -xf ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz
+    cp -r ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/function_system/metrics ${RUNTIME_SRC_DIR}/../
 }
 
 function compile_all(){
@@ -121,8 +149,19 @@ function download_cache() {
     popd
 }
 
-download_datasystem
-download_metrics
+if [ "$BUILD_ALL" == "true" ]; then
+  if [ ! -d ${YR_FUNCTIONSYSTEM_BIN_DIR} ]; then
+    git clone https://gitee.com/openeuler/yuanrong-functionsystem.git -b master functionsystem
+  fi
+  if [ ! -d ${YR_DATASYSTEM_BIN_DIR} ]; then
+    git clone https://gitee.com/openeuler/yuanrong-datasystem.git -b master datasystem
+  fi
+  compile_datasystem
+  compile_functionsystem
+else
+  download_datasystem
+  download_metrics
+fi
 download_cache
 check_datasystem
 check_metrics

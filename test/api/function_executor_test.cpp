@@ -84,7 +84,7 @@ TEST_F(FunctionExecutorTest, LoadFunctionsSuccessfullyTest)
     auto path = currentPath.string();
     auto idx = path.rfind("yuanrong-runtime");
     std::string subPath = path.substr(0, idx);
-    auto libPath = subPath + "metrics/lib";
+    auto libPath = subPath + "yuanrong-runtime/metrics/lib";
     InitGlobalTimer();
     YR::Libruntime::ErrorInfo err;
     err = LoadFunctions({libPath});

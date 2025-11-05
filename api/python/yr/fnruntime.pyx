@@ -67,7 +67,7 @@ CErrorCode, CErrorInfo, CFunctionMeta,
 CInternalWaitResult, CInvokeArg,
 CInvokeOptions, CInvokeType, CModuleCode,
 CLanguageType, CLibruntimeConfig,
-CLibruntimeManager,move,CLibruntime
+CLibruntimeManager,move,CLibruntime,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
 CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,

@@ -256,7 +256,7 @@ protected:
     std::string affinityType;
     bool preferredPriority = true;
     bool requiredPriority = false;
-    bool preferredAntiOtherLabels = true;
+    bool preferredAntiOtherLabels = false;
     std::list<std::shared_ptr<LabelOperator>> labelOperators;
 };
 

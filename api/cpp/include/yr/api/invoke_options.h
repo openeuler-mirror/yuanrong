@@ -178,7 +178,7 @@ struct InvokeOptions {
      * @var bool preferredAntiOtherLabels
      * @brief 是否开启反亲和不可选资源，开启后，当传入多个弱亲和条件都不满足时，调度失败。仅在弱反亲和生效
      */
-    bool preferredAntiOtherLabels = true;
+    bool preferredAntiOtherLabels = false;
 
     /*!
     *  @var size_t retyrTime

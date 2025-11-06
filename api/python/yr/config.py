@@ -422,7 +422,7 @@ class InvokeOptions:
     #: weak affinity conditions are met. When preferred_anti_other_labels is set to True, if no PODs that meet the
     #: conditions are found for weak affinity/anti-affinity, scheduling fails and no other resources' PODs are
     #: selected for scheduling.
-    preferred_anti_other_labels = True
+    preferred_anti_other_labels = False
 
     resource_group_options: ResourceGroupOptions = field(default_factory=ResourceGroupOptions)
     """

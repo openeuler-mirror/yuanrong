@@ -59,7 +59,7 @@ public class InvokeOptions {
     private List<Affinity> scheduleAffinities;
     private boolean preferredPriority = true;
     private boolean requiredPriority = false;
-    private boolean preferredAntiOtherLabels = true;
+    private boolean preferredAntiOtherLabels = false;
     private boolean needOrder = false;
     private boolean preemptedAllowed = false;
     private String groupName;

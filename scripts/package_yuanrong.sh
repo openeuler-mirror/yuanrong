@@ -22,12 +22,13 @@ BASE_DIR=$(
 . ${BASE_DIR}/package/utils.sh
 OUTPUT_DIR="${BASE_DIR}/../output"
 function parse_args () {
-    getopt_cmd=$(getopt -o t:h -l tag:,help -- "$@")
+    getopt_cmd=$(getopt -o t:h -l tag:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
     eval set -- "$getopt_cmd"
     while true; do
         case "$1" in
         -h|--help) SHOW_HELP="true" && shift ;;
+        --python_bin_path) PYTHON_BIN_PATH=$2 && shift 2 ;;
         -t|--tag) TAG=$2 && shift 2 ;;
         --) shift && break ;;
         *) die "Invalid option: $1" && exit 1 ;;

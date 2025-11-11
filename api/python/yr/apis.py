@@ -724,7 +724,8 @@ def kv_write(key: str, value: bytes, existence: ExistenceOpt = ExistenceOpt.NONE
 @check_initialized
 def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
     """
-    Provide a storage interface that supports custom parameter configuration, enabling binary data to be written to the data system in a more flexible manner.
+    Provide a storage interface that supports custom parameter configuration, 
+    enabling binary data to be written to the data system in a more flexible manner.
 
     Args:
         key (str): Sets a key for the data to be saved, which is used to identify the data.

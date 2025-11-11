@@ -347,7 +347,8 @@ TEST_F(ActorTest, InvalidResource)
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "ErrCode: 1006";
-        std::string errorMsg = "Required CPU resource size 299 millicores is invalid. Valid value range is [300,16000] millicores";
+        std::string errorMsg =
+            "Required CPU resource size 299 millicores is invalid. Valid value range is [0,16000] millicores";
         std::string excepMsg = e.what();
         ErrorMsgCheck(errorCode, errorMsg, excepMsg);
     }
@@ -361,7 +362,8 @@ TEST_F(ActorTest, InvalidResource)
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "ErrCode: 1006";
-        std::string errorMsg = "Required CPU resource size 16001 millicores is invalid. Valid value range is [300,16000] millicores";
+        std::string errorMsg =
+            "Required CPU resource size 16001 millicores is invalid. Valid value range is [0,16000] millicores";
         std::string excepMsg = e.what();
         ErrorMsgCheck(errorCode, errorMsg, excepMsg);
     }

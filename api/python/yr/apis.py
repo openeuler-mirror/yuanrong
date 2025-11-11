@@ -1325,8 +1325,11 @@ class cpp_instance_class:
 
                 >>> import yr
                 >>> yr.init()
-                >>> cpp_function_urn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-defaultservice-cpp:$latest"
-                >>> counter_class = yr.cpp_instance_class("Counter", "Counter::FactoryCreate",cpp_function_urn)
+                >>> cpp_function_urn = (
+                ...     "sn:cn:yrk:12345678901234561234567890123456:"
+                ...     "function:0-yr-defaultservice-cpp:$latest"
+                ... )
+                >>> counter_class = yr.cpp_instance_class("Counter", "Counter::FactoryCreate", cpp_function_urn)
                 >>> opt = yr.InvokeOptions(cpu=1000, memory=1024)
                 >>> ins = counter_class.options(opt).invoke(11)
                 >>> result = ins.Add.invoke(9)
@@ -1414,11 +1417,13 @@ def cpp_function(function_name: str, function_urn: str) -> FunctionProxy:
 
             >>> import yr
             >>> yr.init()
-            >>> cpp_function_urn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-defaultservice-cpp:$latest"
+            >>> cpp_function_urn = (
+            ...     "sn:cn:yrk:12345678901234561234567890123456:"
+            ...     "function:0-yr-defaultservice-cpp:$latest"
+            ... )
             >>> square_func = yr.cpp_function("Square", cpp_function_urn)
             >>> result = square_func.invoke(5)
             >>> print(yr.get(result))
-            >>>
             >>> yr.finalize()
 
     """
@@ -1464,7 +1469,10 @@ def java_function(class_name: str, function_name: str, function_urn: str) -> Fun
 
             >>> import yr
             >>> yr.init()
-            >>> java_function_urn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-defaultservice-java:$latest"
+            >>> java_function_urn = (
+            ...     "sn:cn:yrk:12345678901234561234567890123456:"
+            ...     "function:0-yr-defaultservice-java:$latest"
+            ... )
             >>> java_add = yr.java_function("com.yuanrong.demo.PlusOne", "PlusOne", java_function_urn)
             >>> result = java_add.invoke(1)
             >>> print(yr.get(result))
@@ -1517,7 +1525,10 @@ def java_instance_class(class_name: str, function_urn: str) -> InstanceCreator:
 
             >>> import yr
             >>> yr.init()
-            >>> java_function_urn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-defaultservice-java:$latest"
+            >>> java_function_urn = (
+            ...     "sn:cn:yrk:12345678901234561234567890123456:"
+            ...     "function:0-yr-defaultservice-java:$latest"
+            ... )
             >>>
             >>> java_instance = yr.java_instance_class("com.yuanrong.demo.Counter", java_function_urn).invoke(1)
             >>> res = java_instance.Add.invoke(5)

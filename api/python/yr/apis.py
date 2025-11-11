@@ -761,7 +761,8 @@ def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
 @check_initialized
 def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam = MSetParam()) -> None:
     """
-    Provide a Redis-like set storage interface that supports persisting a collection of binary data into the data system.
+    Provide a Redis-like set storage interface that supports persisting 
+    a collection of binary data into the data system.
 
     Args:
         keys (List[str]): Set a set of keys for the saved data to identify the data. Use this key for querying data.

@@ -32,7 +32,10 @@ yr.cpp_function
 
        >>> import yr
        >>> yr.init()
-       >>> cpp_function_urn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-mycpp:$latest"
+       >>> cpp_function_urn = (
+       ...     "sn:cn:yrk:12345678901234561234567890123456:"
+       ...     "function:0-yr-defaultservice-cpp:$latest"
+       ... )
        >>> square_func = yr.cpp_function("Square", cpp_function_urn)
        >>> result = square_func.invoke(5)
        >>> print(yr.get(result))

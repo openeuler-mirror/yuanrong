@@ -115,6 +115,14 @@ html_theme_options = {
         provided by
         <a href="https://github.com/executablebooks">Executable Books Project</a>.
     """
+    "navbar_start": [
+        "navbar-logo",
+        "version-switcher"
+    ],
+    "switcher": {
+        "json_url": "https://pages.openeuler.openatom.cn/openyuanrong/docs/versions.json",
+        "version_match": "latest",
+    },
 }
 
 # -----------------------------------------------------------------------------

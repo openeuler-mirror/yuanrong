@@ -58,7 +58,7 @@ public:
         cb = {};
         auto reqMgr = std::make_shared<RequestManager>();
         auto librtCfg = std::make_shared<LibruntimeConfig>();
-        auto mockFsIntf = std::make_unique<MockFSIntfClient>();
+        auto mockFsIntf = std::make_unique<MockGwClient>();
         auto fsClient = std::make_shared<FSClient>(std::move(mockFsIntf));
         std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
         auto dsObjectStore = std::make_shared<DSCacheObjectStore>();
@@ -87,7 +87,7 @@ TEST_F(NormalInstanceManagerTest, ScheduleInsTest)
         "", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "", libruntime::ApiType::Function};
     spec->opts = {};
     auto resource = GetRequestResource(spec);
-    auto [insId, leaseId] = insManager->ScheduleIns(resource);
+    auto [insId, leaseId] = insManager->GetAvailableIns(resource);
     ASSERT_EQ(insId.empty(), true);
 
     std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> instanceInfos;
@@ -101,7 +101,7 @@ TEST_F(NormalInstanceManagerTest, ScheduleInsTest)
     requestResourceInfo->instanceInfos = instanceInfos;
     requestResourceInfo->avaliableInstanceInfos = instanceInfos;
     insManager->requestResourceInfoMap[resource] = requestResourceInfo;
-    auto [id, lId] = insManager->ScheduleIns(resource);
+    auto [id, lId] = insManager->GetAvailableIns(resource);
     ASSERT_EQ(id.empty(), false);
     insManager->Stop();
 }

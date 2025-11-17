@@ -15,7 +15,6 @@
 # limitations under the License.
 
 """serialization"""
+from yr.serialization.serialization import Serialization, register_pack_hook, register_unpack_hook
 
 __all__ = ["Serialization", "register_pack_hook", "register_unpack_hook"]
-
-from yr.serialization.serialization import Serialization, register_pack_hook, register_unpack_hook

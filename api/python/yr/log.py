@@ -31,7 +31,7 @@ from yr.common.singleton import Singleton
 _MAX_ROW_SIZE = 1024 * 1024
 # python runtime log location
 _BASE_LOG_NAME = "yr"
-_LOG_SUFFIX = ".log"
+_LOG_SUFFIX = "_runtime.log"
 
 
 class CustomFilter(logging.Filterer):
@@ -97,7 +97,8 @@ class RuntimeLogger:
 
         self.__logger = logging.getLogger("FileLogger")
         self.__logger.addFilter(CustomFilter())
-        self.__logger = logging.LoggerAdapter(self.__logger, {'podname': socket.gethostname()})
+        self.__logger = logging.LoggerAdapter(self.__logger, {'podname': socket.gethostname(),
+                                                              'runtime_id':  self.__runtime_id})
 
     def __init_stream_logger(self, log_level: str) -> None:
         self.__logger = logging.getLogger(_BASE_LOG_NAME)
@@ -117,15 +118,18 @@ class RuntimeLogger:
             log_file_name = os.getenv("GLOG_log_dir")
         os.environ["DATASYSTEM_CLIENT_LOG_DIR"] = log_file_name
         self.__runtime_log_location = log_file_name
-
-        log_file_name = os.path.join(log_file_name, self.__runtime_id + _LOG_SUFFIX)
+        log_id = os.environ.get("YR_LOG_PREFIX", "")
+        if len(log_id) != 0:
+            log_file_name = os.path.join(log_file_name, log_id + _LOG_SUFFIX)
+        else:
+            log_file_name = os.path.join(log_file_name, self.__runtime_id + _LOG_SUFFIX)
         config["handlers"]["file"]["filename"] = log_file_name
         return log_file_name
 
 
-def init_logger(is_driver: bool, runtime_id: str = "", log_level: str = "DEBUG") -> None:
+def init_logger(on_cloud: bool, runtime_id: str = "", log_level: str = "DEBUG") -> None:
     """init log handler"""
-    RuntimeLogger().init(is_driver, runtime_id, log_level)
+    RuntimeLogger().init(on_cloud, runtime_id, log_level)
 
 
 def get_logger() -> Logger:

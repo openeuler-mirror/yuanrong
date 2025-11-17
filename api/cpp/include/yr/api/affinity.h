@@ -179,6 +179,23 @@ public:
     }
 
     /*!
+     * @brief Construct an affinity operation object.
+     *
+     * @param kind  The affinity kind mainly include `RESOURCE` and `INSTANCE`. `RESOURCE` refers to predefined resource
+     *              label affinity, while `INSTANCE` refers to dynamic instance label affinity.
+     * @param type  The affinity type mainly include `PREFERRED`, `PREFERRED_ANTI`, `REQUIRED` and `REQUIRED_ANTI`,
+     *              which represent weak affinity, weak anti-affinity, strong affinity, and strong anti-affinity,
+     *              respectively.
+     * @param operators Label operation list, see LabelOperator and its subclasses for details.
+     * @param affinityScope The instance affinity scope mainly includes two types: `AFFINITYSCOPE_POD`
+     *                      and `AFFINITYSCOPE_NODE`.
+     */
+    Affinity(const std::string &kind, const std::string &type, const std::list<LabelOperator> &operators,
+             const std::string &affinityScope)
+        : affinityKind(kind), affinityType(type), labelOperators(operators), affinityScope(affinityScope) {
+    }
+
+    /*!
      * @brief Default Destructor.
      */
     ~Affinity() = default;
@@ -213,10 +230,29 @@ public:
         return this->labelOperators;
     }
 
+    /*!
+     * @brief Get the scope of instance affinity.
+     *
+     * @return The scope of instance affinity.
+     */
+    std::string GetAffinityScope() const
+    {
+        return this->affinityScope;
+    }
+
+    /*!
+     * @brief Set the scope of instance affinity.
+     */
+    void SetAffinityScope(const std::string &affinityScope)
+    {
+        this->affinityScope = affinityScope;
+    }
+
 private:
     std::string affinityKind;
     std::string affinityType;
     std::list<LabelOperator> labelOperators;
+    std::string affinityScope;
 };
 
 /*! @class ResourcePreferredAffinity affinity.h "include/yr/api/affinity.h"

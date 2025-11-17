@@ -63,7 +63,7 @@ void WaitingEntity::Notify(const std::string &readyObjId)
 
 void WaitingEntity::SetError(const std::string &id, const ErrorInfo &err)
 {
-    YRLOG_DEBUG("set id {}, error {}", id, err.Msg());
+    YRLOG_DEBUG("set id {}, msg: {}", id, err.Msg());
     std::lock_guard<std::mutex> lock(mu);
     exceptionIds[id] = err;
     exceptionNum++;
@@ -129,7 +129,7 @@ bool WaitingObjectManager::SetReady(const std::string &id)
 
 void WaitingObjectManager::SetError(const std::string &id, const ErrorInfo &err)
 {
-    YRLOG_DEBUG("set id {}, error {}", id, err.Msg());
+    YRLOG_DEBUG("set id {}, msg: {}", id, err.Msg());
     std::lock_guard<std::mutex> lock(unreadyObjectMapMutex);
     if (unreadyObjectMap.count(id) > 0) {
         for (std::shared_ptr<WaitingEntity> &waitingEntity : unreadyObjectMap[id]) {

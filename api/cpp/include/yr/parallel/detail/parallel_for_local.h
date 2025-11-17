@@ -15,6 +15,8 @@
  */
 
 #pragma once
+#include <boost/callable_traits/is_invocable.hpp>
+
 #include "barrier.h"
 #include "native_sem.h"
 #include "yr/api/function_handler.h"
@@ -26,6 +28,8 @@ static inline int GetThreadid()
     return g_threadid;
 }
 
+template<typename F, typename... Args>
+constexpr bool is_invocable_v = boost::callable_traits::is_invocable<F, Args...>::value;
 namespace Parallel {
 
 /*!
@@ -90,9 +94,9 @@ public:
 
     static constexpr bool HandlerTypeCheck()
     {
-        if constexpr (std::is_invocable_v<Handler, Index, Index>) {
+        if constexpr (is_invocable_v<Handler, Index, Index>) {
             return true;
-        } else if constexpr (std::is_invocable_v<Handler, Index, Index, const YR::Parallel::Context &>) {
+        } else if constexpr (is_invocable_v<Handler, Index, Index, const YR::Parallel::Context &>) {
             return true;
         }
         return false;
@@ -101,9 +105,9 @@ public:
     static void CallBodyHandler(Index start, Index end, const Handler &handler, const Context &ctx)
     {
         //  match the argument format of Handler
-        if constexpr (std::is_invocable_v<Handler, Index, Index>) {
+        if constexpr (is_invocable_v<Handler, Index, Index>) {
             handler(start, end);
-        } else if constexpr (std::is_invocable_v<Handler, Index, Index, const YR::Parallel::Context &>) {
+        } else if constexpr (is_invocable_v<Handler, Index, Index, const YR::Parallel::Context &>) {
             handler(start, end, ctx);
         }
     }

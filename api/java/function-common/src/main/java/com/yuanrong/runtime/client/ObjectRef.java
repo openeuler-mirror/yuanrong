@@ -70,6 +70,11 @@ public class ObjectRef {
     private final String objectID;
 
     /**
+     * Decrease reference flag of ObjectRef.
+     */
+    private boolean isReleased = false;
+
+    /**
      * The constructor for ObjectRef.
      *
      * @param objectID object ID in the Yuanrong cluster.
@@ -162,8 +167,16 @@ public class ObjectRef {
 
     @Override
     protected void finalize() throws Throwable {
-        if (LibRuntime.IsInitialized()) {
+        release();
+    }
+
+    /**
+     * Release the ObjectRef, decrease reference.
+     */
+    public void release() {
+        if (!isReleased && LibRuntime.IsInitialized()) {
             LibRuntime.DecreaseReference(Collections.singletonList(this.objectID));
+            isReleased = true;
         }
     }
 }

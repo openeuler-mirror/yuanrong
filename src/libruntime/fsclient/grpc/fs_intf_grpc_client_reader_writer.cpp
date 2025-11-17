@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include <future>
 
 #include "fs_intf_grpc_client_reader_writer.h"
+#include "src/libruntime/utils/grpc_utils.h"
 #include "src/utility/string_utility.h"
 
 namespace YR::Libruntime {
@@ -62,7 +62,10 @@ bool FSIntfGrpcClientReaderWriter::GrpcRead(const std::shared_ptr<StreamingMessa
         YRLOG_WARN("client is not connected");
         return false;
     }
-    return stream_->Read(message.get());
+    if (stream_) {
+        return stream_->Read(message.get());
+    }
+    return false;
 }
 
 bool FSIntfGrpcClientReaderWriter::GrpcWrite(const std::shared_ptr<StreamingMessage> &request)
@@ -118,7 +121,7 @@ void FSIntfGrpcClientReaderWriter::ReconnectHandler()
     if (!StreamEmpty()) {
         WritesDone();
         auto status = Finish();
-        YRLOG_INFO("grpc status code: {}, msg: {}", status.error_code(), status.error_message());
+        YRLOG_INFO("grpc status code: {}, msg: {}", fmt::underlying(status.error_code()), status.error_message());
         // instance id not match
         if (status.error_code() == grpc::StatusCode::INVALID_ARGUMENT) {
             abnormal_.store(true);
@@ -182,8 +185,8 @@ ErrorInfo FSIntfGrpcClientReaderWriter::Start()
 
 ErrorInfo FSIntfGrpcClientReaderWriter::Reconnect()
 {
-    YRLOG_INFO("begin to reconnect {}, abnormal_ {}", dstInstance, abnormal_);
-    clientsMgr->ReleaseFsConn(ip, port);
+    YRLOG_INFO("begin to reconnect {}, abnormal_ {}", dstInstance, abnormal_.load());
+    clientsMgr->ReleaseFsConn(ip, port, dstInstance);
     return NewGrpcClientWithRetry(1);
 }
 
@@ -211,9 +214,10 @@ void FSIntfGrpcClientReaderWriter::Stop()
     } catch (std::exception &e) {
         YRLOG_ERROR("failed to finalize grpc stream, exception: {}", e.what());
     }
-    auto err = clientsMgr->ReleaseFsConn(ip, port);
+    auto err = clientsMgr->ReleaseFsConn(ip, port, dstInstance);
     if (!err.OK()) {
-        YRLOG_ERROR("failed to release function system conn, code:({}), message({})", err.Code(), err.Msg());
+        YRLOG_ERROR("failed to release function system conn, code:({}), message({})", fmt::underlying(err.Code()),
+                    err.Msg());
     }
     YRLOG_DEBUG("connection of {} closed, ip={}, port={}", dstInstance, ip, port);
 }
@@ -221,7 +225,7 @@ void FSIntfGrpcClientReaderWriter::Stop()
 ErrorInfo FSIntfGrpcClientReaderWriter::NewGrpcClientWithRetry(const int retryTimes)
 {
     grpc::EnableDefaultHealthCheckService(true);
-    auto [channel, error] = clientsMgr->GetFsConn(ip, port);
+    auto [channel, error] = clientsMgr->GetFsConn(ip, port, dstInstance);
     if (!error.OK()) {
         YRLOG_ERROR(
             "failed to get grpc connection from fsconns to instance({}), "
@@ -237,7 +241,7 @@ ErrorInfo FSIntfGrpcClientReaderWriter::NewGrpcClientWithRetry(const int retryTi
 ErrorInfo FSIntfGrpcClientReaderWriter::BuildStream(std::shared_ptr<grpc::Channel> channel)
 {
     stub_ = runtime_rpc::RuntimeRPC::NewStub(channel);
-    if (dstInstance == FUNCTION_PROXY) {
+    if (dstInstance == FUNCTION_PROXY || security->IsFsAuthEnable()) {
         stream_ = stub_->MessageStream(context.get());
         if (stream_ == nullptr) {
             return ErrorInfo(ErrorCode::ERR_CONNECTION_FAILED, "failed to build posix stream");
@@ -259,16 +263,37 @@ ErrorInfo FSIntfGrpcClientReaderWriter::BuildStreamWithRetry(std::shared_ptr<grp
     context = std::make_shared<::grpc::ClientContext>();
     context->AddMetadata(INSTANCE_ID_META, srcInstance);
     context->AddMetadata(RUNTIME_ID_META, runtimeID);
+    SensitiveValue token;
+    std::string ak;
+    SensitiveValue sk;
+    if (security != nullptr) {
+        security->GetToken(token);
+        security->GetAKSK(ak, sk);
+    }
+    YRLOG_INFO(
+        "start build grpc stream, src instance is {}, dst instance is {}, token is empty: {}, ak is: {}, sk is empty: "
+        "{}",
+        srcInstance, dstInstance, token.Empty(), ak, sk.Empty());
+    if (!token.Empty()) {
+        context->AddMetadata(TOKEN_META, std::string(token.GetData(), token.GetSize()));
+    }
+    if (!ak.empty() && !sk.Empty()) {
+        context->AddMetadata(TENANT_ACCESS_KEY, ak);
+        auto signature = SignStreamingMessage(ak, sk);
+        context->AddMetadata(SIGNATURE, signature);
+        auto timestamp = GetCurrentUTCTime();
+        context->AddMetadata(TIMESTAMP, timestamp);
+    }
     context->AddMetadata(SOURCE_ID_META, srcInstance);
     context->AddMetadata(DST_ID_META, dstInstance);
     ErrorInfo err;
     for (int32_t retry = 0; retry < retryTimes; ++retry) {
         if (channel == nullptr) {
-            auto ret = clientsMgr->NewFsConn(ip, port, security);
+            auto ret = clientsMgr->NewFsConn(ip, port, security, dstInstance);
             if (!ret.second.OK()) {
                 err = ret.second;
                 YRLOG_ERROR("get new fs connection err, ip is {}, port is {}, err code is {}, err msg is {}", ip, port,
-                            err.Code(), err.Msg());
+                            fmt::underlying(err.Code()), err.Msg());
                 continue;
             }
             channel = ret.first;
@@ -291,12 +316,33 @@ ErrorInfo FSIntfGrpcClientReaderWriter::BuildStreamWithRetry(std::shared_ptr<grp
         }
     }
     if (channel != nullptr) {
-        clientsMgr->ReleaseFsConn(ip, port);
+        clientsMgr->ReleaseFsConn(ip, port, dstInstance);
     }
     if (!err.OK()) {
         isConnect_.store(false);
         Reset();
     }
     return err;
+}
+
+bool FSIntfGrpcClientReaderWriter::IsHealth()
+{
+    if (stopped) {
+        YRLOG_WARN("function system client has been stopped, return false derectly");
+        return false;
+    }
+    auto res = clientsMgr->GetFsConn(ip, port, dstInstance);
+    if (!res.first) {
+        YRLOG_WARN("there is no channel of dstInstance:{}, address is {}:{}, return false directly", dstInstance, ip,
+                   port);
+        return false;
+    }
+    clientsMgr->ReleaseFsConn(ip, port, dstInstance);
+    if (res.first->GetState(false) != GRPC_CHANNEL_READY) {
+        YRLOG_WARN("channel of dstInstance:{}, address is {}:{}, cheeck health failed, return false directly",
+                   dstInstance, ip, port);
+        return false;
+    }
+    return true;
 }
 }  // namespace YR::Libruntime

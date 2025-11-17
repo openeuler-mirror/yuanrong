@@ -28,7 +28,8 @@ protected:
     std::shared_ptr<ClientsManager> clientsMgr;
     std::shared_ptr<FSIntfManager> fsIntfManager;
 
-    void SetUp() override {
+    void SetUp() override
+    {
         security = std::make_shared<Security>();
         clientsMgr = std::make_shared<ClientsManager>();
         fsIntfManager = std::make_shared<FSIntfManager>(clientsMgr);

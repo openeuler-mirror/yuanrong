@@ -31,12 +31,16 @@
 #include "yr/api/hetero_exception.h"
 #include "yr/api/hetero_manager.h"
 #include "yr/api/instance_creator.h"
-#include "yr/api/kv_manager.h"
+#include "yr/api/kv.h"
+#include "yr/api/mutable_buffer.h"
+#include "yr/api/node.h"
 #include "yr/api/object_ref.h"
 #include "yr/api/object_store.h"
 #include "yr/api/runtime_manager.h"
 #include "yr/api/serdes.h"
+#include "yr/api/stream.h"
 #include "yr/api/wait_result.h"
+#include "yr/api/yr_core.h"
 #include "yr/api/yr_invoke.h"
 
 extern thread_local std::unordered_set<std::string> localNestedObjList;
@@ -49,54 +53,8 @@ namespace YR {
 template <typename T>
 using WaitResult = std::pair<std::vector<ObjectRef<T>>, std::vector<ObjectRef<T>>>;
 
-/*!
-  @brief YuanRong Init API, Configures runtime modes and system parameters.
-  Refer to the data structure documentation for parameter specifications
-  <a href="struct-Config.html">struct-Config </a>.
-  @param conf YuanRong initialization parameter configuration. For parameter specifications, refer to
-  <a href="struct-Config.html">struct-Config </a>.
-  @return ClientInfo Refer to <a href="struct-Config.html">struct-Config </a>.
+void Run(int argc, char *argv[]);
 
-  @note When multi-tenancy is enabled on the YuanRong Cluster, users must configure a tenant ID.  For
-  details on tenant ID configuration, refer to the "About Tenant ID" section in
-  <a href="struct-Config.html">struct-Config </a>.
-
-  @throws Exception The system will throw an exception when invalid config parameters are detected, such as an invalid
-  mode type.
-
-  @snippet{trimleft} init_and_finalize_example.cpp Init localMode
-
-  @snippet{trimleft} init_and_finalize_example.cpp Init clusterMode
- */
-ClientInfo Init(const Config &conf);
-
-ClientInfo Init(const Config &conf, int argc, char **argv);
-
-ClientInfo Init(int argc, char **argv);
-
-/*!
-  @brief Finalizes the Yuanrong system
-
-  This function is responsible for releasing resources such as function instances
-  and data objects that have been created during the execution of the program.
-  It ensures that no resources are leaked, which could lead to issues in a
-  production environment.
-
-  @note - In a cluster deployment scenario, if worker processes exit and restart,
-  it might lead to process residuals. In such cases, it is recommended to
-  redeploy the cluster. Deployment scenarios like Donau or SGE can rely on
-  the resource scheduling platform's capability to recycle processes.
-
-  - This function should be called after the system has been initialized
-  with the appropriate Init function. Calling Finalize before Init will result
-  in an exception.
-
-  @throws Exception If Finalize is called before the system is initialized,
-  the exception "Please init YR first" will be thrown.
-
-  @snippet{trimleft} init_and_finalize_example.cpp Init and Finalize
- */
-void Finalize();
 
 /*!
   @brief Exit the current function instance
@@ -273,6 +231,43 @@ void SaveState(const int &timeout = DEFAULT_SAVE_LOAD_STATE_TIMEOUT);
  */
 void LoadState(const int &timeout = DEFAULT_SAVE_LOAD_STATE_TIMEOUT);
 
+/**
+ * @brief Creates a producer.
+ * @param streamName The name of the stream.
+ * @param producerConf Configuration information for the producer.
+ * @return A pointer to the created producer.
+ * @throws Exception **4006**: not support local mode.
+ *
+ * @snippet{trimleft} stream_example.cpp create producer
+ */
+std::shared_ptr<Producer> CreateProducer(const std::string &streamName, ProducerConf producerConf = {});
+
+/**
+ * @brief Create a consumer.
+ * @param streamName The name of the stream. Must be less than 256 characters and contain only the following characters:
+ * (a-zA-Z0-9\~\.\-\/_!@#%\^\&\*\(\)\+\=\:;).
+ * @param config Configuration information for the consumer.
+ * @param autoAck If `autoAck` is true, the consumer will automatically send an Acknowledgment (Ack) for received
+ * messages to the data system. Default value: false.
+ * @return A pointer to the created consumer.
+ * @throws Exception **4006**: not support local mode.
+ *
+ * @snippet{trimleft} stream_example.cpp create consumer
+ */
+std::shared_ptr<Consumer> Subscribe(const std::string &streamName, const SubscriptionConfig &config,
+                                    bool autoAck = false);
+
+/**
+ * @brief Deletes a stream. When the global count of producers and consumers for the stream reaches zero, this stream is
+ * no longer in use, and all related metadata on workers and master nodes will be cleaned up. This function can be
+ * called on any Host node.
+ * @param streamName The name of the stream. Must be less than 256 characters and contain only the following characters:
+ * (a-zA-Z0-9\~\.\-\/_!@#%\^\&\*\(\)\+\=\:;).
+ * @throws Exception **4006**: not support local mode.
+ *
+ * @snippet{trimleft} stream_example.cpp delete stream
+ */
+void DeleteStream(const std::string &streamName);
 
 /*!
  @brief Create an InstanceCreator for constructing an instance of a class.
@@ -572,16 +567,6 @@ FunctionHandler<JavaFunctionHandler<R>> JavaFunction(const std::string &classNam
     return FunctionHandler<JavaFunctionHandler<R>>(funcMeta, JavaFunctionHandler<R>());
 }
 
-/**
- * @brief Interface for key-value storage.
- * @return the kv manager
- */
-inline KVManager &KV()
-{
-    CheckInitialized();
-    return KVManager::Singleton();
-}
-
 /*!
  @brief Put an object to datasystem
 
@@ -600,9 +585,14 @@ ObjectRef<T> Put(const T &val)
     if (YR::internal::IsLocalMode()) {
         return YR::internal::GetLocalModeRuntime()->Put(val);
     }
+    std::string objId;
     localNestedObjList.clear();
-    std::shared_ptr<msgpack::sbuffer> data = std::make_shared<msgpack::sbuffer>(YR::internal::Serialize(val));
-    std::string objId = YR::internal::GetRuntime()->Put(data, localNestedObjList);
+    if constexpr (boost::is_same<T, Buffer>::value) {
+        objId = YR::internal::GetRuntime()->Put(std::make_shared<Buffer>(val), localNestedObjList);
+    } else {
+        std::shared_ptr<msgpack::sbuffer> data = std::make_shared<msgpack::sbuffer>(YR::internal::Serialize(val));
+        objId = YR::internal::GetRuntime()->Put(data, localNestedObjList);
+    }
     localNestedObjList.clear();
     return ObjectRef<T>(objId, false);
 }
@@ -626,38 +616,26 @@ ObjectRef<T> Put(const T &val, const CreateParam &createParam)
     if (YR::internal::IsLocalMode()) {
         return YR::internal::GetLocalModeRuntime()->Put(val);
     }
+    std::string objId;
     localNestedObjList.clear();
-    std::shared_ptr<msgpack::sbuffer> data = std::make_shared<msgpack::sbuffer>(YR::internal::Serialize(val));
-    std::string objId = YR::internal::GetRuntime()->Put(data, localNestedObjList, createParam);
+    if constexpr (boost::is_same<T, Buffer>::value) {
+        objId = YR::internal::GetRuntime()->Put(std::make_shared<Buffer>(val), localNestedObjList, createParam);
+    } else {
+        std::shared_ptr<msgpack::sbuffer> data = std::make_shared<msgpack::sbuffer>(YR::internal::Serialize(val));
+        objId = YR::internal::GetRuntime()->Put(data, localNestedObjList, createParam);
+    }
     localNestedObjList.clear();
     return ObjectRef<T>(objId, false);
 }
 
 template <typename T>
-std::shared_ptr<T> Get(const ObjectRef<T> &obj, int timeoutSec)
+std::vector<std::shared_ptr<T>> Get(const std::vector<std::string> &objIds, int timeoutSec, bool allowPartial)
 {
-    CheckInitialized();
-    if (obj.IsLocal()) {
-        return internal::GetLocalModeRuntime()->Get(obj, timeoutSec);
-    }
-    auto result = Get(std::vector<ObjectRef<T>>{obj}, timeoutSec, false);
-    if (!result.empty()) {
-        return result[0];
-    }
-    return nullptr;
-}
-
-template <typename T>
-std::vector<std::shared_ptr<T>> Get(const std::vector<ObjectRef<T>> &objs, int timeoutSec, bool allowPartial)
-{
-    internal::CheckObjsAndTimeout(objs, timeoutSec);
-    if (objs[0].IsLocal()) {
-        return YR::internal::GetLocalModeRuntime()->Get(objs, timeoutSec, allowPartial);
-    }
+    internal::CheckTimeout(timeoutSec);
     std::vector<std::string> remainIds;
     std::unordered_map<std::string, std::list<size_t>> idToIndex;
-    for (size_t i = 0; i < objs.size(); i++) {
-        remainIds.push_back(objs[i].ID());
+    for (size_t i = 0; i < objIds.size(); i++) {
+        remainIds.push_back(objIds[i]);
         idToIndex[remainIds[i]].push_back(i);
     }
     std::vector<std::shared_ptr<T>> returnObjects;
@@ -677,7 +655,9 @@ std::vector<std::shared_ptr<T>> Get(const std::vector<ObjectRef<T>> &objs, int t
         int to = (remainTimeoutMs == NO_TIMEOUT) ? (DEFAULT_TIMEOUT_MS)
                                                  : (remainTimeoutMs - static_cast<int>(getElapsedTime()));
         to = to < 0 ? 0 : to;
-        auto [retryInfo, remainBuffers] = YR::internal::GetRuntime()->Get(remainIds, to, limitedRetryTime);
+        auto ret = YR::internal::GetRuntime()->Get(remainIds, to, limitedRetryTime);
+        auto retryInfo = ret.first;
+        auto remainBuffers = ret.second;
         auto needRetry = retryInfo.needRetry;
         err = retryInfo.errorInfo;
         internal::ExtractSuccessObjects(remainIds, remainBuffers, returnObjects, idToIndex);
@@ -686,24 +666,52 @@ std::vector<std::shared_ptr<T>> Get(const std::vector<ObjectRef<T>> &objs, int t
             break;
         }
         if (!needRetry) {
-            status = remainIds.size() == objs.size() ? internal::GetStatus::ALL_FAILED
+            status = remainIds.size() == objIds.size() ? internal::GetStatus::ALL_FAILED
                                                      : internal::GetStatus::PARTIAL_SUCCESS;
             break;
         }
         if ((remainTimeoutMs != NO_TIMEOUT && getElapsedTime() > remainTimeoutMs) || (remainTimeoutMs == 0)) {
-            status = remainIds.size() == objs.size() ? internal::GetStatus::ALL_FAILED_AND_TIMEOUT
+            status = remainIds.size() == objIds.size() ? internal::GetStatus::ALL_FAILED_AND_TIMEOUT
                                                      : internal::GetStatus::PARTIAL_SUCCESS_AND_TIMEOUT;
             break;
         }
         std::this_thread::sleep_for(std::chrono::seconds(GET_RETRY_INTERVAL));
         if ((remainTimeoutMs != NO_TIMEOUT && getElapsedTime() > remainTimeoutMs)) {
-            status = remainIds.size() == objs.size() ? internal::GetStatus::ALL_FAILED_AND_TIMEOUT
+            status = remainIds.size() == objIds.size() ? internal::GetStatus::ALL_FAILED_AND_TIMEOUT
                                                      : internal::GetStatus::PARTIAL_SUCCESS_AND_TIMEOUT;
             break;
         }
     }
     ThrowExceptionBasedOnStatus(status, err, remainIds, timeoutMs, allowPartial);
     return returnObjects;
+}
+
+template <typename T>
+std::shared_ptr<T> Get(const ObjectRef<T> &obj, int timeoutSec)
+{
+    CheckInitialized();
+    if (obj.IsLocal()) {
+        return internal::GetLocalModeRuntime()->Get(obj, timeoutSec);
+    }
+    auto result = Get<T>(std::vector<std::string>{obj.ID()}, timeoutSec, false);
+    if (!result.empty()) {
+        return result[0];
+    }
+    return nullptr;
+}
+
+template <typename T>
+std::vector<std::shared_ptr<T>> Get(const std::vector<ObjectRef<T>> &objs, int timeoutSec, bool allowPartial)
+{
+    internal::CheckObjs(objs);
+    if (objs[0].IsLocal()) {
+        return YR::internal::GetLocalModeRuntime()->Get(objs, timeoutSec, allowPartial);
+    }
+    std::vector<std::string> objIds;
+    for (auto obj: objs) {
+        objIds.push_back(obj.ID());
+    }
+    return Get<T>(objIds, timeoutSec, allowPartial);
 }
 
 template <typename T>
@@ -837,8 +845,24 @@ NamedInstance<F> GetInstance(const std::string &name, const std::string &nameSpa
     handler.SetAlwaysLocalMode(false);
     handler.SetClassName(funcMeta.className);
     handler.SetFunctionUrn(funcMeta.funcUrn);
-    handler.SetName(funcMeta.name.value_or(""));
-    handler.SetNs(funcMeta.ns.value_or(""));
+    handler.SetName(funcMeta.name);
+    handler.SetNs(funcMeta.ns);
     return handler;
 }
+
+/**
+ * @brief Get node information in the cluster.
+ * @return std::vector<Node>: node information, include id, alive, resources and labels.
+ * @throws Exception if Yuanrong is not initialized or failed to get node information.
+ */
+std::vector<Node> Nodes();
+
+std::shared_ptr<MutableBuffer> CreateBuffer(uint64_t size);
+
+std::vector<std::shared_ptr<MutableBuffer>> Get(const std::vector<ObjectRef<MutableBuffer>> &objs,
+                                                int timeoutSec = DEFAULT_GET_TIMEOUT_SEC);
+
+std::string Serialize(ObjectRef<MutableBuffer> &obj);
+
+ObjectRef<MutableBuffer> Deserialize(const void *value, int size);
 }  // namespace YR

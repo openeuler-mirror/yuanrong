@@ -78,6 +78,8 @@ public:
 
     int maxTaskInstanceNum;
 
+    std::string autoFunctionName;
+
     std::string functionId;
 
     std::string functionIdPython;
@@ -96,19 +98,33 @@ public:
 
     std::string verifyFilePath = "";
 
+    char privateKeyPaaswd[MAX_PASSWD_LENGTH] = {0};
+
+    std::string encryptPrivateKeyPasswd;
+
     bool enableDsAuth = false;
 
     bool enableDsEncrypt = false;
 
-    std::string dsPublicKeyContextPath = "";
+    std::string dsPublicKeyContext = "";
 
-    std::string runtimePublicKeyContextPath = "";
+    std::string encryptDsPublicKeyContext;
 
-    std::string runtimePrivateKeyContextPath = "";
+    std::string runtimePublicKeyContext = "";
+
+    std::string encryptRuntimePublicKeyContext;
+
+    std::string runtimePrivateKeyContext = "";
+
+    std::string encryptRuntimePrivateKeyContext;
 
     std::string primaryKeyStoreFile;
 
     std::string standbyKeyStoreFile;
+
+    std::shared_ptr<void> tlsContext;
+
+    uint32_t httpIocThreadsNum;
 
     std::string serverName = "";
 
@@ -127,5 +143,7 @@ public:
     bool logToDriver = false;
 
     bool dedupLogs = true;
+
+    bool launchUserBinary = false;
 };
 }  // namespace YR

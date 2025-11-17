@@ -50,13 +50,11 @@ public:
                 std::size_t bytesTransferred);
     void OnWrite(const std::shared_ptr<std::string> requestId, beast::error_code &ec, std::size_t bytesTransferred);
 
-    ErrorInfo ReInit() override;
-
-    void Cancel() override;
-
     void Stop() override;
+
+    void GracefulExit() noexcept override;
+
 private:
-    void GracefulExit() noexcept;
     asio::ip::tcp::resolver resolver_;
     beast::tcp_stream stream_;
 };

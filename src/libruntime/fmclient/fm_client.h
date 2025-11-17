@@ -37,7 +37,8 @@ using QueryResourceGroupRequest = ::messages::QueryResourceGroupRequest;
 using QueryResourceGroupResponse = ::messages::QueryResourceGroupResponse;
 using ResourceGroupInfo = ::messages::ResourceGroupInfo;
 using SubscribeActiveMasterCb = std::function<void()>;
-
+ErrorInfo CheckResponseCode(const boost::beast::error_code &errorCode, const uint statusCode, const std::string &result,
+                            const std::string &requestId);
 const std::string GLOBAL_SCHEDULER_QUERY_RESOURCES = "/global-scheduler/resources";
 const std::string INSTANCE_MANAGER_QUERY_NAMED_INSTANCES = "/instance-manager/named-ins";
 const std::string GLOBAL_QUERY_RESOURCE_GROUP_TABLE = "/resource-group/rgroup";
@@ -46,12 +47,14 @@ class FMClient {
 public:
     FMClient() : ioc_(std::make_shared<boost::asio::io_context>())
     {
-        work_ = std::make_unique<asio::io_context::work>(*ioc_);
+        work_ = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(*ioc_));
     }
     FMClient(const std::shared_ptr<LibruntimeConfig> config)
         : libConfig_(config), ioc_(std::make_shared<boost::asio::io_context>())
     {
-        work_ = std::make_unique<asio::io_context::work>(*ioc_);
+        work_ = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(*ioc_));
         enableMTLS_ = config->enableMTLS;
     }
     ~FMClient()
@@ -72,9 +75,6 @@ public:
     void RemoveActiveMaster();
 
 private:
-    std::shared_ptr<HttpClient> GetCurrentHttpClient();
-    std::shared_ptr<HttpClient> GetNextHttpClient();
-    void InitHttpClientIfNeeded(void);
     std::shared_ptr<HttpClient> InitCtxAndHttpClient(void);
     void MockResp();
 
@@ -83,8 +83,8 @@ private:
     std::string currentMaster_;
     std::shared_ptr<asio::io_context> ioc_;
     std::unique_ptr<std::thread> iocThread_;
-    std::unique_ptr<asio::io_context::work> work_;
-    bool enableMTLS_;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
+    bool enableMTLS_{false};
     std::mutex activeMasterMu_;
     std::condition_variable condVar_;
     std::string activeMasterAddr_;

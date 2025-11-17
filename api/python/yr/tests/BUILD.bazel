@@ -75,6 +75,16 @@ py_test(
 )
 
 py_test(
+  name = "test_generator",
+  size = "small",
+  srcs = ["test_generator.py"],
+  tags = ["smoke"],
+  imports = ["../../"],
+  deps = ["//api/python:yr_lib"],
+  env = SAN_ENV,
+)
+
+py_test(
   name = "test_instance_manager",
   size = "small",
   srcs = ["test_instance_manager.py"],
@@ -84,6 +94,15 @@ py_test(
   env = SAN_ENV,
 )
 
+py_test(
+  name = "test_faas_handler",
+  size = "small",
+  srcs = ["test_faas_handler.py"],
+  tags = ["smoke"],
+  imports = ["../../"],
+  deps = ["//api/python:yr_lib"],
+  env = SAN_ENV,
+)
 py_test(
   name = "test_function_handler",
   size = "small",

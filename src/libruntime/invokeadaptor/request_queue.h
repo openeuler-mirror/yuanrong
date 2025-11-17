@@ -28,6 +28,7 @@ namespace Libruntime {
 
 class BaseQueue {
 public:
+    virtual ~BaseQueue() = default;
     virtual void Pop() = 0;
     virtual std::shared_ptr<InvokeSpec> Top() = 0;
     virtual void Push(std::shared_ptr<InvokeSpec> spec) = 0;
@@ -54,6 +55,19 @@ public:
 
 private:
     std::priority_queue<std::shared_ptr<InvokeSpec>, std::vector<std::shared_ptr<InvokeSpec>>, Cmp> queue;
+    mutable absl::Mutex mutex;
+};
+
+class Queue : public BaseQueue {
+public:
+    void Pop() override;
+    std::shared_ptr<InvokeSpec> Top() override;
+    void Push(std::shared_ptr<InvokeSpec> spec) override;
+    size_t Size() const override;
+    bool Empty() const override;
+
+private:
+    std::queue<std::shared_ptr<InvokeSpec>> queue;
     mutable absl::Mutex mutex;
 };
 

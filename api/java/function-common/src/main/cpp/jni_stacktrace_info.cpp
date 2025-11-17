@@ -60,23 +60,33 @@ jobject JNIStackTraceInfo::FromCc(JNIEnv *env, const YR::Libruntime::StackTraceI
         return nullptr;
     }
 
-    return (jobject)env->NewObject(clz_, init_, jtype, jmessage, jstackTraceElements, jlanguage);
+    jobject jstackTraceInfo = (jobject)env->NewObject(clz_, init_, jtype, jmessage, jstackTraceElements, jlanguage);
+
+    env->DeleteLocalRef(jtype);
+    env->DeleteLocalRef(jmessage);
+    env->DeleteLocalRef(jlanguage);
+    env->DeleteLocalRef(jstackTraceElements);
+    return jstackTraceInfo;
 }
 
 YR::Libruntime::StackTraceInfo JNIStackTraceInfo::FromJava(JNIEnv *env, jobject o)
 {
     jstring jtype = static_cast<jstring>(env->CallObjectMethod(o, getType_));
     std::string ctype = JNIString::FromJava(env, jtype);
+    env->DeleteLocalRef(jtype);
 
     jstring jmessage = static_cast<jstring>(env->CallObjectMethod(o, getMessage_));
     std::string cmessage = JNIString::FromJava(env, jmessage);
+    env->DeleteLocalRef(jmessage);
 
     jstring jlanguage = static_cast<jstring>(env->CallObjectMethod(o, getLanguage_));
     std::string clanguage = JNIString::FromJava(env, jlanguage);
+    env->DeleteLocalRef(jlanguage);
 
     jobject objList = env->CallObjectMethod(o, getStackTraceElements_);
     std::vector<YR::Libruntime::StackTraceElement> stackTraceElements =
         JNIStackTraceElement::ListFromJava(env, objList);
+    env->DeleteLocalRef(objList);
     YR::Libruntime::StackTraceInfo stackTraceInfo(ctype, cmessage, stackTraceElements, clanguage);
     return stackTraceInfo;
 }

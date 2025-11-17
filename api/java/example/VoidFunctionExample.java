@@ -26,7 +26,7 @@ import com.yuanrong.call.VoidInstanceFunctionHandler;
 public class VoidFunctionExample {
     public static void main(String[] args) throws Exception {
         //! [VoidFunctionHandler options 样例代码]
-        Config conf = new Config("FunctionURN", "ip", "ip", "");
+        Config conf = new Config("FunctionURN", "ip", "ip", "", false);
         YR.init(conf);
 
         InvokeOptions invokeOptions = new InvokeOptions();
@@ -38,7 +38,7 @@ public class VoidFunctionExample {
         //! [VoidFunctionHandler options 样例代码]
 
         //! [VoidInstanceFunctionHandler options 样例代码]
-        Config conf = new Config("FunctionURN", "ip", "ip", "");
+        Config conf = new Config("FunctionURN", "ip", "ip", "", false);
         YR.init(conf);
 
         InvokeOptions invokeOptions = new InvokeOptions();

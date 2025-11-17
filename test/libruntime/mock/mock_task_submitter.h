@@ -23,6 +23,14 @@ namespace test {
 class MockTaskSubmitter : public YR::Libruntime::TaskSubmitter {
 public:
     MOCK_METHOD0(Init, void(void));
+    MOCK_METHOD2(AcquireInstance, std::pair<InstanceAllocation, ErrorInfo>(const std::string &stateId,
+                                                                           std::shared_ptr<InvokeSpec> spec));
+    MOCK_METHOD4(ReleaseInstance, ErrorInfo(const std::string &leaseId, const std::string &stateId, bool abnormal,
+                                            std::shared_ptr<InvokeSpec> spec));
+    MOCK_METHOD3(UpdateSchdulerInfo,
+                 void(const std::string &scheduleName, const std::string &schedulerId, const std::string &option));
+    MOCK_METHOD2(UpdateFaaSSchedulerInfo, void(std::string schedulerFuncKey,
+                                 const std::vector<SchedulerInstance> &schedulerInstanceList));
 };
 
 }  // namespace test

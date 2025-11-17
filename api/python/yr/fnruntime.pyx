@@ -48,26 +48,30 @@ from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.device import DataType, DeviceBufferParam, DataInfo
 from yr.runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType, SetParam, MSetParam, CreateParam,
                         GetParam, GetParams, AlarmInfo, AlarmSeverity)
+from yr import runtime_env
 from yr.exception import YRInvokeError
+from yr.stream import (Element, ProducerConfig, SubscriptionConfig,
+                       SubscriptionType)
 from yr.accelerate.shm_broadcast import Handle, MessageQueue, decode, ResponseStatus
 from yr.accelerate.executor import ACCELERATE_WORKER, Worker
 from cpython cimport PyBytes_FromStringAndSize
 from libc.stdint cimport uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport make_shared, nullptr, shared_ptr, dynamic_pointer_cast
-from libcpp.optional cimport make_optional
 from libcpp.pair cimport pair
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.unordered_set cimport unordered_set
 from libcpp.vector cimport vector
 
-from yr.includes.libruntime cimport (CApiType, CSignal, CBuffer, CDataObject,
-CErrorCode, CErrorInfo, CFunctionMeta,
-CInternalWaitResult, CInvokeArg,
+from yr.includes.libruntime cimport (CApiType, CSignal, CBuffer, CDataObject, CElement,
+CErrorCode, CErrorInfo, CFunctionMeta, CInternalWaitResult, CInvokeArg,
 CInvokeOptions, CInvokeType, CModuleCode,
 CLanguageType, CLibruntimeConfig,
 CLibruntimeManager,move,
+CProducerConf, CStreamConsumer,
+CStreamProducer, CSubscriptionConfig,
+CSubscriptionType, move,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
 CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
@@ -148,8 +152,12 @@ cdef check_error_info(CErrorInfo c_error_info, mesg: str):
 
 cdef api_type_from_cpp(const CApiType & c_api_type):
     api_type = ApiType.Function
-    if c_api_type == CApiType.POSIX:
+    if c_api_type == CApiType.FAAS:
+        api_type = ApiType.Faas
+    elif c_api_type == CApiType.POSIX:
         api_type = ApiType.Posix
+    elif c_api_type == CApiType.SERVE:
+        api_type = ApiType.Serve
     return api_type
 
 cdef language_type_from_cpp(const CLanguageType & c_language_type):
@@ -389,8 +397,8 @@ cdef function_meta_from_py(CFunctionMeta & functionMeta, func_meta: FunctionMeta
     functionMeta.codeId = func_meta.codeID
     functionMeta.signature = func_meta.signature
     functionMeta.apiType = func_meta.apiType
-    functionMeta.name = make_optional[string](name)
-    functionMeta.ns = make_optional[string](ns)
+    functionMeta.name = name
+    functionMeta.ns = ns
     functionMeta.functionId = func_meta.functionID
     functionMeta.initializerCodeId = func_meta.initializerCodeID
     functionMeta.isGenerator = func_meta.isGenerator
@@ -408,8 +416,8 @@ cdef function_meta_from_cpp(const CFunctionMeta & function):
                              codeID=function.codeId.decode(),
                              apiType=api_type_from_cpp(function.apiType),
                              signature=function.signature.decode(),
-                             name=function.name.value_or(emptyString).decode(),
-                             ns=function.ns.value_or(emptyString).decode(),
+                             name=function.name.decode(),
+                             ns=function.ns.decode(),
                              initializerCodeID=function.initializerCodeId.decode(),
                              isGenerator=function.isGenerator,
                              isAsync=function.isAsync)
@@ -570,6 +578,12 @@ cdef shared_ptr[CBuffer] get_cbuffer(buf: Buffer):
 cdef CErrorInfo memory_copy(const shared_ptr[CBuffer] c_buffer, const char * data, uint64_t size) noexcept nogil:
     return c_buffer.get().MemoryCopy(<const void *> data, size)
 
+cdef void memory_copy_string(char[] privateKeyPaaswd, const char * data, uint64_t size) noexcept nogil:
+    if (0 < size < 100):
+        for i in range(size):
+            privateKeyPaaswd[i] = data[i]
+    privateKeyPaaswd[size] = 0
+
 cdef CErrorInfo write_str2buffer(const shared_ptr[CBuffer] c_buffer, const char * serialized_object,
                                  unordered_set[string] nest_ids_set) except*:
     cdef:
@@ -630,6 +644,21 @@ cdef CErrorInfo write2DataObject(const shared_ptr[CDataObject] c_dataObj, Serial
         c_buffer = c_dataObj.get().buffer
     return write2buffer(c_buffer, serialized_object, nest_ids_set)
 
+
+def execute_streaming_generator_sync(generator_id, gen):
+    index = 0
+    try:
+        for output in gen:
+            notify_generator_result(generator_id, index, output, ErrorInfo())
+            index = index + 1
+    except Exception as e:
+        err = ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME,
+                                     f"failed to execute user function, err: {str(e)}")
+        notify_generator_result(generator_id, index, None, err)
+        return
+    notify_generator_finished(generator_id, index)
+
+
 cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functionMeta, const CInvokeType invokeType,
                                                    const vector[shared_ptr[CDataObject]] & rawArgs,
                                                    vector[shared_ptr[CDataObject]] & returnObjects) except*:
@@ -650,7 +679,7 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
     args = [Buffer.make(rawArgs.at(i).get().buffer) for i in range(rawArgs.size())]
     invoke_type = invoke_type_from_cpp(invokeType)
     return_nums = returnObjects.size()
-    if (invokeType == CInvokeType.CREATE_INSTANCE and func_meta.isAsync):
+    if ((invokeType == CInvokeType.CREATE_INSTANCE and func_meta.isAsync) or func_meta.apiType == ApiType.Serve):
         _logger.debug("start initlize _eventloop_for_default_cg")
         global _actor_is_async
         _actor_is_async = True
@@ -666,11 +695,14 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
     error_info = ErrorInfo()
     cdef:
         CFiberEvent event
-    is_async_execute = invokeType in (CInvokeType.INVOKE_MEMBER_FUNCTION, CInvokeType.CREATE_INSTANCE)
+    is_async_execute = invokeType in (CInvokeType.INVOKE_MEMBER_FUNCTION, CInvokeType.CREATE_INSTANCE) or func_meta.apiType == ApiType.Serve
     if is_async_execute and _eventloop_for_default_cg is not None:
         async def function_executor():
             try:
-                result_list, error_info = Executor(func_meta, args, invoke_type, return_nums, _serialization_ctx, True).execute()
+                if func_meta.apiType == ApiType.Serve:
+                    result_list, error_info = await Executor(func_meta, args, invoke_type, return_nums, _serialization_ctx, True).execute_serve()
+                else:
+                    result_list, error_info = Executor(func_meta, args, invoke_type, return_nums, _serialization_ctx, True).execute()
                 real_result_list = []
                 for index, value in enumerate(result_list):
                     if asyncio.iscoroutine(value):
@@ -717,6 +749,37 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
     if func_meta.apiType == ApiType.Function and \
             invoke_type in (InvokeType.InvokeFunction, InvokeType.InvokeFunctionStateless, InvokeType.GetNamedInstanceMeta):
         need_serialize = True
+    if func_meta.isGenerator and invoke_type in (InvokeType.InvokeFunction, InvokeType.InvokeFunctionStateless):
+        generator_id = returnObjects.at(0).get().id.decode()
+        if len(generator_id) == 0:
+            return CErrorInfo(CErrorCode.ERR_INNER_SYSTEM_ERROR, CModuleCode.RUNTIME, "generator_id should not be empty".encode())
+        is_async_gen = inspect.isasyncgen(result_list[0])
+        is_sync_gen = inspect.isgenerator(result_list[0])
+        if (not is_async_gen and not is_sync_gen):
+            print("should return a geneator, but get ", type(result_list))
+            return CErrorInfo(CErrorCode.ERR_USER_FUNCTION_EXCEPTION, CModuleCode.RUNTIME, "should return a generator".encode())
+        if is_sync_gen:
+            execute_streaming_generator_sync(generator_id, result_list[0])
+        else:
+            async def async_generator():
+                gen = result_list[0]
+                index = 0
+                try:
+                    async for output in gen:
+                        notify_generator_result(generator_id, index, output, ErrorInfo())
+                        index = index + 1
+                    notify_generator_finished(generator_id, index)
+                except Exception as e:
+                    err = ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME,
+                                     f"failed to execute user function, err: {str(e)}")
+                    notify_generator_result(generator_id, index, None, err)
+                finally:
+                    genevent.Notify()
+            future = asyncio.run_coroutine_threadsafe(async_generator(), _eventloop_for_default_cg)
+            with nogil:
+                (CLibruntimeManager.Instance().GetLibRuntime().get().WaitEvent(genevent))
+            future.result()
+        return CErrorInfo(CErrorCode.ERR_OK, CModuleCode.RUNTIME, "".encode())
 
     for i in range(return_nums):
         c_index = i
@@ -730,20 +793,21 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
             for nested_ref in serialized_object.nested_refs:
                 nested_ids.push_back(nested_ref.id)
                 nested_ids_set.insert(nested_ref.id)
-            with nogil:
-                CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
-                ret = CLibruntimeManager.Instance().GetLibRuntime().get().Wait(nested_ids, nested_len, no_timeout)
-            exception_ids = []
-            exception_id = ret.get().exceptionIds.begin()
-            while exception_id != ret.get().exceptionIds.end():
-                exception_ids.append(
-                    f"{dereference(exception_id).first.decode()} "
-                    f"code: {dereference(exception_id).second.Code()}, "
-                    f"module code: {dereference(exception_id).second.MCode()} "
-                    f"message: {dereference(exception_id).second.Msg().decode()}")
-                postincrement(exception_id)
-            if len(exception_ids) != 0:
-                return CErrorInfo(CErrorCode.ERR_USER_FUNCTION_EXCEPTION, CModuleCode.RUNTIME, " ".join(exception_ids))
+            if nested_len != 0:
+                with nogil:
+                    ret = CLibruntimeManager.Instance().GetLibRuntime().get().Wait(nested_ids, nested_len, no_timeout)
+
+                exception_ids = []
+                exception_id = ret.get().exceptionIds.begin()
+                while exception_id != ret.get().exceptionIds.end():
+                    exception_ids.append(
+                        f"{dereference(exception_id).first.decode()} "
+                        f"code: {dereference(exception_id).second.Code()}, "
+                        f"module code: {dereference(exception_id).second.MCode()} "
+                        f"message: {dereference(exception_id).second.Msg().decode()}")
+                    postincrement(exception_id)
+                if len(exception_ids) != 0:
+                    return CErrorInfo(CErrorCode.ERR_USER_FUNCTION_EXCEPTION, CModuleCode.RUNTIME, " ".join(exception_ids))
         else:
             serialized_object = result_list[i]
             if serialized_object:
@@ -849,95 +913,15 @@ def get_conda_bin_executable(executable_name: str) -> str:
             "please configure YR_CONDA_HOME environment variable which contain a bin subdirectory"
         )
 
-
-cdef parse_runtime_env(CInvokeOptions & opts, opt: yr.InvokeOptions):
-    if opt.runtime_env is None:
-        return
-    if not isinstance(opt.runtime_env, dict):
-        raise TypeError("`InvokeOptions.runtime_env` must be a dict, got " f"{type(opt.runtime_env)}.")
-    runtime_env = opt.runtime_env
-    create_opt = {}
-    if runtime_env.get("conda") and runtime_env.get("pip"):
-        raise ValueError(
-            "The 'pip' field and 'conda' field of "
-            "runtime_env cannot both be specified.\n"
-            f"specified pip field: {runtime_env['pip']}\n"
-            f"specified conda field: {runtime_env['conda']}\n"
-            "To use pip with conda, please only set the 'conda' "
-            "field, and specify your pip dependencies "
-            "within the conda YAML config dict."
-        )
-    if "pip" in runtime_env:
-        pip_command = "pip3 install " + " ".join(runtime_env.get("pip"))
-        create_opt["POST_START_EXEC"] = pip_command
-    if "working_dir" in runtime_env:
-        working_dir = runtime_env.get("working_dir")
-        if not isinstance(working_dir, str):
-            raise TypeError("`working_dir` must be a string, got " f"{type(working_dir)}.")
-        opts.workingDir = working_dir
-    if "env_vars" in runtime_env:
-        env_vars = runtime_env.get("env_vars")
-        if not isinstance(env_vars, dict):
-            raise TypeError(
-                "runtime_env.get('env_vars') must be of type "
-                f"Dict[str, str], got {type(env_vars)}"
-            )
-        for key, val in env_vars.items():
-            if not isinstance(key, str):
-                raise TypeError(
-                    "runtime_env.get('env_vars') must be of type "
-                    f"Dict[str, str], but the key {key} is of type {type(key)}"
-                )
-            if not isinstance(val, str):
-                raise TypeError(
-                    "runtime_env.get('env_vars') must be of type "
-                    f"Dict[str, str], but the value {val} is of type {type(val)}"
-                )
-            if not opt.env_vars.get(key):
-                opts.envVars.insert(pair[string, string](key, val))
-    if "conda" in runtime_env:
-        create_opt["CONDA_PREFIX"] = get_conda_bin_executable("conda")
-        conda_config = runtime_env.get("conda")
-        if isinstance(conda_config, str):
-            yaml_file = Path(conda_config)
-            if yaml_file.suffix in (".yaml", ".yml"):
-                if not yaml_file.is_file():
-                    raise ValueError(f"Can't find conda YAML file {yaml_file}.")
-                try:
-                    import yaml
-                    result = yaml.safe_load(yaml_file.read_text())
-                    name =  result.get("name", str(uuid.uuid4()))
-                    json_str = json.dumps(result)
-                    create_opt["CONDA_CONFIG"] = json_str
-                    conda_command = f"conda env create -f env.yaml"
-                    create_opt["CONDA_COMMAND"] = conda_command
-                    create_opt["CONDA_DEFAULT_ENV"] = name
-                except Exception as e:
-                    raise ValueError(f"Failed to read conda file {yaml_file}: {e}.")
-            else:
-                conda_command = f"conda activate {conda_config}"
-                create_opt["CONDA_COMMAND"] = conda_command
-                create_opt["CONDA_DEFAULT_ENV"] = conda_config
-        if isinstance(conda_config, dict):
-            try:
-                json_str = json.dumps(conda_config)
-                name =  conda_config.get("name", str(uuid.uuid4()))
-                create_opt["CONDA_CONFIG"] = json_str
-                conda_command = f"conda env create -f env.yaml"
-                create_opt["CONDA_COMMAND"] = conda_command
-                create_opt["CONDA_DEFAULT_ENV"] = name
-            except Exception as e:
-                raise ValueError(f"Failed to load conda: {e}.")
-        if not isinstance(conda_config, dict) and not isinstance(conda_config, str):
-            raise TypeError("runtime_env.get('conda') must be of type dict or str")
-    for key, value in create_opt.items():
-        opts.createOptions.insert(pair[string, string](key, value))
-
 cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info: GroupInfo = None):
     cdef:
         string concurrency_key = "Concurrency".encode()
         shared_ptr[CAffinity] c_affinity
-    parse_runtime_env(opts, opt)
+    create_opt = runtime_env.parse_runtime_env(opt)
+    if runtime_env.WORKING_DIR_KEY in create_opt:
+        opts.workingDir = create_opt.pop(runtime_env.WORKING_DIR_KEY)
+    for key, value in create_opt.items():
+        opts.createOptions.insert(pair[string, string](key, value))
     opts.cpu = opt.cpu
     opts.memory = opt.memory
     opts.customExtensions.insert(pair[string, string](concurrency_key, str(opt.concurrency)))
@@ -949,12 +933,17 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
         opts.podLabels.insert(pair[string, string](key, value))
     for arg in opt.labels:
         opts.labels.push_back(arg)
+    for key, value in opt.affinity.items():
+        opts.affinity.insert(pair[string, string](key, value))
     for key, value in opt.alias_params.items():
         opts.aliasParams.insert(pair[string, string](key, value))
     opts.retryTimes = opt.retry_times
+    opts.device = CDevice()
+    opts.device.name = opt.device.name
     opts.maxInvokeLatency = opt.max_invoke_latency
     opts.minInstances = opt.min_instances
     opts.maxInstances = opt.max_instances
+    opts.isDataAffinity = opt.is_data_affinity
     opts.resourceGroupOpts = resource_group_options_from_py(opt.resource_group_options)
     if group_info is not None:
         opts.functionGroupOpts = function_group_options_from_py(opt.function_group_options, group_info.group_size)
@@ -970,6 +959,98 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     opts.traceId = opt.trace_id
     for key, value in opt.env_vars.items():
         opts.envVars.insert(pair[string, string](key, value))
+    opts.preemptedAllowed = opt.preempted_allowed
+    opts.instancePriority = opt.instance_priority
+    opts.scheduleTimeoutMs = opt.schedule_timeout_ms
+
+cdef class Producer:
+    """
+    Producer interface class.
+
+    Examples:
+        >>> try:
+        ...     producer_config = ProducerConfig(
+        ...         delay_flush_time=5,
+        ...         auto_clean_up=True,
+        ...     )
+        ...     producer = yr.create_stream_producer("streamName", producer_config)
+        ...     # .......
+        ...     data = b"hello"
+        ...     element = Element(data=data, id=0)
+        ...     producer.send(element)
+        ...     producer.flush()
+        ...     producer.close()
+        ... except RuntimeError as exp:
+        ...     # .......
+        ...     pass
+    """
+    cdef:
+        shared_ptr[CStreamProducer] producer
+
+    @staticmethod
+    cdef make(shared_ptr[CStreamProducer] producer):
+        self = Producer()
+        self.producer = producer
+        return self
+
+    def __init__(self):
+        """
+        Initialize a Producer instance.
+        """
+        pass
+
+    def send(self, element: Element, timeout_ms: int = None) -> None:
+        """
+        The Producer sends data, which is first placed into a buffer.
+        The buffer is then flushed either according to the configured automatic flush strategy
+        (after a certain interval or when the buffer is full),
+        or by manually invoking the flush operation to make the data accessible to the consumer.
+
+        Args:
+            element (Element): The Element data to be sent.
+            timeout_ms (int, optional): The timeout in milliseconds. Defaults to ``None``.
+
+        Raises:
+            RuntimeError: If the send operation fails.
+        """
+        cdef:
+            CElement e = CElement(element.data, len(element.data), element.id)
+            CErrorInfo ret
+            int c_timeout_ms
+        if timeout_ms == None:
+            with nogil:
+                ret = self.producer.get().Send(e)
+        else:
+            c_timeout_ms = timeout_ms
+            with nogil:
+                ret = self.producer.get().Send(e, c_timeout_ms)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to send, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def flush(self) -> None:
+        """
+        Manually flushing the buffer makes the data visible to the consumer.
+        """
+        cdef CErrorInfo ret
+        ret = self.producer.get().Flush()
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to flush, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def close(self) -> None:
+        """
+        Closing the producer will trigger an automatic flush of the data buffer and
+        indicate that the data buffer is no longer in use. Once closed, the producer cannot be used again.
+        """
+        cdef CErrorInfo ret
+        ret = self.producer.get().Close()
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to close, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
 
 cdef class SharedBuffer:
     cdef:
@@ -986,6 +1067,109 @@ cdef class SharedBuffer:
 
     def set_buf(self, buf: memoryview):
         self.buf = buf
+
+cdef class Consumer:
+    """
+    Consumer interface class.
+
+    Examples:
+        >>> try:
+        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
+        ...     consumer = create_stream_consumer("streamName", config)
+        ...     # .......
+        ...     elements = consumer.Receive(6000, 1)
+        ... except RuntimeError as exp:
+        ...     # .......
+        ...     pass
+    """
+    cdef:
+        shared_ptr[CStreamConsumer] consumer
+
+    @staticmethod
+    cdef make(shared_ptr[CStreamConsumer] consumer):
+        self = Consumer()
+        self.consumer = consumer
+        return self
+
+    def receive(self, timeout_ms: int, expect_num: int = None) -> List[Element]:
+        """
+        Consumer receives data with subscription support.
+        The call waits until either the expected number of elements `expect_num` is received
+        or the timeout `timeout_ms` is reached.
+
+        Args:
+            timeout_ms (int): Timeout in milliseconds.
+            expect_num (int, optional): Expected number of elements to receive.
+
+        Raises:
+            RuntimeError: If receiving data fails.
+
+        Return:
+            The actual list of received elements.
+            Data Type is List[Element].
+        """
+        cdef:
+            vector[CElement] out_elements
+            CErrorInfo ret
+            int c_expect_num
+            int c_timeout_ms = timeout_ms
+        result = []
+        if expect_num:
+            c_expect_num = expect_num
+            with nogil:
+                ret = self.consumer.get().Receive(c_expect_num, c_timeout_ms, out_elements)
+        else:
+            with nogil:
+                ret = self.consumer.get().Receive(c_timeout_ms, out_elements)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to receive, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        it = out_elements.begin()
+        while it != out_elements.end():
+            result.append(Element(
+                PyBytes_FromStringAndSize(<const char *> dereference(it).ptr, dereference(it).size),
+                dereference(it).id))
+            postincrement(it)
+        return result
+
+    def ack(self, element_id: int) -> None:
+        """
+        After the consumer finishes using the element identified by `element_id`,
+        it must acknowledge (ack) the element. This allows all workers to determine
+        whether all consumers have finished processing the data. Once a page has been
+        fully consumed, internal memory reclamation may be triggered.
+
+        Args:
+            element_id (int): The ID of the element to acknowledge.
+
+        Raises:
+             RuntimeError: If acknowledging the element fails.
+
+        Return:
+            None.
+
+        """
+        cdef CErrorInfo ret
+        ret = self.consumer.get().Ack(element_id)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to ack, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def close(self):
+        """
+        Turning off consumer will automatically trigger Ack.
+
+        Raises:
+            RuntimeError: If failed to close.
+        """
+        cdef CErrorInfo ret
+        ret = self.consumer.get().Close()
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to close, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
 
 cdef CErrorInfo dump_instance(const string & checkpointId, shared_ptr[CBuffer] & data) noexcept with gil:
     cdef:
@@ -1118,6 +1302,9 @@ cdef class Fnruntime:
         config.privateKeyPath = ConfigManager().private_key_path
         config.certificateFilePath = ConfigManager().certificate_file_path
         config.verifyFilePath = ConfigManager().verify_file_path
+        memory_copy_string(config.privateKeyPaaswd, ConfigManager().private_key_paaswd,
+                           len(ConfigManager().private_key_paaswd))
+        config.httpIocThreadsNum = ConfigManager().http_ioc_threads_num
         config.serverName = ConfigManager().server_name
         config.inCluster = ConfigManager().in_cluster
         config.ns = ConfigManager().ns
@@ -1128,6 +1315,8 @@ cdef class Fnruntime:
         config.dsPublicKeyPath = ConfigManager().ds_public_key_path
         config.encryptEnable = ConfigManager().enable_ds_encrypt
         config.ns = ConfigManager().ns
+        config.logToDriver = ConfigManager().log_to_driver
+        config.dedupLogs = ConfigManager().dedup_logs
         for key, value in ConfigManager().custom_envs.items():
             config.customEnvs.insert(pair[string, string](key, value))
         with nogil:
@@ -1656,6 +1845,122 @@ cdef class Fnruntime:
         with nogil:
             CLibruntimeManager.Instance().GetLibRuntime().get().Exit()
 
+    def create_stream_producer(self, stream_name: str, config: ProducerConfig) -> Producer:
+        """
+        create stream producer
+        :param stream_name: stream name
+        :param config: ProducerConfig
+        :return: producer
+        """
+        cdef:
+            CProducerConf cfg
+            shared_ptr[CStreamProducer] producer
+            CErrorInfo ret
+            string cstreamName = stream_name.encode()
+        cfg.delayFlushTime = config.delay_flush_time
+        cfg.pageSize = config.page_size
+        cfg.maxStreamSize = config.max_stream_size
+        cfg.autoCleanup = config.auto_clean_up
+        cfg.encryptStream = config.encrypt_stream
+        cfg.retainForNumConsumers = config.retain_for_num_consumers
+        cfg.reserveSize = config.reserve_size
+        for key, value in config.extend_config.items():
+            cfg.extendConfig.insert(pair[string, string](key, value))
+        with nogil:
+            CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().CreateStreamProducer(cstreamName, cfg, producer)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to create stream producer, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        return Producer.make(producer)
+
+    def create_stream_consumer(self, stream_name: str, config: SubscriptionConfig) -> Consumer:
+        """
+        create stream consumer
+        :param stream_name: stream name
+        :param config: SubscriptionConfig
+        :return: consumer
+        """
+        cdef:
+            CSubscriptionConfig cfg
+            shared_ptr[CStreamConsumer] consumer
+            CErrorInfo ret
+            string cstreamName = stream_name.encode()
+        cfg.subscriptionName = config.subscription_name
+        if config.subscriptionType == SubscriptionType.STREAM:
+            cfg.subscriptionType = CSubscriptionType.STREAM
+        elif config.subscriptionType == SubscriptionType.ROUND_ROBIN:
+            cfg.subscriptionType = CSubscriptionType.ROUND_ROBIN
+        elif config.subscriptionType == SubscriptionType.KEY_PARTITIONS:
+            cfg.subscriptionType = CSubscriptionType.KEY_PARTITIONS
+        else:
+            cfg.subscriptionType = CSubscriptionType.UNKNOWN
+        for key, value in config.extend_config.items():
+            cfg.extendConfig.insert(pair[string, string](key, value))
+        with nogil:
+            CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().CreateStreamConsumer(cstreamName, cfg, consumer)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to create stream consumer, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        return Consumer.make(consumer)
+
+    def delete_stream(self, stream_name: str) -> None:
+        """
+        delete stream
+        :param stream_name: stream name
+        :return: None
+        """
+        cdef:
+            CErrorInfo ret
+            string cstreamName = stream_name.encode()
+        with nogil:
+            CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().DeleteStream(cstreamName)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to delete stream, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def query_global_producers_num(self, stream_name: str) -> int:
+        """
+        query global producers num
+        :param stream_name: stream name
+        :return: producers num
+        """
+        cdef:
+            uint64_t num = 0
+            CErrorInfo ret
+            string cstreamName = stream_name.encode()
+        with nogil:
+            CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().QueryGlobalProducersNum(cstreamName, num)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to query global producers num, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        return num
+
+    def query_global_consumers_num(self, stream_name: str) -> int:
+        """
+        query global consumers num
+        :param stream_name: stream name
+        :return: consumers num
+        """
+        cdef:
+            uint64_t num = 0
+            CErrorInfo ret
+            string c_stream_name = stream_name.encode()
+        with nogil:
+            CLibruntimeManager.Instance().GetLibRuntime().get().SetTenantIdWithPriority()
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().QueryGlobalConsumersNum(c_stream_name, num)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to query global consumers num, "
+                f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+        return num
 
     def save_real_instance_id(self, instance_id: str, need_order: bool) -> None:
         """
@@ -1935,6 +2240,46 @@ cdef class Fnruntime:
                                                                                       alarm_info)
         check_error_info(error_info, "Failed to set alarm")
 
+    def peek_object_ref_stream(self, generator_id: str, blocking: bool, timeout_ms: int):
+        """
+        peek_object_ref_stream
+        :param timeout_ms
+        :param generator_id
+        :return: object_id
+        """
+        cdef:
+            pair[CErrorInfo, string] ret
+            string c_generator_id = generator_id.encode()
+            shared_ptr[CBuffer] c_buffer
+        with nogil:
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().PeekObjectRefStream(c_generator_id, blocking)
+
+        if not ret.first.OK():
+            if error_code_from_cpp(ret.first.Code()) == ErrorCode.ERR_GENERATOR_FINISHED:
+                self.decrease_global_reference([ret.second.decode()])
+                raise GeneratorEndError(
+                    f"gernerator stop, "
+                    f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+            else:
+                result = []
+                if ret.first.Code() == CErrorCode.ERR_USER_FUNCTION_EXCEPTION:
+                    c_stack_trace_info = ret.first.GetStackTraceInfos()
+                    it_sti = c_stack_trace_info.begin()
+                    while it_sti != c_stack_trace_info.end():
+                        if dereference(it_sti).Type().decode() == "YRInvokeError":
+                            c_buffer = dynamic_pointer_cast[CBuffer, NativeBuffer](
+                                make_shared[NativeBuffer](dereference(it_sti).Message().size()))
+                            memory_copy(c_buffer, dereference(it_sti).Message().data(),
+                                        dereference(it_sti).Message().size())
+                            result.append(Buffer.make(c_buffer))
+                            return result
+                        postincrement(it_sti)
+                raise RuntimeError(
+                    f"failed to peek object, "
+                    f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+        obj_id = ret.second.decode()
+        return obj_id
+
     def generate_group_name(self) -> str:
         """
         generate group name.
@@ -1994,6 +2339,7 @@ cdef class Fnruntime:
         """
         cdef:
             pair[CErrorInfo, vector[CResourceUnit]] ret
+            vector[string] label_values
         ret = CLibruntimeManager.Instance().GetLibRuntime().get().GetResources()
         if not ret.first.OK():
             raise RuntimeError(
@@ -2007,17 +2353,25 @@ cdef class Fnruntime:
             res['status'] = it.status
             capacity = {}
             for r in it.capacity:
-                name = r.first.decode()
-                capacity[name] = r.second
+                name = r[0].decode()
+                capacity[name] = r[1]
             res['capacity'] = capacity
             allocatable = {}
             for r in it.allocatable:
-                name = r.first.decode()
-                allocatable[name] = r.second
+                name = r[0].decode()
+                allocatable[name] = r[1]
             res['allocatable'] = allocatable
+            labels = {}
+            for r in it.nodeLabels:
+                key = r[0].decode()
+                label_values = r[1]
+                labels[key] = []
+                for value in label_values:
+                    labels[key].append(value.decode())
+            res['labels'] = labels
             result.append(res)
         return result
-    
+
     def query_named_instances(self):
         """
         """
@@ -2160,6 +2514,74 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().AddReturnObject(c_obj_ids)
         return ret
+
+
+def notify_generator_result(generator_id, index, output, error_info):
+    """
+    notify_generator_result
+    :param generator_id
+    :param index
+    :param output
+    :return ErrorInfo
+    """
+    object_id = generate_random_id()
+
+    cdef:
+        CErrorInfo ret
+        int c_index= index
+        string c_generator_id = generator_id.encode()
+        string c_object_id = object_id.encode()
+        shared_ptr[CDataObject] dataObj
+        shared_ptr[CBuffer] c_buffer
+        CErrorInfo c_error_info
+        CErrorInfo c_result_err
+        vector[string] nested_ids
+        unordered_set[string] nested_ids_set
+        uint64_t total_native_buffer_size = 0
+
+    c_result_err = error_info_from_py(error_info)
+    dataObj = make_shared[CDataObject](c_object_id)
+    dataObj.get().alwaysNative = True
+    serialized_object = _serialization_ctx.serialize(output)
+    data_bytes = serialized_object.to_bytes()
+    meta_size = constants.METALEN
+    data_size = serialized_object.total_bytes - constants.METALEN
+
+    c_error_info = CLibruntimeManager.Instance().GetLibRuntime().get().AllocReturnObject(
+            dataObj, meta_size, data_size, nested_ids, total_native_buffer_size)
+
+    if c_error_info.OK():
+        c_buffer = dataObj.get().buffer
+        c_error_info = write2buffer(c_buffer, serialized_object, nested_ids_set)
+    if c_error_info.OK():
+        c_error_info = CLibruntimeManager.Instance().GetLibRuntime().get().NotifyGeneratorResult(c_generator_id, c_index, dataObj, c_result_err)
+    if not c_error_info.OK():
+        raise RuntimeError(
+            f"failed to notify gennerator result, "
+            f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+
+
+def notify_generator_finished(generator_id, number_result):
+    """
+    notify_generator_finished
+    :param generator_id
+    :param number_result
+    :return ErrorInfo
+    """
+
+    cdef:
+        string c_generator_id = generator_id.encode()
+        int c_number_result = number_result;
+        CErrorInfo ret
+
+    with nogil:
+        ret = CLibruntimeManager.Instance().GetLibRuntime().get().NotifyGeneratorFinished(c_generator_id, c_number_result)
+
+    if not ret.OK():
+        raise RuntimeError(
+            f"failed to notify generator finished, "
+            f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
 
 cdef cluster_access_info_cpp_to_py(const CClusterAccessInfo & c_cluster_info):
     return {

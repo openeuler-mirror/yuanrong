@@ -59,11 +59,11 @@ public:
     void OnWrite(const std::shared_ptr<std::string> requestId, const beast::error_code &ec,
                  std::size_t bytesTransferred);
 
-    ErrorInfo ReInit() override;
-
     void Stop() override;
+
+    void GracefulExit() noexcept override;
+
 private:
-    void GracefulExit() noexcept;
     std::shared_ptr<asio::io_context> ioc_;
     std::shared_ptr<asio::ssl::context> ctx_;
     asio::ip::tcp::resolver resolver_;

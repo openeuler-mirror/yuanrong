@@ -44,7 +44,7 @@ ErrorInfo Security::Init()
     }
 
     this->streamReaderThread_ = std::make_unique<std::thread>([this]() {
-        boost::asio::io_service::work work(this->streamReaderIoContext_);
+        auto work = boost::asio::make_work_guard(this->streamReaderIoContext_);
         this->streamReaderIoContext_.run();
     });
 
@@ -73,13 +73,13 @@ ErrorInfo Security::Init()
 
 ErrorInfo Security::InitWithDriver(std::shared_ptr<LibruntimeConfig> librtConfig)
 {
-    YRLOG_DEBUG("When init security as driver, enableMTLS is {}, enableAuth is {}",
-                librtConfig->enableMTLS, librtConfig->enableAuth);
+    YRLOG_DEBUG("When init security as driver, enableMTLS is {}, enableAuth is {}, ak is empty: {}, sk is empty: {}",
+                librtConfig->enableMTLS, librtConfig->enableAuth, librtConfig->ak_.empty(), librtConfig->sk_.Empty());
     if (librtConfig->enableMTLS) {
         this->fsConf_.authEnable = librtConfig->enableMTLS;
         STACK_OF(X509) *ca = GetCAFromFile(librtConfig->verifyFilePath);
         X509 *cert = GetCertFromFile(librtConfig->certificateFilePath);
-        EVP_PKEY *pkey = GetPrivateKeyFromFile(librtConfig->privateKeyPath, nullptr);
+        EVP_PKEY *pkey = GetPrivateKeyFromFile(librtConfig->privateKeyPath, librtConfig->privateKeyPaaswd);
         this->fsConf_.rootCertData = GetCa(ca);
         this->fsConf_.certChainData = GetCert(cert);
         this->fsConf_.privateKeyData = GetPrivateKey(pkey);
@@ -88,9 +88,15 @@ ErrorInfo Security::InitWithDriver(std::shared_ptr<LibruntimeConfig> librtConfig
     }
     if (librtConfig->encryptEnable) {
         this->dsConf_.encryptEnable = librtConfig->encryptEnable;
-        this->dsConf_.clientPublicKey = GetValueFromFile(librtConfig->runtimePublicKeyPath);
-        this->dsConf_.clientPrivateKey = GetValueFromFile(librtConfig->runtimePrivateKeyPath);
-        this->dsConf_.serverPublicKey = GetValueFromFile(librtConfig->dsPublicKeyPath);
+        this->dsConf_.clientPublicKey = librtConfig->runtimePublicKey;
+        this->dsConf_.clientPrivateKey = librtConfig->runtimePrivateKey;
+        this->dsConf_.serverPublicKey = librtConfig->dsPublicKey;
+    }
+    if (!librtConfig->ak_.empty() && !librtConfig->sk_.Empty()) {
+        this->ak_ = librtConfig->ak_;
+        this->sk_ = SensitiveValue(librtConfig->sk_);
+        this->isCredential_ = true;
+        this->dsConf_.authEnable = true;
     }
     return ErrorInfo();
 }
@@ -134,6 +140,16 @@ void Security::StreamReaderWaitHandler(const boost::system::error_code &error)
     }
     if (!this->ReadOnce()) {
         YRLOG_DEBUG_COUNT(LOG_FREQUENT, "Reader read once failed");
+    } else {
+        // in wait handler, token is expected to be updated, so call all token handlers
+        for (auto &h : this->updateTokenHandlers) {
+            h(this->token_);
+        }
+        YRLOG_INFO("token is updated.");
+        for (auto &h : this->updateAkSkHandlers) {
+            h(this->ak_, this->sk_);
+        }
+        YRLOG_INFO("ak,sk is updated.");
     }
     confStreamDesc_.async_wait(boost::asio::posix::stream_descriptor::wait_read,
                                boost::bind(&Security::StreamReaderWaitHandler, this, boost::asio::placeholders::error));
@@ -205,24 +221,36 @@ bool Security::ReadOnce()
     this->dsConf_.serverPublicKey = tlsConf.dsserverpublickey();
 
     this->fsConf_.authEnable = tlsConf.serverauthenable();
-    if (this->fsConf_.authEnable) {
-        auto caCertFile = Config::Instance().YR_SSL_ROOT_FILE();
-        auto certFile = Config::Instance().YR_SSL_CERT_FILE();
-        auto keyFile = Config::Instance().YR_SSL_KEY_FILE();
-        STACK_OF(X509) *ca = GetCAFromFile(caCertFile);
-        X509 *cert = GetCertFromFile(certFile);
-        EVP_PKEY *privateKey = GetPrivateKeyFromFile(keyFile, nullptr);
-        this->fsConf_.rootCertData = GetCa(ca);
-        this->fsConf_.certChainData = GetCert(cert);
-        this->fsConf_.privateKeyData = GetPrivateKey(privateKey);
-        ClearPemCerts(privateKey, cert, ca);
+    this->fsConf_.rootCertData = tlsConf.rootcertdata();
+
+    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().accesskey().empty()) {
+        this->ak_ = tlsConf.tenantcredentials().accesskey();
+    } else {
+        this->ak_ = tlsConf.accesskey();
     }
+
+    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().secretkey().empty()) {
+        this->sk_ = SensitiveValue(tlsConf.tenantcredentials().secretkey());
+    } else {
+        this->sk_ = SensitiveValue(tlsConf.securitykey());
+    }
+
+    if (tlsConf.has_tenantcredentials()) {
+        this->dk_ = tlsConf.tenantcredentials().datakey();
+    }
+
+    if (tlsConf.has_tenantcredentials()) {
+        this->isCredential_ = tlsConf.tenantcredentials().iscredential();
+    }
+
+    this->token_ = SensitiveValue(tlsConf.token());
 
     this->fsConnMode_ = tlsConf.enableservermode();
 
     this->serverNameoverride_ = tlsConf.servernameoverride();
-    YRLOG_INFO("Read tls config finished, fs auth: {}, ds auth: {}", this->fsConf_.authEnable,
-               this->dsConf_.authEnable);
+    YRLOG_INFO("Read tls config finished, fs auth: {}, ds auth: {}, is credential {}, ak {}, sk {}, token {}",
+               this->fsConf_.authEnable, this->dsConf_.authEnable, isCredential_, !ak_.empty(), !sk_.Empty(),
+               !token_.Empty());
     return true;
 }
 
@@ -265,9 +293,56 @@ bool Security::GetFunctionSystemConfig(std::string &rootCACert, std::string &cer
     return this->fsConf_.authEnable;
 }
 
+void Security::GetToken(SensitiveValue &token)
+{
+    token = this->token_;
+}
+
+void Security::GetAKSK(std::string &ak, SensitiveValue &sk)
+{
+    ak = this->ak_;
+    sk = this->sk_;
+}
+
+void Security::WhenTokenUpdated(std::function<void(const SensitiveValue &)> updateTokenHandler)
+{
+    if (ak_.empty() && sk_.Empty()) {
+        this->updateTokenHandlers.push_back(updateTokenHandler);
+    }
+}
+
+void Security::WhenAkSkUpdated(std::function<void(const std::string &, const SensitiveValue &)> updateAkSkHandler)
+{
+    if (!ak_.empty() && !sk_.Empty()) {
+        this->updateAkSkHandlers.push_back(updateAkSkHandler);
+    }
+}
+
 void Security::ClearPrivateKey()
 {
     this->fsConf_.privateKeyData.Clear();
+}
+
+int Security::GetUpdateHandersSize()
+{
+    return this->updateTokenHandlers.size();
+}
+
+bool Security::IsFsAuthEnable()
+{
+    return this->isCredential_ && !this->ak_.empty() && !this->sk_.Empty();
+}
+
+Credential Security::GetCredential()
+{
+    return Credential{ak : this->ak_, sk : std::string(this->sk_.GetData(), this->sk_.GetSize()), dk : this->dk_};
+}
+
+void Security::SetAKSKAndCredential(const std::string &ak, const SensitiveValue &sk)
+{
+    this->ak_ = ak;
+    this->sk_ = sk;
+    this->isCredential_ = true;
 }
 
 }  // namespace Libruntime

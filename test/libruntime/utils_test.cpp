@@ -140,13 +140,49 @@ TEST_F(UtilsTest, InitWithDriverTest)
     librtConfig->verifyFilePath = "test";
     librtConfig->certificateFilePath = "test";
     librtConfig->privateKeyPath = "test";
+    std::strcpy(librtConfig->privateKeyPaaswd, "paaswd");
     librtConfig->serverName = "test";
     librtConfig->encryptEnable = "test";
     librtConfig->encryptEnable = "test";
     librtConfig->runtimePublicKey = "test";
     librtConfig->runtimePrivateKey = "test";
+    librtConfig->ak_ = "ak";
+    librtConfig->sk_ = "sk";
     auto err = security->InitWithDriver(librtConfig);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(UtilsTest, GetAuthConnectOptsTest)
+{
+    ConnectOptions connnections;
+    std::string ak;
+    datasystem::SensitiveValue sk;
+    datasystem::SensitiveValue token = "token";
+    GetAuthConnectOpts(connnections, ak, sk, token);
+    ASSERT_EQ(connnections.accessKey, ak);
+}
+
+TEST_F(UtilsTest, unhexlifyTest)
+{
+    char ascii[2];
+    auto res = unhexlify("00", ascii);
+    ASSERT_EQ(res, 0);
+    ASSERT_EQ(ascii[0], '\0');
+    res = unhexlify("FF", ascii);
+    ASSERT_EQ(res, 0);
+    ASSERT_EQ(ascii[0], '\xFF');
+    res = unhexlify("1a", ascii);
+    ASSERT_EQ(res, 0);
+    ASSERT_EQ(ascii[0], '\x1a');
+    res = unhexlify("AB", ascii);
+    ASSERT_EQ(res, 0);
+    ASSERT_EQ(ascii[0], '\xAB');
+    res = unhexlify("G1", ascii);
+    ASSERT_EQ(res, -1);
+    res = unhexlify("1G", ascii);
+    ASSERT_EQ(res, -1);
+    res = unhexlify("1", ascii);
+    ASSERT_EQ(res, -1);
 }
 
 }  // namespace test

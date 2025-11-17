@@ -53,7 +53,9 @@ public class TestCppInstanceHandler {
                 "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
                 "127.0.0.0",
                 "127.0.0.0",
-                "");
+                "",
+                "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+                true);
         PowerMockito.whenNew(ClusterModeRuntime.class).withAnyArguments().thenReturn(runtime);
         YR.init(conf);
     }
@@ -64,12 +66,13 @@ public class TestCppInstanceHandler {
     }
 
     @Test
-    public void testCppInstanceHandler() {
+    public void testCppInstanceHandler() throws YRException {
         String instanceId = "instanceId";
         String functionId = "functionId";
         String className = "Counter";
         CppInstanceHandler instance = new CppInstanceHandler(instanceId, functionId, className);
         CppInstanceHandler cppInstanceHandler = new CppInstanceHandler();
+        cppInstanceHandler.release();
         cppInstanceHandler.clearHandlerInfo();
         CppInstanceHandlerHelper cppInstanceHandlerHelper = new CppInstanceHandlerHelper();
         CppInstanceFunctionHandler<Integer> functionHandler = instance.function(
@@ -153,6 +156,7 @@ public class TestCppInstanceHandler {
             Assert.assertEquals(newHandler.getInstanceId(), instanceId);
             Assert.assertEquals(newHandler.getRealInstanceId(), "realInsID");
             Assert.assertEquals(newHandler.isNeedOrder(), true);
+            newHandler.release();
         } catch (YRException exp) {
             exp.printStackTrace();
             isException = true;

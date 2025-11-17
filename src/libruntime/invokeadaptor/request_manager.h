@@ -24,6 +24,7 @@ namespace YR {
 namespace Libruntime {
 class RequestManager {
 public:
+    void PushFaasRequest(const std::string &leaseId, const std::shared_ptr<InvokeSpec> spec);
     
     void PushRequest(const std::shared_ptr<InvokeSpec> spec);
 

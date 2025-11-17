@@ -68,6 +68,13 @@ long long GetCurrentTimestampMs()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
+long long GetCurrentTimestampNs()
+{
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::nanoseconds >(duration).count();
+}
+
 std::string GetCurrentUTCTime()
 {
     std::ostringstream oss;
@@ -176,6 +183,19 @@ std::shared_ptr<grpc::ChannelCredentials> GetChannelCreds(std::shared_ptr<YR::Li
     return grpc::SslCredentials(credsOpts);
 }
 
+void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, const datasystem::SensitiveValue &sk,
+                        const datasystem::SensitiveValue &token)
+{
+    if (!ak.empty() && !sk.Empty()) {
+        // ak、sk used for auth of system function instance
+        connnections.accessKey = ak;
+        connnections.secretKey = sk;
+    } else {
+        YRLOG_DEBUG("GetAuthConnectOpts token not empty");
+        // token used for auth of normal function instance
+    }
+}
+
 std::shared_ptr<grpc::ServerCredentials> GetServerCreds(std::shared_ptr<YR::Libruntime::Security> security)
 {
     bool enable = false;
@@ -240,5 +260,27 @@ int32_t ToMs(int32_t timeoutS)
 bool WillSizeOverFlow(size_t a, size_t b)
 {
     return b > (std::numeric_limits<size_t>::max() - a);
+}
+
+int unhexlify(std::string input, char *ascii)
+{
+    auto first = input.c_str();
+    auto last = first + input.size();
+    while (first != last) {
+        int top = to_int(*first++);
+        int bot = to_int(*first++);
+        if (top == -1 or bot == -1)
+            return -1;  // error
+        *ascii++ = (top << 4) + bot;
+    }
+    return 0;
+}
+
+std::string GetEnvValue(const std::string &key)
+{
+    if (const char *env = std::getenv(key.c_str())) {
+        return std::string(env);
+    }
+    return std::string("");
 }
 }  // namespace YR

@@ -1,0 +1,22 @@
+{
+  "ip": "{ip}",
+  "port": {port},
+  "grpcIP": "{grpcIP}",
+  "grpcPort": {grpcPort},
+  "staticPath": "{staticPath}",
+  "functionMasterAddr": "{functionMasterAddr}",
+  "frontendAddr": "{frontendAddr}",
+  "prometheusAddr": "{prometheusAddr}",
+  "routerEtcdConfig": {
+    "servers": ["{etcdAddr}"],
+    "sslEnable": {etcdSsl},
+    "authType": "{etcdAuthType}",
+    "azPrefix": "{azPrefix}"
+  },
+  "metaEtcdConfig": {
+    "servers": ["{etcdAddr}"],
+    "sslEnable": {etcdSsl},
+    "authType": "{etcdAuthType}",
+    "azPrefix": "{azPrefix}"
+  }
+}

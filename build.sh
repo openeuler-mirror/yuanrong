@@ -63,9 +63,9 @@ OUTPUT_DIR="${BASE_DIR}/output"
 OUTPUT_BASE="${BASE_DIR}/build/output"
 BAZEL_COMMAND="build"
 BUILD_VERSION="v0.0.1"
-BAZEL_OPTIONS="--experimental_cc_shared_library=true --verbose_failures --strategy=CcStrip=standalone"
+BAZEL_OPTIONS="--experimental_cc_shared_library=true --verbose_failures --strategy=CcStrip=standalone --@opentelemetry_cpp//api:with_abseil=true"
 BAZEL_OPTIONS_CONFIG=" --config=release "
-BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_python_pkg"
+BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_python_pkg //api/go:yr_go_pkg"
 BAZEL_PRE_OPTIONS="--output_user_root=${BUILD_BASE} --output_base=${OUTPUT_BASE}"
 THIRD_PARTY_DIR="$(dirname "$BASE_DIR")/thirdparty"
 PYTHON3_BIN_PATH="python3.9"
@@ -77,6 +77,7 @@ BAZEL_OPTIONS_ENV=""
 SECBRELLA_CCE="OFF"
 PACKAGE_ALL="false"
 LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:${LD_LIBRARY_PATH}
+BOOST_VERSION="1.87.0"
 export BUILD_ALL="false"
 if [ ! -d "${THIRD_PARTY_DIR}" ]; then
   mkdir -p "${THIRD_PARTY_DIR}"
@@ -102,10 +103,39 @@ log_fatal() {
     exit 1
 }
 
+MODULE_LIST=(\
+"runtime_go"
+)
+
 PYTHON_VERSION_LIST=(\
 "python3.11" \
 "python3.10"
 )
+
+function go_module_coverage_report() {
+    COVERAGE_SUFFIX="_coverage.out"
+    [ "${SANITIZER}" != "off" ] && COVERAGE_SUFFIX="_coverage_${SANITIZER}.out"
+    MODULE=$1
+    MODULE_SOURCE=$(echo "$MODULE" | cut -d '-' -f 1)
+    pushd ${GO_SRC_BASE}
+    sed -i "/clibruntime.go/d" ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}${COVERAGE_SUFFIX}
+    gocov convert ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}${COVERAGE_SUFFIX} > ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}_coverage.json
+    gocov report ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}_coverage.json > ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}_coverage.txt
+    gocov-html ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}_coverage.json > ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}_coverage.html
+    popd
+}
+
+function run_go_coverage_report() {
+   for i in "${!MODULE_LIST[@]}"
+   do
+        MODULE_SOURCE=$(echo "${MODULE_LIST[$i]}" | cut -d '-' -f 1)
+        go_module_coverage_report ${MODULE_LIST[$i]}
+        coverage_info=$(tail -1 ${BASE_DIR}/bazel-bin/go/${MODULE_SOURCE}_coverage.txt)
+        ((cov_go_total+=$(echo $coverage_info | awk -F '[()/]' '{print $(NF-1)}')))
+        ((cov_go+=$(echo $coverage_info | awk -F '[()/]' '{print $(NF-2)}')))
+   done
+   go_coverage=$(echo "scale=4; $cov_go / $cov_go_total * 100" | bc)
+}
 
 function run_java_coverage_report() {
     rm -rf bazel-testlogs/api/java/liblib_yr_api_sdk/
@@ -228,7 +258,7 @@ while getopts 'athr:v:S:DcCgPET:p:bm:j:g' opt; do
         ;;
     t)
         BAZEL_COMMAND="test"
-        BAZEL_TARGETS="//test/... //api/python/yr/tests/... //api/java:java_tests"
+        BAZEL_TARGETS="//api/go:yr_go_test //test/... //api/python/yr/tests/... //api/java:java_tests"
         install_python_requirements
         ;;
     T)
@@ -261,8 +291,8 @@ while getopts 'athr:v:S:DcCgPET:p:bm:j:g' opt; do
         ;;
     c)
         BAZEL_COMMAND="coverage"
-        BAZEL_TARGETS="//test/... //api/python/yr/tests/... //api/java:java_tests"
-        BAZEL_OPTIONS="$BAZEL_OPTIONS --combined_report=lcov --nocache_test_results --instrumentation_filter=^//.*[/:]"
+        BAZEL_TARGETS="//api/go:yr_go_test //test/... //api/python/yr/tests/..."
+        BAZEL_OPTIONS="$BAZEL_OPTIONS --combined_report=lcov --nocache_test_results --instrumentation_filter=^//.*[/:] --test_tag_filters=-cgo"
         install_python_requirements
         ;;
     C)
@@ -319,7 +349,7 @@ sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_
 
 build_multi_python_version
 
-BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=$PYTHON3_BIN_PATH"
+BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=$PYTHON3_BIN_PATH"
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR
@@ -334,11 +364,13 @@ if [ "$BAZEL_COMMAND" == "coverage" ]; then
     lcov -q -r ${BASE_DIR}/bazel-out/_coverage/_coverage_report.dat '*python*' '*.pb.*' '*test*'  -o ${BASE_DIR}/bazel-out/_coverage/_coverage_report.info
     genhtml -q --ignore-errors source --output genhtml ${BASE_DIR}/bazel-out/_coverage/_coverage_report.info
     cpp_coverage=$(grep headerCovTableEntryMed genhtml/index.html | head -n 1 | awk -F '>' '{print $2}'| awk -F '<' '{print $1}')
+    run_go_coverage_report
     run_java_coverage_report
     run_python_coverage_report
     echo "cpp_covearge: $cpp_coverage" >> genhtml/coverage.txt
     echo "python_covearge: $python_coverage" >> genhtml/coverage.txt
     echo "java_coverage: $java_coverage%" >> genhtml/coverage.txt
+    echo "go_coverage: $go_coverage%" >> genhtml/coverage.txt
     cat genhtml/coverage.txt
 fi
 
@@ -354,6 +386,6 @@ if [ "$BAZEL_COMMAND" == "build" ]; then
 fi
 
 if [ "$PACKAGE_ALL" == "true" ]; then
-    bash ${BASE_DIR}/scripts/package.sh -t ${BUILD_VERSION}
+    bash ${BASE_DIR}/scripts/package.sh -t ${BUILD_VERSION} --python_bin_path ${PYTHON3_BIN_PATH}
 fi
 cd -

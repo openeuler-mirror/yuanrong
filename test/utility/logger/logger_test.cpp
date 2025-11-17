@@ -108,15 +108,15 @@ TEST_F(Logger, GetLogLevel)
 {
     struct testArgs {
         std::string lvStr;
-        spdlog::level::level_enum spdLv;
+        yr_spdlog::level::level_enum spdLv;
     };
     std::vector<struct testArgs> ta = {
-        {"DEBUG", spdlog::level::debug}, {"INFO", spdlog::level::info},      {"WARN", spdlog::level::warn},
-        {"ERR", spdlog::level::err},     {"FATAL", spdlog::level::critical},
+        {"DEBUG", yr_spdlog::level::debug}, {"INFO", yr_spdlog::level::info},      {"WARN", yr_spdlog::level::warn},
+        {"ERR", yr_spdlog::level::err},     {"FATAL", yr_spdlog::level::critical},
     };
 
     for (auto &a : ta) {
-        spdlog::level::level_enum level = GetLogLevel(a.lvStr);
+        yr_spdlog::level::level_enum level = GetLogLevel(a.lvStr);
         EXPECT_EQ(level, a.spdLv);
     }
 }

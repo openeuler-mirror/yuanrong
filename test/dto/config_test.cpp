@@ -34,16 +34,17 @@ public:
 TEST_F(DTOConfigTest, TestConfig)
 {
     ASSERT_EQ(Config::Instance().REQUEST_ACK_ACC_MAX_SEC(), 1800);
+    ASSERT_EQ(Config::Instance().DS_CONNECT_TIMEOUT_SEC(), 60);
 
     setenv("MOCK_ENV1", "5", 0);
     size_t mockVal1 = Config::Instance().ParseFromEnv<size_t>(
         "MOCK_ENV1", 1800, [](const size_t &val) -> bool { return val >= REQUEST_ACK_TIMEOUT_SEC; });
-    ASSERT_EQ(mockVal1, 1800);
+    ASSERT_EQ(mockVal1, 5);
 
-    setenv("MOCK_ENV2", "10", 0);
+    setenv("MOCK_ENV2", "1", 0);
     size_t mockVal2 = Config::Instance().ParseFromEnv<size_t>(
         "MOCK_ENV2", 1800, [](const size_t &val) -> bool { return val >= REQUEST_ACK_TIMEOUT_SEC; });
-    ASSERT_EQ(mockVal2, 10);
+    ASSERT_EQ(mockVal2, 1800);
 }
 
 TEST_F(DTOConfigTest, TestGetMaxArgsInMsgBytes)
@@ -77,6 +78,16 @@ TEST_F(DTOConfigTest, TestGetMaxArgsInMsgBytes)
     Config::c = Config();
     ASSERT_EQ(Config::Instance().FASS_SCHEDULE_TIMEOUT(), 100);
     unsetenv("FASS_SCHEDULE_TIMEOUT");
+
+    ASSERT_EQ(Config::Instance().YR_MAX_LOG_SIZE_MB(), 500);
+    ASSERT_EQ(Config::Instance().YR_MAX_LOG_FILE_NUM(), 10);
+    setenv("YR_MAX_LOG_SIZE_MB", "100", 1);
+    setenv("YR_MAX_LOG_FILE_NUM", "5", 1);
+    Config::c = Config();
+    ASSERT_EQ(Config::Instance().YR_MAX_LOG_SIZE_MB(), 100);
+    ASSERT_EQ(Config::Instance().YR_MAX_LOG_FILE_NUM(), 5);
+    unsetenv("YR_MAX_LOG_SIZE_MB");
+    unsetenv("YR_MAX_LOG_FILE_NUM");
 }
 
 TEST_F(DTOConfigTest, TestSetenv)

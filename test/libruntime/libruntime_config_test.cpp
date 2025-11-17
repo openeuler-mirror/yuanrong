@@ -79,5 +79,19 @@ TEST_F(LibruntimeConfigTest, InitFunctionGroupRunningInfoTest)
     ASSERT_EQ(config.groupRunningInfo.serverList.size(), 1);
 }
 
+TEST_F(LibruntimeConfigTest, GetInstanceIdTest)
+{
+    LibruntimeConfig config;
+    libruntime::FunctionMeta meta;
+    meta.set_name("name");
+    config.funcMeta = meta;
+    auto insId = config.GetInstanceId();
+    ASSERT_EQ(insId, "yr_defalut_namespace-name");
+    meta.set_ns("ns");
+    config.funcMeta = meta;
+    insId = config.GetInstanceId();
+    ASSERT_EQ(insId, "ns-name");
+}
+
 }  // namespace test
 }  // namespace YR

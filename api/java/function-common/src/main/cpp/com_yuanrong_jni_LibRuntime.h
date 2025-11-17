@@ -18,11 +18,14 @@
 /* Header for class com_yuanrong_jni_LibRuntime */
 
 #pragma once
+
+#include <string>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-static jobject get_runtime_context_callback(JNIEnv *env, jclass c);
+static std::string get_runtime_context_callback(JNIEnv *env, jclass c);
 
 /*
  * Class:     com_yuanrong_jni_LibRuntime
@@ -224,6 +227,21 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_GroupWait(JNIEnv *, j
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_processLog(JNIEnv *, jclass, jobject);
 
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_CreateStreamProducer(JNIEnv *, jclass, jstring, jlong,
+                                                                                     jlong, jlong, jboolean, jboolean,
+                                                                                     jlong, jlong);
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_CreateStreamConsumer(JNIEnv *, jclass, jstring, jstring,
+                                                                                     jobject, jboolean);
+
+JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_DeleteStream(JNIEnv *, jclass, jstring);
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_QueryGlobalProducersNum(JNIEnv *, jclass, jstring);
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_QueryGlobalConsumersNum(JNIEnv *, jclass, jstring);
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_CreateStreamProducerWithConfig(JNIEnv *, jclass,
+                                                                                               jstring, jobject);
 /*
  * Class:     com_yuanrong_jni_LibRuntime
  * Method:    GetInstanceRoute

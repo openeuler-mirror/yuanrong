@@ -73,18 +73,26 @@ public:
         sec_ = std::make_shared<MockSecurity>();
         auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
         lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
-        fsIntf_ = std::make_shared<MockFSIntfClient>();
-        auto fsClient = std::make_shared<YR::Libruntime::FSClient>(fsIntf_);
+        gwClient_ = std::make_shared<MockGwClient>();
+        auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
         objectStore_ = std::make_shared<MockObjectStore>();
         stateStore_ = std::make_shared<MockStateStore>();
+        streamStore_ = std::make_shared<MockStreamStore>();
         heteroStore_ = std::make_shared<MockHeretoStore>();
         auto finalizeHandler = []() { return; };
-        DatasystemClients dsclients{objectStore_, stateStore_, heteroStore_};
+        DatasystemClients dsclients{objectStore_, stateStore_, streamStore_, heteroStore_};
         lr->Init(fsClient, dsclients, finalizeHandler);
     }
 
     void TearDown() override
     {
+        EXPECT_CALL(*this->gwClient_, KillAsync(_, _, _))
+            .WillRepeatedly([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
+                if (cb != nullptr) {
+                    YR::Libruntime::KillResponse resp;
+                    cb(resp, ErrorInfo());
+                }
+            });
         CloseGlobalTimer();
         if (lr) {
             lr->Finalize(true);
@@ -94,9 +102,10 @@ public:
     }
 
     std::shared_ptr<YR::Libruntime::LibruntimeConfig> lc;
-    std::shared_ptr<MockFSIntfClient> fsIntf_;
+    std::shared_ptr<MockGwClient> gwClient_;
     std::shared_ptr<MockObjectStore> objectStore_;
     std::shared_ptr<MockStateStore> stateStore_;
+    std::shared_ptr<MockStreamStore> streamStore_;
     std::shared_ptr<MockHeretoStore> heteroStore_;
     std::shared_ptr<MockSecurity> sec_;
     std::shared_ptr<YR::Libruntime::Libruntime> lr;
@@ -137,8 +146,8 @@ TEST_F(LibruntimeTest, PutTest)
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
-    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(fsIntf_);
-    DatasystemClients dsclients{objectStore_, stateStore_, heteroStore_};
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    DatasystemClients dsclients{objectStore_, stateStore_, streamStore_, heteroStore_};
     lr->Init(fsClient, dsclients);
     std::string str = "Hello, world!";
     auto dataObj = std::make_shared<YR::Libruntime::DataObject>(0, str.size());
@@ -197,8 +206,8 @@ TEST_F(LibruntimeTest, When_Not_Driver_Finalize_Should_Kill_Instances)
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
-    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(fsIntf_);
-    DatasystemClients dsclients{objectStore_, stateStore_, heteroStore_};
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    DatasystemClients dsclients{objectStore_, stateStore_, streamStore_, heteroStore_};
     lr->Init(fsClient, dsclients);
     EXPECT_NO_THROW(lr->Finalize(false));
 }
@@ -327,8 +336,8 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
-    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(fsIntf_);
-    DatasystemClients dsclients{objectStore_, stateStore_, heteroStore_};
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    DatasystemClients dsclients{objectStore_, stateStore_, streamStore_, heteroStore_};
     lr->Init(fsClient, dsclients);
 
     std::string testObjId("fake_id");
@@ -382,9 +391,9 @@ TEST_F(LibruntimeTest, NonDriverSecurityInitTest)
     auto sec = std::make_shared<MockSecurity>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
-    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(fsIntf_);
-    DatasystemClients dsclients{objectStore_, stateStore_, heteroStore_};
-    ASSERT_NO_THROW(lr->Init(fsClient, dsclients));
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    DatasystemClients dsclients{objectStore_, stateStore_, streamStore_, heteroStore_};
+    lr->Init(fsClient, dsclients);
 }
 
 TEST_F(LibruntimeTest, DriverSecurityInitTest)
@@ -398,8 +407,8 @@ TEST_F(LibruntimeTest, DriverSecurityInitTest)
     auto sec = std::make_shared<MockSecurity>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
-    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(fsIntf_);
-    DatasystemClients dsClients{objectStore_, stateStore_, heteroStore_};
+    auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
+    DatasystemClients dsClients{objectStore_, stateStore_, streamStore_, heteroStore_};
     ASSERT_NO_THROW(lr->Init(fsClient, dsClients));
 }
 
@@ -514,6 +523,9 @@ TEST_F(LibruntimeTest, SetTraceIdTest)
     std::string traceId = "traceId";
     auto err = lr->SetTraceId(traceId);
     ASSERT_TRUE(err.OK());
+    threadLocalTraceId = "threadLocalTraceId";
+    err = lr->SetTraceId();
+    ASSERT_TRUE(err.OK());
 }
 
 TEST_F(LibruntimeTest, GenerateKeyByStateStoreTest)
@@ -583,6 +595,20 @@ TEST_F(LibruntimeTest, GetArrayByStateStoreTest)
     ASSERT_TRUE(!result.second.OK());
     ASSERT_TRUE(result.first[0] != nullptr);
     ASSERT_TRUE(result.first[1] == nullptr);
+}
+
+TEST_F(LibruntimeTest, QuerySizeByStateStoreTest)
+{
+    std::vector<std::string> keys{"123", "456"};
+    std::vector<uint64_t> outSizes;
+    EXPECT_CALL(*this->stateStore_, QuerySize(_, _))
+        .WillOnce([=](const std::vector<std::string> &, std::vector<uint64_t> &param) {
+            param = {10, 10};
+            return YR::Libruntime::ErrorInfo();
+        });
+    auto result = lr->QuerySizeByStateStore(stateStore_, keys, outSizes);
+    ASSERT_TRUE(result.OK());
+    ASSERT_TRUE(outSizes.size() == 2);
 }
 
 TEST_F(LibruntimeTest, DelByStateStoreTest)
@@ -704,7 +730,7 @@ TEST_F(LibruntimeTest, TestCreateInstanceRaw)
     auto buffer = std::make_shared<NativeBuffer>(body.size());
     buffer->MemoryCopy(body.c_str(), body.size());
     auto callback = [](const ErrorInfo &err, std::shared_ptr<Buffer> resultRaw) {};
-    EXPECT_CALL(*this->fsIntf_, CreateAsync(_, _, _, _)).WillOnce(testing::Return());
+    EXPECT_CALL(*this->gwClient_, CreateAsync(_, _, _, _)).WillOnce(testing::Return());
     lr->CreateInstanceRaw(buffer, callback);
 }
 
@@ -717,7 +743,7 @@ TEST_F(LibruntimeTest, TestInvokeByInstanceIdRaw)
     auto buffer = std::make_shared<NativeBuffer>(body.size());
     buffer->MemoryCopy(body.c_str(), body.size());
     auto callback = [](const ErrorInfo &err, std::shared_ptr<Buffer> resultRaw) {};
-    EXPECT_CALL(*this->fsIntf_, InvokeAsync(_, _, _)).WillOnce(testing::Return());
+    EXPECT_CALL(*this->gwClient_, InvokeAsync(_, _, _)).WillOnce(testing::Return());
     lr->InvokeByInstanceIdRaw(buffer, callback);
 }
 
@@ -729,7 +755,7 @@ TEST_F(LibruntimeTest, TestKillRaw)
     auto buffer = std::make_shared<NativeBuffer>(body.size());
     buffer->MemoryCopy(body.c_str(), body.size());
     auto callback = [](const ErrorInfo &err, std::shared_ptr<Buffer> resultRaw) {};
-    EXPECT_CALL(*this->fsIntf_, KillAsync(_, _, _)).WillRepeatedly(testing::Return());
+    EXPECT_CALL(*this->gwClient_, KillAsync(_, _, _)).WillOnce(testing::Return());
     lr->KillRaw(buffer, callback);
 }
 
@@ -799,20 +825,13 @@ TEST_F(LibruntimeTest, TestGetRaw)
     ASSERT_EQ(lr->GetRaw({"aaa"}, 30, true).first.OK(), false);
 }
 
-TEST_F(LibruntimeTest, DISABLED_GetResourcesTest)
+TEST_F(LibruntimeTest, GetCredentialTest)
 {
-    auto result = lr->GetResources();
-    ASSERT_FALSE(result.first.OK());
-    lc->functionMasters = {"127.0.0.1"};
-    result = lr->GetResources();
-    result.first.SetIsTimeout(true);
-    std::vector<StackTraceInfo> vec{StackTraceInfo{}};
-    result.first.SetStackTraceInfos(vec);
-    result.first.SetErrorMsg("errmsg");
-    auto msg = result.first.CodeAndMsg();
-    ASSERT_FALSE(result.first.OK());
-    ASSERT_EQ(msg.empty(), false);
-    ASSERT_EQ(result.first.Finalized(), false);
+    datasystem::SensitiveValue sk = std::string("sk");
+    lr->security_->SetAKSKAndCredential("ak", sk);
+    auto result = lr->GetCredential();
+    ASSERT_EQ(result.ak, "ak");
+    ASSERT_EQ(result.sk, "sk");
 }
 
 TEST_F(LibruntimeTest, FiberEventTest)
@@ -835,14 +854,14 @@ TEST_F(LibruntimeTest, HeteroDeleteTest)
 {
     std::vector<std::string> objectIds;
     std::vector<std::string> failedObjectIds;
-    ASSERT_EQ(lr->Delete(objectIds, failedObjectIds).OK(), true);
+    ASSERT_EQ(lr->DevDelete(objectIds, failedObjectIds).OK(), true);
 }
 
-TEST_F(LibruntimeTest, HeteroLocalDeleteTest)
+TEST_F(LibruntimeTest, HeteroDevLocalDeleteTest)
 {
     std::vector<std::string> objectIds;
     std::vector<std::string> failedObjectIds;
-    ASSERT_EQ(lr->LocalDelete(objectIds, failedObjectIds).OK(), true);
+    ASSERT_EQ(lr->DevLocalDelete(objectIds, failedObjectIds).OK(), true);
 }
 
 TEST_F(LibruntimeTest, HeteroDevSubscribeTest)
@@ -875,6 +894,31 @@ TEST_F(LibruntimeTest, HeteroDevMGetTest)
     std::vector<DeviceBlobList> blob2dList;
     std::vector<std::string> failedKeys;
     ASSERT_EQ(lr->DevMGet(keys, blob2dList, failedKeys, 1000).OK(), true);
+}
+
+TEST_F(LibruntimeTest, StreamProducerAndConsumerTest)
+{
+    std::string streamName = "streamname";
+    uint64_t value = 1000;
+    ProducerConf producerConf;
+    std::shared_ptr<StreamProducer> producer = std::make_shared<StreamProducer>();
+    ASSERT_EQ(lr->CreateStreamProducer(streamName, producerConf, producer).OK(), true);
+
+    SubscriptionConfig config;
+    std::shared_ptr<StreamConsumer> consumer = std::make_shared<StreamConsumer>();
+    ASSERT_EQ(lr->CreateStreamConsumer(streamName, config, consumer, true).OK(), true);
+    ASSERT_EQ(lr->DeleteStream(streamName).OK(), true);
+    ASSERT_EQ(lr->QueryGlobalProducersNum(streamName, value).OK(), true);
+    ASSERT_EQ(lr->QueryGlobalConsumersNum(streamName, value).OK(), true);
+
+    lr->dsClients.dsStreamStore = nullptr;
+    ASSERT_EQ(lr->CreateStreamProducer(streamName, producerConf, producer).Code(),
+              YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_EQ(lr->CreateStreamConsumer(streamName, config, consumer, true).Code(),
+              YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_EQ(lr->DeleteStream(streamName).Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_EQ(lr->QueryGlobalProducersNum(streamName, value).Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    ASSERT_EQ(lr->QueryGlobalConsumersNum(streamName, value).Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
 }
 
 TEST_F(LibruntimeTest, SetTenatIdTest)
@@ -915,6 +959,15 @@ TEST_F(LibruntimeTest, GetInstanceTest)
     ASSERT_EQ(res.first.name, "name");
 }
 
+TEST_F(LibruntimeTest, AcquireAndReleaseInstanceTest)
+{
+    lr->invokeAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
+    FunctionMeta meta;
+    InvokeOptions opts;
+    ASSERT_EQ(lr->AcquireInstance("stateId", meta, opts).second.OK(), true);
+    ASSERT_EQ(lr->ReleaseInstance("leaseId", "stateId", true, opts).OK(), true);
+}
+
 TEST_F(LibruntimeTest, ExecShutdownCallbackTest)
 {
     lr->invokeAdaptor = nullptr;
@@ -950,6 +1003,12 @@ TEST_F(LibruntimeTest, ReceiveRequestLoopTest)
 {
     lr->invokeAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
     ASSERT_NO_THROW(lr->ReceiveRequestLoop());
+}
+
+TEST_F(LibruntimeTest, UpdateSchdulerInfoTest)
+{
+    lr->invokeAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
+    ASSERT_NO_THROW(lr->UpdateSchdulerInfo("scheduleName", "schedulerId", "ADD"));
 }
 
 TEST_F(LibruntimeTest, SaveGroupInstanceIdsTest)
@@ -1001,6 +1060,11 @@ TEST_F(LibruntimeTest, DecreaseReferenceTest)
     EXPECT_NO_THROW(lr->DecreaseReference(objIds));
 }
 
+TEST_F(LibruntimeTest, ReleaseGRefsTest)
+{
+    ASSERT_EQ(lr->ReleaseGRefs("remoteId").OK(), true);
+}
+
 TEST_F(LibruntimeTest, WaitTest)
 {
     ASSERT_EQ(lr->Wait({"objId"}, 1, 0)->readyIds.size(), 1);
@@ -1012,6 +1076,11 @@ TEST_F(LibruntimeTest, GetBuffersTest)
     lr->AddReturnObject(ids);
     lr->SetError(ids[0], ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "err"));
     ASSERT_EQ(lr->GetBuffers(ids, 300, false).first.OK(), false);
+}
+
+TEST_F(LibruntimeTest, PeekObjectRefStreamTest)
+{
+    ASSERT_EQ(lr->PeekObjectRefStream("generatorId", false).first.OK(), false);
 }
 
 TEST_F(LibruntimeTest, GetFunctionGroupRunningInfoTest)
@@ -1036,8 +1105,8 @@ TEST_F(LibruntimeTest, WaitAndGetAsyncTest)
     YR::Libruntime::WaitAsyncCallback cbWait = [&waitPromise](const std::string &id, const ErrorInfo &err, void *data) {
         waitPromise.set_value(err);
     };
-
-    lr->WaitAsync("objId", cbWait, nullptr);
+    char *str = "hello";
+    lr->WaitAsync("objId", cbWait, str);
     ASSERT_EQ(waitFut.get().OK(), true);
 
     auto getPromise = std::promise<ErrorInfo>();
@@ -1045,7 +1114,7 @@ TEST_F(LibruntimeTest, WaitAndGetAsyncTest)
     YR::Libruntime::GetAsyncCallback cbGet = [&getPromise](const std::shared_ptr<DataObject> &dataObj,
                                                            const ErrorInfo &err,
                                                            void *data) { getPromise.set_value(err); };
-    lr->GetAsync("objId", cbGet, nullptr);
+    lr->GetAsync("objId", cbGet, str);
     ASSERT_EQ(getFut.get().OK(), true);
 }
 
@@ -1056,7 +1125,7 @@ TEST_F(LibruntimeTest, GetGroupInstanceIdsTest)
 
 TEST_F(LibruntimeTest, ExitTest)
 {
-    EXPECT_CALL(*this->fsIntf_, ExitAsync(_, _))
+    EXPECT_CALL(*this->gwClient_, ExitAsync(_, _))
         .WillOnce([=](const YR::Libruntime::ExitRequest &, YR::Libruntime::ExitCallBack cb) {
             if (cb != nullptr) {
                 YR::Libruntime::ExitResponse resp;
@@ -1115,9 +1184,9 @@ TEST_F(LibruntimeTest, GetThreadPoolSizeTest)
     ASSERT_EQ(lr->GetLocalThreadPoolSize(), 0);
 }
 
-TEST_F(LibruntimeTest, DISABLED_resourcegroupTest)
+TEST_F(LibruntimeTest, ResourceGroupTest)
 {
-    EXPECT_CALL(*this->fsIntf_, CreateRGroupAsync(_, _, _))
+    EXPECT_CALL(*this->gwClient_, CreateRGroupAsync(_, _, _))
         .WillOnce([=](const YR::Libruntime::CreateResourceGroupRequest &,
                       YR::Libruntime::CreateResourceGroupCallBack cb, int) {
             if (cb != nullptr) {
@@ -1127,7 +1196,7 @@ TEST_F(LibruntimeTest, DISABLED_resourcegroupTest)
                 cb(resp);
             }
         });
-    EXPECT_CALL(*this->fsIntf_, KillAsync(_, _, _))
+    EXPECT_CALL(*this->gwClient_, KillAsync(_, _, _))
         .WillOnce([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
             if (cb != nullptr) {
                 YR::Libruntime::KillResponse resp;
@@ -1190,6 +1259,8 @@ TEST_F(LibruntimeTest, KVTest)
     ASSERT_EQ(err.Code(), 0);
     auto [res4, err4] = lr->KVDel(keys);
     ASSERT_EQ(err4.Code(), 0);
+    auto [res5, err5] = lr->KVExist(keys);
+    ASSERT_EQ(err5.Code(), 0);
 }
 
 TEST_F(LibruntimeTest, TestAccelerate)
@@ -1208,6 +1279,44 @@ TEST_F(LibruntimeTest, TestIsLocalInstances)
     std::vector<std::string> instanceIds = {"instance_1", "instance_2"};
     auto ret = lr->IsLocalInstances(instanceIds);
     ASSERT_FALSE(ret);
+}
+
+TEST_F(LibruntimeTest, TestIsDsHealth)
+{
+    lr->dsClients.dsStreamStore = nullptr;
+    lr->dsClients.dsStateStore = nullptr;
+    ASSERT_TRUE(lr->IsDsHealth());
+    auto mockstateStore = std::make_shared<MockStateStore>();
+    lr->dsClients.dsStateStore = mockstateStore;
+    auto mockStreamStore = std::make_shared<MockStreamStore>();
+    lr->dsClients.dsStreamStore = mockStreamStore;
+    EXPECT_CALL(*mockstateStore, HealthCheck()).WillOnce(Return(ErrorInfo()));
+    ASSERT_TRUE(lr->IsDsHealth());
+}
+
+TEST_F(LibruntimeTest, TestIsHealth)
+{
+    lr->invokeAdaptor = nullptr;
+    ASSERT_FALSE(lr->IsHealth());
+    auto mockInvokeAdaptor = std::make_shared<MockInvokeAdaptor>();
+    lr->invokeAdaptor = mockInvokeAdaptor;
+    EXPECT_CALL(*mockInvokeAdaptor, IsHealth()).WillOnce(Return(true));
+    ASSERT_TRUE(lr->IsHealth());
+}
+
+TEST_F(LibruntimeTest, KillAsyncTest)
+{
+    auto mock_adaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
+    lr->invokeAdaptor = mock_adaptor;
+    EXPECT_CALL(*mock_adaptor, KillAsyncCB(_, _, _, _))
+        .WillOnce(Invoke([](const std::string &instanceId, const std::string &payload, int signal,
+                            std::function<void(const ErrorInfo &err)> cb) { cb(YR::Libruntime::ErrorInfo()); }));
+    auto promise = std::make_shared<std::promise<ErrorInfo>>();
+    auto f = promise->get_future();
+    lr->KillAsync("instanceId", 1, [promise](const ErrorInfo &err) { promise->set_value(err); });
+    auto status = f.wait_for(std::chrono::milliseconds(100));
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_TRUE(f.get().OK());
 }
 }  // namespace test
 }  // namespace YR

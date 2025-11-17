@@ -17,24 +17,6 @@
 """
 yr api
 """
-
-__all__ = [
-    "init", "finalize", "Config", "UserTLSConfig",
-    "put", "get",
-    "wait", "cancel", "invoke", "instance", "method", "InvokeOptions", "exit",
-    "Context", "GetParam", "GetParams",
-    "Affinity", "AffinityType", "AffinityKind", "LabelOperator", "OperatorType",
-    "kv_read", "kv_write", "kv_set", "kv_get", "kv_get_with_param", "kv_del", "kv_m_write_tx",
-    "ExistenceOpt", "WriteMode", "CacheType", "SetParam", "MSetParam", "CreateParam", "ConsistencyType",
-    "save_state", "load_state", "get_instance", "is_initialized",
-    "Gauge", "Alarm", "java_instance_class", "go_instance_class", "create_function_group",
-    "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter",
-    "FunctionGroupOptions", "SchedulingAffinityType", "FunctionGroupContext", "ServerInfo", "DeviceInfo",
-    "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
-    "FunctionProxy", "InstanceCreator", "InstanceProxy", "MethodProxy", "FunctionGroupHandler",
-    "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances"
-]
-
 import os
 import ctypes
 
@@ -64,18 +46,22 @@ for so_path in [
     except OSError:
         pass
 
+
 # E402: import not at top of file
 # We must load so before import datasystem, so the lint is not really useful
 from yr.apis import (  # noqa: E402
     init, finalize,
     put, get,
     invoke, instance, wait, cancel, method, exit,
+    create_stream_producer, create_stream_consumer, delete_stream,
     kv_read, kv_write, kv_del, kv_set, kv_get, kv_get_with_param,
-    kv_m_write_tx, kv_write_with_param, get_instance, is_initialized, save_state, load_state,
+    kv_m_write_tx, kv_write_with_param, get_instance, is_initialized,
+    query_global_producers_num, query_global_consumers_num, save_state, load_state,
     cpp_function, java_function, go_function, cpp_instance_class, java_instance_class,
     go_instance_class, resources, create_resource_group, remove_resource_group, get_node_ip_address,
     list_named_instances
 )
+
 from yr.fcc import (  # noqa: E402
     create_function_group, get_function_group_context
 )
@@ -89,9 +75,32 @@ from yr.config import (  # noqa: E402
     FunctionGroupContext, ServerInfo, DeviceInfo, ResourceGroupOptions
 )
 
-from yr.affinity import Affinity, AffinityType, AffinityKind, LabelOperator, OperatorType  # noqa: E402
+from yr.stream import ProducerConfig, SubscriptionConfig, Element  # noqa: E402
+from yr.functionsdk.function import Function  # noqa: E402
+from yr.functionsdk.context import Context  # noqa: E402
+from yr.affinity import Affinity, AffinityType, AffinityKind, AffinityScope, LabelOperator, OperatorType  # noqa: E402
 from yr.metrics import Gauge, Alarm, UInt64Counter, DoubleCounter  # noqa: E402
+
 from yr.decorator.function_proxy import FunctionProxy  # noqa: E402
 from yr.decorator.instance_proxy import (  # noqa: E402
-    InstanceCreator, InstanceProxy, MethodProxy, FunctionGroupHandler, FunctionGroupMethodProxy
-)
+    InstanceCreator, InstanceProxy, MethodProxy, FunctionGroupHandler, FunctionGroupMethodProxy)
+
+__all__ = [
+    "init", "finalize", "Config", "UserTLSConfig",
+    "put", "get",
+    "wait", "cancel", "invoke", "instance", "method", "InvokeOptions", "exit",
+    "ProducerConfig", "SubscriptionConfig", "Element",
+    "create_stream_producer", "create_stream_consumer", "delete_stream",
+    "Context", "Function", "GetParam", "GetParams",
+    "Affinity", "AffinityType", "AffinityKind", "AffinityScope", "LabelOperator", "OperatorType",
+    "kv_read", "kv_write", "kv_set", "kv_get", "kv_get_with_param", "kv_del", "kv_m_write_tx",
+    "ExistenceOpt", "WriteMode", "CacheType", "SetParam", "MSetParam", "CreateParam", "ConsistencyType",
+    "save_state", "load_state", "get_instance", "is_initialized",
+    "query_global_producers_num", "query_global_consumers_num",
+    "Gauge", "Alarm", "java_instance_class", "go_instance_class", "create_function_group",
+    "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter",
+    "FunctionGroupOptions", "SchedulingAffinityType", "FunctionGroupContext", "ServerInfo", "DeviceInfo",
+    "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
+    "FunctionProxy", "InstanceCreator", "InstanceProxy", "MethodProxy", "FunctionGroupHandler",
+    "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances"
+]

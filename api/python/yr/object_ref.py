@@ -21,8 +21,8 @@ import json
 from concurrent.futures import Future
 from typing import Any, Union
 
+from yr.exception import YRInvokeError, YRError, GeneratorFinished
 from yr.err_type import ErrorInfo, ErrorCode
-from yr.exception import YRInvokeError, YRError
 
 import yr
 from yr import log
@@ -30,20 +30,25 @@ from yr.common import constants
 
 
 def _set_future_helper(
-        result: Any,
-        *,
-        f: Union[asyncio.Future, Future],
+    result: Any,
+    *,
+    f: Union[asyncio.Future, Future],
 ):
     if f.done():
         return
 
     if isinstance(result, ErrorInfo):
+        if result.error_code == ErrorCode.ERR_GENERATOR_FINISHED.value:
+            f.set_exception(GeneratorFinished(""))
+            return
         if result.error_code != ErrorCode.ERR_OK.value:
             f.set_exception(RuntimeError(
-                f"code: {result.error_code}, module code {result.module_code}, msg: {result.msg}"))
+                    f"code: {result.error_code}, module code {result.module_code}, msg: {result.msg}"))
     elif isinstance(result, YRInvokeError):
         f.set_exception(result.origin_error())
     elif isinstance(result, YRError):
+        f.set_exception(result)
+    elif isinstance(result, RuntimeError):
         f.set_exception(result)
     else:
         f.set_result(result)
@@ -128,7 +133,7 @@ class ObjectRef:
         """
         f = Future()
         if self._exception is not None:
-            f.set_exception(RuntimeError(str(self._exception)))
+            _set_future_helper(self._exception, f=f)
             return f
         if self._data is not None:
             f.set_result(self._data)

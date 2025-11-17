@@ -43,12 +43,28 @@ public:
     virtual void Shutdown() = 0;
 
     /**
+     * @brief For device object, to async get multiple objects
+     * @param[in] objectIds multiple keys support
+     * @param[out] devBlobList vector of blobs, only modify the data pointed to by the pointer.
+     * @param[in] timeoutMs max waiting time of getting data
+     * @return future of AsyncResult, describe get ErrorInfo and failed list.
+     */
+
+    /**
+     * @brief For device object Async set multiple objects, and return before publish rpc called.
+     * @param[in] objIds multiple keys support
+     * @param[in] devBlobList vector of blobs
+     * @return future of AsyncResult, describe set ErrorInfo and failed list.
+     */
+
+    /**
      * @brief Invoke worker client to delete all the given objectId.
      * @param[in] objectIds The vector of the objId.
      * @param[out] failedObjectIds The failed delete objIds.
      * @return ERR_OK on any key success; the error code otherwise.
      */
-    virtual ErrorInfo Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) = 0;
+    virtual ErrorInfo DevDelete(const std::vector<std::string> &objectIds,
+                             std::vector<std::string> &failedObjectIds) = 0;
 
     /**
      * @brief LocalDelete interface. After calling this interface, the data replica stored in the data system by the
@@ -57,9 +73,19 @@ public:
      * @param[out] failedObjectIds Partial failures will be returned through this parameter.
      * @return ERR_OK on when return sucesss; the error code otherwise.
      */
-    virtual ErrorInfo LocalDelete(const std::vector<std::string> &objectIds,
+    virtual ErrorInfo DevLocalDelete(const std::vector<std::string> &objectIds,
                                   std::vector<std::string> &failedObjectIds) = 0;
 
+    /**
+     * @brief Initialize multipath transfer for a given target device (current context)
+     * @param[in] devices The device ids participating in the multipath transfer
+     * @return ErrorInfo of the call.
+     */
+
+    /**
+     * @brief Destroys multipath transfer for the current target device (context)
+     * @return ErrorInfo of the call.
+     */
     /**
      * @brief Subscribe data from device.
      * @param[in] keys A list of keys corresponding to the blob2dList.
@@ -90,6 +116,14 @@ public:
      */
     virtual ErrorInfo DevMSet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                               std::vector<std::string> &failedKeys) = 0;
+
+    /**
+     * @brief Retrieves Device data through prefetching, completing the operation and returning immediately, requiring
+     * combination with DevMGet
+     * @param[in] keys Keys corresponding to blob2dList
+     * @param[in] blob2dList List describing the structure of Device memory
+     * @return ERR_OK on when return sucesssfully; the error code otherwise.
+     */
 
     /**
      * @brief Retrieves data from the Device through the data system, storing it in the corresponding DeviceBlobList

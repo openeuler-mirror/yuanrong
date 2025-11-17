@@ -105,6 +105,7 @@ private:
                    int disconnectedTimeout);
     void StartDisconnectTimer(const std::string &remote, int disconnectedTimeout);
     void StopDisconnectTimer(const std::string &remote);
+    bool VerifySrcWihtAkSk(const std::multimap<grpc::string_ref, grpc::string_ref> &metadata);
 
     std::string instanceID;
     std::string runtimeID;

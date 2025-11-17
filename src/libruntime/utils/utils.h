@@ -45,6 +45,7 @@ IpAddrInfo ParseIpAddr(const std::string &addr);
 void ParseIpAddr(const std::string &addr, std::string &ip, int32_t &port);
 std::string GetIpAddr(const std::string &ip, int port);
 long long GetCurrentTimestampMs();
+long long GetCurrentTimestampNs();
 void SetCallResultWithStackTraceInfo(std::vector<YR::Libruntime::StackTraceInfo> &infos, CallResult &callResult);
 std::vector<YR::Libruntime::StackTraceInfo> GetStackTraceInfos(const NotifyRequest &req);
 void GetServerName(std::shared_ptr<YR::Libruntime::Security> security, std::string &serverName);
@@ -53,9 +54,13 @@ std::shared_ptr<grpc::ServerCredentials> GetServerCreds(std::shared_ptr<YR::Libr
 bool InstanceRangeEnabled(YR::Libruntime::InstanceRange instanceRange);
 bool ResourceGroupEnabled(YR::Libruntime::ResourceGroupOptions resourceGroupOpts);
 bool FunctionGroupEnabled(YR::Libruntime::FunctionGroupOptions options);
+int unhexlify(std::string input, char *ascii);
+void GetAuthConnectOpts(ConnectOptions &connnections, const std::string &ak, const datasystem::SensitiveValue &sk,
+                        const datasystem::SensitiveValue &token);
 std::string GetCurrentUTCTime();
 bool IsLaterThan(const std::string &timestamp1, const std::string &timestamp2, double seconds);
 std::tm ParseTimestamp(const std::string &timestamp);
+std::string GetEnvValue(const std::string &key);
 int32_t ToMs(int32_t timeoutS);
 bool WillSizeOverFlow(size_t a, size_t b);
 }  // namespace YR

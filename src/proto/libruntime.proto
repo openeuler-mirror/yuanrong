@@ -41,7 +41,9 @@ enum LanguageType {
 
 enum ApiType {
     Function = 0;
-    Posix = 1;
+    Faas = 1;
+    Posix = 2;
+    Serve = 3; 
 }
 
 enum Signal {

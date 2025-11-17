@@ -63,6 +63,10 @@ public class TestContextImpl {
         Assert.assertEquals(context.getRequestID(), "requestID");
         Assert.assertEquals(context.getTraceID(), "requestID");
         Assert.assertEquals(context.getInvokeID(), "");
+        Assert.assertNull(context.getAccessKey());
+        Assert.assertNull(context.getSecretKey());
+        Assert.assertNull(context.getToken());
+        Assert.assertNull(context.getSecurityToken());
         Assert.assertNull(context.getAlias());
         Assert.assertNull(context.getInvokeProperty());
         Assert.assertNotNull(context.getLogger());
@@ -120,16 +124,28 @@ public class TestContextImpl {
     @Test
     public void testContextInvokeParams() {
         ContextInvokeParams param = new ContextInvokeParams();
+        param.setAccessKey("ak");
+        param.setSecretKey("sk");
+        param.setSecurityAccessKey("sak");
+        param.setSecuritySecretKey("ssk");
         param.setRequestID("reqID");
         param.setInvokeID("invokeID");
+        param.setToken("token");
+        param.setSecurityToken("sToken");
         param.setAlias("alias");
         param.setWorkflowID("workflowID");
         param.setWorkflowRunID("runid");
         param.setWorkflowStateID("statID");
         param.setReqStreamName("reqStreamName");
         param.setRespStreamName("respStreamName");
+        Assert.assertEquals(param.getAccessKey(), "ak");
+        Assert.assertEquals(param.getSecretKey(), "sk");
+        Assert.assertEquals(param.getSecurityAccessKey(), "sak");
+        Assert.assertEquals(param.getSecuritySecretKey(), "ssk");
         Assert.assertEquals(param.getRequestID(), "reqID");
         Assert.assertEquals(param.getInvokeID(), "invokeID");
+        Assert.assertEquals(param.getToken(), "token");
+        Assert.assertEquals(param.getSecurityToken(), "sToken");
         Assert.assertEquals(param.getAlias(), "alias");
         Assert.assertEquals(param.getWorkflowID(), "workflowID");
         Assert.assertEquals(param.getWorkflowRunID(), "runid");

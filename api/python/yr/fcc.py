@@ -81,6 +81,7 @@ def create_function_group(
 
         class invoke example:
             >>> import yr
+            >>>
             >>> @yr.instance
             ... class Demo(object):
             ...     name = ""
@@ -91,7 +92,6 @@ def create_function_group(
             >>>     def return_name(self):
             ...         return self.name
             >>>
-            >>> yr.init()
             >>> opts = yr.FunctionGroupOptions(
             ...         cpu=1000,
             ...         memory=1000,

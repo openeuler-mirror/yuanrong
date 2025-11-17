@@ -16,15 +16,18 @@
 
 #pragma once
 
+#include <msgpack.hpp>
 #include <iostream>
 #include <memory>
 
 #include "buffer.h"
+#include "src/libruntime/utils/serializer.h"
 #include "src/utility/logger/logger.h"
 
 namespace YR {
 namespace Libruntime {
 const uint64_t MetaDataLen = 16;
+const uint64_t MetaDataTypeLen = 8;
 struct DataObject {
     DataObject() : putDone(false) {}
     DataObject(const std::string &objId) : id(objId), putDone(false) {}
@@ -80,6 +83,16 @@ struct DataObject {
     void SetNestedIds(const std::vector<std::string> &ids)
     {
         nestedObjIds = ids;
+    }
+
+    void SetMetaDataType(const uint8_t &type)
+    {
+        msgpack::sbuffer metaDataType = Serializer::Serialize(type);
+        if (metaDataType.size() <= MetaDataTypeLen) {
+            meta->MemoryCopy(metaDataType.data(), metaDataType.size());
+        } else {
+            YRLOG_ERROR("unexpect metaDataType size {}", metaDataType.size());
+        }
     }
 
     uint64_t totalSize = 0;

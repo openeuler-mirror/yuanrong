@@ -94,7 +94,8 @@ public class Strategy {
      * @param getRes the byte array list to retrieve objects from
      * @param refs   the object reference list to use for deserialization
      * @return a list of deserialized objects
-     * @throws YRException if there is an error retrieving or deserializing the objects.
+     * @throws YRException if there is an error retrieving or deserializing
+     *                            the objects
      */
     public static List<Object> getObjects(List<byte[]> getRes, List<ObjectRef> refs) throws YRException {
         LOGGER.debug("getting objects {}", refs.size());

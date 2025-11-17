@@ -18,12 +18,9 @@ package com.services.logger;
 
 import com.services.runtime.RuntimeLogger;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * UserFunctionLogger
@@ -34,15 +31,9 @@ public class UserFunctionLogger implements RuntimeLogger {
     /**
      * userLogger name at log4j2.xml
      */
-    private static final Logger logger = LogManager.getLogger("userLogger");
+    private static final Logger logger = LoggerFactory.getLogger(UserFunctionLogger.class);
 
-    private static final Set<String> LOG_LEVELS = new HashSet<>();
-
-    static {
-        LOG_LEVELS.addAll(Arrays.asList("DEBUG", "INFO", "WARN", "ERROR"));
-    }
-
-    private String logLevel = "INFO";
+    private static String logLevel = "INFO";
 
     /**
      * log with msg
@@ -54,6 +45,9 @@ public class UserFunctionLogger implements RuntimeLogger {
         switch (this.logLevel) {
             case "DEBUG":
                 this.debug(msg);
+                break;
+            case "INFO":
+                this.info(msg);
                 break;
             case "WARN":
                 this.warn(msg);
@@ -113,7 +107,7 @@ public class UserFunctionLogger implements RuntimeLogger {
      */
     @Override
     public void setLevel(String level) {
-        if (LOG_LEVELS.contains(level)) {
+        if (level.equals("DEBUG") || level.equals("INFO") || level.equals("WARN") || level.equals("ERROR")) {
             this.logLevel = level;
         }
     }

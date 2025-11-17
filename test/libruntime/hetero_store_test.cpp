@@ -80,19 +80,19 @@ TEST_F(HeteroStoreTest, ShutdownTest)
     EXPECT_NO_THROW(heteroStore_->Shutdown());
 }
 
-TEST_F(HeteroStoreTest, DeleteTest)
+TEST_F(HeteroStoreTest, DevDeleteTest)
 {
     std::vector<std::string> objIds = {"obj1", "obj2"};
     std::vector<std::string> failedObjectIds;
-    auto err = heteroStore_->Delete(objIds, failedObjectIds);
+    auto err = heteroStore_->DevDelete(objIds, failedObjectIds);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
 }
 
-TEST_F(HeteroStoreTest, LocalDeleteTest)
+TEST_F(HeteroStoreTest, DevLocalDeleteTest)
 {
     std::vector<std::string> objIds = {"obj1", "obj2"};
     std::vector<std::string> failedObjectIds;
-    auto err = heteroStore_->LocalDelete(objIds, failedObjectIds);
+    auto err = heteroStore_->DevLocalDelete(objIds, failedObjectIds);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
 }
 

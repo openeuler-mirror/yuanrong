@@ -18,6 +18,60 @@
 
 namespace YR {
 namespace Libruntime {
+using json = nlohmann::json;
+ErrorInfo ConvertStringToInsResp(InstanceResponse &resp, const std::string &bufStr)
+{
+    /*
+    bufstr pattern
+    {"funcKey":"","funcSig":"","instanceID":"","threadID":"","leaseInterval":0,
+    "errorCode":150428,"errorMessage":"","schedulerTime":30}
+    */
+    ErrorInfo err;
+    try {
+        json jsonData = json::parse(bufStr);
+        InstanceAllocation info;
+        info.functionId = jsonData["funcKey"].get<std::string>();
+        info.funcSig = jsonData["funcSig"].get<std::string>();
+        info.instanceId = jsonData["instanceID"].get<std::string>();
+        info.leaseId = jsonData["threadID"].get<std::string>();
+        info.tLeaseInterval = jsonData["leaseInterval"].get<int>();
+        resp.info = info;
+        resp.errorCode = jsonData["errorCode"].get<int>();
+        resp.errorMessage = jsonData["errorMessage"].get<std::string>();
+        resp.schedulerTime = jsonData["schedulerTime"].get<float>();
+    } catch (const std::exception &e) {
+        err.SetErrCodeAndMsg(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                             "failed parse acquire notify request");
+    }
+    return err;
+}
+
+void ConvertStringToBatchInsResp(BatchInstanceResponse &resp, const std::string &bufStr)
+{
+    try {
+        json jsonData = json::parse(bufStr);
+        resp.tLeaseInterval = jsonData["leaseInterval"].get<int>();
+        resp.schedulerTime = jsonData["schedulerTime"].get<float>();
+        auto allocSucceed = jsonData["instanceAllocSucceed"].get<std::unordered_map<std::string, json>>();
+        auto allocFailed = jsonData["instanceAllocFailed"].get<std::unordered_map<std::string, json>>();
+        for (const auto &item : allocSucceed) {
+            InstanceAllocation info;
+            info.functionId = item.second["funcKey"].get<std::string>();
+            info.funcSig = item.second["funcSig"].get<std::string>();
+            info.instanceId = item.second["instanceID"].get<std::string>();
+            info.leaseId = item.second["threadID"].get<std::string>();
+            resp.instanceAllocSucceed[item.first] = info;
+        }
+        for (const auto &item : allocFailed) {
+            InstanceAllocationFailedRsp info;
+            info.errorCode = item.second["errorCode"].get<int>();
+            info.errorMessage = item.second["errorMessage"].get<std::string>();
+            resp.instanceAllocFailed[item.first] = info;
+        }
+    } catch (const std::exception &e) {
+        YRLOG_WARN("failed to convert renew or release notify req to instance info, err msg is {}", e.what());
+    }
+}
 
 size_t GetDelayTime(size_t failedCnt)
 {
@@ -51,15 +105,9 @@ void CancelScaleDownTimer(std::shared_ptr<InstanceInfo> insInfo)
     }
 }
 
-std::shared_ptr<RequestResourceInfo> InsManager::GetRequestResourceInfo(const RequestResource &resource)
+std::shared_ptr<RequestResourceInfo> InsManager::GetOrAddRequestResourceInfo(const RequestResource &resource)
 {
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) != requestResourceInfoMap.end()) {
-            info = requestResourceInfoMap[resource];
-        }
-    }
+    auto info = GetRequestResourceInfo(resource);
     if (info == nullptr) {
         absl::WriterMutexLock lock(&insMtx);
         if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
@@ -70,9 +118,24 @@ std::shared_ptr<RequestResourceInfo> InsManager::GetRequestResourceInfo(const Re
     return info;
 }
 
+std::shared_ptr<RequestResourceInfo> InsManager::GetRequestResourceInfo(const RequestResource &resource)
+{
+    std::shared_ptr<RequestResourceInfo> info;
+    {
+        absl::ReaderMutexLock lock(&insMtx);
+        if (requestResourceInfoMap.find(resource) != requestResourceInfoMap.end()) {
+            info = requestResourceInfoMap[resource];
+        }
+    }
+    return info;
+}
+
 std::shared_ptr<InstanceInfo> InsManager::GetInstanceInfo(const RequestResource &resource, const std::string &insId)
 {
     auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return nullptr;
+    }
     std::shared_ptr<InstanceInfo> insInfo;
     {
         absl::ReaderMutexLock lock(&info->mtx);
@@ -87,7 +150,7 @@ std::shared_ptr<InstanceInfo> InsManager::GetInstanceInfo(const RequestResource 
 void InsManager::AddRequestResourceInfo(std::shared_ptr<InvokeSpec> spec)
 {
     auto resource = GetRequestResource(spec);
-    GetRequestResourceInfo(resource);
+    GetOrAddRequestResourceInfo(resource);
 }
 
 std::pair<std::string, std::string> InsManager::ScheduleInsWithDevice(const RequestResource &resource,
@@ -123,19 +186,14 @@ std::pair<std::string, std::string> InsManager::ScheduleInsWithDevice(const Requ
 }
 
 // return std::pair<insId, leaseId>
-std::pair<std::string, std::string> InsManager::ScheduleIns(const RequestResource &resource)
+std::pair<std::string, std::string> InsManager::GetAvailableIns(const RequestResource &resource)
 {
     if (!runFlag) {
         return std::make_pair("", "");
     }
-    std::shared_ptr<RequestResourceInfo> resourceInfo;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        auto pair = requestResourceInfoMap.find(resource);
-        if (pair == requestResourceInfoMap.end()) {
-            return std::make_pair("", "");
-        }
-        resourceInfo = pair->second;
+    auto resourceInfo = GetRequestResourceInfo(resource);
+    if (resourceInfo == nullptr) {
+        return std::make_pair("", "");
     }
     if (!resource.opts.device.name.empty()) {
         return ScheduleInsWithDevice(resource, resourceInfo);
@@ -165,13 +223,9 @@ std::pair<bool, std::vector<std::string>> InsManager::NeedCancelCreatingIns(cons
                                                                             size_t reqNum, bool cleanAll)
 {
     auto cancelIns = std::vector<std::string>();
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return std::make_pair(false, cancelIns);
-        }
-        info = requestResourceInfoMap[resource];
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return std::make_pair(false, cancelIns);
     }
     {
         absl::ReaderMutexLock lock(&info->mtx);
@@ -226,15 +280,12 @@ std::pair<bool, std::vector<std::string>> InsManager::NeedCancelCreatingIns(cons
     return std::make_pair(true, cancelIns);
 }
 
-std::pair<bool, size_t> InsManager::NeedCreateNewIns(const RequestResource &resource, size_t reqNum)
+std::pair<bool, size_t> InsManager::NeedCreateNewIns(const RequestResource &resource, size_t reqNum,
+                                                     bool considerWithFailNum)
 {
-    std::shared_ptr<RequestResourceInfo> resourceInsInfo;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return std::make_pair(false, 0);
-        }
-        resourceInsInfo = requestResourceInfoMap[resource];
+    auto resourceInsInfo = GetRequestResourceInfo(resource);
+    if (resourceInsInfo == nullptr) {
+        return std::make_pair(false, 0);
     }
     size_t creatingInsNum = 0;
     int createFailNum = 0;
@@ -253,22 +304,24 @@ std::pair<bool, size_t> InsManager::NeedCreateNewIns(const RequestResource &reso
     YRLOG_DEBUG("ins info: required({}) creating({}) available({}) total({}) current resource({}) ", requiredInsNum,
                 creatingInsNum, availableInsNum, totalInsNum, currentResourceInsNum);
 
-    if (createFailNum > 0 && creatingInsNum > 0) {
-        YRLOG_INFO("current createfailnum is {}, creating num is {}, no need create more ins", createFailNum,
-                   creatingInsNum);
+    if (considerWithFailNum && (createFailNum > 0 && creatingInsNum > 0)) {
+        YRLOG_INFO("current createfailnum is {}, creating num is {}, no need create more ins for function: {}",
+                   createFailNum, creatingInsNum, resource.functionMeta.functionId);
         return std::make_pair(false, 0);
     }
 
     if (requiredInsNum <= static_cast<int>(creatingInsNum) + availableInsNum) {
-        YRLOG_INFO("required ({}) < creating ({}) + available ({}); no need to create more", requiredInsNum,
-                   creatingInsNum, availableInsNum);
+        YRLOG_INFO("required ({}) < creating ({}) + available ({}); no need to create more for function: {}",
+                   requiredInsNum, creatingInsNum, availableInsNum, resource.functionMeta.functionId);
         return std::make_pair(false, 0);
     }
 
-    if (GetCreatingInstanceNum() >= libRuntimeConfig->maxConcurrencyCreateNum) {
+    auto totalCreatingNum = GetCreatingInstanceNum();
+    if (totalCreatingNum >= libRuntimeConfig->maxConcurrencyCreateNum) {
         YRLOG_INFO(
-            "total creating ins num : {} is more than max concurrency create num : {}, should not create more ins",
-            creatingInsNum, libRuntimeConfig->maxConcurrencyCreateNum);
+            "total creating ins num : {} is more than max concurrency create num : {}, should not create more ins for "
+            "function: {}",
+            totalCreatingNum, libRuntimeConfig->maxConcurrencyCreateNum, resource.functionMeta.functionId);
         return std::make_pair(false, 0);
     }
 
@@ -279,9 +332,11 @@ std::pair<bool, size_t> InsManager::NeedCreateNewIns(const RequestResource &reso
             : false;
     if (exceedMaxTaskInsNum) {
         YRLOG_INFO(
-            "creating ins num : {} is more than max concurrency create num: {} or resource ins num limit: {}, should "
-            "not create more ins",
-            creatingInsNum, libRuntimeConfig->maxTaskInstanceNum, resource.opts.maxInstances);
+            "total ins num : {} is more than max concurrency create num: {} or {} is more than resource ins num limit: "
+            "{}, should "
+            "not create more ins for function: {}",
+            totalInsNum, libRuntimeConfig->maxTaskInstanceNum, currentResourceInsNum, resource.opts.maxInstances,
+            resource.functionMeta.functionId);
         return std::make_pair(false, 0);
     }
     return std::make_pair(true, GetDelayTime(createFailNum));
@@ -297,14 +352,7 @@ int InsManager::GetRequiredInstanceNum(int reqNum, int concurrency) const
 
 void InsManager::AddCreatingInsInfo(const RequestResource &resource, std::shared_ptr<CreatingInsInfo> insInfo)
 {
-    std::shared_ptr<RequestResourceInfo> resourceInfo;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return;
-        }
-        resourceInfo = requestResourceInfoMap[resource];
-    }
+    auto resourceInfo = GetOrAddRequestResourceInfo(resource);
     IncreaseCreatingInstanceNum();
     absl::WriterMutexLock lock(&resourceInfo->mtx);
     auto &creatingInfo = resourceInfo->creatingIns;
@@ -321,16 +369,18 @@ void InsManager::AddCreatingInsInfo(const RequestResource &resource, std::shared
 bool InsManager::EraseCreatingInsInfo(const RequestResource &resource, const std::string &instanceId,
                                       bool createSuccess)
 {
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return false;
-        }
-        info = requestResourceInfoMap[resource];
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return false;
     }
-    absl::WriterMutexLock lock(&info->mtx);
-    return EraseCreatingInsInfoBare(info, instanceId, createSuccess);
+    bool isErase;
+    {
+        absl::WriterMutexLock lock(&info->mtx);
+        isErase = EraseCreatingInsInfoBare(info, instanceId, createSuccess);
+    }
+    info.reset();
+    EraseResourceInfoMap(resource);
+    return isErase;
 }
 
 bool InsManager::EraseCreatingInsInfoBare(std::shared_ptr<RequestResourceInfo> info, const std::string &instanceId,
@@ -380,13 +430,9 @@ bool InsManager::EraseCreatingInsInfoBare(std::shared_ptr<RequestResourceInfo> i
 
 void InsManager::ChangeCreateFailNum(const RequestResource &resource, bool isIncreaseOps)
 {
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return;
-        }
-        info = requestResourceInfoMap[resource];
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return;
     }
     absl::WriterMutexLock lock(&info->mtx);
     if (isIncreaseOps) {
@@ -398,20 +444,59 @@ void InsManager::ChangeCreateFailNum(const RequestResource &resource, bool isInc
 
 void InsManager::DelInsInfo(const std::string &insId, const RequestResource &resource)
 {
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return;
-        }
-        info = requestResourceInfoMap[resource];
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return;
     }
+    {
+        absl::WriterMutexLock infoLock(&info->mtx);
+        YRLOG_DEBUG("start delete ins info, ins id is {}, current totol ins num is {}", insId, GetCreatedInstanceNum());
+        if (info->instanceInfos.find(insId) != info->instanceInfos.end()) {
+            auto &insInfo = info->instanceInfos[insId];
+            CancelScaleDownTimer(insInfo);
+            DelInsInfoBare(insId, info);
+        }
+    }
+    info.reset();
+    EraseResourceInfoMap(resource);
+}
+
+void InsManager::EraseResourceInfoMap()
+{
+    auto resources = GetScheduleResources();
+    for (const auto &resource : resources) {
+        EraseResourceInfoMap(resource);
+    }
+}
+
+std::vector<RequestResource> InsManager::GetScheduleResources()
+{
+    absl::ReaderMutexLock lock(&insMtx);
+    std::vector<RequestResource> resources;
+    for (const auto &pair : requestResourceInfoMap) {
+        resources.push_back(pair.first);
+    }
+    return resources;
+}
+
+void InsManager::EraseResourceInfoMap(const RequestResource &resource, int currentCount)
+{
+    // yield avoid frequent cleaning requestResourceInfoMap
+    std::this_thread::yield();
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return;
+    }
+    absl::WriterMutexLock lock(&insMtx);
     absl::WriterMutexLock infoLock(&info->mtx);
-    YRLOG_DEBUG("start delete ins info, ins id is {}, current totol ins num is {}", insId, GetCreatedInstanceNum());
-    if (info->instanceInfos.find(insId) != info->instanceInfos.end()) {
-        auto &insInfo = info->instanceInfos[insId];
-        CancelScaleDownTimer(insInfo);
-        DelInsInfoBare(insId, info);
+    if (info->instanceInfos.empty() && info->creatingIns.empty()) {
+        // If the reference count is greater than the specified value,
+        // it indicates that other threads are operating on RequestResourceInfo,
+        // and the deletion operation should not be performed.
+        if (info.use_count() <= currentCount) {
+            YRLOG_DEBUG("remove resource info");
+            requestResourceInfoMap.erase(resource);
+        }
     }
 }
 
@@ -427,23 +512,21 @@ void InsManager::DelInsInfoBare(const std::string &insId, std::shared_ptr<Reques
 void InsManager::DecreaseUnfinishReqNum(const std::shared_ptr<InvokeSpec> spec, bool isInstanceNormal)
 {
     auto resource = GetRequestResource(spec);
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return;
-        }
-        info = requestResourceInfoMap[resource];
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return;
     }
     absl::WriterMutexLock lock(&info->mtx);
-    auto id = spec->invokeInstanceId;
+    auto id = spec->functionMeta.IsServiceApiType() ? spec->invokeLeaseId : spec->invokeInstanceId;
     if (info->instanceInfos.find(id) == info->instanceInfos.end()) {
         return;
     }
     absl::WriterMutexLock insLock(&info->instanceInfos[id]->mtx);
     auto insInfo = info->instanceInfos[id];
     insInfo->unfinishReqNum--;
-    if (insInfo->unfinishReqNum < static_cast<int>(resource.concurrency) && isInstanceNormal) {
+    if (!insInfo->leaseId.empty() && insInfo->faasInfo.tLeaseInterval <= 0) {
+        insInfo->available = false;
+    } else if (insInfo->unfinishReqNum < static_cast<int>(resource.concurrency) && isInstanceNormal) {
         insInfo->available = true;
         if (info->avaliableInstanceInfos.find(id) == info->avaliableInstanceInfos.end()) {
             info->avaliableInstanceInfos.emplace(id, insInfo);
@@ -455,13 +538,21 @@ void InsManager::DecreaseUnfinishReqNum(const std::shared_ptr<InvokeSpec> spec, 
 void InsManager::Stop()
 {
     runFlag = false;
+    {
+        absl::WriterMutexLock lock(&leaseMtx);
+        if (leaseTimer) {
+            leaseTimer->cancel();
+            leaseTimer.reset();
+        }
+    }
+    if (tw_ != nullptr) {
+        tw_->Stop();
+    }
+    tw_.reset();
     absl::WriterMutexLock lock(&insMtx);
     for (auto &pair : requestResourceInfoMap) {
         auto &requestResourceInfo = pair.second;
         absl::WriterMutexLock infoLock(&requestResourceInfo->mtx);
-        for (auto &insInfo : requestResourceInfo->instanceInfos) {
-            CancelScaleDownTimer(insInfo.second);
-        }
         requestResourceInfo->instanceInfos.clear();
         requestResourceInfo->avaliableInstanceInfos.clear();
     }
@@ -497,13 +588,9 @@ std::vector<std::string> InsManager::GetCreatingInsIds()
 
 bool InsManager::IsRemainIns(const RequestResource &resource)
 {
-    std::shared_ptr<RequestResourceInfo> resourceInsInfo;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return false;
-        }
-        resourceInsInfo = requestResourceInfoMap[resource];
+    auto resourceInsInfo = GetRequestResourceInfo(resource);
+    if (resourceInsInfo == nullptr) {
+        return false;
     }
     absl::ReaderMutexLock lock(&resourceInsInfo->mtx);
     if (resourceInsInfo->creatingIns.size() > 0 || resourceInsInfo->instanceInfos.size() > 0) {
@@ -515,6 +602,23 @@ bool InsManager::IsRemainIns(const RequestResource &resource)
 void InsManager::SetDeleleInsCallback(const DeleteInsCallback &cb)
 {
     deleteInsCallback_ = cb;
+}
+
+void InsManager::UpdateSchdulerInfo(const std::string &schedulerName, const std::string &schedulerId,
+                                    const std::string &option)
+{
+    UpdateSchedulerOption opt = stringToOption(option);
+    switch (opt) {
+        case UpdateSchedulerOption::ADD:
+            this->csHash->Add(schedulerName, schedulerId);
+            break;
+        case UpdateSchedulerOption::REMOVE:
+            this->csHash->Remove(schedulerName);
+            break;
+        case UpdateSchedulerOption::UNKNOWN:
+            YRLOG_ERROR("option: {} is not correct, do nothing about scheudler: {}", option, schedulerName);
+            break;
+    }
 }
 }  // namespace Libruntime
 }  // namespace YR

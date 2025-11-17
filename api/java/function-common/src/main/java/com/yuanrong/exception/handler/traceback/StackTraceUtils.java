@@ -18,6 +18,7 @@ package com.yuanrong.exception.handler.traceback;
 
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ErrorInfo;
+import com.yuanrong.errorcode.ModuleCode;
 import com.yuanrong.errorcode.Pair;
 import com.yuanrong.exception.YRException;
 
@@ -59,10 +60,16 @@ public class StackTraceUtils {
 
     private static final String REGEX_BEFORE = "((\\w+\\.?)+\\w+)\\.(\\w+)";
     private static final String REGEX_AFTER = "(\\w+\\.java):(\\d+)";
-    private static final String AT_PATTERN = "^\\tat.*$";
+    private static final String AT_PATTERN = "\tat";
+    private static final String SPLIT_SYMBOL = "\\(";
+    private static final String BRACKET_CLOSE_SYMBOL = ")";
 
-    private static final int METHOD_MATCHER_NUMBER = 3;
-    private static final int FILE_MATCHER_NUMBER = 2;
+
+    private static final int CLASS_NAME_INDEX = 3;
+    private static final int FILE_NAME_INDEX = 0;
+
+    private static final char CLASS_METHOD_SEPARATOR = '.';
+    private static final char FILE_INFO_SEPARATOR = ':';
 
     /**
      * Check error and throw.
@@ -72,6 +79,10 @@ public class StackTraceUtils {
      * @throws YRException the YR exception
      */
     public static void checkErrorAndThrowForInvokeException(ErrorInfo errorInfo, String msg) throws YRException {
+        if (errorInfo == null) {
+            throw new YRException(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME,
+                "unknown exception occurred, errorInfo is null, msg: " + msg);
+        }
         if (errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             return;
         }
@@ -80,12 +91,12 @@ public class StackTraceUtils {
             List<StackTraceInfo> stackTraceInfos = errorInfo.getStackTraceInfos();
             LOGGER.error("occurs exception: {}, ErrorCode:{}, stackTraceInfo number:{} ", msg, errorInfo.getErrorCode(),
                     stackTraceInfos.size());
-            if (stackTraceInfos.size() == 0) {
+            if (stackTraceInfos.isEmpty()) {
                 throw new YRException(errorInfo);
             }
             Exception exception = fromStackTraceInfoListToException(stackTraceInfos);
-            throw new YRException(errorInfo.getErrorCode(),
-                errorInfo.getModuleCode(), errorInfo.getErrorMessage(), exception);
+            throw new YRException(errorInfo.getErrorCode(), errorInfo.getModuleCode(),
+                errorInfo.getErrorMessage(), exception);
         } else {
             // process exception of yuanrong
             throw new YRException(errorInfo);
@@ -110,7 +121,7 @@ public class StackTraceUtils {
             return exp;
         } catch (ClassNotFoundException | NoSuchMethodException | SecurityException | InstantiationException
                 | IllegalAccessException | InvocationTargetException e) {
-            throw new RuntimeException("Unable to find " + className + ", messsage:" + message, e);
+            throw new RuntimeException("Unable to find " + className + ", message:" + message, e);
         }
     }
 
@@ -163,6 +174,13 @@ public class StackTraceUtils {
 
         String[] strArray = printedStackTrace.split(System.lineSeparator());
 
+        /**
+         * sometimes there is no caused by information there
+         */
+        /**
+         * java.io.IOException: Error creating file
+         *         at com.example.CalleeC.throwUncheckedException(CalleeC.java:9)
+         */
         int suppressedExceptionBeginIndex = getSuppressedExceptionBeginIndex(strArray, printedStackTrace);
         Pair<Integer, Boolean> returnValue = getRuntimeExceptionBeginIndex(strArray);
         int rtExceptionIndex = returnValue.getFirst();
@@ -176,15 +194,12 @@ public class StackTraceUtils {
             suppressedExceptionBeginIndex = 1;
         }
 
-        Pattern pattern = Pattern.compile(AT_PATTERN, Pattern.MULTILINE);
-
         if (rtExceptionIndex == strArray.length - RUNTIME_EXCEPTION_EXECUTE_COUNT) {
             // RUNTIME_EXCEPTION_BEGIN_TAG
             LOGGER.debug("rtExceptionIndex == strArray.length - RUNTIME_EXCEPTION_EXECUTE_COUNT : {}, {}",
                     rtExceptionIndex, strArray.length - RUNTIME_EXCEPTION_EXECUTE_COUNT);
             for (int j = suppressedExceptionBeginIndex; j < rtExceptionIndex; j++) {
-                Matcher matcher = pattern.matcher(strArray[j]);
-                if (!strArray[j].contains(RUNTIME_CLASS_PATH) && matcher.find()) {
+                if (!strArray[j].contains(RUNTIME_CLASS_PATH) && strArray[j].startsWith(AT_PATTERN)) {
                     result.add(stringToStackTraceEle(strArray[j].trim()));
                 }
             }
@@ -198,23 +213,20 @@ public class StackTraceUtils {
                 end = strArray.length;
             }
             for (int j = suppressedExceptionBeginIndex; j < end; j++) {
-                Matcher matcher = pattern.matcher(strArray[j]);
-                if (!strArray[j].contains(RUNTIME_CLASS_PATH) && matcher.find()) {
+                if (!strArray[j].contains(RUNTIME_CLASS_PATH) && strArray[j].startsWith(AT_PATTERN)) {
                     result.add(stringToStackTraceEle(strArray[j].trim()));
                 }
             }
         } else {
             LOGGER.debug("rtExceptionIndex and strArray.length : {}, {}", rtExceptionIndex, strArray.length);
             for (int j = suppressedExceptionBeginIndex; j < rtExceptionIndex; j++) {
-                Matcher matcher = pattern.matcher(strArray[j]);
-                if (!strArray[j].contains(RUNTIME_CLASS_PATH) && matcher.find()) {
+                if (!strArray[j].contains(RUNTIME_CLASS_PATH) && strArray[j].startsWith(AT_PATTERN)) {
                     result.add(stringToStackTraceEle(strArray[j].trim()));
                 }
             }
 
             for (int j = 1; j < rtExceptionIndex; j++) {
-                Matcher matcher = pattern.matcher(strArray[j]);
-                if (matcher.find()) {
+                if (strArray[j].startsWith(AT_PATTERN)) {
                     result.add(stringToStackTraceEle(strArray[j].trim()));
                 }
             }
@@ -231,26 +243,29 @@ public class StackTraceUtils {
      * @return the stack trace element
      */
     public static StackTraceElement stringToStackTraceEle(String elementStr) {
-        String[] splits = elementStr.split("\\(");
+        // Example: at java.lang.reflect.Method.invoke(Method.java:498)
+        String[] splits = elementStr.split(SPLIT_SYMBOL);
         if (splits.length < 2) {
             throw new RuntimeException("exception happened while parsing staceTraceElement string");
         }
-        Matcher methodMatcher = getStackMatcher(REGEX_BEFORE, splits[0]);
-        Matcher fileMatcher = getStackMatcher(REGEX_AFTER, splits[1]);
+        try {
+            // Parse method information.
+            String methodInfo = splits[0].trim();
+            int classNameEndIndex = methodInfo.lastIndexOf(CLASS_METHOD_SEPARATOR);
+            String classInfo = methodInfo.substring(CLASS_NAME_INDEX, classNameEndIndex);
+            String methodName = methodInfo.substring(classNameEndIndex + 1);
 
-        if (methodMatcher.groupCount() < METHOD_MATCHER_NUMBER || fileMatcher.groupCount() < FILE_MATCHER_NUMBER) {
-            throw new RuntimeException("exception happened while matching method and file info");
-        }
+            // Parse file information.
+            String fileInfo = splits[1].replace(BRACKET_CLOSE_SYMBOL, "").trim();
+            int fileNameEndIndex = fileInfo.lastIndexOf(FILE_INFO_SEPARATOR);
+            String fileName = fileInfo.substring(FILE_NAME_INDEX, fileNameEndIndex);
+            int lineNumber = Integer.parseInt(fileInfo.substring(fileNameEndIndex + 1));
 
-        StackTraceElement stackTrace = null;
-        if (methodMatcher.find() && fileMatcher.find()) {
-            String className = methodMatcher.group(1);
-            String methodName = methodMatcher.group(3);
-            String fileName = fileMatcher.group(1);
-            int lineNumber = Integer.parseInt(fileMatcher.group(2));
-            stackTrace = new StackTraceElement(className, methodName, fileName, lineNumber);
+            // Create StackTraceElement object.
+            return new StackTraceElement(classInfo, methodName, fileName, lineNumber);
+        } catch (StringIndexOutOfBoundsException | NumberFormatException e) {
+            return null;
         }
-        return stackTrace;
     }
 
     private static Matcher getStackMatcher(String regex, String stackStr) {

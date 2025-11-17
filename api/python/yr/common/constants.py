@@ -51,6 +51,7 @@ ENV_KEY_ENV_DELEGATE_DOWNLOAD = "ENV_DELEGATE_DOWNLOAD"
 ENV_KEY_LD_LIBRARY_PATH = "LD_LIBRARY_PATH"
 ENV_KEY_FUNCTION_LIBRARY_PATH = "YR_FUNCTION_LIB_PATH"
 
+PATTERN_FAAS_ENTRY = r'^[^/]*\.[^/]*$'  # conatains only one '.' and without '/'
 KEY_USER_INIT_ENTRY = "userInitEntry"
 KEY_USER_CALL_ENTRY = "userCallEntry"
 KEY_USER_SHUT_DOWN_ENTRY = "userShutDownEntry"
@@ -70,3 +71,5 @@ class Metadata(IntEnum):
     CROSS_LANGUAGE = 1
     PYTHON = 2
     BYTES = 3
+    MEMORYVIEW = 4
+    BYTEARRAY = 5

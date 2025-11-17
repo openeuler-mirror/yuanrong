@@ -66,7 +66,7 @@ public:
                  std::pair<ErrorInfo, std::vector<std::shared_ptr<DataObject>>>(const std::vector<std::string> &ids,
                                                                                 int timeoutMs, bool allowPartial));
 
-    MOCK_METHOD1(IncreaseReference, ErrorInfo(const std::vector<std::string> &objIds));
+    MOCK_METHOD2(IncreaseReference, ErrorInfo(const std::vector<std::string> &objIds, bool toDataSystem));
 
     MOCK_METHOD2(IncreaseReference,
                  std::pair<ErrorInfo, std::vector<std::string>>(const std::vector<std::string> &objIds,
@@ -86,8 +86,10 @@ public:
                  ErrorInfo(DataObject *returnObj, size_t metaSize, size_t dataSize,
                            const std::vector<std::string> &nestedObjIds, uint64_t &totalNativeBufferSize));
 
-    MOCK_METHOD3(CreateBuffer, std::pair<ErrorInfo, std::string>(size_t dataSize, std::shared_ptr<Buffer> &dataBuf,
-                                                                 const std::vector<std::string> &nestedObjIds));
+    MOCK_METHOD3(CreateBuffer, ErrorInfo(size_t dataSize, std::shared_ptr<Buffer> &dataBuf,
+                                         const std::vector<std::string> &nestedObjIds));
+
+    MOCK_METHOD2(CreateBuffer, std::pair<ErrorInfo, std::string>(size_t dataSize, std::shared_ptr<Buffer> &dataBuf));
 
     MOCK_METHOD3(GetBuffers,
                  std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>>(const std::vector<std::string> &ids,
@@ -117,9 +119,14 @@ public:
 
     MOCK_METHOD0(Exit, void(void));
 
+    MOCK_METHOD2(Exit, void(const int code, const std::string &message));
+
     MOCK_METHOD2(Kill, ErrorInfo(const std::string &instanceId, int sigNo));
 
     MOCK_METHOD3(Kill, ErrorInfo(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data));
+
+    MOCK_METHOD3(KillAsync,
+                 void(const std::string &instanceId, int sigNo, std::function<void(const ErrorInfo &err)> cb));
 
     MOCK_METHOD1(Finalize, void(bool isDriver));
 
@@ -154,6 +161,16 @@ public:
                  MultipleReadResult(const std::vector<std::string> &keys, const GetParams &params, int timeoutMs));
     MOCK_METHOD1(KVDel, ErrorInfo(const std::string &key));
     MOCK_METHOD1(KVDel, MultipleDelResult(const std::vector<std::string> &keys));
+
+    MOCK_METHOD1(KVExist, MultipleExistResult(const std::vector<std::string> &keys));
+
+    MOCK_METHOD3(CreateStreamProducer, ErrorInfo(const std::string &streamName, ProducerConf producerConf,
+                                                 std::shared_ptr<StreamProducer> &producer));
+    MOCK_METHOD4(CreateStreamConsumer, ErrorInfo(const std::string &streamName, const SubscriptionConfig &config,
+                                                 std::shared_ptr<StreamConsumer> &consumer, bool autoAck));
+    MOCK_METHOD1(DeleteStream, ErrorInfo(const std::string &streamName));
+    MOCK_METHOD2(QueryGlobalProducersNum, ErrorInfo(const std::string &streamName, uint64_t &gProducerNum));
+    MOCK_METHOD2(QueryGlobalConsumersNum, ErrorInfo(const std::string &streamName, uint64_t &gConsumerNum));
     MOCK_METHOD2(SaveState, ErrorInfo(const std::shared_ptr<Buffer> data, const int &timeout));
     MOCK_METHOD2(LoadState, ErrorInfo(std::shared_ptr<Buffer> &data, const int &timeout));
     MOCK_METHOD0(GetInvokingRequestId, std::string(void));
@@ -181,6 +198,9 @@ public:
     MOCK_METHOD4(GetArrayByStateStore,
                  MultipleReadResult(std::shared_ptr<StateStore> stateStore, const std::vector<std::string> &keys,
                                     int timeoutMs, bool allowPartial));
+    MOCK_METHOD3(QuerySizeByStateStore,
+                 ErrorInfo(std::shared_ptr<StateStore> stateStore, const std::vector<std::string> &keys,
+                           std::vector<uint64_t> &outSizes));
     MOCK_METHOD2(DelByStateStore, ErrorInfo(std::shared_ptr<StateStore> stateStore, const std::string &key));
     MOCK_METHOD2(DelArrayByStateStore,
                  MultipleDelResult(std::shared_ptr<StateStore> stateStore, const std::vector<std::string> &keys));
@@ -201,12 +221,20 @@ public:
     MOCK_METHOD3(WaitBeforeGet,
                  std::pair<ErrorInfo, int64_t>(const std::vector<std::string> &ids, int timeoutMs, bool allowPartial));
     MOCK_METHOD0(GetServerVersion, std::string());
+    MOCK_METHOD2(PeekObjectRefStream, std::pair<ErrorInfo, std::string>(const std::string &generatorId, bool blocking));
     MOCK_METHOD0(GetFunctionGroupRunningInfo, FunctionGroupRunningInfo());
 
+    MOCK_METHOD3(AcquireInstance,
+                 std::pair<InstanceAllocation, ErrorInfo>(const std::string &stateId, const FunctionMeta &functionMeta,
+                                                          InvokeOptions &opts));
+    MOCK_METHOD4(ReleaseInstance,
+                 ErrorInfo(const std::string &leaseId, const std::string &stateId, bool abnormal, InvokeOptions &opts));
+    MOCK_METHOD0(GetCredential, Credential());
+
     // heteroclient
-    MOCK_METHOD2(Delete,
+    MOCK_METHOD2(DevDelete,
                  ErrorInfo(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds));
-    MOCK_METHOD2(LocalDelete,
+    MOCK_METHOD2(DevLocalDelete,
                  ErrorInfo(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds));
     MOCK_METHOD3(DevSubscribe,
                  ErrorInfo(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
@@ -220,8 +248,13 @@ public:
                                     std::vector<std::string> &failedKeys, int32_t timeoutMs));
     MOCK_METHOD3(GetInstance, std::pair<YR::Libruntime::FunctionMeta, YR::Libruntime::ErrorInfo>(
                                   const std::string &name, const std::string &nameSpace, int timeoutSec));
+    MOCK_METHOD3(UpdateSchdulerInfo,
+                 void(const std::string &schedulerName, const std::string &schedulerId, const std::string &option));
     MOCK_METHOD1(GetInstanceRoute, std::string(const std::string &objectId));
     MOCK_METHOD2(SaveInstanceRoute, void(const std::string &objectId, const std::string &instanceRoute));
+    MOCK_METHOD0(GetResources, std::pair<ErrorInfo, std::vector<YR::Libruntime::ResourceUnit>>());
+    MOCK_METHOD0(IsHealth, bool());
+    MOCK_METHOD0(IsDsHealth, bool());
 };
 }  // namespace Libruntime
 }  // namespace YR

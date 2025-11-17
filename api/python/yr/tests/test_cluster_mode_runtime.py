@@ -62,6 +62,11 @@ class TestClusterModeRuntime(unittest.TestCase):
         mock_fnruntime.terminate_group.side_effect = RuntimeError("mock exception")
         mock_fnruntime.exit.side_effect = RuntimeError("mock exception")
         mock_fnruntime.receive_request_loop.side_effect = RuntimeError("mock exception")
+        mock_fnruntime.create_stream_producer.return_value = "producer"
+        mock_fnruntime.create_stream_consumer.return_value = "consumer"
+        mock_fnruntime.query_global_producers_num.return_value = 10
+        mock_fnruntime.query_global_consumers_num.return_value = 10
+        mock_fnruntime.delete_stream.side_effect = RuntimeError("mock exception")
 
         mock_fnruntime.get_real_instance_id.return_value = "get_real_instance_id"
         mock_fnruntime.save_real_instance_id.side_effect = RuntimeError("mock exception")
@@ -77,6 +82,8 @@ class TestClusterModeRuntime(unittest.TestCase):
         mock_fnruntime.set_alarm.side_effect = RuntimeError("mock exception")
         mock_fnruntime.get_value_double_counter.return_value = 0.1
         mock_fnruntime.get_value_uint64_counter.return_value = 1
+
+        mock_fnruntime.peek_object_ref_stream.return_value = "peek_object_ref_stream"
 
         mock_fnruntime.generate_group_name.return_value = "generate_group_name"
         mock_fnruntime.get_instances.return_value = ["instance1"]
@@ -119,6 +126,29 @@ class TestClusterModeRuntime(unittest.TestCase):
         self.runtime.libruntime.save_state.assert_called_once_with(10 * 1000)
         self.runtime.libruntime.load_state.assert_called_once_with(10 * 1000)
 
+    def test_stream(self):
+        with self.assertRaises(RuntimeError):
+            cfg = yr.ProducerConfig()
+            cfg.max_stream_size = -1
+            self.runtime.create_stream_producer("stream", cfg)
+        with self.assertRaises(RuntimeError):
+            cfg = yr.ProducerConfig()
+            cfg.retain_for_num_consumers = -1
+            self.runtime.create_stream_producer("stream", cfg)
+        with self.assertRaises(RuntimeError):
+            cfg = yr.ProducerConfig()
+            cfg.reserve_size = -1
+            self.runtime.create_stream_producer("stream", cfg)
+
+        self.assertEqual(self.runtime.create_stream_producer("", yr.ProducerConfig()), "producer")
+        self.assertEqual(self.runtime.create_stream_consumer("", yr.ProducerConfig()), "consumer")
+
+        self.assertEqual(self.runtime.query_global_producers_num(""), 10)
+        self.assertEqual(self.runtime.query_global_consumers_num(""), 10)
+
+        with self.assertRaises(RuntimeError):
+            self.runtime.delete_stream("")
+
     def test_instance(self):
         self.assertEqual(self.runtime.get_real_instance_id(""), "get_real_instance_id")
         self.assertEqual(self.runtime.get_instances("", "")[0], "instance1")
@@ -160,6 +190,25 @@ class TestClusterModeRuntime(unittest.TestCase):
             self.runtime.increase_global_reference([])
             self.runtime.decrease_global_reference([])
 
+    def test_invoke(self):
+        with self.assertRaises(RuntimeError):
+            meta = FunctionMeta()
+            meta.apiType = ApiType.Faas
+            args = [ObjectRef(""), "abc"]
+            self.runtime.invoke_by_name(meta, args, None, 1, None)
+
+        self.assertEqual(self.runtime.create_instance(None, [], None), "instance")
+        self.assertEqual(self.runtime.invoke_instance(None, "", [], None, 1)[0], "invoke_instance")
+
+        with self.assertRaises(RuntimeError):
+            self.runtime.cancel([], False, False)
+        self.assertTrue(self.runtime.is_object_existing_in_local(""))
+
+        self.assertEqual(self.runtime.resources(), "resources")
+        self.assertEqual(self.runtime.get_function_group_context(), "get_function_group_context")
+        self.assertEqual(self.runtime.get_instance_by_name(
+            "", "", 1), "get_instance_by_name")
+
     def test_metrics(self):
         with self.assertRaises(RuntimeError):
             self.runtime.set_uint64_counter(None)
@@ -187,6 +236,10 @@ class TestClusterModeRuntime(unittest.TestCase):
 
         self.assertEqual(self.runtime.get_value_uint64_counter(None), 1)
         self.assertEqual(self.runtime.get_value_double_counter(None), 0.1)
+
+    def test_generator(self):
+        self.assertEqual(self.runtime.peek_object_ref_stream(""), "peek_object_ref_stream")
+        self.assertEqual(self.runtime.generate_group_name(), "generate_group_name")
 
     def test_private(self):
         with self.assertRaises(RuntimeError):

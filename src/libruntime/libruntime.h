@@ -25,18 +25,24 @@
 #include "src/dto/invoke_arg.h"
 #include "src/dto/invoke_options.h"
 #include "src/dto/resource_unit.h"
+#include "src/dto/stream_conf.h"
 #include "src/libruntime/clientsmanager/clients_manager.h"
 #include "src/libruntime/connect/domain_socket_client.h"
 #include "src/libruntime/connect/message_coder.h"
 #include "src/libruntime/dependency_resolver.h"
+#include "src/libruntime/driverlog/driverlog_receiver.h"
 #include "src/libruntime/err_type.h"
+#include "src/libruntime/fiber.h"
 #include "src/libruntime/event_notify.h"
 #include "src/libruntime/fmclient/fm_client.h"
 #include "src/libruntime/fsclient/fs_client.h"
+#include "src/libruntime/generator/generator_notifier.h"
+#include "src/libruntime/generator/generator_receiver.h"
 #include "src/libruntime/invokeadaptor/invoke_adaptor.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/object_id_pool.h"
+#include "src/libruntime/streamstore/stream_producer_consumer.h"
 #include "src/libruntime/utils/constants.h"
 #include "src/libruntime/utils/security.h"
 #include "src/libruntime/waiting_object_manager.h"
@@ -214,7 +220,7 @@ public:
       @param objIds A vector of strings containing the IDs of the objects
       @return An `ErrorInfo` object indicating the success or failure of the operation
      */
-    virtual ErrorInfo IncreaseReference(const std::vector<std::string> &objIds);
+    virtual ErrorInfo IncreaseReference(const std::vector<std::string> &objIds, bool toDatasystem = true);
 
     /*!
       @brief Increases the reference count of the specified objects with a remote ID
@@ -273,6 +279,13 @@ public:
      */
     virtual std::pair<ErrorInfo, std::vector<std::string>> DecreaseReferenceRaw(const std::vector<std::string> &objIds,
                                                                                 const std::string &remoteId);
+
+    /*!
+      @brief Releases global references associated with a remote ID
+      @param remoteId The ID of the remote context
+      @return An `ErrorInfo` object indicating the success or failure of the operation
+     */
+    virtual ErrorInfo ReleaseGRefs(const std::string &remoteId);
 
     /*!
       @brief Allocates and initializes a return object with specified metadata and data sizes
@@ -388,6 +401,12 @@ public:
     virtual void Exit(void);
 
     /*!
+      @brief 退出当前上下文，调用该方法会执行函数系统客户端及数据系统客户端的优雅退出，清理相应的函数实例及数据对象
+      @throw Exception if the exit operation fails
+     */
+    virtual void Exit(const int code, const std::string &message);
+
+    /*!
       @brief 向一个函数实例或一组任务发送一个指定的信号
       @param instanceId 指定的函数实例 ID 或者任务 ID，当前仅信号2支持传入任务 ID
       @param sigNo 需要发送的信号，信号1为退出函数实例，信号2为退出任务 ID 对应的所有函数实例，详见 @ref Signal
@@ -403,6 +422,14 @@ public:
       @return error information if the operation fails
      */
     virtual ErrorInfo Kill(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data);
+
+    /*!
+    @brief 向一个函数实例或一组任务发送一个指定的信号并携带特定的数据，并通过callback返回执行结果
+    @param instanceId 指定的函数实例 ID 或者任务 ID
+    @param sigNo 需要发送的信号，信号1为退出函数实例，详见 @ref Signal
+    @param cb 执行结果的回调函数
+   */
+    virtual void KillAsync(const std::string &instanceId, int sigNo, std::function<void(const ErrorInfo &err)> cb);
 
     /*!
       @brief 结束当前上下文
@@ -538,6 +565,56 @@ public:
      */
     virtual MultipleDelResult KVDel(const std::vector<std::string> &keys);
 
+    /*!
+      @brief Deletes multiple key-value pairs from the datasystem
+      @param keys A vector of strings containing the keys to query
+      @return A `MultipleExistResult` object containing the results of the exists and error information
+     */
+    virtual MultipleExistResult KVExist(const std::vector<std::string> &keys);
+
+    /*!
+      @brief Creates a stream producer with the specified configuration
+      @param streamName The name of the stream
+      @param producerConf Configuration for the stream producer
+      @param producer A shared pointer to the `StreamProducer` to be created
+      @return An `ErrorInfo` object indicating the success or failure of the operation
+     */
+    virtual ErrorInfo CreateStreamProducer(const std::string &streamName, ProducerConf producerConf,
+                                           std::shared_ptr<StreamProducer> &producer);
+
+    /*!
+      @brief Creates a stream consumer with the specified configuration
+      @param streamName The name of the stream
+      @param config Configuration for the stream consumer
+      @param consumer A shared pointer to the `StreamConsumer` to be created
+      @param autoAck If true, automatically acknowledges consumed messages (default is false)
+      @return An `ErrorInfo` object indicating the success or failure of the operation
+     */
+    virtual ErrorInfo CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
+                                           std::shared_ptr<StreamConsumer> &consumer, bool autoAck = false);
+
+    /*!
+      @brief Deletes a stream by its name
+      @param streamName The name of the stream to delete
+      @return An `ErrorInfo` object indicating the success or failure of the operation
+     */
+    virtual ErrorInfo DeleteStream(const std::string &streamName);
+
+    /*!
+      @brief Query the number of global producers for a specific stream
+      @param streamName the name of the stream
+      @param gProducerNum the output parameter to store the number of global producers
+      @return ErrorInfo indicating the success or failure of the operation
+     */
+    virtual ErrorInfo QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum);
+
+    /*!
+      @brief Query the number of global consumers for a specific stream
+      @param streamName the name of the stream
+      @param gConsumerNum the output parameter to store the number of global consumers
+      @return ErrorInfo indicating the success or failure of the operation
+     */
+    virtual ErrorInfo QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum);
     virtual ErrorInfo SaveState(const std::shared_ptr<Buffer> data, const int &timeout);
     virtual ErrorInfo LoadState(std::shared_ptr<Buffer> &data, const int &timeout);
 
@@ -614,7 +691,7 @@ public:
       @param traceId the trace ID to set
       @return ErrorInfo indicating success or failure
     */
-    virtual ErrorInfo SetTraceId(const std::string &traceId);
+    virtual ErrorInfo SetTraceId(const std::string &traceId = "");
 
     /*!
       @brief Set the tenant ID for the current context
@@ -652,6 +729,8 @@ public:
     virtual MultipleReadResult GetArrayByStateStore(std::shared_ptr<StateStore> stateStore,
                                                     const std::vector<std::string> &keys, int timeoutMs,
                                                     bool allowPartial = false);
+    virtual ErrorInfo QuerySizeByStateStore(std::shared_ptr<StateStore> stateStore,
+                                            const std::vector<std::string> &keys, std::vector<uint64_t> &outSizes);
     virtual ErrorInfo DelByStateStore(std::shared_ptr<StateStore> stateStore, const std::string &key);
     virtual MultipleDelResult DelArrayByStateStore(std::shared_ptr<StateStore> stateStore,
                                                    const std::vector<std::string> &keys);
@@ -737,6 +816,28 @@ public:
                                const YR::Libruntime::AlarmInfo &alarmInfo);
 
     /*!
+      @brief Acquire an instance based on the state ID and function metadata
+      @param stateId the state ID of the instance
+      @param functionMeta the metadata of the function
+      @param opts the invoke options
+      @return a pair containing the instance allocation and ErrorInfo
+    */
+    virtual std::pair<InstanceAllocation, ErrorInfo> AcquireInstance(const std::string &stateId,
+                                                                     const FunctionMeta &functionMeta,
+                                                                     InvokeOptions &opts);
+
+    /*!
+      @brief Release an instance based on the lease ID and state ID
+      @param leaseId the lease ID of the instance
+      @param stateId the state ID of the instance
+      @param abnormal whether the release is due to an abnormal condition
+      @param opts the invoke options
+      @return ErrorInfo indicating the success or failure of the operation
+    */
+    virtual ErrorInfo ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
+                                      InvokeOptions &opts);
+
+    /*!
       @brief Process a function log
       @param functionLog the function log to process
       @return ErrorInfo indicating the success or failure of the operation
@@ -766,6 +867,34 @@ public:
     virtual void NotifyEvent(FiberEventNotify &event);
 
     /*!
+      @brief Peek into an ObjectRef stream to get the next value
+      @param generatorId the ID of the generator
+      @param blocking whether to block until a value is available
+      @return a pair containing ErrorInfo and the next value in the stream
+    */
+    virtual std::pair<ErrorInfo, std::string> PeekObjectRefStream(const std::string &generatorId, bool blocking);
+
+    /*!
+      @brief Notify the result of a generator
+      @param generatorId the ID of the generator
+      @param index the index of the result
+      @param resultObj the result object
+      @param resultErr the error information associated with the result
+      @return ErrorInfo indicating the success or failure of the operation
+    */
+    virtual ErrorInfo NotifyGeneratorResult(const std::string &generatorId, int index,
+                                            std::shared_ptr<DataObject> resultObj, const ErrorInfo &resultErr);
+
+    /*!
+      @brief Notify that a generator has finished producing results
+      @param generatorId the ID of the generator
+      @param numResults the number of results produced by the generator
+      @return ErrorInfo indicating the success or failure of the operation
+      @throw Exception if the generator does not exist or the operation fails
+    */
+    virtual ErrorInfo NotifyGeneratorFinished(const std::string &generatorId, int numResults);
+
+    /*!
       @brief Get the running information of a function group
       @return the running information of the function group
       @throw Exception if the function group information cannot be retrieved
@@ -788,22 +917,56 @@ public:
      */
     virtual std::pair<ErrorInfo, std::string> GetNodeIpAddress(void);
 
+    /*!
+      @brief Get the credential information
+      @return the credential information
+      @throw Exception if the credential cannot be retrieved
+    */
+    virtual Credential GetCredential();
+
+    /**
+     * @brief For device object, to async get multiple objects
+     * @param[in] objIds multiple keys support
+     * @param[out] devBlobList vector of blobs, only modify the data pointed to by the pointer.
+     * @param[in] timeoutMs max waiting time of getting data
+     * @return future of AsyncResult, describe get ErrorInfo and failed list.
+     */
+
+    /**
+     * @brief For device object Async set multiple objects, and return before publish rpc called.
+     * @param[in] objectIds multiple keys support
+     * @param[in] devBlobList vector of blobs
+     * @return future of AsyncResult, describe set ErrorInfo and failed list.
+     */
+
     /**
      * @brief Invoke worker client to delete all the given objectId.
      * @param[in] objectIds The vector of the objId.
      * @param[out] failedObjectIds The failed delete objIds.
      * @return ERR_OK on any key success; the error code otherwise.
      */
-    virtual ErrorInfo Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds);
+    virtual ErrorInfo DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds);
 
     /**
-     * @brief LocalDelete interface. After calling this interface, the data replica stored in the data system by the
+     * @brief DevLocalDelete interface. After calling this interface, the data replica stored in the data system by the
      * current client connection will be deleted.
      * @param[in] objectIds The objectIds of the data expected to be deleted.
      * @param[out] failedObjectIds Partial failures will be returned through this parameter.
      * @return ERR_OK on when return success; the error code otherwise.
      */
-    virtual ErrorInfo LocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds);
+    virtual ErrorInfo DevLocalDelete(const std::vector<std::string> &objectIds,
+                                     std::vector<std::string> &failedObjectIds);
+
+    /**
+     * @brief Initialize multipath transfer for a given target device (current context)
+     * @param[in] devices The device ids participating in the multipath transfer
+     * @return ErrorInfo of the call.
+     */
+
+    /**
+     * @brief Destroys multipath transfer for the current target device (context)
+     * @return ErrorInfo of the call.
+     */
 
     /**
      * @brief Subscribe data from device.
@@ -884,6 +1047,9 @@ public:
 
     virtual bool SetError(const std::string &objId, const ErrorInfo &err);
 
+    virtual void UpdateSchdulerInfo(const std::string &schedulerName, const std::string &schedulerId,
+                                    const std::string &option);
+
     /*!
       @brief Get the instance route of an object
       @param objectId the ID of the object
@@ -898,6 +1064,10 @@ public:
       @param instanceRoute the instance route to save
      */
     virtual void SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute);
+
+    virtual bool IsHealth();
+
+    virtual bool IsDsHealth();
 
     std::pair<ErrorInfo, std::string> GetNodeId(void);
 
@@ -916,6 +1086,7 @@ private:
     void ProcessErr(const std::shared_ptr<InvokeSpec> &spec, const ErrorInfo &errInfo);
     ErrorInfo CheckRGroupName(const std::string &vGroupName);
     ErrorInfo CheckRGroupSpec(const ResourceGroupSpec &resourceGroupSpec);
+    void AddGeneratorReceiver(std::shared_ptr<InvokeSpec> spec);
     ErrorInfo GenerateReturnObjectIds(const std::string &requestId,
                                       std::vector<YR::Libruntime::DataObject> &returnObjs);
     ErrorInfo CreateBuffer(const std::string &objectId, size_t dataSize, std::shared_ptr<Buffer> &dataBuf);
@@ -942,10 +1113,14 @@ private:
     std::shared_ptr<Security> security_;
     std::shared_ptr<RuntimeContext> runtimeContext;
     std::shared_ptr<DomainSocketClient> socketClient_;
+    std::shared_ptr<GeneratorNotifier> generatorNotifier_;
+    std::shared_ptr<GeneratorReceiver> generatorReceiver_;
+    std::shared_ptr<DriverLogReceiver> driverLogReceiver_;
     std::function<ErrorInfo()> checkSignals_ = nullptr;
     std::shared_ptr<MessageCoder> messageCoder_;
     std::shared_ptr<ResourceGroupManager> rGroupManager_;
     std::shared_ptr<ThreadPool> dispatcherThread_;
+    std::shared_ptr<YR::scene::DowngradeController> downgrade_;
 };
 
 }  // namespace Libruntime

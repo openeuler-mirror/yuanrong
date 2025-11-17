@@ -52,7 +52,9 @@ public class TestJavaInstanceFunctionHandler {
                 "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
                 "127.0.0.0",
                 "127.0.0.0",
-                "");
+                "",
+                "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+                true);
         PowerMockito.whenNew(ClusterModeRuntime.class).withAnyArguments().thenReturn(runtime);
         YR.init(conf);
     }
@@ -80,7 +82,7 @@ public class TestJavaInstanceFunctionHandler {
     }
 
     @Test
-    public void testInvokeJavaInstanceFunctionHandler() throws YRException {
+    public void testInvokeJavaInstanceFunctionHandler() throws IOException, YRException {
         JavaInstanceHandler javaInstanceHandler = new JavaInstanceHandler();
         JavaInstanceFunctionHandler<Integer> functionHandler = javaInstanceHandler.function(JavaInstanceMethod.of("Add", int.class));
         functionHandler.invoke(javaInstanceHandler);

@@ -21,7 +21,7 @@ import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Union, Optional, get_origin, Any
-from enum import IntEnum
+from enum import Enum, IntEnum
 from yr.affinity import Affinity
 
 _DEFAULT_CONNECTION_NUMS = 100
@@ -30,6 +30,7 @@ _DEFAULT_MAX_TASK_INSTANCE_NUM = -1
 _DEFAULT_MAX_CONCURRENCY_CREATE_NUM = 100
 _DEFAULT_CONCURRENCY = 1
 _DEFAULT_RECYCLE_TIME = 2
+_DEFAULT_HTTP_IOC_THREADS_NUM = 400
 _DEFAULT_RPC_TIMOUT = 30 * 60
 _MAX_INT = 0x7FFFFFFF
 _MIN_INT = 0
@@ -56,7 +57,14 @@ class UserTLSConfig:
 @dataclass
 class DeploymentConfig:
     """
-    Auto Deployment Configuration Class.
+    AutoDeploymentConfig
+
+    Attributes:
+        cpu(str): cpu acquired, the unit is millicpu
+        mem(str): mem acquiored (MB)
+        datamem(str): data system mem acquired (MB)
+        spill_path(str): spill path, when out of memory will flush data to disk
+        spill_size(str): spill size limit (MB)
     """
     cpu: int = 0
     mem: int = 0
@@ -75,6 +83,10 @@ class Config:
     function_id: str = ""
     #: Cpp function id which you deploy, get default by env `YR_CPP_FUNCID`.
     cpp_function_id: str = ""
+    #: Use default function for cpp.
+    cpp_auto_function_name: str = ""
+    #: Function name which need in runtime.
+    function_name: str = ""
     #: System cluster address, get default by env `YR_SERVER_ADDRESS`.
     server_address: str = ""
     #: DataSystem address, get default by env `YR_DS_ADDRESS`.
@@ -133,13 +145,18 @@ class Config:
     certificate_file_path: str = ""
     #: Server certificate file path.
     verify_file_path: str = ""
+    #: Client private key encryption password.
+    private_key_paaswd: str = ""
+    #: HTTP link worker thread.
+    http_ioc_threads_num: int = _DEFAULT_HTTP_IOC_THREADS_NUM
     #: Server name, used to identify and connect to a specific server instance.
     server_name: str = ""
     #: Namespace, used to organize and isolate configurations or resources.
     ns: str = ""
+    tenant_id: str = ""
     #: Whether to enable metric collection. ``False`` indicates disabled, and ``True`` indicates enabled.
-    #: The default value is ``False``. This takes effect only when called in the cluster.
-    enable_metrics: bool = False
+    #: The default value is ``True``. This takes effect only when called in the cluster.
+    enable_metrics: bool = True
     #: Used to set custom environment variables for the runtime. Currently, only `LD_LIBRARY_PATH` is supported.
     custom_envs: Dict[str, str] = field(default_factory=dict)
     #: Function master address list.
@@ -161,6 +178,13 @@ class Config:
     runtime_private_key_path: str = ""
     num_cpus: Optional[int] = None
     runtime_env: Optional[Dict[str, Any]] = None
+    #: If ``True``, the output from all of the job processes on all nodes will be directed to the driver,
+    #: default is ``False``.
+    log_to_driver: bool = False
+    #: If ``True``, deduplicates logs that appear redundantly across multiple processes, default True.
+    #: The first instance of each log message is always immediately printed. However, subsequent log
+    #: messages of the same pattern are buffered for up to five seconds and printed in batch.
+    dedup_logs: bool = True
 
 
 @dataclass
@@ -289,7 +313,7 @@ class FunctionGroupContext:
 
     #: Server info list for inter-instance communication.
     #: Default: empty list.
-    server_list: List[ServerInfo] = field(default_factory=list)
+    server_list: List['ServerInfo'] = field(default_factory=list)
 
     #: Name of the device used by this function instance, e.g., NPU/Ascend910B.
     #: Default: empty string.
@@ -392,6 +416,10 @@ class InvokeOptions:
 
     #: Labels of instance
     labels: List[str] = field(default_factory=list)
+    #: Affinity of instance
+    affinity: Dict[str, str] = field(default_factory=dict)
+    #: Specify the name of the model used by the heterogeneous function.
+    device: Device = field(default_factory=Device)
     #: Specify the time when the invoke call of the desired heterogeneous function is completed.
     max_invoke_latency: int = 5000
     #: Specify the minimum number of instances for a stateless function.
@@ -411,6 +439,8 @@ class InvokeOptions:
 
     #: Set affinity condition list.
     schedule_affinities: List[Affinity] = field(default_factory=dict)
+    #: Whether to enable data affinity scheduling.
+    is_data_affinity: bool = False
     #: Set whether to enable weak affinity priority scheduling. If enabled, when multiple weak affinity conditions are
     #: passed, match and score them in order. Scheduling is successful as soon as one condition is met.
     preferred_priority = True
@@ -478,6 +508,10 @@ class InvokeOptions:
     * `working_dir` configure the code path of the job.
     * `env_vars` configure process-level environment variables.
       ``runtime_env = {"env_vars":{"OMP_NUM_THREADS": "32", "TF_WARNINGS": "none"}}``
+    * `shared_dir` supports configuring a shared directory for some instance, with yr managing the lifecycle of this
+      shared directory. `shared_dir` supports two fields: name and TTL. The name field only allows numbers, letters,
+      "-", and "_". The TTL supports integers greater than 0 and less than INTMAX.
+      ``runtime_env = {"shared_dir":{"name": "user_define", "TTL": 5}}``
     * Constraints of `runtime_env`:
        * The keys supported by runtime_env are `conda`, `env_vars`, `pip`, `working_dir`. 
          Other keys will not take effect and will not cause errors. 
@@ -498,8 +532,28 @@ class InvokeOptions:
          the configuration in `InvokeOptions.env_vars` will be used. 
        * If `InvokeOptions.runtime_env["working_dir"]` is configured, use this configuration, 
          otherwise, use `YR.Config.working_dir` and finally use the configuration in `InvokeOptions.env_vars`.
-       * If you use conda, you need to specify the environment variable `YR_CONDA_HOME` to point to installation path. 
+       * If you use conda, you need to specify the environment variable `YR_CONDA_HOME` to point to installation path.
+       * `shared_dir` has the following constraints: 
+         1. It is not recommended to configure different TTL for the same shared directory.
+         2. The minimum cleanup interval for shared directories is 5 seconds.
+         3. When multiple yr Agents are deployed on the same node, each Agent must be configured with
+         different root directory to prevent conflicts in shared directory management.
     """
+
+    #: Whether an instance can be preempted is effective only in the priority scenario (when the maxPriority
+    #: configuration item deployed by YuanRong is greater than ``0``). The default value is ``False``.
+    preempted_allowed: bool = False
+
+    #: The priority of an instance is determined by its value. The higher the value, the higher the priority.
+    #: A high-priority instance can preempt a low-priority instance that is configured as `preempted_allowed = True`.
+    #: It only takes effect in priority scenarios (scenarios where the maxPriority configuration item of YuanRong
+    #: deployment is greater than ``0``). The minimum value of `instance_priority` is ``0`` and the maximum value
+    #: is the maxPriority configuration of YuanRong deployment. The default is ``0``.
+    instance_priority: int = 0
+
+    #: The scheduling timeout time of an instance. Unit: milliseconds. Value range:
+    #: [-1, the maximum value of the int type]. Default value: ``30000``.
+    schedule_timeout_ms: int = 30000
 
     def check_options_valid(self):
         """

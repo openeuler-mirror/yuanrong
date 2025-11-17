@@ -50,6 +50,7 @@ public:
     virtual void Write(const std::shared_ptr<StreamingMessage> &msg,
                        std::function<void(bool, ErrorInfo)> callback = nullptr,
                        std::function<void(bool)> preWrite = nullptr) = 0;
+    virtual bool IsHealth() = 0;
     void SetDiscoverDriverCb(const DiscoverDriverCb &cb)
     {
         discoverDriverCb = cb;
@@ -65,7 +66,7 @@ public:
         if (it != msgHdlrs.end()) {
             it->second(dstInstance, message);
         } else {
-            YRLOG_ERROR("Invalid received message body type {} from {}", static_cast<int>(message->body_case()),
+            YRLOG_ERROR("Invalid received message body type {} from {}", fmt::underlying(message->body_case()),
                         dstInstance);
         }
     }

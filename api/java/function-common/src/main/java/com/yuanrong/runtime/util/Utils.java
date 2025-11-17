@@ -18,8 +18,10 @@
 
 package com.yuanrong.runtime.util;
 
+import com.yuanrong.api.InvokeArg;
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ErrorInfo;
+import com.yuanrong.errorcode.ModuleCode;
 import com.yuanrong.exception.YRException;
 import com.yuanrong.exception.HandlerNotAvailableException;
 import com.yuanrong.serialization.Serializer;
@@ -33,9 +35,12 @@ import org.objectweb.asm.Type;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -208,15 +213,14 @@ public class Utils {
             }
         }
         if (Objects.isNull(parameterTypes)) {
-            String uClassName = uClass.getName();
             String errorMsg = new StringBuilder("Failed to find user-definded method: [")
-                    .append(uClassName)
+                    .append(uClass.getName())
                     .append(".")
                     .append(methodName)
                     .append(" signature: ")
                     .append(methodSignature)
                     .append("] from class ")
-                    .append(uClassName)
+                    .append(uClass.getName())
                     .append(" loaded in runtime.")
                     .toString();
             throw new IllegalArgumentException(errorMsg);
@@ -306,6 +310,43 @@ public class Utils {
     }
 
     /**
+     * The put method retry 3 times.
+     *
+     * @param objectId        the object ref ids
+     * @param putData         the id of object ref
+     * @param nestedObjectIds the nestedObjectIds that current ObjectRef depends on.
+     * @param client          dataSystem client
+     * @param interval        interval time to continuously put when spill may occur    in milliseconds
+     * @param retryTime       retry time to continuously put when spill may occur
+     * @return the boolean
+     */
+    public static boolean put(
+            String objectId,
+            ByteBuffer putData,
+            List<String> nestedObjectIds,
+            Object client,
+            long interval,
+            long retryTime) {
+        return true;
+    }
+
+    /**
+     * Get list retry 3 times.
+     *
+     * @param ids     the object ref ids
+     * @param timeout the timeout
+     * @param client  the client
+     * @return Result : the list which contains all objects got from DataSystem If
+     * some objectRef   failed to get its object, elements in the corresponding positions in
+     * the Result is null
+     * @throws YRException exception
+     */
+    public static List<?> get(List<String> ids, int timeout, Object client) throws YRException {
+        throw new YRException(ErrorCode.ERR_GET_OPERATION_FAILED, ModuleCode.DATASYSTEM,
+                "failed to retry get from dataSystem");
+    }
+
+    /**
      * Sleep seconds.
      *
      * @param timeout the timeout
@@ -351,5 +392,119 @@ public class Utils {
             LOGGER.error("{} occurs exception {}", msg, errorInfo);
             throw new YRException(errorInfo);
         }
+    }
+
+    /**
+     *  getFromJavaEnv
+     *
+     * @param key the key
+     * @return String
+     */
+    public static String getFromJavaEnv(String key) {
+        String res = "";
+        String filedName = "theUnmodifiableEnvironment";
+        try {
+            Class<?> cls = Class.forName("java.lang.ProcessEnvironment");
+            // get field and access
+            Field oldFiled = cls.getDeclaredField(filedName);
+            oldFiled.setAccessible(true);
+            // get Filed map
+            Object map = oldFiled.get(null);
+            Class<?> unmodifiableMap = Class.forName("java.util.Collections$UnmodifiableMap");
+            Field field = unmodifiableMap.getDeclaredField("m");
+            field.setAccessible(true);
+            Object obj = field.get(map);
+            res = ((Map<String, String>) obj).get(key);
+        } catch (ReflectiveOperationException e) {
+            LOGGER.error("get field: {} has an error: {}", filedName, e);
+        }
+        return res;
+    }
+
+    /**
+     * Pack the arguments to be invoked into a list of InvokeArg objects.
+     *
+     * @param args The arguments to be packed.
+     * @return A list of InvokeArg objects.
+     */
+    public static List<InvokeArg> packFaasInvokeArgs(Object... args) {
+        List<InvokeArg> invokeArgs = new ArrayList<InvokeArg>();
+        for (Object arg : args) {
+            InvokeArg invokeArg;
+            invokeArg = new InvokeArg(gson.toJson(arg).getBytes(StandardCharsets.UTF_8));
+            invokeArg.setObjectRef(false);
+            invokeArg.setNestedObjects(new HashSet<>());
+            invokeArgs.add(invokeArg);
+        }
+        return invokeArgs;
+    }
+
+    /**
+     * get method of class
+     *
+     * @param clazz Class<?>
+     * @param methodName String
+     * @return Method
+     * @throws NoSuchMethodException Exception
+     */
+    public static Method getMethod(Class<?> clazz, String methodName) throws NoSuchMethodException {
+        Method specifiedMethod = null;
+        Method[] methods = clazz.getDeclaredMethods();
+        for (Method method : methods) {
+            if (methodName.equals(method.getName())) {
+                specifiedMethod = method;
+                break;
+            }
+        }
+        if (specifiedMethod == null) {
+            throw new NoSuchMethodException("cannot find such method: " + methodName);
+        }
+        return specifiedMethod;
+    }
+
+    /**
+     * Get User Code Entry class and method
+     *
+     * @param userCodeEntry user code string
+     * @param isInitialize isInitialize
+     * @return [class, method]
+     * @throws NoSuchMethodException user code not found class or entry method
+     */
+    public static String[] splitUserClassAndMethod(String userCodeEntry, boolean isInitialize)
+            throws NoSuchMethodException {
+        if (userCodeEntry == null || userCodeEntry.isEmpty()) {
+            throw new NoSuchMethodException(USER_CODE_CLASS_NOT_FOUND);
+        }
+        return splitEntryWithSeparators(userCodeEntry,
+                new String[] {DOUBLE_COLON_SEPARATOR, String.valueOf(DOT_SEPARATOR)});
+    }
+
+    /**
+     * Get User Code Entry class and method with separator
+     *
+     * @param userCodeEntry user code string
+     * @param separator separator in [., ::]
+     * @return [class, method]
+     * @throws NoSuchMethodException user code not found separator
+     */
+    public static String[] splitEntryWithSeparators(String userCodeEntry, String[] separator)
+            throws NoSuchMethodException {
+        for (String sep : separator) {
+            int lastIndex = userCodeEntry.lastIndexOf(sep);
+            if (lastIndex == -1) {
+                continue;
+            }
+            if (String.valueOf(DOT_SEPARATOR).equals(sep)) {
+                return new String[]{userCodeEntry.substring(0, lastIndex),
+                        userCodeEntry.substring(lastIndex + 1)};
+            } else if (DOUBLE_COLON_SEPARATOR.equals(sep)) {
+                // classPath::Method  lastIndex must plus 2
+                return new String[]{userCodeEntry.substring(0, lastIndex),
+                        userCodeEntry.substring(lastIndex + 2)};
+            } else {
+                throw new NoSuchMethodException("user class and method separator invalid");
+            }
+        }
+        throw new NoSuchMethodException("cannot separate user entry: " + userCodeEntry);
     }
 }

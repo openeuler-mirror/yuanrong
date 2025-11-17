@@ -35,7 +35,8 @@ public:
 
     ErrorInfo Init(const std::string &addr, int port, bool enableDsAuth, bool encryptEnable,
                    const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                   const std::string &dsPublicKey, std::int32_t connectTimeout) override;
+                   const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
+                   const datasystem::SensitiveValue &sk, std::int32_t connectTimeout) override;
 
     ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) override;
 
@@ -59,6 +60,8 @@ public:
 
     // Get a list of objects from the datasystem.
     MultipleResult Get(const std::vector<std::string> &ids, int timeoutMS) override;
+    ErrorInfo UpdateToken(datasystem::SensitiveValue token) override;
+    ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) override;
 
     ErrorInfo IncreGlobalReference(const std::vector<std::string> &objectIds) override;
 
@@ -72,7 +75,11 @@ public:
 
     std::vector<int> QueryGlobalReference(const std::vector<std::string> &objectIds) override;
 
+    ErrorInfo ReleaseGRefs(const std::string &remoteId) override;
+
     ErrorInfo GenerateKey(std::string &key, const std::string &prefix, bool isPut) override;
+
+    ErrorInfo GetPrefix(const std::string &key, std::string &prefix) override;
 
     void SetTenantId(const std::string &tenantId) override;
 

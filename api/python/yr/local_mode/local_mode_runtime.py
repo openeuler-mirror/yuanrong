@@ -25,9 +25,11 @@ from yr.accelerate.shm_broadcast import Handle
 from yr.common.types import GroupInfo
 from yr.config import InvokeOptions
 from yr.exception import YRInvokeError
+from yr.stream import ProducerConfig, SubscriptionConfig
 from yr.common.utils import (
     generate_random_id, generate_task_id, GaugeData, UInt64CounterData, DoubleCounterData
 )
+from yr.fnruntime import Producer, Consumer
 from yr.local_mode.local_client import LocalClient
 from yr.local_mode.local_object_store import LocalObjectStore
 from yr.local_mode.task_manager import TaskManager
@@ -338,6 +340,48 @@ class LocalModeRuntime(Runtime, ABC):
         """
         self.__enable_flag = False
         self.__local_store.clear()
+
+    def create_stream_producer(self, stream_name: str, config: ProducerConfig) -> Producer:
+        """
+        create stream producer
+        :param stream_name: stream name
+        :param config: ProducerConfig
+        :return: producer
+        """
+        raise RuntimeError("not support in local mode")
+
+    def create_stream_consumer(self, stream_name: str, config: SubscriptionConfig) -> Consumer:
+        """
+        create stream consumer
+        :param stream_name: stream name
+        :param config: SubscriptionConfig
+        :return: consumer
+        """
+        raise RuntimeError("not support in local mode")
+
+    def delete_stream(self, stream_name: str) -> None:
+        """
+        delete stream
+        :param stream_name: stream name
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
+    def query_global_producers_num(self, stream_name: str) -> int:
+        """
+        query global producers num
+        :param stream_name: stream name
+        :return: producers num
+        """
+        raise RuntimeError("not support in local mode")
+
+    def query_global_consumers_num(self, stream_name: str) -> int:
+        """
+        query global consumers num
+        :param stream_name: stream name
+        :return: consumers num
+        """
+        raise RuntimeError("not support in local mode")
 
     def get_real_instance_id(self, instance_id: str) -> str:
         """

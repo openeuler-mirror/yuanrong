@@ -82,7 +82,61 @@ enum ErrorCode : int {
     ERR_FUNCTION_MASTER_NOT_CONFIGURED = 9006,
     ERR_FUNCTION_MASTER_TIMEOUT = 9007,
     ERR_CLIENT_TERMINAL_KILLED = 9008,
+    ERR_ALL_SCHEDULER_UNAVALIABLE = 9009,
+    ERR_REQ_TIMEOUT_WITHOUT_ACK = 9010,
 };
+
+const static std::unordered_map<ErrorCode, std::string> errCodeToString = {
+    {ErrorCode::ERR_OK, "ERR_OK"},
+    {ErrorCode::ERR_PARAM_INVALID, "ERR_PARAM_INVALID"},
+    {ErrorCode::ERR_RESOURCE_NOT_ENOUGH, "ERR_RESOURCE_NOT_ENOUGH"},
+    {ErrorCode::ERR_INSTANCE_NOT_FOUND, "ERR_INSTANCE_NOT_FOUND"},
+    {ErrorCode::ERR_INSTANCE_DUPLICATED, "ERR_INSTANCE_DUPLICATED"},
+    {ErrorCode::ERR_INVOKE_RATE_LIMITED, "ERR_INVOKE_RATE_LIMITED"},
+    {ErrorCode::ERR_RESOURCE_CONFIG_ERROR, "ERR_RESOURCE_CONFIG_ERROR"},
+    {ErrorCode::ERR_INSTANCE_EXITED, "ERR_INSTANCE_EXITED"},
+    {ErrorCode::ERR_EXTENSION_META_ERROR, "ERR_EXTENSION_META_ERROR"},
+    {ErrorCode::ERR_INSTANCE_SUB_HEALTH, "ERR_INSTANCE_SUB_HEALTH"},
+    {ErrorCode::ERR_GROUP_SCHEDULE_FAILED, "ERR_GROUP_SCHEDULE_FAILED"},
+    {ErrorCode::ERR_INSTANCE_EVICTED, "ERR_INSTANCE_EVICTED"},
+    {ErrorCode::ERR_USER_CODE_LOAD, "ERR_USER_CODE_LOAD"},
+    {ErrorCode::ERR_USER_FUNCTION_EXCEPTION, "ERR_USER_FUNCTION_EXCEPTION"},
+    {ErrorCode::ERR_REQUEST_BETWEEN_RUNTIME_BUS, "ERR_REQUEST_BETWEEN_RUNTIME_BUS"},
+    {ErrorCode::ERR_INNER_COMMUNICATION, "ERR_INNER_COMMUNICATION"},
+    {ErrorCode::ERR_INNER_SYSTEM_ERROR, "ERR_INNER_SYSTEM_ERROR"},
+    {ErrorCode::ERR_DISCONNECT_FRONTEND_BUS, "ERR_DISCONNECT_FRONTEND_BUS"},
+    {ErrorCode::ERR_ETCD_OPERATION_ERROR, "ERR_ETCD_OPERATION_ERROR"},
+    {ErrorCode::ERR_BUS_DISCONNECTION, "ERR_BUS_DISCONNECTION"},
+    {ErrorCode::ERR_REQUEST_BETWEEN_RUNTIME_FRONTEND, "ERR_REQUEST_BETWEEN_RUNTIME_FRONTEND"},
+    {ErrorCode::ERR_REDIS_OPERATION_ERROR, "ERR_REDIS_OPERATION_ERROR"},
+    {ErrorCode::ERR_INCORRECT_INIT_USAGE, "ERR_INCORRECT_INIT_USAGE"},
+    {ErrorCode::ERR_INIT_CONNECTION_FAILED, "ERR_INIT_CONNECTION_FAILED"},
+    {ErrorCode::ERR_DESERIALIZATION_FAILED, "ERR_DESERIALIZATION_FAILED"},
+    {ErrorCode::ERR_INSTANCE_ID_EMPTY, "ERR_INSTANCE_ID_EMPTY"},
+    {ErrorCode::ERR_GET_OPERATION_FAILED, "ERR_GET_OPERATION_FAILED"},
+    {ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, "ERR_INCORRECT_FUNCTION_USAGE"},
+    {ErrorCode::ERR_INCORRECT_CREATE_USAGE, "ERR_INCORRECT_CREATE_USAGE"},
+    {ErrorCode::ERR_INCORRECT_INVOKE_USAGE, "ERR_INCORRECT_INVOKE_USAGE"},
+    {ErrorCode::ERR_INCORRECT_KILL_USAGE, "ERR_INCORRECT_KILL_USAGE"},
+    {ErrorCode::ERR_ROCKSDB_FAILED, "ERR_ROCKSDB_FAILED"},
+    {ErrorCode::ERR_SHARED_MEMORY_LIMITED, "ERR_SHARED_MEMORY_LIMITED"},
+    {ErrorCode::ERR_OPERATE_DISK_FAILED, "ERR_OPERATE_DISK_FAILED"},
+    {ErrorCode::ERR_INSUFFICIENT_DISK_SPACE, "ERR_INSUFFICIENT_DISK_SPACE"},
+    {ErrorCode::ERR_CONNECTION_FAILED, "ERR_CONNECTION_FAILED"},
+    {ErrorCode::ERR_KEY_ALREADY_EXIST, "ERR_KEY_ALREADY_EXIST"},
+    {ErrorCode::ERR_CLIENT_ALREADY_CLOSED, "ERR_CLIENT_ALREADY_CLOSED"},
+    {ErrorCode::ERR_DATASYSTEM_FAILED, "ERR_DATASYSTEM_FAILED"},
+    {ErrorCode::ERR_DEPENDENCY_FAILED, "ERR_DEPENDENCY_FAILED"},
+    {ErrorCode::ERR_ACQUIRE_TIMEOUT, "ERR_ACQUIRE_TIMEOUT"},
+    {ErrorCode::ERR_FINALIZED, "ERR_FINALIZED"},
+    {ErrorCode::ERR_CREATE_RETURN_BUFFER, "ERR_CREATE_RETURN_BUFFER"},
+    {ErrorCode::ERR_HEALTH_CHECK_HEALTHY, "ERR_HEALTH_CHECK_HEALTHY"},
+    {ErrorCode::ERR_HEALTH_CHECK_FAILED, "ERR_HEALTH_CHECK_FAILED"},
+    {ErrorCode::ERR_HEALTH_CHECK_SUBHEALTH, "ERR_HEALTH_CHECK_SUBHEALTH"},
+    {ErrorCode::ERR_GENERATOR_FINISHED, "ERR_GENERATOR_FINISHED"},
+    {ErrorCode::ERR_FUNCTION_MASTER_NOT_CONFIGURED, "ERR_FUNCTION_MASTER_NOT_CONFIGURED"},
+    {ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, "ERR_FUNCTION_MASTER_TIMEOUT"},
+    {ErrorCode::ERR_CLIENT_TERMINAL_KILLED, "ERR_CLIENT_TERMINAL_KILLED"}};
 
 const static std::unordered_map<uint32_t, ErrorCode> datasystemErrCodeMap = {
     {1, ErrorCode::ERR_PARAM_INVALID},          {2, ErrorCode::ERR_PARAM_INVALID},
@@ -115,6 +169,7 @@ public:
           msg(err.Msg()),
           isCreate(err.IsCreate()),
           isTimeout(err.IsTimeout()),
+          isAckTimeout(err.IsAckTimeout()),
           stackTraceInfos_(std::move(err.GetStackTraceInfos())),
           dsStatusCode_(err.GetDsStatusCode())
     {
@@ -126,12 +181,17 @@ public:
         msg = err.Msg();
         isCreate = err.IsCreate();
         isTimeout = err.IsTimeout();
+        isAckTimeout = err.IsAckTimeout();
         stackTraceInfos_ = std::move(err.GetStackTraceInfos());
         dsStatusCode_ = err.GetDsStatusCode();
         return *this;
     }
 
     ErrorInfo(ErrorCode errCode, const std::string &errMsg) : code(errCode), msg(errMsg) {}
+    ErrorInfo(ErrorCode errCode, const std::string &errMsg, bool isAckTimeoutInput)
+        : code(errCode), msg(errMsg), isAckTimeout(isAckTimeoutInput)
+    {
+    }
     ErrorInfo(ErrorCode errCode, ModuleCode moduleCode, const std::string &errMsg)
         : code(errCode), mCode(moduleCode), msg(errMsg)
     {
@@ -245,9 +305,19 @@ public:
         return isTimeout;
     }
 
+    bool IsAckTimeout() const
+    {
+        return isAckTimeout;
+    }
+
     void SetIsTimeout(bool isTimeoutInput)
     {
         isTimeout = isTimeoutInput;
+    }
+
+    void SetIsAckTimeout(bool isTimeoutInput)
+    {
+        isAckTimeout = isTimeoutInput;
     }
 
     std::vector<StackTraceInfo> GetStackTraceInfos() const
@@ -267,6 +337,7 @@ private:
     bool isCreate = false;
     bool isTimeout = false;  // This information is used to exclude the timeout error when the get operation fails due
                              // to exception IDs.
+    bool isAckTimeout = false;
     std::vector<StackTraceInfo> stackTraceInfos_;
     int dsStatusCode_{0};
 };

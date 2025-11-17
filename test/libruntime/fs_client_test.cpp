@@ -58,7 +58,6 @@ public:
             .modelName = "test",
             .maxSize = 100,
             .maxFiles = 1,
-            .retentionDays = DEFAULT_RETENTION_DAYS,
             .logFileWithTime = false,
             .logBufSecs = 30,
             .maxAsyncQueueSize = 1048510,
@@ -311,7 +310,7 @@ TEST_F(FSClientGrpcTest, GrpcClientTest_KillAsync)
     DoStartGrpcClient();
 
     NotificationUtility notify;
-    auto cb = [&notify](const KillResponse &req, ErrorInfo err) -> void { notify.Notify(); };
+    auto cb = [&notify](const KillResponse &req, const ErrorInfo &err) -> void { notify.Notify(); };
 
     KillRequest req;
     fsClient_->KillAsync(req, cb, -1);
@@ -328,12 +327,34 @@ TEST_F(FSClientGrpcTest, GrpcClientTest_KillAsync)
     }
 }
 
+TEST_F(FSClientGrpcTest, GrpcClientTest_CreateRGroupAsync)
+{
+    DoStartGrpcClient();
+
+    NotificationUtility notify;
+    auto cb = [&notify](const CreateResourceGroupResponse &resp) -> void { notify.Notify(); };
+    auto reqId = YR::utility::IDGenerator::GenRequestId();
+    CreateResourceGroupRequest req;
+    req.set_requestid(reqId);
+    fsClient_->CreateRGroupAsync(req, cb, 1000);
+    StreamingMessage msg;
+    auto ret = grpcServer->Read(msg);
+    EXPECT_TRUE(ret);
+
+    CreateResourceGroupResponse resp;
+    grpcServer->Send(*GenStreamMsg(msg.messageid(), resp));
+    {
+        auto err = notify.WaitForNotification();
+        EXPECT_TRUE(err.OK());
+    }
+}
+
 TEST_F(FSClientGrpcTest, GrpcClientTest_KillAsyncTimeout)
 {
     DoStartGrpcClient();
 
     NotificationUtility notify;
-    auto cb = [&notify](const KillResponse &req, ErrorInfo e) -> void {
+    auto cb = [&notify](const KillResponse &req, const ErrorInfo &fakeErr) -> void {
         auto err = ErrorInfo(static_cast<ErrorCode>(req.code()), req.message());
         notify.Notify(err);
     };
@@ -681,7 +702,7 @@ TEST_F(FSClientGrpcTest, ReconnectTest)
     grpcServer = std::make_shared<FakeGrpcServer>(Config::Instance().HOST_IP());
     grpcServer->StartWithPort(port);
     NotificationUtility notify;
-    auto cb = [&notify](const KillResponse &req, ErrorInfo err) -> void { notify.Notify(); };
+    auto cb = [&notify](const KillResponse &req, const ErrorInfo &err) -> void { notify.Notify(); };
 
     KillRequest req;
     fsClient_->KillAsync(req, cb, -1);

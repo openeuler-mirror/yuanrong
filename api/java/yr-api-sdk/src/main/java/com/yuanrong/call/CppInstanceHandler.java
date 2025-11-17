@@ -40,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -243,6 +244,15 @@ public class CppInstanceHandler {
     public void clearHandlerInfo() {
         instanceId = "";
         className = "";
+    }
+
+    /**
+     * Release CppInstanceHandler, decrease reference.
+     *
+     * @throws YRException Unified exception types thrown.
+     */
+    public void release() throws YRException {
+        YR.getRuntime().decreaseReference(Collections.singletonList(instanceId));
     }
 
     /**

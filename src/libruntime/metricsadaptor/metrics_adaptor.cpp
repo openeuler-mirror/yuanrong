@@ -23,23 +23,33 @@
 #include "metrics/sdk/immediately_export_processor.h"
 #include "metrics/sdk/meter_provider.h"
 #include "src/dto/config.h"
-#include "src/utility/logger/fileutils.h"
 #include "src/utility/logger/logger.h"
+#include "src/utility/logger/fileutils.h"
 
 namespace YR {
 namespace Libruntime {
 const char *const IMMEDIATELY_EXPORT = "immediatelyExport";
 const char *const FILE_EXPORTER = "fileExporter";
+const char *const PROMETHEUS_PUSH_EXPORTER = "prometheusPushExporter";
+const char *const AOM_ALARM_EXPORTER = "aomAlarmExporter";
+const char *const YR_SSL_PASSPHRASE_KEY = "YR_SSL_PASSPHRASE";
 
 static std::string GetLibraryPath(const std::string &exporterType)
 {
     std::string filePath = "";
     if (exporterType == FILE_EXPORTER) {
-        filePath = Config::Instance().SNLIB_PATH() + "/libobservability-metrics-file-exporter.so";
+        filePath = Config::Instance().SNUSER_LIB_PATH() + "/libobservability-metrics-file-exporter.so";
+    } else if (exporterType == PROMETHEUS_PUSH_EXPORTER) {
+        filePath = Config::Instance().SNUSER_LIB_PATH() + "/libobservability-prometheus-push-exporter.so";
+    } else if (exporterType == AOM_ALARM_EXPORTER) {
+        filePath = Config::Instance().SNUSER_LIB_PATH() + "/libobservability-aom-alarm-exporter.so";
     }
     YRLOG_INFO("exporter {} get library path: {}", exporterType, filePath);
     return filePath;
 }
+
+std::once_flag MetricsAdaptor::initFlag;
+std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
 
 MetricsAdaptor::MetricsAdaptor() {}
 
@@ -87,7 +97,6 @@ void MetricsAdaptor::InitImmediatelyExport(const std::shared_ptr<MetricsSdk::Met
         YRLOG_DEBUG("metrics backend {} is not enabled", IMMEDIATELY_EXPORT);
         return;
     }
-    Initialized_ = true;
     std::string backendName;
     if (backendValue.find("name") != backendValue.end()) {
         backendName = backendValue.at("name");
@@ -100,7 +109,7 @@ void MetricsAdaptor::InitImmediatelyExport(const std::shared_ptr<MetricsSdk::Met
             auto labels = custom.at("labels");
             for (auto &label : labels.items()) {
                 YRLOG_DEBUG("metrics backend {} of {} add custom label, key: {}, value: {}", IMMEDIATELY_EXPORT,
-                            backendName, label.key(), label.value());
+                            backendName, label.key(), label.value().dump());
                 metricsContext_.SetAttr(label.key(), label.value());
             }
         }
@@ -132,6 +141,19 @@ void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability
             exportConfigs.exportMode = MetricsSdk::ExportMode::IMMEDIATELY;
             auto processor = std::make_shared<observability::sdk::metrics::ImmediatelyExportProcessor>(
                 std::move(exporter), exportConfigs);
+            mp->AddMetricProcessor(std::move(processor));
+        } else if (key == PROMETHEUS_PUSH_EXPORTER || key == AOM_ALARM_EXPORTER) {
+            auto &&exporter = InitHttpExporter(key, IMMEDIATELY_EXPORT, backendName, value);
+            if (exporter == nullptr) {
+                YRLOG_ERROR("Failed to init exporter {}", key);
+                continue;
+            }
+            Initialized_ = true;
+            auto exportConfigs = BuildExportConfigs(value);
+            exportConfigs.exporterName = key;
+            exportConfigs.exportMode = MetricsSdk::ExportMode::IMMEDIATELY;
+            auto processor =
+                std::make_shared<MetricsSdk::ImmediatelyExportProcessor>(std::move(exporter), exportConfigs);
             mp->AddMetricProcessor(std::move(processor));
         } else {
             YRLOG_WARN("unknown exporter name: {}", key);
@@ -174,6 +196,14 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitHttpExporter(con
             initConfigJson["rootCertFile"] = Config::Instance().YR_SSL_ROOT_FILE();
             initConfigJson["certFile"] = Config::Instance().YR_SSL_CERT_FILE();
             initConfigJson["keyFile"] = Config::Instance().YR_SSL_KEY_FILE();
+            auto ret = std::getenv(YR_SSL_PASSPHRASE_KEY);
+            if (ret != nullptr) {
+                initConfigJson["passphrase"] = ret;
+                const int replaceOpt = 1;
+                setenv(YR_SSL_PASSPHRASE_KEY, "", replaceOpt);
+            } else {
+                YRLOG_WARN("can not get metrics passphrase from env.");
+            }
         }
         try {
             initConfig = initConfigJson.dump();
@@ -210,7 +240,7 @@ const MetricsSdk::ExportConfigs MetricsAdaptor::BuildExportConfigs(const nlohman
     }
     if (exporterValue.contains("enabledInstruments")) {
         for (auto &it : exporterValue.at("enabledInstruments").items()) {
-            YRLOG_INFO("Enabled instrument: {}", it.value());
+            YRLOG_INFO("Enabled instrument: {}", it.value().dump());
             exportConfigs.enabledInstruments.insert(it.value().get<std::string>());
         }
     }
@@ -550,6 +580,7 @@ ErrorInfo MetricsAdaptor::ReportAlarm(const std::string &name, const std::string
                          "can not find alarm name");
     }
     MetricsApi::AlarmInfo metricsAlarmInfo;
+    metricsAlarmInfo.id = alarmInfo.id;
     metricsAlarmInfo.alarmName = alarmInfo.alarmName;
     metricsAlarmInfo.alarmSeverity = static_cast<MetricsApi::AlarmSeverity>(alarmInfo.alarmSeverity);
     metricsAlarmInfo.locationInfo = alarmInfo.locationInfo;
@@ -611,7 +642,7 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitFileExporter(
         }
         if (!YR::utility::ExistPath(initConfigJson.at("fileDir")) &&
             !YR::utility::Mkdir(initConfigJson.at("fileDir"))) {
-            YRLOG_ERROR("failed to mkdir{} for exporter {} for backend {} of {}", initConfigJson.at("fileDir"),
+            YRLOG_ERROR("failed to mkdir{} for exporter {} for backend {} of {}", initConfigJson.at("fileDir").dump(),
                         FILE_EXPORTER, backendKey, backendName);
             return nullptr;
         }
@@ -631,6 +662,10 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitFileExporter(
 
 std::string MetricsAdaptor::GetMetricsFilesName(const std::string &backendName)
 {
+    // file reporting is not supported currently,this function is not implemented.
+    if (backendName == "ds_alarm") {
+        return backendName + ".alarm.dat";
+    }
     return backendName + "-metrics.data";
 }
 }  // namespace Libruntime

@@ -33,6 +33,8 @@ public abstract class Response {
 
     private String logResult;
 
+    private long userFuncTime;
+
     /**
      * setBody
      *

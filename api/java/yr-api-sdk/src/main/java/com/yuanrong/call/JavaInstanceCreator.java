@@ -106,14 +106,15 @@ public class JavaInstanceCreator {
         JavaInstanceHandler javaInstanceHandler = new JavaInstanceHandler(instanceId, functionID,
             this.javaInstanceClass.className);
         javaInstanceHandler.setNeedOrder(options.isNeedOrder());
-        runtime.collectInstanceHandlerInfo(javaInstanceHandler);
         return javaInstanceHandler;
     }
 
     /**
      * When Java calls a Java stateful function, set the functionUrn for the function.
      *
-     * @param urn functionUrn, can be obtained after the function is deployed.
+     * @param urn functionUrn, can be obtained after the function is deployed. The tenant ID in the function urn must be
+     *            consistent with the tenant ID configured in the config. For information about tenant ID configuration,
+     *            see "About tenant ID" in Config.
      * @return JavaInstanceCreator, with built-in invoke method, can create instances of this Java function class.
      *
      * @snippet{trimleft} SetUrnExample.java set urn of java invoke java stateful function

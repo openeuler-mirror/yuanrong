@@ -18,6 +18,7 @@ package com.yuanrong;
 
 import com.yuanrong.affinity.Affinity;
 import com.yuanrong.affinity.AffinityKind;
+import com.yuanrong.affinity.AffinityScope;
 import com.yuanrong.affinity.AffinityType;
 import com.yuanrong.affinity.LabelOperator;
 import com.yuanrong.runtime.util.Constants;
@@ -300,7 +301,7 @@ public class InvokeOptions {
          * @param val the customExtensions value
          * @return InvokeOptions Builder class object.
          */
-        public Builder addCustomExtensions(String key, String val) {
+        public Builder addCustomExtension(String key, String val) {
             if (Constants.POST_START_EXEC.equals(key)) {
                 options.createOptions.put(key, val);
                 return this;
@@ -354,6 +355,20 @@ public class InvokeOptions {
          */
         public Builder addInstanceAffinity(AffinityType type, List<LabelOperator> operators) {
             options.scheduleAffinities.add(new Affinity(AffinityKind.INSTANCE, type, operators));
+            return this;
+        }
+
+        /**
+         * set the scheduleAffinities with AffinityKind.INSTANCE and affinityScope
+         *
+         * @param type the affinity type
+         * @param operators the affinity operators
+         * @param affinityScope the affinity scope
+         * @return InvokeOptions Builder class object.
+         */
+        public Builder addInstanceAffinity(AffinityType type, List<LabelOperator> operators,
+            AffinityScope affinityScope) {
+            options.scheduleAffinities.add(new Affinity(AffinityKind.INSTANCE, type, operators, affinityScope));
             return this;
         }
 

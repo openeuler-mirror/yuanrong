@@ -29,6 +29,9 @@
 #include "yr/api/future.h"
 #include "yr/api/invoke_arg.h"
 #include "yr/api/invoke_options.h"
+#include "yr/api/mutable_buffer.h"
+#include "yr/api/node.h"
+#include "yr/api/stream.h"
 #include "yr/api/wait_result.h"
 
 namespace YR {
@@ -316,6 +319,8 @@ public:
     virtual std::string Put(std::shared_ptr<msgpack::sbuffer> data,
                             const std::unordered_set<std::string> &nestedObjectIds) = 0;
 
+    virtual std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedObjectIds) = 0;
+
     virtual void Put(const std::string &objId, std::shared_ptr<msgpack::sbuffer> data,
                      const std::unordered_set<std::string> &nestedId) = 0;
 
@@ -344,7 +349,21 @@ public:
 
     virtual std::vector<std::string> KVDel(const std::vector<std::string> &keys, const DelParam &delParam = {}) = 0;
 
-    virtual void IncreGlobalReference(const std::vector<std::string> &objectIds) = 0;
+    virtual std::vector<bool> KVExist(const std::vector<std::string> &keys) = 0;
+
+    virtual std::shared_ptr<Producer> CreateStreamProducer(const std::string &streamName,
+                                                           ProducerConf producerConf) = 0;
+
+    virtual std::shared_ptr<Consumer> CreateStreamConsumer(const std::string &streamName,
+                                                           const SubscriptionConfig &config, bool autoAck = false) = 0;
+
+    virtual void DeleteStream(const std::string &streamName) = 0;
+
+    virtual void QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum) = 0;
+
+    virtual void QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum) = 0;
+
+    virtual void IncreGlobalReference(const std::vector<std::string> &objectIds, bool toDatasystem = true) = 0;
 
     virtual void DecreGlobalReference(const std::vector<std::string> &objectIds) = 0;
 
@@ -384,9 +403,10 @@ public:
 
     virtual void LoadState(const int &timeout) = 0;
 
-    virtual void Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) = 0;
+    virtual void DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) = 0;
 
-    virtual void LocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) = 0;
+    virtual void DevLocalDelete(const std::vector<std::string> &objectIds,
+                                std::vector<std::string> &failedObjectIds) = 0;
 
     virtual void DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                               std::vector<std::shared_ptr<YR::Future>> &futureVec) = 0;
@@ -403,22 +423,33 @@ public:
     virtual std::string Put(std::shared_ptr<msgpack::sbuffer> data,
                             const std::unordered_set<std::string> &nestedObjectIds, const CreateParam &createParam) = 0;
 
+    virtual std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedObjectIds,
+                            const CreateParam &createParam) = 0;
+
     virtual void KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, SetParamV2 setParam) = 0;
 
     virtual void KVMSetTx(const std::vector<std::string> &keys,
                           const std::vector<std::shared_ptr<msgpack::sbuffer>> &vals, const MSetParam &mSetParam) = 0;
 
     virtual internal::FuncMeta GetInstance(const std::string &name, const std::string &nameSpace, int timeoutSec) = 0;
-    
+
     virtual std::string GetGroupInstanceIds(const std::string &objectId) = 0;
 
     virtual void SaveGroupInstanceIds(const std::string &objectId, const std::string &groupInsIds,
                                       const InvokeOptions &opts) = 0;
-    
+
     virtual std::string GetInstanceRoute(const std::string &objectId) = 0;
 
     virtual void SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute) = 0;
 
     virtual void TerminateInstanceSync(const std::string &instanceId) = 0;
+
+    virtual std::vector<Node> Nodes() = 0;
+
+    virtual std::shared_ptr<MutableBuffer> CreateMutableBuffer(uint64_t size) = 0;
+
+    virtual std::vector<std::shared_ptr<MutableBuffer>> GetMutableBuffer(const std::vector<std::string> &ids,
+                                                                         int timeout) = 0;
+    virtual std::shared_future<void> TerminateInstanceAsync(const std::string &instanceId, bool isSync) = 0;
 };
 }  // namespace YR

@@ -57,13 +57,13 @@ public:
       }
       @endcode
     */
-    static void Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+    static void DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
     {
         CheckInitialized();
         if (YR::internal::IsLocalMode()) {
             throw HeteroException::IncorrectFunctionUsageException("Delete is not supported in local mode");
         }
-        YR::internal::GetRuntime()->Delete(objectIds, failedObjectIds);
+        YR::internal::GetRuntime()->DevDelete(objectIds, failedObjectIds);
     }
 
     /*!
@@ -93,13 +93,13 @@ public:
       }
       @endcode
     */
-    static void LocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+    static void DevLocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
     {
         CheckInitialized();
         if (YR::internal::IsLocalMode()) {
             throw HeteroException::IncorrectFunctionUsageException("LocalDelete is not supported in local mode");
         }
-        YR::internal::GetRuntime()->LocalDelete(objectIds, failedObjectIds);
+        YR::internal::GetRuntime()->DevLocalDelete(objectIds, failedObjectIds);
     }
 
     /*!

@@ -1,0 +1,180 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package common for tools
+package common
+
+import (
+	"encoding/json"
+	"flag"
+	"os"
+	"sync"
+
+	"github.com/magiconair/properties"
+	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
+
+	"yuanrong.org/kernel/runtime/libruntime/common/faas/logger"
+	"yuanrong.org/kernel/runtime/libruntime/common/logger/config"
+)
+
+const (
+	defaultConfigPath              = "/home/sn/config/runtime.json"
+	defaultMaxConcurrencyCreateNum = 100
+)
+
+var (
+	configSingleton = struct {
+		sync.Once
+		path string
+		ac   *AuthContext
+		cfg  *Configuration
+	}{}
+)
+
+// Configuration to save config
+type Configuration struct {
+	RuntimeID                       string
+	InstanceID                      string
+	FunctionName                    string
+	LogLevel                        string
+	GrpcAddress                     string
+	FSAddress                       string
+	LogPath                         string
+	JobID                           string
+	DriverMode                      bool
+	EnableMTLS                      bool
+	PrivateKeyPath                  string
+	CertificateFilePath             string
+	VerifyFilePath                  string
+	PrivateKeyPaaswd                string
+	SystemAuthAccessKey             string
+	SystemAuthSecretKey             string
+	EncryptPrivateKeyPasswd         string
+	PrimaryKeyStoreFile             string
+	StandbyKeyStoreFile             string
+	EnableDsEncrypt                 bool
+	RuntimePublicKeyContext         string
+	RuntimePrivateKeyContext        string
+	DsPublicKeyContext              string
+	EncryptRuntimePublicKeyContext  string
+	EncryptRuntimePrivateKeyContext string
+	EncryptDsPublicKeyContext       string
+	MaxConcurrencyCreateNum         int
+	EnableSigaction                 bool
+}
+
+func initConfig() {
+	configSingleton.Do(
+		func() {
+			configSingleton.cfg = &Configuration{}
+			flag.StringVar(&configSingleton.cfg.RuntimeID, "runtimeId", "", "")
+			flag.StringVar(&configSingleton.cfg.InstanceID, "instanceId", "", "")
+			flag.StringVar(&configSingleton.cfg.FunctionName, "functionName", "", "")
+			flag.StringVar(&configSingleton.cfg.LogLevel, "logLevel", "", "")
+			flag.StringVar(&configSingleton.cfg.GrpcAddress, "grpcAddress", "", "")
+			flag.StringVar(&configSingleton.cfg.FSAddress, "functionSystemAddress", "", "")
+			flag.StringVar(&configSingleton.path, "runtimeConfigPath", defaultConfigPath, "")
+			flag.StringVar(&configSingleton.cfg.LogPath, "logPath", "", "")
+			flag.StringVar(&configSingleton.cfg.JobID, "jobId", "12345678", "")
+			flag.BoolVar(&configSingleton.cfg.DriverMode, "driverMode", false, "")
+			flag.BoolVar(&configSingleton.cfg.EnableMTLS, "enableMTLS", false, "")
+			flag.StringVar(&configSingleton.cfg.PrivateKeyPath, "privateKeyPath", "", "")
+			flag.StringVar(&configSingleton.cfg.CertificateFilePath, "certificateFilePath", "", "")
+			flag.StringVar(&configSingleton.cfg.VerifyFilePath, "verifyFilePath", "", "")
+			flag.StringVar(&configSingleton.cfg.EncryptPrivateKeyPasswd, "encryptPrivateKeyPasswd", "", "")
+			flag.StringVar(&configSingleton.cfg.PrimaryKeyStoreFile, "primaryKeyStoreFile", "", "")
+			flag.StringVar(&configSingleton.cfg.StandbyKeyStoreFile, "standbyKeyStoreFile", "", "")
+			flag.BoolVar(&configSingleton.cfg.EnableDsEncrypt, "enableDsEncrypt", false, "")
+			flag.StringVar(&configSingleton.cfg.EncryptRuntimePublicKeyContext, "encryptRuntimePublicKeyContext", "", "")
+			flag.StringVar(&configSingleton.cfg.EncryptRuntimePrivateKeyContext, "encryptRuntimePrivateKeyContext", "", "")
+			flag.StringVar(&configSingleton.cfg.EncryptDsPublicKeyContext, "encryptDsPublicKeyContext", "", "")
+			flag.IntVar(&configSingleton.cfg.MaxConcurrencyCreateNum, "maxConcurrencyCreateNum",
+				defaultMaxConcurrencyCreateNum, "")
+			flag.Parse()
+			setConfigSingletonCfg(&configSingleton.cfg.RuntimeID, "YR_RUNTIME_ID")
+			setConfigSingletonCfg(&configSingleton.cfg.InstanceID, "INSTANCE_ID")
+			setConfigSingletonCfg(&configSingleton.cfg.FunctionName, "FUNCTION_NAME")
+			setConfigSingletonCfg(&configSingleton.cfg.LogLevel, "YR_LOG_LEVEL")
+			setConfigSingletonCfg(&configSingleton.cfg.GrpcAddress, "POSIX_LISTEN_ADDR")
+			setConfigSingletonCfg(&configSingleton.cfg.LogPath, "GLOG_log_dir")
+			setConfigSingletonCfg(&configSingleton.cfg.JobID, "YR_JOB_ID")
+			loadSTSConfig(configSingleton.path)
+			configSingleton.cfg.EnableSigaction = true
+		},
+	)
+}
+
+func setConfigSingletonCfg(fieldValue *string, envValue string) {
+	if *fieldValue == "" {
+		*fieldValue = os.Getenv(envValue)
+	}
+}
+
+// GetConfig to parse args
+func GetConfig() *Configuration {
+	initConfig()
+	config.LogLevelFromFlag = configSingleton.cfg.LogLevel
+	return configSingleton.cfg
+}
+
+func loadSTSConfig(configPath string) {
+	if configPath == "" {
+		return
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		logger.GetLogger().Warnf("read config failed, err %s", err.Error())
+		return
+	}
+	c := &GlobalConfig{}
+	err = json.Unmarshal(data, c)
+	if err != nil {
+		logger.GetLogger().Warnf("unmarshal config failed, err %s", err.Error())
+		return
+	}
+	if !c.RawStsConfig.StsEnable {
+		return
+	}
+	stsProperties := properties.LoadMap(
+		map[string]string{
+			"sts.server.domain": c.RawStsConfig.ServerConfig.Domain,
+			"sts.config.path":   c.RawStsConfig.ServerConfig.Path,
+		},
+	)
+	err = stsgoapi.InitWith(*stsProperties)
+	if err != nil {
+		logger.GetLogger().Warnf("failed to init sts sdk, error %s\n", err.Error())
+		return
+	}
+	enableIam, ok := c.RawStsConfig.SensitiveConfigs.Auth["enableIam"]
+	if !ok || enableIam != "true" {
+		logger.GetLogger().Warnf("enable iam is not true")
+		return
+	}
+	ak, err := stsgoapi.DecryptSensitiveConfig(c.RawStsConfig.SensitiveConfigs.Auth["accessKey"])
+	if err != nil {
+		logger.GetLogger().Warnf("failed to get accessKey, error %s\n", err.Error())
+		return
+	}
+	sk, err := stsgoapi.DecryptSensitiveConfig(c.RawStsConfig.SensitiveConfigs.Auth["secretKey"])
+	if err != nil {
+		logger.GetLogger().Warnf("failed to get secretKey, error %s\n", err.Error())
+		return
+	}
+	logger.GetLogger().Infof("init system auth info success, ak: %s", string(ak))
+	configSingleton.cfg.SystemAuthAccessKey = string(ak)
+	configSingleton.cfg.SystemAuthSecretKey = string(sk)
+}

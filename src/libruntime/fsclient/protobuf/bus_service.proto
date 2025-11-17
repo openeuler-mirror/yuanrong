@@ -24,6 +24,10 @@ option go_package = "grpc/pb/bus;bus";
 
 // bus service provides APIs to runtime,
 service BusService {
+  // notify bus to connect frontend
+  rpc DiscoverFrontend (DiscoverFrontendRequest) returns (DiscoverFrontendResponse) {}
+  // query instance info from frontend
+  rpc QueryInstance (QueryInstanceRequest) returns (QueryInstanceResponse) {}
   // notify bus to connect driver
   rpc DiscoverDriver (DiscoverDriverRequest) returns (DiscoverDriverResponse) {}
 }
@@ -42,6 +46,13 @@ message DiscoverDriverResponse {
   string     nodeId        = 3;
   string     hostIp        = 4;
 }
+
+message DiscoverFrontendRequest {
+  string     frontendIP = 1;
+  string     frontendPort = 2;
+}
+
+message DiscoverFrontendResponse {}
 
 message QueryInstanceRequest {
   string instanceID = 1;

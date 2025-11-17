@@ -18,6 +18,7 @@
 
 #include "src/dto/config.h"
 #include "src/dto/status.h"
+#include "src/libruntime/traceadaptor/trace_adapter.h"
 #include "src/libruntime/utils/utils.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/notification_utility.h"
@@ -162,7 +163,8 @@ std::pair<std::shared_ptr<WiredRequest>, bool> FSIntfImpl::UpdateRetryInterval(c
     auto wr = it->second;
     ++wr->retryCount;
     wr->remainTimeoutSec -= wr->retryIntervalSec;
-    if (wr->remainTimeoutSec <= 0) {  // Current is not need to retry, because there is no time to wait response.
+    // Current is not need to retry, because there is no time to wait response.
+    if (wr->remainTimeoutSec <= 0 && !wr->ackReceived) {
         wiredRequests.erase(it);
         return std::make_pair(wr, true);
     }
@@ -205,8 +207,9 @@ bool FSIntfImpl::NeedRepeat(const std::string requestId)
     auto [wr, expired] = UpdateRetryInterval(requestId);
     if (expired) {
         if (wr != nullptr && wr->callback != nullptr) {
-            YRLOG_ERROR("RPC request retry expired. request ID: {}", requestId);
+            YRLOG_ERROR("RPC request retry expired, request ID: {}, is ack received: {}", requestId, wr->ackReceived);
             ErrorInfo err(ERR_REQUEST_BETWEEN_RUNTIME_BUS, "Response timeout, request ID is " + requestId);
+            err.SetIsAckTimeout(true);
             StreamingMessage fake;
             wr->callback(fake, err, [this, requestId](bool needEraseWiredReq) {
                 if (needEraseWiredReq) {
@@ -216,12 +219,10 @@ bool FSIntfImpl::NeedRepeat(const std::string requestId)
         }
         return false;
     }
-
     if (wr && wr->ackReceived) {
         YRLOG_DEBUG(" {} has received ack, no need retry", requestId);
         return false;
     }
-
     return true;
 }
 
@@ -232,11 +233,12 @@ void FSIntfImpl::WriteCallback(const std::string requestId, const ErrorInfo &err
     }
 
     if (IsCommunicationError(::common::ErrorCode(err.Code()))) {
-        YRLOG_ERROR("Communicate fails for request({}) errcode({}), msg({})", requestId, err.Code(), err.Msg());
+        YRLOG_ERROR("Communicate fails for request({}) errcode({}), msg({})", requestId, fmt::underlying(err.Code()),
+                    err.Msg());
         return;
     }
-    YRLOG_DEBUG("send grpc request failed for request: {}, err code is {}, err msg is {}", requestId, err.Code(),
-                err.Msg());
+    YRLOG_DEBUG("send grpc request failed for request: {}, err code is {}, err msg is {}", requestId,
+                fmt::underlying(err.Code()), err.Msg());
     auto wr = EraseWiredRequest(requestId);
     if (wr != nullptr && wr->callback != nullptr) {
         StreamingMessage fakeMsg;
@@ -248,11 +250,14 @@ void FSIntfImpl::GroupCreateAsync(const CreateRequests &reqs, CreateRespsCallbac
                                   CreateCallBack callback, int timeoutSec)
 {
     auto reqId = reqs.requestid();
+    auto tenantId = reqs.tenantid();
     auto traceId = reqs.traceid();
 
-    auto respCallback = [reqId, traceId, createRespCallback](const StreamingMessage &createResps, ErrorInfo status,
-                                                             std::function<void(bool)> needEraseWiredReq) {
-        YRLOG_DEBUG("Receive group create responses, request ID:{}, trace ID:{}", reqId, traceId);
+    auto respCallback = [reqId, tenantId, traceId, createRespCallback](const StreamingMessage &createResps,
+                                                                       ErrorInfo status,
+                                                                       std::function<void(bool)> needEraseWiredReq) {
+        YRLOG_DEBUG("Receive group create responses, request ID:{}, tenant id {}, trace ID:{}", reqId, tenantId,
+                    traceId);
         if (status.OK() && createResps.has_creatersps()) {
             if (createResps.creatersps().code() == common::ERR_NONE) {
                 createRespCallback(createResps.creatersps());
@@ -272,8 +277,8 @@ void FSIntfImpl::GroupCreateAsync(const CreateRequests &reqs, CreateRespsCallbac
         return;
     };
     auto notifyCb = [callback](const NotifyRequest &req, const ErrorInfo &err) {
-        YRLOG_DEBUG("Receive group create notify request, request ID:{}, error code: {}, error message: {}",
-                    req.requestid(), req.code(), req.message());
+        YRLOG_DEBUG("Receive group create notify request, request ID:{}, code: {}, message: {}", req.requestid(),
+                    fmt::underlying(req.code()), req.message());
         callback(req);
     };
     auto wr = std::make_shared<WiredRequest>(respCallback, notifyCb, timerWorker);
@@ -310,10 +315,18 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
     auto reqId = std::make_shared<std::string>(req.requestid());
     auto funcName = req.function();
     auto traceId = std::make_shared<std::string>(req.traceid());
-    auto respCallback = [this, reqId, funcName, traceId, createRespCallback](
+    auto designatedInstanceID = req.designatedinstanceid();
+    auto span = TraceAdapter::GetInstance().StartSpan(
+        "Create", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
+    auto respCallback = [this, reqId, funcName, traceId, createRespCallback, span](
                             const StreamingMessage &createResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
         YRLOG_DEBUG("Receive create response, function: {}, request ID:{}, trace ID:{}", funcName, *reqId, *traceId);
+        if (createResp.has_creatersp()) {
+            span->SetAttribute("respCode", createResp.creatersp().code());
+            span->SetAttribute("respMessage", createResp.creatersp().message());
+            span->SetAttribute("respInstanceID", createResp.creatersp().instanceid());
+        }
         if (status.OK() && createResp.has_creatersp()) {
             if (createResp.creatersp().code() == common::ERR_NONE) {
                 createRespCallback(createResp.creatersp());
@@ -334,9 +347,12 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
         return;
     };
 
-    auto notifyCallback = [callback](const NotifyRequest &req, const ErrorInfo &err) {
-        YRLOG_DEBUG("Receive create notify request, request ID:{}, error code: {}, error message: {}", req.requestid(),
-                    req.code(), req.message());
+    auto notifyCallback = [callback, span](const NotifyRequest &req, const ErrorInfo &err) {
+        YRLOG_DEBUG("Receive create notify request, request ID:{}, code: {}, message: {}", req.requestid(),
+                    fmt::underlying(req.code()), req.message());
+        span->SetAttribute("notifyCode", req.code());
+        span->SetAttribute("notifyMessage", req.message());
+        span->End();
         callback(req);
     };
 
@@ -379,10 +395,17 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
     auto reqId = std::make_shared<std::string>(req->Immutable().requestid());
     auto instanceId = std::make_shared<std::string>(req->Immutable().instanceid());
     auto traceId = std::make_shared<std::string>(req->Immutable().traceid());
-    auto respCallback = [this, callback, reqId, instanceId, traceId](const StreamingMessage &invokeResp,
-                                                                     ErrorInfo status,
-                                                                     std::function<void(bool)> needEraseWiredReq) {
+    auto funcName = std::make_shared<std::string>(req->Immutable().function());
+    auto span = TraceAdapter::GetInstance().StartSpan(
+        "Invoke", {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
+    auto respCallback = [this, callback, reqId, instanceId, traceId, span](
+                            const StreamingMessage &invokeResp, ErrorInfo status,
+                            std::function<void(bool)> needEraseWiredReq) {
         YRLOG_DEBUG("Receive invoke response, instance: {}, request ID:{}, trace ID:{}", *instanceId, *reqId, *traceId);
+        if (invokeResp.has_invokersp()) {
+            span->SetAttribute("respCode", invokeResp.invokersp().code());
+            span->SetAttribute("respMessage", invokeResp.invokersp().message());
+        }
         if (status.OK() && invokeResp.has_invokersp()) {
             if (invokeResp.invokersp().code() == common::ERR_NONE) {
                 needEraseWiredReq(false);
@@ -397,15 +420,25 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
         notifyRequest.set_code(common::ErrorCode(status.Code()));
         notifyRequest.set_message("invoke response failed, request id: " + (*reqId) + ", msg: " + status.Msg());
         notifyRequest.set_requestid(*reqId);
-        YRLOG_ERROR(
-            "Receive invoke response, instance: {}, request ID:{}, trace ID:{}, error code: {}, error message: {}",
-            *instanceId, *reqId, *traceId, status.Code(), status.Msg());
+        YRLOG_ERROR("Receive invoke response, instance: {}, request ID:{}, trace ID:{}, code: {}, message: {}",
+                    *instanceId, *reqId, *traceId, fmt::underlying(status.Code()), status.Msg());
         needEraseWiredReq(true);
-        callback(notifyRequest, ErrorInfo());
+
+        this->HandleNotifyRequest(
+            notifyRequest,
+            [callback, status, notifyRequest]() -> NotifyResponse {
+                callback(notifyRequest, status);
+                return NotifyResponse();
+            },
+            [](const NotifyResponse &resp) -> void { return; });
         return;
     };
-    auto notifyCallback = [callback](const NotifyRequest &req, const ErrorInfo &err) {
-        YRLOG_DEBUG("Receive invoke notify request, request ID:{}, code: {}", req.requestid(), req.code());
+    auto notifyCallback = [callback, span](const NotifyRequest &req, const ErrorInfo &err) {
+        YRLOG_DEBUG("Receive invoke notify request, request ID:{}, code: {}", req.requestid(),
+                    fmt::underlying(req.code()));
+        span->SetAttribute("notifyCode", req.code());
+        span->SetAttribute("notifyMessage", req.message());
+        span->End();
         callback(req, err);
     };
     auto wr = std::make_shared<WiredRequest>(respCallback, notifyCallback, timerWorker, req->Immutable().instanceid());
@@ -413,9 +446,14 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
     wr->SetRequestID(*reqId);
     wr = SaveWiredRequest(req->Immutable().requestid(), wr);
     std::weak_ptr<WiredRequest> weakWr(wr);
-
-    auto sendMsgHandler = [self(shared_from_this()), reqId, req, weakWr]() {
-        if (auto wr = weakWr.lock(); wr) {
+    std::shared_ptr<FSIntfImpl> self;
+    try {
+        self = shared_from_this();
+    } catch (const std::exception &e) {
+        YRLOG_ERROR("FSIntfImpl has been destructed");
+    }
+    auto sendMsgHandler = [self, reqId, req, weakWr]() {
+        if (auto wr = weakWr.lock(); wr && self) {
             auto messageId = YR::utility::IDGenerator::GenMessageId(req->Immutable().requestid(),
                                                                     static_cast<uint8_t>(wr->retryCount));
             YRLOG_DEBUG("Send invoke message, message id {}", messageId);
@@ -475,8 +513,9 @@ void FSIntfImpl::CallResultAsync(const std::shared_ptr<CallResultMessageSpec> re
         CallResultAck resp;
         resp.set_code(common::ErrorCode(status.Code()));
         resp.set_message(status.Msg());
-        YRLOG_DEBUG("Receive call result ack, instance: {}, request ID:{}, error code: {}, error message: {}",
-                    req->Immutable().instanceid(), req->Immutable().requestid(), status.Code(), status.Msg());
+        YRLOG_DEBUG("Receive call result ack, instance: {}, request ID:{}, code: {}, message: {}",
+                    req->Immutable().instanceid(), req->Immutable().requestid(), fmt::underlying(status.Code()),
+                    status.Msg());
         needEraseWiredReq(true);
         callback(resp);
         return;
@@ -516,12 +555,13 @@ void FSIntfImpl::CallResultAsync(const std::shared_ptr<CallResultMessageSpec> re
                 }
                 if (self->IsCommunicationError(::common::ErrorCode(status.Code()))) {
                     (void)self->SaveWiredRequest(*reqId, wr);
-                    YRLOG_ERROR("Communicate fails for request({}) errcode({}), msg({})", *reqId, status.Code(),
-                                status.Msg());
+                    YRLOG_ERROR("Communicate fails for request({}) errcode({}), msg({})", *reqId,
+                                fmt::underlying(status.Code()), status.Msg());
                     return;
                 }
                 YRLOG_DEBUG_IF(!status.OK(), "send grpc call result failed for {}, err code is {}, err msg is {}",
-                               *reqId, status.Code(), status.Msg());
+                               *reqId, fmt::underlying(status.Code()),
+                               status.Msg());
                 (void)self->EraseWiredRequest(*reqId);
                 if (wr->callback != nullptr) {
                     wr->callback(CALL_RESULT_ACK, status, [](bool) {});
@@ -535,12 +575,22 @@ void FSIntfImpl::CallResultAsync(const std::shared_ptr<CallResultMessageSpec> re
 
 void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int timeoutSec)
 {
-    auto reqId = YR::utility::IDGenerator::GenRequestId();
-    auto respCallback = [callback, reqId](const StreamingMessage &killResp, ErrorInfo status,
-                                          std::function<void(bool)> needEraseWiredReq) {
+    std::string reqId = req.requestid();
+    if (reqId.empty()) {
+        reqId = YR::utility::IDGenerator::GenRequestId();
+    }
+    auto span = TraceAdapter::GetInstance().StartSpan(
+        "Kill", {{"requestID", reqId}, {"instanceID", req.instanceid()}, {"signal", req.signal()}});
+    auto respCallback = [callback, reqId, span](const StreamingMessage &killResp, ErrorInfo status,
+                                                std::function<void(bool)> needEraseWiredReq) {
         YRLOG_DEBUG("Receive kill response, request ID:{}", reqId);
+        if (killResp.has_killrsp()) {
+            span->SetAttribute("respCode", killResp.killrsp().code());
+            span->SetAttribute("respMessage", killResp.killrsp().message());
+        }
+        span->End();
         if (status.OK() && killResp.has_killrsp()) {
-            callback(killResp.killrsp(), ErrorInfo());
+            callback(killResp.killrsp(), status);
             needEraseWiredReq(true);
             return;
         }
@@ -548,7 +598,7 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
         KillResponse resp;
         resp.set_code(common::ErrorCode(status.Code()));
         resp.set_message(status.Msg());
-        YRLOG_DEBUG("Receive kill response, request ID:{}, error code: {}, error message: {}", reqId, status.Code(),
+        YRLOG_DEBUG("Receive kill response, request ID:{}, code: {}, msg: {}", reqId, fmt::underlying(status.Code()),
                     status.Msg());
         callback(resp, status);
         needEraseWiredReq(true);
@@ -561,8 +611,8 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
     std::weak_ptr<WiredRequest> weak(wr);
     auto sendMsgHandler = [this, req, reqId, weak]() {
         if (auto thisPtr = weak.lock(); thisPtr) {
-            auto messageId = YR::utility::IDGenerator::GenMessageId(reqId, static_cast<uint8_t>(thisPtr->retryCount));
-            this->Write(GenStreamMsg(messageId, req), std::bind(&FSIntfImpl::WriteCallback, this, reqId, _1));
+            auto msgId = YR::utility::IDGenerator::GenMessageId(reqId, static_cast<uint8_t>(thisPtr->retryCount));
+            this->Write(GenStreamMsg(msgId, req), std::bind(&FSIntfImpl::WriteCallback, this, reqId, _1));
         }
     };
 
@@ -574,11 +624,11 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
             if (wiredReq != nullptr) {
                 YRLOG_ERROR("Request timeout, start exec notify callback, request ID : {}", reqId);
                 StreamingMessage fake;
+                ErrorInfo errorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::CORE,
+                                    "kill request timeout, requestId: " + reqId);
+                errorInfo.SetIsTimeout(true);
                 if (wiredReq->callback != nullptr) {
-                    auto timeoutErr = ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::CORE,
-                                                "kill request timeout, requestId: " + reqId);
-                    timeoutErr.SetIsTimeout(true);
-                    wiredReq->callback(fake, timeoutErr, [](bool needEraseWiredReq) {});
+                    wiredReq->callback(fake, errorInfo, [](bool needEraseWiredReq) {});
                 }
                 EraseWiredRequest(reqId);
             }
@@ -599,8 +649,8 @@ void FSIntfImpl::ExitAsync(const ExitRequest &req, ExitCallBack callback)
         }
 
         ExitResponse resp;
-        YRLOG_DEBUG("Receive exit response, request ID:{}, error code: {}, error message: {}", reqId, status.Code(),
-                    status.Msg());
+        YRLOG_DEBUG("Receive exit response, request ID:{}, code: {}, message: {}", reqId,
+                    fmt::underlying(status.Code()), status.Msg());
         needEraseWiredReq(true);
         callback(resp);
         return;
@@ -636,8 +686,8 @@ void FSIntfImpl::StateSaveAsync(const StateSaveRequest &req, StateSaveCallBack c
         StateSaveResponse resp;
         resp.set_code(common::ErrorCode(status.Code()));
         resp.set_message(status.Msg());
-        YRLOG_DEBUG("Receive save response, request ID:{}, error code: {}, error message: {}", reqId, status.Code(),
-                    status.Msg());
+        YRLOG_DEBUG("Receive save response, request ID:{}, code: {}, message: {}", reqId,
+                    fmt::underlying(status.Code()), status.Msg());
         callback(resp);
         needEraseWiredReq(true);
         return;
@@ -673,8 +723,8 @@ void FSIntfImpl::StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack c
         StateLoadResponse resp;
         resp.set_code(common::ErrorCode(status.Code()));
         resp.set_message(status.Msg());
-        YRLOG_DEBUG("Receive load response, request ID:{}, error code: {}, error message: {}", reqId, status.Code(),
-                    status.Msg());
+        YRLOG_DEBUG("Receive load response, request ID:{}, code: {}, message: {}", reqId,
+                    fmt::underlying(status.Code()), status.Msg());
         callback(resp);
         needEraseWiredReq(true);
         return;
@@ -712,7 +762,7 @@ void FSIntfImpl::CreateRGroupAsync(const CreateResourceGroupRequest &req, Create
         resp.set_code(common::ErrorCode(status.Code()));
         resp.set_message(status.Msg());
         YRLOG_DEBUG("Receive create resource group response, request ID:{}, error code: {}, error message: {}", reqId,
-                    status.Code(), status.Msg());
+                    fmt::underlying(status.Code()), status.Msg());
         callback(resp);
         needEraseWiredReq(true);
         return;
@@ -795,8 +845,8 @@ void FSIntfImpl::NewRTIntfClient(const std::string &dstInstanceID, const NotifyR
                                  .disconnectedCb = std::bind(&FSIntfImpl::NotifyDisconnected, this, _1)},
         ProtocolType::GRPC);
     rtIntf->RegisterMessageHandler(rtMsgHdlrs);
-    (void)fsInrfMgr->Emplace(dstInstanceID, rtIntf);
     (void)rtIntf->Start();
+    (void)fsInrfMgr->Emplace(dstInstanceID, rtIntf);
 }
 
 void FSIntfImpl::RecvNotifyRequest(const std::string &from, const std::shared_ptr<StreamingMessage> &message)
@@ -808,7 +858,7 @@ void FSIntfImpl::RecvNotifyRequest(const std::string &from, const std::shared_pt
     if (wr != nullptr) {
         dstInstanceID = wr->dstInstanceID;
     }
-    if (dstInstanceID != FUNCTION_PROXY && enableDirectCall && message->notifyreq().has_runtimeinfo() &&
+    if (dstInstanceID != FUNCTION_PROXY && message->notifyreq().has_runtimeinfo() &&
         !message->notifyreq().runtimeinfo().serveripaddr().empty() && wr != nullptr) {
         NewRTIntfClient(wr->dstInstanceID, message->notifyreq());
     }
@@ -883,7 +933,7 @@ bool FSIntfImpl::NeedResendReq(const std::shared_ptr<StreamingMessage> &message)
             return IsCommunicationError(message->rgrouprsp().code());
         default:
             YRLOG_ERROR("grpc body not match, messageid: {}, body case: {}", message->messageid(),
-                        message->body_case());
+                        fmt::underlying(message->body_case()));
             return false;
     }
 }
@@ -893,8 +943,8 @@ void FSIntfImpl::RecvCreateOrInvokeResponse(const std::string &, const std::shar
     auto reqId = YR::utility::IDGenerator::GetRequestIdFromMsg(message->messageid());
     YRLOG_DEBUG("receive create or invoke response, msg id {}, req id {}", message->messageid(), reqId);
     if (NeedResendReq(message)) {
-        YRLOG_DEBUG("create or invoke response has communication error, need resend req, meesage id is {}",
-                    message->messageid());
+        YRLOG_WARN("create or invoke response has communication error, need resend req, meesage id is {}",
+                   message->messageid());
         return;
     }
     auto wr = GetWiredRequest(reqId, true);
@@ -912,7 +962,7 @@ void FSIntfImpl::RecvResponse(const std::string &, const std::shared_ptr<Streami
     auto reqId = YR::utility::IDGenerator::GetRequestIdFromMsg(message->messageid());
     YRLOG_DEBUG("req id {}", reqId);
     if (NeedResendReq(message)) {
-        YRLOG_DEBUG("response has communication error, need resend req, meesage id is {}", message->messageid());
+        YRLOG_WARN("response has communication error, need resend req, meesage id is {}", message->messageid());
         return;
     }
     auto wr = EraseWiredRequest(reqId);
@@ -1059,13 +1109,14 @@ std::pair<bus_service::DiscoverDriverResponse, ErrorInfo> FSIntfImpl::NotifyDriv
         status = stub->DiscoverDriver(&ctx, req, &resp);
         if (status.error_code() != grpc::StatusCode::OK) {
             i++;
-            YRLOG_DEBUG("Discover driver call grpc status code: {}, retry index: {}", status.error_code(), i);
+            YRLOG_DEBUG("Discover driver call grpc status code: {}, retry index: {}",
+                        fmt::underlying(status.error_code()), i);
             sleep(retryInternal);
         }
     } while (status.error_code() != grpc::StatusCode::OK && i < maxRetryTime);
 
     if (status.error_code() != grpc::StatusCode::OK) {
-        YRLOG_ERROR("Discover driver call grpc status code: {}", status.error_code());
+        YRLOG_ERROR("Discover driver call grpc status code: {}", fmt::underlying(status.error_code()));
         return std::make_pair(resp, ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
                                               "failed to connect to cluster " + fsIp + ":" + std::to_string(fsPort)));
     }
@@ -1103,7 +1154,7 @@ ErrorInfo FSIntfImpl::Start(const std::string &jobID, const std::string &instanc
                              "POD_IP env should be properly set, while client mode & direct call enabled on cloud");
         }
         listeningIpAddr = Config::Instance().POD_IP();
-        selfPort = Config::Instance().DERICT_RUNTIME_SERVER_PORT();
+        selfPort = 0;  // service listened port is dynamic set by grpc
     }
     this->instanceID = instanceID.empty() ? "driver-" + jobID : instanceID;
     this->runtimeID = runtimeID;
@@ -1184,8 +1235,21 @@ void FSIntfImpl::Stop(void)
 
 void FSIntfImpl::RemoveInsRtIntf(const std::string &instanceId)
 {
-    YRLOG_DEBUG("{} remove rt intf", instanceId);
     fsInrfMgr->Remove(instanceId);
 }
+
+bool FSIntfImpl::IsHealth()
+{
+    if (!fsInrfMgr || stopped) {
+        return false;
+    }
+    auto fsIntf = fsInrfMgr->GetSystemIntf();
+    if (!fsIntf) {
+        YRLOG_WARN("function system client reader writer is nullptr, return false directly");
+        return false;
+    }
+    return fsIntf->IsHealth();
+}
+
 }  // namespace Libruntime
 }  // namespace YR

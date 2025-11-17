@@ -21,8 +21,10 @@ from unittest.mock import Mock, patch
 
 import yr
 from yr.executor.posix_handler import PosixHandler
+from yr.executor.faas_handler import FaasHandler
 from yr.executor.function_handler import FunctionHandler
 from yr.executor.executor import INIT_HANDLER, Executor
+import  yr.executor.faas_executor as faas
 from yr.libruntime_pb2 import FunctionMeta, LanguageType, InvokeType, ApiType
 
 logger = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ class TestExecutor(TestCase):
                                      functionName = "add",
                                      language=LanguageType.Python,
                                      codeID="123456",
-                                     apiType=ApiType.Function,
+                                     apiType=ApiType.Faas,
                                      signature="",
                                      name="",
                                      ns="",
@@ -59,10 +61,32 @@ class TestExecutor(TestCase):
         from yr.executor.executor import HANDLER
         self.assertTrue(isinstance(HANDLER, FunctionHandler), f"Failed to load executor, HANDLER type is {type(HANDLER)}")
 
+        os.environ[INIT_HANDLER] = "faas_executor.init"
+        Executor.load_handler()
+        from yr.executor.executor import HANDLER
+        self.assertTrue(isinstance(HANDLER, FaasHandler), f"Failed to load executor, HANDLER type is {type(HANDLER)}")
+
         os.environ[INIT_HANDLER] = "posix.init"
         Executor.load_handler()
         from yr.executor.executor import HANDLER
         self.assertTrue(isinstance(HANDLER, PosixHandler), f"Failed to load executor, HANDLER type is {type(HANDLER)}")
+
+    @patch("yr.log.get_logger")
+    def test_executor(self, mock_logger):
+        mock_logger.return_value = logger
+        e = Executor(self.function_meta, [], InvokeType.CreateInstanceStateless, 1, None, False)
+        _, err = e.execute()
+
+        self.assertTrue("faaS failed" in err.msg)
+
+        e = Executor(self.function_meta, [], InvokeType.InvokeFunctionStateless, 1, None, False)
+        res, _ = e.execute()
+        self.assertTrue("faas executor find empty user call code" in res[0])
+
+        e = Executor(self.function_meta, [], 10, 1, None, False)
+        _, err = e.execute()
+        self.assertTrue("invalid invoke type" in err.msg)
+
 
 
 if __name__ == "__main__":

@@ -179,6 +179,8 @@ public class SdkUtils {
         libConfig.setThreadPoolSize(configManager.getThreadPoolSize());
         libConfig.setLoadPaths(configManager.getLoadPaths());
         libConfig.setInCluster(configManager.isInCluster());
+        libConfig.setHttpIocThreadsNum(configManager.getHttpIocThreadsNum());
+        libConfig.setHttpIdleTime(configManager.getHttpIdleTime());
         libConfig.setRpcTimeout(configManager.getRpcTimeout());
         libConfig.setTenantId(configManager.getTenantId());
         libConfig.setCustomEnvs(configManager.getCustomEnvs());
@@ -187,6 +189,7 @@ public class SdkUtils {
         libConfig.setVerifyFilePath(configManager.getVerifyFilePath());
         libConfig.setPrivateKeyPath(configManager.getPrivateKeyPath());
         libConfig.setServerName(configManager.getServerName());
+        libConfig.setPrivateKeyPaaswd(configManager.getPrivateKeyPaaswd());
         libConfig.setCodePath(configManager.getCodePath());
         Map<Libruntime.LanguageType, String> functionIds =
                 new HashMap<Libruntime.LanguageType, String>() {};
@@ -195,6 +198,9 @@ public class SdkUtils {
         }
         if (configManager.getCppFunctionURN() != null && !configManager.getCppFunctionURN().isEmpty()) {
             functionIds.put(Libruntime.LanguageType.Cpp, reformatFunctionUrn(configManager.getCppFunctionURN()));
+        }
+        if (configManager.getGoFunctionURN() != null && !configManager.getGoFunctionURN().isEmpty()) {
+            functionIds.put(Libruntime.LanguageType.Golang, reformatFunctionUrn(configManager.getGoFunctionURN()));
         }
         libConfig.setFunctionIds(functionIds);
         LOGGER.debug("java functionIds: {}", functionIds.get(Libruntime.LanguageType.Java));

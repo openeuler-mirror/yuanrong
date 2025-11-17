@@ -101,6 +101,24 @@ TEST_F(ObjectStoreTest, GetTest)
     ASSERT_EQ(res.first.Code(), ErrorCode::ERR_OK);
 }
 
+TEST_F(ObjectStoreTest, UpdateTokenAndAKSKTest)
+{
+    datasystem::SensitiveValue token("token");
+    ErrorInfo err = objectStore_->UpdateToken(token);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    datasystem::SensitiveValue sk("sk");
+    err = objectStore_->UpdateAkSk("ak", sk);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    std::shared_ptr<Buffer> dataBuf = std::make_shared<NativeBuffer>(1000);
+    CreateParam createParam;
+    err = objectStore_->CreateBuffer("objID", 1000, dataBuf, createParam);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    err = objectStore_->UpdateToken(token);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    err = objectStore_->UpdateAkSk("ak", sk);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+}
+
 TEST_F(ObjectStoreTest, IncreGlobalReferenceTest)
 {
     std::vector<std::string> objectIds = {"objID"};
@@ -127,6 +145,12 @@ TEST_F(ObjectStoreTest, QueryGlobalReferenceTest)
     std::vector<std::string> objectIds = {"objID"};
     auto res = objectStore_->QueryGlobalReference(objectIds);
     ASSERT_EQ(res.at(0), 1);
+}
+
+TEST_F(ObjectStoreTest, ReleaseGRefsTest)
+{
+    auto err = objectStore_->ReleaseGRefs("remoteID");
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
 }
 
 TEST_F(ObjectStoreTest, GenerateKeyTest)

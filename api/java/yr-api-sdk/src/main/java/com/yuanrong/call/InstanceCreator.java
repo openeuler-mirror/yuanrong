@@ -70,8 +70,8 @@ public class InstanceCreator<A> extends Handler {
      * The constructor of InstanceCreator.
      *
      * @param func YRFuncR class instance, Java function name.
-     * @param apiType The enumeration class has two values: Function and Posix.
-     *                It is used internally by Yuanrong to distinguish function types. The default is Function.
+     * @param apiType The enumeration class has three values: Function, Faas, and Posix.
+     *                It is used internally by Yuanrong to distinguish function types. The default is Actor.
      */
     public InstanceCreator(YRFuncR<A> func, ApiType apiType) {
         this(func, "", "", apiType);
@@ -98,8 +98,8 @@ public class InstanceCreator<A> extends Handler {
      * @param nameSpace Namespace of the named instance. When both name and nameSpace exist, the instance name will be
      *                  concatenated into nameSpace-name. This field is currently only used for concatenation, and
      *                  namespace isolation and other related functions will be completed later.
-     * @param apiType The enumeration class has two values: Function and Posix.
-     *                It is used internally by Yuanrong to distinguish function types. The default is Function.
+     * @param apiType The enumeration class has three values: Function, Faas, and Posix.
+     *                It is used internally by Yuanrong to distinguish function types. The default is Actor.
      */
     public InstanceCreator(YRFuncR<A> func, String name, String nameSpace, ApiType apiType) {
         this.func = func;
@@ -125,7 +125,6 @@ public class InstanceCreator<A> extends Handler {
         String instanceId = runtime.createInstance(functionMeta, SdkUtils.packInvokeArgs(args), options);
         InstanceHandler handler = new InstanceHandler(instanceId, apiType);
         handler.setNeedOrder(options.isNeedOrder());
-        runtime.collectInstanceHandlerInfo(handler);
         return handler;
     }
 

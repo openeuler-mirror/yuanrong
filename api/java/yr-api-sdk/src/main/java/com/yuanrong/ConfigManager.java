@@ -17,6 +17,7 @@
 package com.yuanrong;
 
 import com.yuanrong.runtime.config.RuntimeContext;
+import com.yuanrong.runtime.util.Constants;
 import com.yuanrong.utils.SdkUtils;
 
 import lombok.Data;
@@ -43,14 +44,16 @@ public class ConfigManager {
     private String jobId = "";
     private String runtimeId = "";
     private String cppFunctionURN;
+    private String goFunctionURN;
     private int recycleTime;
-    private boolean isInCluster = true;
+    private boolean isInCluster;
     private int maxTaskInstanceNum = -1;
-    private boolean enableMetrics;
+    private boolean enableMetrics = true;
     private boolean enableMTLS = false;
     private String certificateFilePath;
     private String privateKeyPath;
     private String verifyFilePath;
+    private String privateKeyPaaswd;
     private String serverName;
     private String driverServerIP;
     private boolean isDriver = true;
@@ -64,6 +67,8 @@ public class ConfigManager {
     private boolean isLogMerge = false;
     private int threadPoolSize;
     private ArrayList<String> loadPaths;
+    private int httpIocThreadsNum = Constants.DEFAULT_HTTP_IO_THREAD_CNT;
+    private int httpIdleTime = Constants.DEFAULT_HTTP_IDLE_TIME;
     private boolean enableDisConvCallStack;
     private int rpcTimeout;
     private String tenantId = "";
@@ -101,7 +106,9 @@ public class ConfigManager {
         this.serverAddress = config.getServerAddress();
         this.dataSystemAddress = config.getDataSystemAddress();
         this.cppFunctionURN = config.getCppFunctionURN();
+        this.goFunctionURN = config.getGoFunctionURN();
         this.recycleTime = config.getRecycleTime();
+        this.isInCluster = config.isInCluster();
         this.maxTaskInstanceNum = config.getMaxTaskInstanceNum();
         this.enableMetrics = config.isEnableMetrics();
         this.maxConcurrencyCreateNum = config.getMaxConcurrencyCreateNum();
@@ -114,14 +121,17 @@ public class ConfigManager {
         this.loadPaths = config.getLoadPaths();
         this.serverAddressPort = config.getServerAddressPort();
         this.dataSystemAddressPort = config.getDataSystemAddressPort();
+        this.httpIocThreadsNum = config.getHttpIocThreadsNum();
         this.ns = config.getNs();
         this.enableDisConvCallStack = config.isEnableDisConvCallStack();
         this.rpcTimeout = config.getRpcTimeout();
+        this.tenantId = config.getTenantId();
         this.customEnvs = config.getCustomEnvs();
         this.enableMTLS = config.isEnableMTLS();
         this.certificateFilePath = config.getCertificateFilePath();
         this.privateKeyPath = config.getPrivateKeyPath();
         this.verifyFilePath = config.getVerifyFilePath();
+        this.privateKeyPaaswd = config.getPrivateKeyPaaswd();
         this.serverName = config.getServerName();
         this.isInitialized = true;
         this.codePath = config.getCodePath();

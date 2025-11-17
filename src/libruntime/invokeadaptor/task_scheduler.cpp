@@ -20,6 +20,7 @@ namespace YR {
 namespace Libruntime {
 void TaskScheduler::Run()
 {
+    runFlag_ = true;
     // It is possible to optimize to have multiple schedulers share a single thread.
     t = std::thread([this]() { Schedule(); });
     pthread_setname_np(t.native_handle(), "task_scheduler");
@@ -35,7 +36,7 @@ void TaskScheduler::Schedule()
         }
         if (scheduleFlag_) {
             scheduleFlag_ = false;
-            mtx_.unlock();
+            lockGuard.unlock();
             if (func_) {
                 func_();
             }
@@ -45,6 +46,9 @@ void TaskScheduler::Schedule()
 
 void TaskScheduler::Stop()
 {
+    if (!runFlag_) {
+        return;
+    }
     {
         std::unique_lock<std::mutex> lockGuard(mtx_);
         runFlag_ = false;
@@ -54,11 +58,40 @@ void TaskScheduler::Stop()
         t.join();
     }
 }
+
 void TaskScheduler::Notify()
 {
+    if (scheduleFlag_) {
+        return;
+    }
     std::unique_lock<std::mutex> lockGuard(mtx_);
     scheduleFlag_ = true;
     condVar_.notify_one();
+}
+
+void TaskSchedulerWrapper::SetLastError(const YR::Libruntime::ErrorInfo &err)
+{
+    std::lock_guard<std::mutex> lockGuard(errLock_);
+    this->lastError_ = YR::Libruntime::ErrorInfo(err.Code(), err.MCode(), err.Msg());
+}
+
+YR::Libruntime::ErrorInfo TaskSchedulerWrapper::GetLastError()
+{
+    std::lock_guard<std::mutex> lockGuard(errLock_);
+    return this->lastError_;
+}
+
+bool TaskSchedulerWrapper::IsLastErrorOk()
+{
+    std::lock_guard<std::mutex> lockGuard(errLock_);
+    return this->lastError_.OK();
+}
+
+void TaskSchedulerWrapper::Notify()
+{
+    if (taskScheduler_) {
+        taskScheduler_->Notify();
+    }
 }
 }  // namespace Libruntime
 }  // namespace YR

@@ -16,6 +16,7 @@
 
 #include "src/libruntime/fsclient/fs_client.h"
 #include "src/libruntime/fsclient/fs_intf_impl.h"
+#include "src/libruntime/gwclient/gw_client.h"
 
 namespace YR {
 namespace Libruntime {
@@ -142,6 +143,19 @@ void FSClient::CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateRe
                                    int timeoutSec)
 {
     return this->fsIntf->CreateRGroupAsync(req, callback, timeoutSec);
+}
+
+void FSClient::EraseIntf(const std::string &id)
+{
+    fsIntf->RemoveInsRtIntf(id);
+}
+
+bool FSClient::IsHealth()
+{
+    if (!fsIntf) {
+        return false;
+    }
+    return fsIntf->IsHealth();
 }
 }  // namespace Libruntime
 }  // namespace YR

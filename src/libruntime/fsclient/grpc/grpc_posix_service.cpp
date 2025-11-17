@@ -15,13 +15,27 @@
  */
 
 #include "grpc_posix_service.h"
+#include <vector>
+#include "src/libruntime/utils/hash_utils.h"
 #include "src/libruntime/utils/utils.h"
 
 #include "fs_intf_grpc_server_reader_writer.h"
+#include "src/libruntime/fsclient/grpc/posix_auth_interceptor.h"
 
 namespace YR {
 namespace Libruntime {
+const double TIMESTAMP_EXPIRE_DURATION_SECONDS = 60;
+using SensitiveValue = datasystem::SensitiveValue;
 const std::string FUNCTION_PROXY = "function-proxy";
+
+struct PosixMetaData {
+    std::string instanceID;
+    std::string runtimeID;
+    std::string token;
+    std::string tenantAccessKey;
+    std::string timestamp;
+    std::string signature;
+};
 
 bool GrpcPosixService::CompareInstanceID(grpc::ServerContext *context) const
 {
@@ -64,12 +78,25 @@ ErrorInfo GrpcPosixService::Start()
     builder.SetMaxSendMessageSize(maxGrpcSize);
     builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
     builder.SetDefaultCompressionLevel(GRPC_COMPRESS_LEVEL_NONE);
+    if (security_ != nullptr && security_->IsFsAuthEnable()) {
+        std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptorCreators;
+        auto interceptorCreator = new PosixServerAuthInterceptorFactory();
+        interceptorCreator->RegisterSecurity(this->security_);
+        // Only StreamingMessage support AKSK.
+        interceptorCreators.push_back(std::unique_ptr<PosixServerAuthInterceptorFactory>(interceptorCreator));
+        builder.experimental().SetInterceptorCreators(std::move(interceptorCreators));
+    }
+    if (security_ != nullptr) {
+        YRLOG_INFO("start grpc service with auth, fs auth enable: {}", security_->IsFsAuthEnable());
+    }
     server = builder.BuildAndStart();
     if (server == nullptr) {
         YRLOG_ERROR("Failed to start grpc server, errno: {}, listeningIpAddr: {}, selfPort: {}, listeningPort: {}",
                     errno, listeningIpAddr, selfPort, listeningPort);
         return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, "failed to start grpc server");
     }
+    YRLOG_INFO("successful start grpc server, listeningIpAddr: {}, selfPort: {}, listeningPort: {}", listeningIpAddr,
+               selfPort, listeningPort);
     return {};
 }
 
@@ -100,15 +127,50 @@ void GrpcPosixService::Stop()
     YRLOG_INFO("service of {}. listening({}:{}) is stopped", instanceID, listeningIpAddr, listeningPort);
 }
 
+bool GrpcPosixService::VerifySrcWihtAkSk(const std::multimap<grpc::string_ref, grpc::string_ref> &metadata)
+{
+    PosixMetaData data;
+    for (const auto &it : metadata) {
+        auto key = std::string(it.first.data(), it.first.length());
+        if (key == ACCESS_KEY) {
+            data.tenantAccessKey = std::string(it.second.data(), it.second.length());
+        }
+        if (key == TIMESTAMP) {
+            data.timestamp = std::string(it.second.data(), it.second.length());
+        }
+        if (key == SIGNATURE) {
+            data.signature = std::string(it.second.data(), it.second.length());
+        }
+    }
+    auto currentTimeStamp = GetCurrentUTCTime();
+    if (IsLaterThan(currentTimeStamp, data.timestamp, TIMESTAMP_EXPIRE_DURATION_SECONDS)) {
+        YRLOG_ERROR("failed to verify timestamp, difference is more than 1 min {} vs {}", currentTimeStamp,
+                    data.timestamp);
+        return false;
+    }
+    std::string ak;
+    SensitiveValue sk;
+    security_->GetAKSK(ak, sk);
+    std::string signKey = ak + ":" + data.timestamp;
+    if (GetHMACSha256(sk, signKey) != data.signature) {
+        YRLOG_ERROR("failed to verify timestamp, signature isn't the same, ak is: {}, sk is empty: {}", ak, sk.Empty());
+        return false;
+    }
+    return true;
+}
+
 grpc::Status GrpcPosixService::MessageStream(grpc::ServerContext *context,
                                              grpc::ServerReaderWriter<StreamingMessage, StreamingMessage> *stream)
 {
     // guard for this to avoid deconstructed
     [[maybe_unused]] auto raii = shared_from_this();
     if (stopped) {
-        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "service was already closed");
+        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "MessageStream was already closed");
     }
     const std::multimap<grpc::string_ref, grpc::string_ref> metadata = context->client_metadata();
+    if (this->security_->IsFsAuthEnable() && !VerifySrcWihtAkSk(metadata)) {
+        return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "MessageStream: the ak sk is not correct");
+    }
     auto iter = metadata.find("source_id");
     bool isDirect = iter != metadata.end();
     if (!isDirect) {
@@ -155,9 +217,12 @@ grpc::Status GrpcPosixService::BatchMessageStream(
     // guard for this to avoid deconstructed
     [[maybe_unused]] auto raii = shared_from_this();
     if (stopped) {
-        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "service was already closed");
+        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "BatchMessageStream was already closed");
     }
     const std::multimap<grpc::string_ref, grpc::string_ref> metadata = context->client_metadata();
+    if (this->security_->IsFsAuthEnable() && !VerifySrcWihtAkSk(metadata)) {
+        return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "BatchMessageStream: the ak sk is not correct");
+    }
     auto iter = metadata.find("source_id");
     bool isDirect = iter != metadata.end();
     if (!isDirect) {

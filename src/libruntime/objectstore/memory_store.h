@@ -83,7 +83,9 @@ public:
                   const std::unordered_set<std::string> &nestedID, const CreateParam &createParam = {});
     ErrorInfo Put(std::shared_ptr<Buffer> data, const std::string &objID,
                   const std::unordered_set<std::string> &nestedID, bool toDataSystem,
-                  const CreateParam &createParam = {});
+                  const CreateParam &createParam = {}, const ErrorInfo &err = {});
+    ErrorInfo Put(std::shared_ptr<Buffer> data, const std::string &objID,
+                  const std::unordered_set<std::string> &nestedID, bool toDataSystem, const ErrorInfo &err);
     SingleResult Get(const std::string &objID, int timeoutMS);
     MultipleResult Get(const std::vector<std::string> &ids, int timeoutMS);
     ErrorInfo IncreGlobalReference(const std::vector<std::string> &objectIds);
@@ -95,9 +97,11 @@ public:
     std::pair<ErrorInfo, std::vector<std::string>> DecreGlobalReference(const std::vector<std::string> &objectIds,
                                                                         const std::string &remoteId);
     std::vector<int> QueryGlobalReference(const std::vector<std::string> &objectIds);
+    ErrorInfo ReleaseGRefs(const std::string &remoteId);
     ErrorInfo GenerateKey(std::string &key, const std::string &prefix, bool isPut = true);
     ErrorInfo GenerateReturnObjectIds(const std::string &requestId,
                                       std::vector<YR::Libruntime::DataObject> &returnObjs);
+    ErrorInfo GetPrefix(const std::string &key, std::string &prefix);
 
     void Clear();
     // check whether ids in DS, if not, put to DS.

@@ -20,13 +20,14 @@
 #include <iostream>
 
 #include "logger/logger.h"
+const size_t timerIdLength = 16;
 
 namespace YR {
 namespace utility {
 using namespace boost::placeholders;
 static std::shared_ptr<TimerWorker> timerWorker = nullptr;
 
-Timer::Timer(boost::asio::io_service &io, int timeoutMS, std::weak_ptr<TimerWorker> tw) : weakTW_(tw)
+Timer::Timer(boost::asio::io_context &io, int timeoutMS, std::weak_ptr<TimerWorker> tw) : weakTW_(tw)
 {
     id_ = std::to_string(counter_.fetch_add(1));
     timer_ = std::make_shared<BoostTimer>(io, boost::posix_time::milliseconds(timeoutMS));
@@ -39,9 +40,16 @@ std::shared_ptr<BoostTimer> &Timer::GetTimer()
 
 void Timer::cancel()
 {
-    timer_->cancel();
     if (auto tw = weakTW_.lock(); tw) {
-        tw->EarseTimer(shared_from_this());
+        timer_->cancel();
+        std::shared_ptr<Timer> self;
+        try {
+            self = shared_from_this();
+        } catch (const std::exception &e) {
+            YRLOG_ERROR("Timer has been destructed, {}", e.what());
+            return;
+        }
+        tw->EarseTimer(self);
     }
 }
 
@@ -58,7 +66,9 @@ std::string Timer::ID()
 TimerWorker::TimerWorker() : isRunning(true)
 {
     th = std::thread([&] {
-        work.reset(new boost::asio::io_service::work(io));
+        work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(io));
+        ;
         io.run();
     });
     pthread_setname_np(th.native_handle(), "TimerWorker");
@@ -201,6 +211,9 @@ void TimerWorker::Stop()
     {
         absl::WriterMutexLock lock(&this->mu);
         isRunning = false;
+        if (work) {
+            work->reset();
+        }
         if (!io.stopped()) {
             io.stop();
         }

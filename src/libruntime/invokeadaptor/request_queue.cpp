@@ -50,5 +50,36 @@ bool PriorityQueue::Empty() const
     return this->queue.empty();
 }
 
+void Queue::Pop()
+{
+    absl::WriterMutexLock lock(&this->mutex);
+    this->queue.pop();
+}
+
+std::shared_ptr<InvokeSpec> Queue::Top()
+{
+    // 读写锁
+    absl::ReaderMutexLock lock(&this->mutex);
+    return this->queue.front();
+}
+
+void Queue::Push(std::shared_ptr<InvokeSpec> spec)
+{
+    absl::WriterMutexLock lock(&this->mutex);
+    this->queue.push(spec);
+}
+
+size_t Queue::Size() const
+{
+    absl::ReaderMutexLock lock(&this->mutex);
+    return this->queue.size();
+}
+
+bool Queue::Empty() const
+{
+    absl::ReaderMutexLock lock(&this->mutex);
+    return this->queue.empty();
+}
+
 }  // namespace Libruntime
 }  // namespace YR

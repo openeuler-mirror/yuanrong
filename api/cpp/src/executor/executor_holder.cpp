@@ -45,6 +45,11 @@ Libruntime::ErrorInfo LoadFunctions(const std::vector<std::string> &paths)
     return ExecutorHolder::Singleton().GetExecutor()->LoadFunctions(paths);
 }
 
+Libruntime::ErrorInfo LoadNoneFunctions(const std::vector<std::string> &paths)
+{
+    return Libruntime::ErrorInfo();
+}
+
 Libruntime::ErrorInfo ExecuteFunction(const YR::Libruntime::FunctionMeta &function,
                                       const libruntime::InvokeType invokeType,
                                       const std::vector<std::shared_ptr<YR::Libruntime::DataObject>> &rawArgs,

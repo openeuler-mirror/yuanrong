@@ -19,6 +19,8 @@
 #include <future>
 #include <vector>
 
+#include <boost/type_traits/is_same.hpp>
+
 #include "yr/api/args_check.h"
 #include "yr/api/cross_lang.h"
 #include "yr/api/function_manager.h"
@@ -131,8 +133,12 @@ static void PackInvokeArgsImpl(YR::internal::FunctionLanguage language, std::vec
     AddPythonPlaceholder(language, invokeArgs);
     InvokeArg invokeArg{};
     localNestedObjList.clear();
-    invokeArg.buf = std::move(Serialize(arg));  // Serialize add nested objects to localNestedObjList
-    invokeArg.nestedObjects.swap(localNestedObjList);
+    if constexpr (boost::is_same<ArgType, Buffer>::value) {
+        invokeArg.yrBuf = std::move(arg);
+    } else {
+        invokeArg.buf = std::move(Serialize(arg));  // Serialize add nested objects to localNestedObjList
+        invokeArg.nestedObjects.swap(localNestedObjList);
+    }
     localNestedObjList.clear();
     invokeArg.isRef = false;
     invokeArgs.emplace_back(std::move(invokeArg));

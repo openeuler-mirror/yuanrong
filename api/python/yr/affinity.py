@@ -17,7 +17,8 @@
 """affinity"""
 
 import enum
-from typing import List
+from dataclasses import dataclass
+from typing import List, Optional
 
 
 class AffinityType(enum.Enum):
@@ -105,16 +106,42 @@ class LabelOperator:
         self.values = values if values else []
 
 
+class AffinityScope(enum.Enum):
+    """
+    Enum for Affinity scope of instances.
+    """
+    POD = 1
+    """
+    POD level instance affinity
+    POD 级别实例亲和
+    """
+    NODE = 2
+    """
+    NODE level instance affinity
+    NODE 级别实例亲和
+    """
+
+
+@dataclass
 class Affinity:
     """
     Represents an affinity.
     """
-    def __init__(self, affinity_kind: AffinityKind, affinity_type: AffinityType, label_operators: List[LabelOperator]):
-        """
-            affinity_kind (AffinityKind): The kind of affinity.
-            affinity_type (AffinityType): The type of affinity.
-            label_operators (List[LabelOperator]): The label operators in the affinity.
-        """
+    #: The kind of affinity.
+    affinity_kind: AffinityKind
+    #: The type of affinity.
+    affinity_type: AffinityType
+    #: The label operators in the affinity.
+    label_operators: List[LabelOperator]
+    #: The affinity scope of instances.
+    affinity_scope: Optional[AffinityScope] = None
+
+    def __init__(self,
+                 affinity_kind: AffinityKind,
+                 affinity_type: AffinityType,
+                 label_operators: List[LabelOperator],
+                 affinity_scope: Optional[AffinityScope] = None):
         self.affinity_kind = affinity_kind
         self.affinity_type = affinity_type
         self.label_operators = label_operators
+        self.affinity_scope = affinity_scope

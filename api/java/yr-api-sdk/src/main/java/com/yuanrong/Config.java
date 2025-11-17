@@ -19,6 +19,7 @@ package com.yuanrong;
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ModuleCode;
 import com.yuanrong.exception.YRException;
+import com.yuanrong.runtime.util.Constants;
 import com.yuanrong.utils.SdkUtils;
 import com.yuanrong.jni.YRAutoInitInfo;
 import com.yuanrong.runtime.util.Utils;
@@ -33,8 +34,8 @@ import java.util.Map;
 /**
  * The Config class is the initialization data structure of Yuanrong, used to store basic information such as
  * IP, port, and URN needed when initializing the Yuanrong system. The Config instance is the input parameter of the
- * init interface. Except for functionURN, serverAddress, dataSystemAddress, and cppFunctionURN(the top
- * four in the table), which are mandatory configurations and supported through the constructor, the rest of the
+ * init interface. Except for functionURN, serverAddress, dataSystemAddress, cppFunctionURN, and isInCluster (the top
+ * five in the table), which are mandatory configurations and supported through the constructor, the rest of the
  * parameters are default and set through setters. For specific interfaces, please refer to the table at the end.
  *
  * @since 2023/10/16
@@ -50,6 +51,8 @@ public class Config {
         = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-java:$latest";
     private static final String DEFAULT_CPP_URN
         = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$latest";
+    private static final String DEFAULT_GO_URN
+        = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-go:$latest";
 
     /**
      * Specify the so path. If not specified, it is specified by services.yaml.
@@ -67,6 +70,11 @@ public class Config {
      * The functionID returned by the deployment cpp function.
      */
     private String cppFunctionURN = DEFAULT_CPP_URN;
+
+    /**
+     * The functionID returned by the deployment go function.
+     */
+    private String goFunctionURN = DEFAULT_GO_URN;
 
     /**
      * Cluster IP (Yuanrong cluster master node).
@@ -104,6 +112,11 @@ public class Config {
      */
     private int threadPoolSize = 0;
 
+    /**
+     * Inside/Outside the cluster, determine whether the runtime is connected to the bus, default is ``false``;
+     * clients outside the cluster have no retry mechanism.
+     */
+    private boolean isInCluster = true;
 
     /**
      * Is driver or not, determines whether the API is used on the cloud or locally, default is ``true``.
@@ -118,7 +131,7 @@ public class Config {
     /**
      * Whether to enable metric collection and reporting. The default value is ``false``.
      */
-    private boolean enableMetrics = false;
+    private boolean enableMetrics = true;
 
     /**
      * Whether to enable two-way authentication for external cloud clients, default is ``off``.
@@ -139,6 +152,11 @@ public class Config {
      * Server certificate file path.
      */
     private String verifyFilePath;
+
+    /**
+     * Client private key encryption password.
+     */
+    private String privateKeyPaaswd;
 
     /**
      * Server name.
@@ -197,6 +215,13 @@ public class Config {
     private boolean enableDisConvCallStack = true;
 
     /**
+     * When the user configures iamAuthToken, the token is included in the header of each request sent to the cluster.
+     * The remote runtime will obtain the token ciphertext from RuntimeManager and then carry the token ciphertext
+     * in the runtime communication request.
+     */
+    private String iamAuthToken = "";
+
+    /**
      * Whether to enable multi-cluster mode. The default is ``false``. If isThreadLocal is true, call YR.init in
      * different threads and set different cluster addresses. The runtime Java SDK can connect to different clusters.
      */
@@ -207,6 +232,21 @@ public class Config {
      * switching is supported.
      */
     private boolean enableSetContext = false;
+
+    /**
+     * Tenant ID, default is ``empty``.
+     */
+    private String tenantId = "";
+
+    /**
+     * Number of HTTP connection working threads. Default value: ``200``.
+     */
+    private int httpIocThreadsNum = Constants.DEFAULT_HTTP_IO_THREAD_CNT;
+
+    /**
+     * HTTP connection idle time, default value ``120``.
+     */
+    private int httpIdleTime = Constants.DEFAULT_HTTP_IDLE_TIME;
 
     /**
      * Used to set custom environment variables for the runtime. Currently, only LD_LIBRARY_PATH is supported.
@@ -229,10 +269,12 @@ public class Config {
      * @param serverAddress Cluster IP (Yuanrong cluster master node).
      * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
      * @param cppFunctionURN The functionID returned by the deployment cpp function.
+     * @param isInCluster Inside/Outside the cluster.
      */
-    public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN) {
+    public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN,
+            boolean isInCluster) {
         this(functionURN, serverAddress, DEFAULT_SERVER_PORT, dataSystemAddress, DEFAULT_DS_PORT, cppFunctionURN,
-                true);
+                isInCluster, true);
     }
 
     /**
@@ -247,6 +289,24 @@ public class Config {
      * @param serverAddress Cluster IP (Yuanrong cluster master node).
      * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
      * @param cppFunctionURN The functionID returned by the deployment cpp function.
+     * @param goFunctionURN The functionID returned by the deployment go function.
+     * @param isInCluster Inside/Outside the cluster.
+     */
+    public Config(String functionURN, String serverAddress, String dataSystemAddress, String cppFunctionURN,
+                  String goFunctionURN, boolean isInCluster) {
+        this(functionURN, serverAddress, DEFAULT_SERVER_PORT, dataSystemAddress, DEFAULT_DS_PORT, cppFunctionURN,
+                isInCluster, true);
+        this.setGoFunctionURN(goFunctionURN);
+    }
+
+    /**
+     * The constructor of Config.
+     *
+     * @param functionURN The functionURN returned by the deployment function.
+     * @param serverAddress Cluster IP (Yuanrong cluster master node).
+     * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
+     * @param cppFunctionURN The functionID returned by the deployment cpp function.
+     * @param isInCluster Inside/Outside the cluster.
      * @param isDriver On cloud or off cloud.
      */
     public Config(
@@ -254,9 +314,32 @@ public class Config {
             String serverAddress,
             String dataSystemAddress,
             String cppFunctionURN,
-            boolean isDriver) {
+            boolean isInCluster, boolean isDriver) {
         this(functionURN, serverAddress, DEFAULT_SERVER_PORT, dataSystemAddress, DEFAULT_DS_PORT, cppFunctionURN,
-            isDriver);
+                isInCluster, isDriver);
+    }
+
+    /**
+     * The constructor of Config.
+     *
+     * @param functionURN The functionURN returned by the deployment function.
+     * @param serverAddress Cluster IP (Yuanrong cluster master node).
+     * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
+     * @param cppFunctionURN The functionID returned by the deployment cpp function.
+     * @param goFunctionURN The functionID returned by the deployment go function.
+     * @param isInCluster Inside/Outside the cluster.
+     * @param isDriver On cloud or off cloud.
+     */
+    public Config(
+            String functionURN,
+            String serverAddress,
+            String dataSystemAddress,
+            String cppFunctionURN,
+            String goFunctionURN,
+            boolean isInCluster, boolean isDriver) {
+        this(functionURN, serverAddress, DEFAULT_SERVER_PORT, dataSystemAddress, DEFAULT_DS_PORT, cppFunctionURN,
+                isInCluster, isDriver);
+        this.setGoFunctionURN(goFunctionURN);
     }
 
     /**
@@ -265,9 +348,10 @@ public class Config {
      * @param functionUrn The functionURN returned by the deployment function.
      * @param serverAddr Cluster IP (Yuanrong cluster master node).
      * @param serverAddressPort Cluster port number.
-     * @param dataSystemAddr Data system IP (Yuanrong cluster master node).
+     * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
      * @param dataSystemAddressPort DataSystem port number.
      * @param cppFunctionUrn The functionID returned by the deployment cpp function.
+     * @param isInCluster Inside/Outside the cluster.
      */
     public Config(
             String functionUrn,
@@ -275,7 +359,8 @@ public class Config {
             int serverAddressPort,
             String dataSystemAddr,
             int dataSystemAddressPort,
-            String cppFunctionUrn) {
+            String cppFunctionUrn,
+            boolean isInCluster) {
         this(
                 functionUrn,
                 serverAddr,
@@ -283,6 +368,7 @@ public class Config {
                 dataSystemAddr,
                 dataSystemAddressPort,
                 cppFunctionUrn,
+                isInCluster,
                 true);
     }
 
@@ -292,9 +378,43 @@ public class Config {
      * @param functionUrn The functionURN returned by the deployment function.
      * @param serverAddr Cluster IP (Yuanrong cluster master node).
      * @param serverAddressPort Cluster port number.
-     * @param dataSystemAddr Data system IP (Yuanrong cluster master node).
+     * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
      * @param dataSystemAddressPort DataSystem port number.
      * @param cppFunctionUrn The functionID returned by the deployment cpp function.
+     * @param goFunctionUrn The functionID returned by the deployment go function.
+     * @param isInCluster Inside/Outside the cluster.
+     */
+    public Config(
+            String functionUrn,
+            String serverAddr,
+            int serverAddressPort,
+            String dataSystemAddr,
+            int dataSystemAddressPort,
+            String cppFunctionUrn,
+            String goFunctionUrn,
+            boolean isInCluster) {
+        this(
+                functionUrn,
+                serverAddr,
+                serverAddressPort,
+                dataSystemAddr,
+                dataSystemAddressPort,
+                cppFunctionUrn,
+                isInCluster,
+                true);
+        this.setGoFunctionURN(goFunctionUrn);
+    }
+
+    /**
+     * The constructor of Config.
+     *
+     * @param functionUrn The functionURN returned by the deployment function.
+     * @param serverAddr Cluster IP (Yuanrong cluster master node).
+     * @param serverAddressPort Cluster port number.
+     * @param dataSystemAddress Data system IP (Yuanrong cluster master node).
+     * @param dataSystemAddressPort DataSystem port number.
+     * @param cppFunctionUrn The functionID returned by the deployment cpp function.
+     * @param isInCluster Inside/Outside the cluster.
      * @param isDriver On cloud or off cloud.
      */
     public Config(
@@ -304,11 +424,13 @@ public class Config {
             String dataSystemAddr,
             int dataSystemAddressPort,
             String cppFunctionUrn,
+            boolean isInCluster,
             boolean isDriver) {
         this.functionURN = functionUrn;
         this.serverAddress = serverAddr;
         this.dataSystemAddress = dataSystemAddr;
         this.cppFunctionURN = cppFunctionUrn;
+        this.isInCluster = isInCluster;
         this.isDriver = isDriver;
         this.serverAddressPort = serverAddressPort;
         this.dataSystemAddressPort = dataSystemAddressPort;
@@ -318,8 +440,12 @@ public class Config {
         this.functionURN = builder.functionURN;
         this.serverAddress = builder.serverAddress;
         this.dataSystemAddress = builder.dataSystemAddress;
+        this.iamAuthToken = builder.iamAuthToken;
         this.cppFunctionURN = builder.cppFunctionURN;
+        this.goFunctionURN = builder.goFunctionURN;
         this.ns = builder.ns;
+        this.tenantId = builder.tenantId;
+        this.isInCluster = builder.isInCluster;
         this.isDriver = builder.isDriver;
         this.serverAddressPort = builder.serverAddressPort;
         this.dataSystemAddressPort = builder.dataSystemAddressPort;
@@ -381,6 +507,10 @@ public class Config {
             throw new YRException(ErrorCode.ERR_INCORRECT_INIT_USAGE, ModuleCode.RUNTIME,
                     "cppFunctionURN is invalid");
         }
+        if (!goFunctionURN.isEmpty() && !SdkUtils.checkURN(goFunctionURN)) {
+            throw new YRException(ErrorCode.ERR_INCORRECT_INIT_USAGE, ModuleCode.RUNTIME,
+                    "goFunctionURN is invalid");
+        }
         if (!SdkUtils.checkIP(serverAddress)) {
             throw new YRException(ErrorCode.ERR_INCORRECT_INIT_USAGE, ModuleCode.RUNTIME,
                     "serverAddress is invalid");
@@ -415,10 +545,14 @@ public class Config {
         private String functionURN = DEFAULT_FUNC_URN;
         private String serverAddress = "";
         private String dataSystemAddress = "";
+        private String iamAuthToken = "";
         private String cppFunctionURN = "";
+        private String goFunctionURN = "";
         private String ns = "";
         private String logDir = DEFAULT_LOG_DIR;
         private String logLevel = "";
+        private String tenantId = "";
+        private boolean isInCluster = true;
         private boolean isDriver = true;
         private int serverAddressPort = DEFAULT_SERVER_PORT;
         private int dataSystemAddressPort = DEFAULT_DS_PORT;
@@ -462,6 +596,17 @@ public class Config {
         }
 
         /**
+         * Sets the iamAuthToken of Config class.
+         *
+         * @param iamAuthToken the IAM token String.
+         * @return Config Builder class object.
+         */
+        public Builder iamAuthToken(String iamAuthToken) {
+            this.iamAuthToken = iamAuthToken;
+            return this;
+        }
+
+        /**
          * Sets the cppFunctionURN string of Config class.
          *
          * @param cppFunctionURN the cppFunctionURN string.
@@ -469,6 +614,39 @@ public class Config {
          */
         public Builder cppFunctionURN(String cppFunctionURN) {
             this.cppFunctionURN = cppFunctionURN;
+            return this;
+        }
+
+        /**
+         * Sets the goFunctionURN string of Config class.
+         *
+         * @param goFunctionURN the goFunctionURN string.
+         * @return Config Builder class object.
+         */
+        public Builder goFunctionURN(String goFunctionURN) {
+            this.goFunctionURN = goFunctionURN;
+            return this;
+        }
+
+        /**
+         * Sets the tenantId string of Config class.
+         *
+         * @param tenantId the tenantId string.
+         * @return Config Builder class object.
+         */
+        public Builder tenantId(String tenantId) {
+            this.tenantId = tenantId;
+            return this;
+        }
+
+        /**
+         * Sets the isInCluster boolean of Config class.
+         *
+         * @param isInCluster the isInCluster boolean. Applying driver mode if it is true.
+         * @return Config Builder class object.
+         */
+        public Builder isInCluster(boolean isInCluster) {
+            this.isInCluster = isInCluster;
             return this;
         }
 
@@ -519,7 +697,8 @@ public class Config {
         }
 
         /**
-         * If enableSetContext is true, tenant context switching is allowed.
+         * If enableSetContext is true, tenant context switching is allowed,
+         * including tenantid, cluster and so on.
          *
          * @param enableSetContext boolean indicates that whether support tenant context.
          * @return Config Builder class object.
@@ -613,6 +792,7 @@ public class Config {
      */
     public YRAutoInitInfo buildClusterAccessInfo() {
         YRAutoInitInfo info = new YRAutoInitInfo();
+        info.setInCluster(this.isInCluster);
         info.setFunctionSystemServerIpAddr(this.serverAddress);
         if (this.serverAddress != null && !this.serverAddress.isEmpty()) {
             info.setFunctionSystemServerPort(this.serverAddressPort);

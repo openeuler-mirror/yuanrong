@@ -34,6 +34,8 @@ private:
 
 Libruntime::ErrorInfo LoadFunctions(const std::vector<std::string> &paths);
 
+Libruntime::ErrorInfo LoadNoneFunctions(const std::vector<std::string> &paths);
+
 Libruntime::ErrorInfo ExecuteFunction(const YR::Libruntime::FunctionMeta &function,
                                       const libruntime::InvokeType invokeType,
                                       const std::vector<std::shared_ptr<YR::Libruntime::DataObject>> &rawArgs,

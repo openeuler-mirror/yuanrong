@@ -108,6 +108,26 @@ public class ContextImpl implements Context {
     }
 
     @Override
+    public String getAccessKey() {
+        return this.delegateDecrypt.getAccessKey();
+    }
+
+    @Override
+    public String getSecretKey() {
+        return this.delegateDecrypt.getSecretKey();
+    }
+
+    @Override
+    public String getSecurityAccessKey() {
+        return null;
+    }
+
+    @Override
+    public String getSecuritySecretKey() {
+        return null;
+    }
+
+    @Override
     public String getUserData(String key) {
         return this.funcMetaData.getUserData().get(key);
     }
@@ -153,6 +173,16 @@ public class ContextImpl implements Context {
     }
 
     @Override
+    public String getToken() {
+        return this.delegateDecrypt.getAuthToken();
+    }
+
+    @Override
+    public String getSecurityToken() {
+        return this.delegateDecrypt.getSecurityToken();
+    }
+
+    @Override
     public String getAlias() {
         return this.funcMetaData.getAlias();
     }
@@ -195,6 +225,11 @@ public class ContextImpl implements Context {
     }
 
     @Override
+    public void setTraceID(String requestID) {
+        this.contextInvokeParams.setRequestID(requestID);
+    }
+
+    @Override
     public String getInvokeID() {
         return this.contextInvokeParams.getInvokeID();
     }
@@ -227,6 +262,11 @@ public class ContextImpl implements Context {
     @Override
     public String getFrontendResponseStreamName() {
         return null;
+    }
+
+    @Override
+    public String getIAMToken() {
+        return "";
     }
 
     @Override

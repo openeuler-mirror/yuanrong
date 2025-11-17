@@ -107,6 +107,7 @@ TEST_F(ClusterModeRuntimeTest, InitClusterModeRuntimeTest)
 TEST_F(ClusterModeRuntimeTest, When_In_Cluster_With_Empty_DatasystemAddr_Should_Throw_Exception)
 {
     Config conf;
+    conf.inCluster = true;
     conf.mode = Config::Mode::CLUSTER_MODE;
     conf.serverAddr = "127.0.0.1:1234";
     conf.functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-test-test:$latest";
@@ -183,7 +184,9 @@ TEST_F(ClusterModeRuntimeTest, BuildOptionsTest)
     auto af6 = YR::InstanceRequiredAffinity(YR::LabelNotInOperator("key", {"value"}));
     auto af7 = YR::ResourceRequiredAntiAffinity(YR::LabelInOperator("key", {"value"}));
     auto af8 = YR::InstanceRequiredAntiAffinity(YR::LabelNotInOperator("key", {"value"}));
-    invokeOptions.AddAffinity({af2, af3, af4, af5, af6, af7, af8});
+    auto af9 = YR::Affinity(INSTANCE, REQUIRED_ANTI, {YR::LabelNotInOperator("key", {"value"})}, "POD");
+    af9.SetAffinityScope(YR::AFFINITYSCOPE_NODE);
+    invokeOptions.AddAffinity({af2, af3, af4, af5, af6, af7, af8, af9});
 
     YR::InstanceRange instanceRange;
     YR::RangeOptions rangeOpts;
@@ -193,15 +196,23 @@ TEST_F(ClusterModeRuntimeTest, BuildOptionsTest)
     rangeOpts.timeout = 60;
     instanceRange.rangeOpts = rangeOpts;
     invokeOptions.instanceRange = instanceRange;
+    invokeOptions.preemptedAllowed = true;
+    invokeOptions.instancePriority = 200;
+    invokeOptions.scheduleTimeoutMs = 50000;
 
     YR::Libruntime::InvokeOptions libInvokeOptions = BuildOptions(std::move(invokeOptions));
     auto firstAffinity = libInvokeOptions.scheduleAffinities.front();
     EXPECT_FALSE(firstAffinity->GetPreferredAntiOtherLabels());
+    auto lastAffinity = libInvokeOptions.scheduleAffinities.back();
+    ASSERT_EQ(lastAffinity->GetAffinityScope(), YR::AFFINITYSCOPE_NODE);
     ASSERT_EQ(libInvokeOptions.instanceRange.min, instanceRange.min);
     ASSERT_EQ(libInvokeOptions.instanceRange.max, instanceRange.max);
     ASSERT_EQ(libInvokeOptions.instanceRange.step, 2);
     ASSERT_EQ(libInvokeOptions.instanceRange.sameLifecycle, instanceRange.sameLifecycle);
     ASSERT_EQ(libInvokeOptions.instanceRange.rangeOpts.timeout, instanceRange.rangeOpts.timeout);
+    ASSERT_EQ(libInvokeOptions.preemptedAllowed, true);
+    ASSERT_EQ(libInvokeOptions.instancePriority, 200);
+    ASSERT_EQ(libInvokeOptions.scheduleTimeoutMs, 50000);
 
     YR::InvokeOptions invokeOptions1;
     invokeOptions1.requiredPriority = false;
@@ -385,9 +396,6 @@ TEST_F(ClusterModeRuntimeTest, TestTerminateInstanceSyncFailed)
 
 TEST_F(ClusterModeRuntimeTest, TestPutWithoutObjIDFailed)
 {
-    EXPECT_CALL(*lr.get(), CreateDataObject(_, _, _, _, _))
-        .WillOnce(
-            Return(std::make_pair(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "111"), "")));
     EXPECT_THROW(rt->Put(std::make_shared<msgpack::sbuffer>(), {}), YR::Exception);
 }
 
@@ -478,13 +486,13 @@ TEST_F(ClusterModeRuntimeTest, TestGenerateGroupNameSuccessfully)
 
 TEST_F(ClusterModeRuntimeTest, TestIncreGlobalReferenceSuccessfully)
 {
-    EXPECT_CALL(*lr.get(), IncreaseReference(_)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_CALL(*lr.get(), IncreaseReference(_, Matcher<bool>(_))).WillOnce(Return(YR::Libruntime::ErrorInfo()));
     EXPECT_NO_THROW(rt->IncreGlobalReference({"111"}));
 }
 
 TEST_F(ClusterModeRuntimeTest, TestIncreGlobalReferenceFailed)
 {
-    EXPECT_CALL(*lr.get(), IncreaseReference(_))
+    EXPECT_CALL(*lr.get(), IncreaseReference(_, Matcher<bool>(_)))
         .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_CONNECTION_FAILED, "aaa")));
     EXPECT_THROW(rt->IncreGlobalReference({"111"}), YR::Exception);
 }
@@ -603,6 +611,22 @@ TEST_F(ClusterModeRuntimeTest, TestKVDelSuccessfully)
     EXPECT_NO_THROW(rt->KVDel("111"));
 }
 
+TEST_F(ClusterModeRuntimeTest, TestKVExistSuccessfully)
+{
+    std::vector<bool> exists = {false, false, true};
+    EXPECT_CALL(*lr.get(), KVExist(_)).WillOnce(Return(std::make_pair(exists, YR::Libruntime::ErrorInfo())));
+    ASSERT_EQ(rt->KVExist({"key1", "key2", "key3"}), exists);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestKVExistFailed)
+{
+    std::vector<bool> exists = {false, false, false};
+    EXPECT_CALL(*lr.get(), KVExist(_))
+        .WillOnce(Return(
+            std::make_pair(exists, YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa"))));
+    EXPECT_THROW(rt->KVExist({"key1", "key2", "key3"}), YR::Exception);
+}
+
 TEST_F(ClusterModeRuntimeTest, TestKVDelFailed)
 {
     EXPECT_CALL(*lr.get(), KVDel(Matcher<const std::string &>("111")))
@@ -633,6 +657,81 @@ TEST_F(ClusterModeRuntimeTest, TestKVDelMultiKeysFailed)
     EXPECT_CALL(*lr.get(), SetTraceId(_))
         .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
     EXPECT_THROW(rt->KVDel(input), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestCreateStreamProducerSuccessfully)
+{
+    EXPECT_CALL(*lr.get(), CreateStreamProducer(_, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_NO_THROW(rt->CreateStreamProducer("streamName", YR::ProducerConf()));
+}
+
+TEST_F(ClusterModeRuntimeTest, TestCreateStreamProducerFailed)
+{
+    EXPECT_CALL(*lr.get(), CreateStreamProducer(_, _, _))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
+    EXPECT_THROW(rt->CreateStreamProducer("streamName", YR::ProducerConf()), YR::Exception);
+    EXPECT_CALL(*lr.get(), SetTraceId(_))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
+    EXPECT_THROW(rt->CreateStreamProducer("streamName", YR::ProducerConf()), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestCreateStreamConsumerSuccessfully)
+{
+    EXPECT_CALL(*lr.get(), CreateStreamConsumer(_, _, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_NO_THROW(rt->CreateStreamConsumer("streamName", YR::SubscriptionConfig(), true));
+}
+
+TEST_F(ClusterModeRuntimeTest, TestCreateStreamConsumerFailed)
+{
+    EXPECT_CALL(*lr.get(), CreateStreamConsumer(_, _, _, _))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
+    EXPECT_THROW(rt->CreateStreamConsumer("streamName", YR::SubscriptionConfig(), true), YR::Exception);
+    EXPECT_CALL(*lr.get(), SetTraceId(_))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
+    EXPECT_THROW(rt->CreateStreamConsumer("streamName", YR::SubscriptionConfig(), true), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestDeleteStreamSuccessfully)
+{
+    EXPECT_CALL(*lr.get(), DeleteStream(_)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_NO_THROW(rt->DeleteStream("streamName"));
+}
+
+TEST_F(ClusterModeRuntimeTest, TestDeleteStreamFailed)
+{
+    EXPECT_CALL(*lr.get(), DeleteStream(_))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
+    EXPECT_THROW(rt->DeleteStream("streamName"), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestQueryGlobalProducersNumSuccessfully)
+{
+    uint64_t gProducerNum = 1;
+    EXPECT_CALL(*lr.get(), QueryGlobalProducersNum(_, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_NO_THROW(rt->QueryGlobalProducersNum("streamName", gProducerNum));
+}
+
+TEST_F(ClusterModeRuntimeTest, TestQueryGlobalProducersNumFailed)
+{
+    uint64_t gProducerNum = 1;
+    EXPECT_CALL(*lr.get(), QueryGlobalProducersNum(_, _))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_CONNECTION_FAILED, "aaa")));
+    EXPECT_THROW(rt->QueryGlobalProducersNum("streamName", gProducerNum), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestQueryGlobalConsumersNumSuccessfully)
+{
+    uint64_t gConsumerNum = 1;
+    EXPECT_CALL(*lr.get(), QueryGlobalConsumersNum(_, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
+    EXPECT_NO_THROW(rt->QueryGlobalConsumersNum("streamName", gConsumerNum));
+}
+
+TEST_F(ClusterModeRuntimeTest, TestQueryGlobalConsumersNumFailed)
+{
+    uint64_t gConsumerNum = 1;
+    EXPECT_CALL(*lr.get(), QueryGlobalConsumersNum(_, _))
+        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_CONNECTION_FAILED, "aaa")));
+    EXPECT_THROW(rt->QueryGlobalConsumersNum("streamName", gConsumerNum), YR::Exception);
 }
 
 TEST_F(ClusterModeRuntimeTest, TestGetRealInstanceIdSuccessfully)
@@ -744,20 +843,20 @@ TEST_F(ClusterModeRuntimeTest, TestDelete)
 {
     std::vector<std::string> objectIds;
     std::vector<std::string> failedObjectIds;
-    ASSERT_NO_THROW(rt->Delete(objectIds, failedObjectIds));
-    EXPECT_CALL(*lr.get(), Delete(_, _))
+    ASSERT_NO_THROW(rt->DevDelete(objectIds, failedObjectIds));
+    EXPECT_CALL(*lr.get(), DevDelete(_, _))
         .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "111")));
-    ASSERT_THROW(rt->Delete(objectIds, failedObjectIds), YR::HeteroException);
+    ASSERT_THROW(rt->DevDelete(objectIds, failedObjectIds), YR::HeteroException);
 }
 
-TEST_F(ClusterModeRuntimeTest, TestLocalDelete)
+TEST_F(ClusterModeRuntimeTest, TestDevLocalDelete)
 {
     std::vector<std::string> objectIds;
     std::vector<std::string> failedObjectIds;
-    ASSERT_NO_THROW(rt->LocalDelete(objectIds, failedObjectIds));
-    EXPECT_CALL(*lr.get(), LocalDelete(_, _))
+    ASSERT_NO_THROW(rt->DevLocalDelete(objectIds, failedObjectIds));
+    EXPECT_CALL(*lr.get(), DevLocalDelete(_, _))
         .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "111")));
-    ASSERT_THROW(rt->LocalDelete(objectIds, failedObjectIds), YR::HeteroException);
+    ASSERT_THROW(rt->DevLocalDelete(objectIds, failedObjectIds), YR::HeteroException);
 }
 
 TEST_F(ClusterModeRuntimeTest, TestDevSubscribe)
@@ -832,6 +931,74 @@ TEST_F(ClusterModeRuntimeTest, TestSaveInstanceRouteSuccessfully)
 {
     EXPECT_CALL(*lr.get(), SaveInstanceRoute(_, _)).WillOnce(Return());
     EXPECT_NO_THROW(rt->SaveInstanceRoute("objID", "insRoute"));
+}
+
+TEST_F(ClusterModeRuntimeTest, TestInvokeByName)
+{
+    YR::SetInitialized(true);
+    internal::FuncMeta funcMeta;
+    funcMeta.funcName = "common";
+    funcMeta.moduleName = "echo";
+    funcMeta.language = YR::internal::FunctionLanguage::FUNC_LANG_PYTHON;
+    funcMeta.funcUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stpython:$latest";
+    InvokeOptions opts;
+    std::string str = "success";
+    YR::Buffer buf(str.data(), str.size());
+    std::vector<YR::internal::InvokeArg> invokeArgs;
+    YR::internal::InvokeArg invokeArg1{};
+    invokeArg1.buf = std::move(YR::internal::Serialize(PY_PLACEHOLDER));
+    invokeArg1.isRef = false;
+    invokeArgs.emplace_back(std::move(invokeArg1));
+    YR::internal::InvokeArg invokeArg2{};
+    invokeArg2.yrBuf = buf;
+    invokeArg2.isRef = false;
+    invokeArgs.emplace_back(std::move(invokeArg2));
+
+    std::vector<YR::Libruntime::InvokeArg> libArgs;
+    std::vector<YR::Libruntime::DataObject> returnObjs{{"abc"}};
+    EXPECT_CALL(*lr.get(), InvokeByFunctionName(_, _, _, _))
+        .WillOnce(DoAll(SetArgReferee<3>(returnObjs),
+                        ::testing::Invoke([this, &libArgs](auto &&arg1, auto &&arg2, auto &&arg3, auto &&arg4) {
+                            libArgs = std::move(arg2);
+                            return YR::Libruntime::ErrorInfo();
+                        })));
+    auto ret = rt->InvokeByName(funcMeta, invokeArgs, opts);
+    ASSERT_EQ(ret, "abc");
+    // 校验mock函数入参
+    auto meta = libArgs[1].dataObj->meta;
+    auto data = libArgs[1].dataObj->data;
+    auto metaBuf = std::make_shared<YR::Buffer>(const_cast<void *>(meta->ImmutableData()), meta->GetSize());
+    auto metaResult = YR::internal::Deserialize<uint8_t>(metaBuf);
+    ASSERT_EQ(metaResult, 3);
+    std::string dataResult = std::string(static_cast<const char *>(data->ImmutableData()), data->GetSize());
+    ASSERT_EQ(dataResult, str);
+}
+
+TEST_F(ClusterModeRuntimeTest, APIPutNullptrFailed)
+{
+    ASSERT_THROW(rt->Put(std::make_shared<YR::Buffer>(nullptr, 0), {}, {}), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestCreateBuffer)
+{
+    ASSERT_NO_THROW(rt->CreateMutableBuffer(60));
+    EXPECT_CALL(*lr.get(), CreateBuffer(_, _))
+        .WillOnce(Return(std::make_pair(YR::Libruntime::ErrorInfo(YR::Libruntime::ERR_CLIENT_ALREADY_CLOSED,
+                                                                  Libruntime::ModuleCode::RUNTIME, "111"),
+                                        "nullptr")));
+    EXPECT_THROW(rt->CreateMutableBuffer(60), YR::Exception);
+}
+
+TEST_F(ClusterModeRuntimeTest, TestGetMutableBuffer)
+{
+    std::vector<std::shared_ptr<YR::Libruntime::Buffer>> buffers{};
+    std::vector<std::string> ids;
+    ASSERT_NO_THROW(rt->GetMutableBuffer(ids, 60));
+    EXPECT_CALL(*lr.get(), GetBuffers(_, _, _))
+        .WillOnce(Return(std::make_pair(YR::Libruntime::ErrorInfo(YR::Libruntime::ERR_CLIENT_ALREADY_CLOSED,
+                                                                  Libruntime::ModuleCode::RUNTIME, "111"),
+                                        buffers)));
+    ASSERT_THROW(rt->GetMutableBuffer(ids, 60), YR::Exception);
 }
 
 class A {
@@ -1088,7 +1255,7 @@ TEST_F(ClusterModeTest, TestHybridLocalPassCluster)
         Exception);
 }
 
-TEST_F(ClusterModeTest, DISABLED_TestHybridLocalPassMix)
+TEST_F(ClusterModeTest, TestHybridLocalPassMix)
 {
     YR::InvokeOptions opt;
     opt.alwaysLocalMode = true;
@@ -1178,5 +1345,57 @@ TEST_F(ClusterModeTest, TestHybridClusterWaitGetMix)
         },
         Exception);
 }
+
+TEST_F(ClusterModeTest, TestGetNodes)
+{
+    // 定义资源单元数据
+    std::unordered_map<std::string, float> capacityMap = {{"cpu", 500.0f}, {"memory", 500.0f}};
+    std::unordered_map<std::string, std::vector<std::string>> nodeLabelsMap = {{"NODE_ID", {"node1", "node2"}}};
+    std::vector<YR::Libruntime::ResourceUnit> resourceUnitVector = {{
+        .id = "node1",
+        .capacity = capacityMap,
+        .allocatable = capacityMap,
+        .nodeLabels = nodeLabelsMap,
+        .status = 0,
+    }};
+    EXPECT_CALL(*lr.get(), GetResources())
+        .WillOnce(Return(std::make_pair(YR::Libruntime::ErrorInfo(), resourceUnitVector)));
+
+    std::vector<YR::Node> nodes = YR::Nodes();
+    EXPECT_EQ(nodes.size(), 1);
+    EXPECT_EQ(nodes[0].id, "node1");
+    EXPECT_TRUE(nodes[0].alive);
+    EXPECT_EQ(nodes[0].resources["cpu"], 500.0f);
+    EXPECT_EQ(nodes[0].resources["memory"], 500.0f);
+    EXPECT_EQ(nodes[0].labels["NODE_ID"][0], "node1");
+}
+
+TEST_F(ClusterModeRuntimeTest, TestTerminateInstanceAsyncSuccessfully)
+{
+    EXPECT_CALL(*lr.get(), KillAsync(_, _, _))
+        .WillOnce(Invoke(
+            [](const std::string &instanceId, int sigNo, std::function<void(const YR::Libruntime::ErrorInfo &err)> cb) {
+                cb(YR::Libruntime::ErrorInfo());
+            }));
+    auto f = rt->TerminateInstanceAsync("111", false);
+    auto status = f.wait_for(std::chrono::milliseconds(100));
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_NO_THROW(f.get());
+}
+
+TEST_F(ClusterModeRuntimeTest, TestTerminateInstanceAsyncFailed)
+{
+    EXPECT_CALL(*lr.get(), KillAsync(_, _, _))
+        .WillOnce(Invoke(
+            [](const std::string &instanceId, int sigNo, std::function<void(const YR::Libruntime::ErrorInfo &err)> cb) {
+                cb(YR::Libruntime::ErrorInfo(YR::Libruntime::ERR_INSTANCE_NOT_FOUND, Libruntime::ModuleCode::RUNTIME,
+                                             "111"));
+            }));
+    auto f = rt->TerminateInstanceAsync("111", false);
+    auto status = f.wait_for(std::chrono::milliseconds(100));
+    EXPECT_EQ(status, std::future_status::ready);
+    EXPECT_THROW(f.get(), YR::Exception);
+}
+
 }  // namespace test
 }  // namespace YR

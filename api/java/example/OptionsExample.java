@@ -30,7 +30,7 @@ public class OptionsExample {
 
     public static void main(String[] args) throws YRException {
         //! [function options 样例代码]
-        Config conf = new Config("FunctionURN", "ip", "ip", "");
+        Config conf = new Config("FunctionURN", "ip", "ip", "", false);
         YR.init(conf);
         InvokeOptions opts = new InvokeOptions();
         opts.setCpu(300);

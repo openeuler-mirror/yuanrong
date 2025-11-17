@@ -32,7 +32,9 @@ public class TestConfigManager {
             1,
             "127.0.0.0",
             1,
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            true);
 
         ConfigManager configManager = new ConfigManager();
         configManager.init(config);
@@ -54,6 +56,7 @@ public class TestConfigManager {
         testConfigManager.setJobId("test-id");
         testConfigManager.setRuntimeId("test-runtime");
         testConfigManager.setCppFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+        testConfigManager.setGoFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
         testConfigManager.setRecycleTime(1);
         testConfigManager.setInitialized(expectedValue);
         testConfigManager.setMaxTaskInstanceNum(10);
@@ -66,6 +69,8 @@ public class TestConfigManager {
         testConfigManager.setLogFileSizeMax(1024);
         testConfigManager.setThreadPoolSize(1);
         testConfigManager.setLoadPaths(new ArrayList<>());
+        testConfigManager.setHttpIocThreadsNum(1);
+        testConfigManager.setHttpIdleTime(60);
         testConfigManager.setRpcTimeout(10);
         testConfigManager.setTenantId("test-tenantID");
         testConfigManager.setCustomEnvs(new HashMap<>());

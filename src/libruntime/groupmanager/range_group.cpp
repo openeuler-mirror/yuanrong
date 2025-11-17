@@ -44,8 +44,8 @@ void RangeGroup::CreateNotifyHandler(const NotifyRequest &req)
 
 void RangeGroup::HandleCreateResp(const CreateResponses &resps)
 {
-    YRLOG_DEBUG("recieve group create response, resp code is {}, message is {}, runflag is {}", resps.code(),
-                resps.message(), runFlag);
+    YRLOG_DEBUG("recieve group create response, resp code is {}, message is {}, runflag is {}",
+                fmt::underlying(resps.code()), resps.message(), runFlag.load());
     if (!runFlag) {
         return;
     }
@@ -77,8 +77,8 @@ void RangeGroup::HandleCreateResp(const CreateResponses &resps)
 
 void RangeGroup::HandleCreateNotify(const NotifyRequest &req)
 {
-    YRLOG_DEBUG("recieve group create notify, req code is {}, message is {}, runflag is {}", req.code(), req.message(),
-                runFlag);
+    YRLOG_DEBUG("recieve group create notify, req code is {}, message is {}, runflag is {}",
+                fmt::underlying(req.code()), req.message(), runFlag.load());
     if (!runFlag) {
         return;
     }

@@ -15,7 +15,6 @@
  */
 
 #pragma once
-
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -33,7 +32,7 @@
 namespace YR {
 namespace utility {
 extern const std::string DEFAULT_LOG_NAME;
-spdlog::level::level_enum GetLogLevel(const std::string &level);
+yr_spdlog::level::level_enum GetLogLevel(const std::string &level);
 using GetLoggerNameFunc = std::function<std::string()>;
 
 class SpdLogger : public Singleton<SpdLogger> {
@@ -41,10 +40,10 @@ public:
     SpdLogger() = default;
     virtual ~SpdLogger();
 
-    std::pair<std::shared_ptr<spdlog::logger>, std::string> GetLogger();
+    std::pair<std::shared_ptr<yr_spdlog::logger>, std::string> GetLogger();
     void CreateLogger(const LogParam &logParam, const std::string &nodeName, const std::string &modelName);
     void Flush();
-    spdlog::level::level_enum level();
+    yr_spdlog::level::level_enum level();
     std::string GetLogDir(void) const;
     std::string GetNodeName(void) const;
     std::string GetModelName(void) const;
@@ -63,8 +62,8 @@ private:
     std::string logDir;
     std::string nodeName;
     std::string modelName;
-    spdlog::level::level_enum logLevel;
-    std::vector<spdlog::sink_ptr> sinks;
+    yr_spdlog::level::level_enum logLevel;
+    std::vector<yr_spdlog::sink_ptr> sinks;
     std::atomic<int> logMergeType_{-1};  // -1: default value;0: not merge log;1: merge log
     std::unordered_map<std::string, std::string> logPrefixMap_ ABSL_GUARDED_BY(mu_);
     absl::Mutex mu_;
@@ -92,6 +91,6 @@ private:
         auto lvl = YR::utility::GetLogLevel(level);                                   \
         YRLOG_ASYNC(lvl, logPrefix, logger, format, ##__VA_ARGS__);                   \
         if (strcmp(level, "FATAL") == 0) {                                            \
-            (void)raise(SIGINT);                                                                     \
+            (void)raise(SIGINT);                                                                  \
         }                                                                             \
     } while (0)

@@ -49,6 +49,7 @@ ABSL_FLAG(std::vector<std::string>, codePath, std::vector<std::string>(),
 namespace {
 const int MAX_THREADPOOL_SIZE = 64;
 const int MIN_THREADPOOL_SIZE = 1;
+const int MAX_LOCAL_THREAD_POOL_SIZE = 300;
 }  // namespace
 
 namespace YR {
@@ -98,6 +99,18 @@ bool GetValidLogCompress(bool logCompress)
     return (logCompress = YR::Libruntime::Config::Instance().YR_LOG_COMPRESS());
 }
 
+int GetValidLocalThreadPoolSize(int threadPoolSize)
+{
+    if (threadPoolSize > MAX_LOCAL_THREAD_POOL_SIZE || threadPoolSize < MIN_THREADPOOL_SIZE) {
+        // default is the number of CPUs
+        std::cerr << "Config localThreadPoolSize is invalid; the valid range is " << MIN_THREADPOOL_SIZE << " to "
+                  << MAX_LOCAL_THREAD_POOL_SIZE << "; set to core number "
+                  << static_cast<int>(std::thread::hardware_concurrency()) << " by default" << std::endl;
+        return static_cast<int>(std::thread::hardware_concurrency());
+    }
+    return threadPoolSize;
+}
+
 int GetValidThreadPoolSize(int threadPoolSize)
 {
     if (threadPoolSize > MAX_THREADPOOL_SIZE || threadPoolSize < MIN_THREADPOOL_SIZE) {
@@ -133,7 +146,10 @@ ClientInfo ConfigManager::GetClientInfo()
 }
 
 void ConfigManager::ClearPasswd()
-{}
+{
+    memset_s(privateKeyPaaswd, MAX_PASSWD_LENGTH, 0, MAX_PASSWD_LENGTH);
+    encryptPrivateKeyPasswd.clear();
+}
 
 void ConfigManager::Init(const Config &conf, int argc, char **argv)
 {
@@ -151,9 +167,15 @@ void ConfigManager::Init(const Config &conf, int argc, char **argv)
         this->privateKeyPath = conf.privateKeyPath;
         this->certificateFilePath = conf.certificateFilePath;
         this->verifyFilePath = conf.verifyFilePath;
+        int len = sizeof(conf.privateKeyPaaswd);
+        memcpy_s(this->privateKeyPaaswd, len, conf.privateKeyPaaswd, len);
+        this->encryptPrivateKeyPasswd = conf.encryptPrivateKeyPasswd;
     }
     this->primaryKeyStoreFile = conf.primaryKeyStoreFile;
     this->standbyKeyStoreFile = conf.standbyKeyStoreFile;
+    this->tlsContext = conf.tlsContext;
+    this->inCluster = conf.inCluster;
+    this->httpIocThreadsNum = conf.httpIocThreadsNum;
     this->serverName = conf.serverName;
     this->isDriver = conf.isDriver;
     this->isLowReliabilityTask = conf.isLowReliabilityTask;
@@ -176,9 +198,12 @@ void ConfigManager::Init(const Config &conf, int argc, char **argv)
     }
     this->enableDsEncrypt = conf.enableDsEncrypt;
     if (conf.enableDsEncrypt) {
-        this->dsPublicKeyContextPath = conf.dsPublicKeyContextPath;
-        this->runtimePublicKeyContextPath = conf.runtimePublicKeyContextPath;
-        this->runtimePrivateKeyContextPath = conf.runtimePrivateKeyContextPath;
+        this->dsPublicKeyContext = conf.dsPublicKeyContext;
+        this->runtimePublicKeyContext = conf.runtimePublicKeyContext;
+        this->runtimePrivateKeyContext = conf.runtimePrivateKeyContext;
+        this->encryptDsPublicKeyContext = conf.encryptDsPublicKeyContext;
+        this->encryptRuntimePublicKeyContext = conf.encryptRuntimePublicKeyContext;
+        this->encryptRuntimePrivateKeyContext = conf.encryptRuntimePrivateKeyContext;
     }
 
     if (conf.threadPoolSize > 0) {
@@ -187,7 +212,7 @@ void ConfigManager::Init(const Config &conf, int argc, char **argv)
 
     this->localThreadPoolSize = conf.localThreadPoolSize;
     if (conf.localThreadPoolSize > 0) {
-        this->localThreadPoolSize = static_cast<uint32_t>(GetValidThreadPoolSize(conf.localThreadPoolSize));
+        this->localThreadPoolSize = static_cast<uint32_t>(GetValidLocalThreadPoolSize(conf.localThreadPoolSize));
     }
 
     this->defaultGetTimeoutSec = conf.defaultGetTimeoutSec;
@@ -242,6 +267,7 @@ void ConfigManager::Init(const Config &conf, int argc, char **argv)
     this->logCompress = GetValidLogCompress(conf.logCompress);
     this->maxLogFileNum = conf.maxLogFileNum;
     this->maxLogFileSize = conf.maxLogSizeMb;
+    this->tenantId = conf.tenantId;
     if (argc != 0 && argv != nullptr) {
         absl::ParseCommandLine(argc, argv);
         this->logFlushInterval = absl::GetFlag(FLAGS_logFlushInterval);
@@ -270,20 +296,22 @@ void ConfigManager::Init(const Config &conf, int argc, char **argv)
         const auto &codePathsValue = absl::GetFlag(FLAGS_codePath);
         this->loadPaths.insert(this->loadPaths.end(), codePathsValue.begin(), codePathsValue.end());
     }
-
-    // parse the info with auto init
-    YR::Libruntime::ClusterAccessInfo info{
-        .serverAddr = this->functionSystemAddr,
-        .dsAddr = this->dataSystemAddr,
-        .inCluster = this->inCluster,
-    };
-    info = YR::Libruntime::AutoGetClusterAccessInfo(info);
-    this->functionSystemAddr = info.serverAddr;  // leading protocol will be trimmed, the value would never change
-    this->dataSystemAddr = info.dsAddr;          // changes when this is empty
-    this->inCluster = info.inCluster;            // changes only when read from masterinfo,
-                                                 // or a protocol is specified in functionSystemAddr
+    if (conf.mode == Config::CLUSTER_MODE) {
+        // parse the info with auto init
+        YR::Libruntime::ClusterAccessInfo info{
+            .serverAddr = this->functionSystemAddr,
+            .dsAddr = this->dataSystemAddr,
+            .inCluster = this->inCluster,
+        };
+        info = YR::Libruntime::AutoGetClusterAccessInfo(info);
+        this->functionSystemAddr = info.serverAddr;  // leading protocol will be trimmed, the value would never change
+        this->dataSystemAddr = info.dsAddr;          // changes when this is empty
+        this->inCluster = info.inCluster;            // changes only when read from masterinfo,
+                                                     // or a protocol is specified in functionSystemAddr
+    }
 
     this->customEnvs = conf.customEnvs;
+    this->launchUserBinary = conf.launchUserBinary;
 }
 
 bool ConfigManager::IsLocalMode() const

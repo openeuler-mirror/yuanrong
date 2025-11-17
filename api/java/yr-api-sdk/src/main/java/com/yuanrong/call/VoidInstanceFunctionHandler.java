@@ -60,8 +60,8 @@ public class VoidInstanceFunctionHandler extends Handler {
      *
      * @param func Java function name, supports 0 ~ 5 parameters, no return value user function.
      * @param instanceId Java function instance ID.
-     * @param apiType The enumeration class has two values: Function and Posix.
-     *                It is used internally by Yuanrong to distinguish function types. The default is Function.
+     * @param apiType The enumeration class has three values: Function, Faas, and Posix.
+     *                It is used internally by Yuanrong to distinguish function types. The default is Actor.
      */
     public VoidInstanceFunctionHandler(YRFuncVoid func, String instanceId, ApiType apiType) {
         this.func = func;

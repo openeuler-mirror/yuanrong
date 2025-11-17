@@ -27,8 +27,8 @@ NamedGroup::NamedGroup(const std::string &name, const std::string &inputTenantId
 
 void NamedGroup::CreateRespHandler(const CreateResponses &resps)
 {
-    YRLOG_DEBUG("recieve group create response, resp code is {}, message is {}, runflag is {}", resps.code(),
-                resps.message(), runFlag);
+    YRLOG_DEBUG("recieve group create response, resp code is {}, message is {}, runflag is {}",
+                fmt::underlying(resps.code()), resps.message(), runFlag.load());
     if (!runFlag) {
         return;
     }
@@ -50,8 +50,8 @@ void NamedGroup::CreateRespHandler(const CreateResponses &resps)
 
 void NamedGroup::CreateNotifyHandler(const NotifyRequest &req)
 {
-    YRLOG_DEBUG("recieve group create notify, req code is {}, message is {}, runflag is {}", req.code(), req.message(),
-                runFlag);
+    YRLOG_DEBUG("recieve group create notify, req code is {}, message is {}, runflag is {}",
+                fmt::underlying(req.code()), req.message(), runFlag.load());
     if (!runFlag) {
         return;
     }

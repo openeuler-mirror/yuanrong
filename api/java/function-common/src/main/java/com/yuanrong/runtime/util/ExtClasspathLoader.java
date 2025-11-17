@@ -63,11 +63,12 @@ public final class ExtClasspathLoader {
      * load jar classpath。
      *
      * @param codePaths the codePaths
+     * @throws IOException throw load user function Failed
      * @throws InvocationTargetException throw load user function Failed
      * @throws IllegalAccessException    throw load user function Failed
      */
     public static void loadClasspath(List<String> codePaths)
-        throws InvocationTargetException, IllegalAccessException {
+        throws IOException, InvocationTargetException, IllegalAccessException {
         codePaths.addAll(getJarFiles());
         LOG.debug("function lib path: {}", codePaths);
         for (String filepath : codePaths) {

@@ -53,7 +53,7 @@ public:
         if (internal::IsLocalMode()) {
             this->isLocal = true;
         } else if (needIncre) {
-            YR::internal::GetRuntime()->IncreGlobalReference({id});
+            YR::internal::GetRuntime()->IncreGlobalReference({id}, false);
         }
     }
 
@@ -63,7 +63,7 @@ public:
         if (isLocal) {
             future_ = rhs.future_;
         } else {
-            YR::internal::GetRuntime()->IncreGlobalReference({rhs.objId});
+            YR::internal::GetRuntime()->IncreGlobalReference({rhs.objId}, false);
         }
     }
 
@@ -80,7 +80,7 @@ public:
             if (isLocal) {
                 future_ = rhs.future_;
             } else {
-                YR::internal::GetRuntime()->IncreGlobalReference({rhs.objId});
+                YR::internal::GetRuntime()->IncreGlobalReference({rhs.objId}, false);
                 if (!objId.empty()) {
                     YR::internal::GetRuntime()->DecreGlobalReference({objId});
                 }

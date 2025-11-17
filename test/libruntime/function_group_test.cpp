@@ -77,8 +77,8 @@ public:
         dsObjectStore->Init("127.0.0.1", 8080);
         waitManager = std::make_shared<WaitingObjectManager>();
         this->memoryStore->Init(dsObjectStore, waitManager);
-        fsIntf_ = std::make_shared<MockFSIntfClient>();
-        this->fsClient = std::make_shared<FSClient>(fsIntf_);
+        gwClient_ = std::make_shared<MockGwClient>();
+        this->fsClient = std::make_shared<FSClient>(gwClient_);
         this->fnGroup = std::make_shared<FunctionGroup>("groupName", "tenantId", opt, this->fsClient, this->waitManager,
                                                         this->memoryStore, this->invokeOrderMgr, nullptr, nullptr);
         spec = std::make_shared<InvokeSpec>();
@@ -100,7 +100,7 @@ public:
     std::shared_ptr<WaitingObjectManager> waitManager;
     std::shared_ptr<InvokeOrderManager> invokeOrderMgr;
     std::shared_ptr<InvokeSpec> spec;
-    std::shared_ptr<MockFSIntfClient> fsIntf_;
+    std::shared_ptr<MockGwClient> gwClient_;
 };
 
 TEST_F(FunctionGroupTest, CreateRespHandlerTest)

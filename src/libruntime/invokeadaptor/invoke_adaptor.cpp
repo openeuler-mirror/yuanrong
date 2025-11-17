@@ -77,8 +77,9 @@ libruntime::FunctionMeta convertFuncMetaToProto(std::shared_ptr<InvokeSpec> spec
     meta.set_language(spec->functionMeta.languageType);
     meta.set_modulename(spec->functionMeta.moduleName);
     meta.set_signature(spec->functionMeta.signature);
-    meta.set_name(spec->functionMeta.name.value_or(""));
-    meta.set_ns(spec->functionMeta.ns.value_or(""));
+    meta.set_needorder(spec->opts.needOrder);
+    meta.set_name(spec->functionMeta.name);
+    meta.set_ns(spec->functionMeta.ns);
     return meta;
 }
 
@@ -142,58 +143,59 @@ bool ParseMetaData(const CallRequest &request, bool isPosix, libruntime::MetaDat
     return true;
 }
 
-bool ParseRequest(const CallRequest &request, std::vector<std::shared_ptr<DataObject>> &rawArgs,
-                  std::shared_ptr<MemoryStore> memStore, bool isPosix)
-{
-    int argStart = isPosix ? METADATA_INDEX : ARGS_INDEX;
-    for (int i = argStart; i < request.args_size(); i++) {
-        std::shared_ptr<DataObject> rawArg;
-        if (request.args(i).type() == common::Arg::OBJECT_REF) {
-            // get arg by argid from ds
-            std::string argId = std::string(request.args(i).value().data(), request.args(i).value().size());
-            auto [err, argBuf] = memStore->GetBuffer(argId, NO_TIMEOUT);
-            if (err.Code() != ErrorCode::ERR_OK || argBuf == nullptr) {
-                YRLOG_ERROR("Get arg {} from DS err! Code {}, MCode {}, info {}.", argId, err.Code(), err.MCode(),
-                            err.Msg());
-                return false;
-            }
-            rawArg = std::make_shared<DataObject>(argId, argBuf);
-        } else {
-            auto argBuf =
-                std::make_shared<ReadOnlyNativeBuffer>(request.args(i).value().data(), request.args(i).value().size());
-            rawArg = std::make_shared<DataObject>("", argBuf);
-        }
-        rawArgs.emplace_back(rawArg);
-    }
-    return true;
-}
-
-InvokeAdaptor::InvokeAdaptor(std::shared_ptr<LibruntimeConfig> config,
-                             std::shared_ptr<DependencyResolver> dependencyResolver,
-                             std::shared_ptr<FSClient> &fsClient, std::shared_ptr<MemoryStore> memStore,
-                             std::shared_ptr<RuntimeContext> rtCtx, FinalizeCallback cb,
-                             std::shared_ptr<WaitingObjectManager> waitManager,
-                             std::shared_ptr<InvokeOrderManager> invokeOrderMgr,
-                             std::shared_ptr<ClientsManager> clientsMgr, std::shared_ptr<MetricsAdaptor> metricsAdaptor)
+InvokeAdaptor::InvokeAdaptor(
+    std::shared_ptr<LibruntimeConfig> config, std::shared_ptr<DependencyResolver> dependencyResolver,
+    std::shared_ptr<FSClient> &fsClient, std::shared_ptr<MemoryStore> memStore, std::shared_ptr<RuntimeContext> rtCtx,
+    FinalizeCallback cb, std::shared_ptr<WaitingObjectManager> waitManager,
+    std::shared_ptr<InvokeOrderManager> invokeOrderMgr, std::shared_ptr<ClientsManager> clientsMgr,
+    std::shared_ptr<MetricsAdaptor> inputMetricsAdaptor, std::shared_ptr<GeneratorIdMap> genIdMapper,
+    std::shared_ptr<GeneratorReceiver> generatorReceiver, std::shared_ptr<GeneratorNotifier> generatorNotifier,
+    std::shared_ptr<YR::scene::DowngradeController> downgrade)
     : dependencyResolver(dependencyResolver),
       runtimeContext(rtCtx),
       finalizeCb_(cb),
       invokeOrderMgr(invokeOrderMgr),
       clientsMgr(clientsMgr),
-      metricsAdaptor(metricsAdaptor)
+      metricsAdaptor(inputMetricsAdaptor),
+      map_(genIdMapper)
 {
+    ar = std::make_shared<AliasRouting>();
     this->fsClient = fsClient;
     this->librtConfig = config;
     this->memStore = memStore;
     this->requestManager = std::make_shared<RequestManager>();
-    this->taskSubmitter =
-        std::make_shared<TaskSubmitter>(config, memStore, fsClient, requestManager,
-                                        std::bind(&InvokeAdaptor::KillAsync, this, std::placeholders::_1,
-                                                  std::placeholders::_2, std::placeholders::_3));
+    this->taskSubmitter = std::make_shared<TaskSubmitter>(
+        config, memStore, fsClient, requestManager,
+        std::bind(&InvokeAdaptor::KillAsync, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+        ar, inputMetricsAdaptor, downgrade);
     this->groupManager = std::make_shared<GroupManager>();
     this->waitingObjectManager = waitManager;
+    this->generatorReceiver_ = generatorReceiver;
+    this->generatorNotifier_ = generatorNotifier;
     this->functionMasterClient_ = std::make_shared<FMClient>();
     this->functionMasterClient_->SetSubscribeActiveMasterCb(std::bind(&InvokeAdaptor::SubscribeActiveMaster, this));
+
+    // for debug instance, a built-in breakpoint is set before executing init call, so that the user can set their
+    // own breakpoint before executing any user code. However, there's no guarantee that init call response is sent
+    // to proxy, since it's handled by TryDirectWrite in an async threadpool. If proxy receives no init call
+    // response, it repeats until failure. So we did a dirty trick here. Hopefully after 1 second, the response has
+    // been sent to proxy
+    this->setDebugBreakpoint_ = []() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(SLEEP_INTERVAL_BEFORE_TRACEPOINT_MS));
+        // SIGSTOP requires two "c" in gdb to continue process execution
+        std::raise(SIGSTOP);
+    };
+}
+
+void InvokeAdaptor::CheckAndSetDebugBreakpoint(const std::shared_ptr<CallMessageSpec> &req)
+{
+    const auto &createOpts = req->Immutable().createoptions();
+    if (createOpts.find(std::string(DEBUG_CONFIG_KEY)) != createOpts.end()) {
+        if (setDebugBreakpoint_ != nullptr) {
+            YRLOG_INFO("debug instance is stopped, waiting for remote debug connection");
+            setDebugBreakpoint_();
+        }
+    }
 }
 
 void InvokeAdaptor::SetRGroupManager(std::shared_ptr<ResourceGroupManager> rGroupManager)
@@ -214,7 +216,8 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
     callResult.set_instanceid(req->Immutable().senderid());
     auto callResultCallback = [](const CallResultAck &resp) {
         if (resp.code() != common::ERR_NONE) {
-            YRLOG_WARN("failed to send CallResult, code: {}, message: {}", resp.code(), resp.message());
+            YRLOG_WARN("failed to send CallResult, code: {}, message: {}", fmt::underlying(resp.code()),
+                       resp.message());
         }
     };
 
@@ -242,6 +245,11 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
         this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE,
                                                        YR::Libruntime::Config::Instance().YR_ASYNCIO_MAX_CONCURRENCY());
     }
+    YRLOG_DEBUG("enable metrics is {}, api type is {}", Config::Instance().ENABLE_METRICS(),
+                fmt::underlying(this->librtConfig->selfApiType));
+    if (Config::Instance().ENABLE_METRICS() && !isPosix) {
+        InitMetricsAdaptor(metaData.config().enablemetrics());
+    }
     if (this->librtConfig->selfApiType != libruntime::ApiType::Posix) {
         auto res = InitCall(req->Immutable(), metaData);
         if (res.code() != common::ERR_NONE) {
@@ -251,6 +259,7 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
         }
         librtConfig->InitFunctionGroupRunningInfo(runningInfo);
     }
+    CheckAndSetDebugBreakpoint(req);
     librtConfig->funcMeta = metaData.functionmeta();
     librtConfig->funcMeta.set_needorder(librtConfig->needOrder);
     YRLOG_DEBUG("update instance function meta, req id is {}, value is {}", req->Immutable().requestid(),
@@ -264,7 +273,8 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
             result->Mutable() = std::move(res);
             fsClient->ReturnCallResult(result, true, [](const CallResultAck &resp) {
                 if (resp.code() != common::ERR_NONE) {
-                    YRLOG_WARN("failed to send CallResult, code: {}, message: {}", resp.code(), resp.message());
+                    YRLOG_WARN("failed to send CallResult, code: {}, message: {}", fmt::underlying(resp.code()),
+                               resp.message());
                 }
             });
         },
@@ -279,7 +289,8 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
     callResult.set_instanceid(req->Immutable().senderid());
     auto callResultCallback = [](const CallResultAck &resp) {
         if (resp.code() != common::ERR_NONE) {
-            YRLOG_WARN("failed to send CallResult, code: {}, message: {}", resp.code(), resp.message());
+            YRLOG_WARN("failed to send CallResult, code: {}, message: {}", fmt::underlying(resp.code()),
+                       resp.message());
         }
     };
     if (!this->execMgr) {
@@ -294,11 +305,11 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
     libruntime::MetaData metaData;
     bool isPosix = this->librtConfig->selfApiType == libruntime::ApiType::Posix;
     if (!ParseMetaData(req->Immutable(), isPosix, metaData)) {
+        callResult.set_code(common::ERR_INNER_SYSTEM_ERROR);
         std::string errMsg = "Invalid request, requestid:" + req->Immutable().requestid() +
                              ", traceid:" + req->Immutable().traceid() + ", senderid:" + req->Immutable().senderid() +
                              ", function:" + req->Immutable().function();
         callResult.set_message(errMsg);
-        callResult.set_code(common::ERR_INNER_SYSTEM_ERROR);
         fsClient->ReturnCallResult(result, true, callResultCallback);
         return;
     }
@@ -319,25 +330,30 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         this->fsClient->ReturnCallResult(result, false, callResultCallback);
         return;
     }
+    this->CreateCallTimer(req->Immutable().requestid(), req->Immutable().senderid(),
+                          this->librtConfig->invokeTimeoutSec);
     this->execMgr->Handle(
         metaData.invocationmeta(),
         [this, req, metaData]() {
             std::function<void()> handler = [this, req, metaData]() {
+                threadLocalTraceId = req->Immutable().traceid();
                 auto startTime = std::chrono::high_resolution_clock::now();
                 std::vector<std::string> objectsInDs;
                 auto res = Call(req->Immutable(), metaData, librtConfig->libruntimeOptions, objectsInDs);
                 auto endTime = std::chrono::high_resolution_clock::now();
                 auto durationCast = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-                YRLOG_INFO("funcname: {}, call elapsed time: {}ms, requestid: {}, traceid: {}",
+                YRLOG_INFO("func name: {}, call elapsed time: {}ms, request id: {}, trace id: {}",
                            metaData.functionmeta().functionname(), durationCast, req->Immutable().requestid(),
                            req->Immutable().traceid());
+                this->EraseCallTimer(req->Immutable().requestid());
                 ReportMetrics(req->Immutable().requestid(), req->Immutable().traceid(), durationCast);
                 auto result = std::make_shared<CallResultMessageSpec>();
                 result->Mutable() = std::move(res);
                 result->existObjInDs = !objectsInDs.empty();
                 fsClient->ReturnCallResult(result, false, [this, objectsInDs](const CallResultAck &resp) {
                     if (resp.code() != common::ERR_NONE) {
-                        YRLOG_WARN("failed to send CallResult, code: {}, message: {}", resp.code(), resp.message());
+                        YRLOG_WARN("failed to send CallResult, code: {}, message: {}", fmt::underlying(resp.code()),
+                                   resp.message());
                     }
                     this->memStore->DecreGlobalReference(objectsInDs);
                     return;
@@ -461,7 +477,9 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     if (librtConfig->libruntimeOptions.healthCheckCallback) {
         handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
     }
-    this->librtConfig->enableServerMode = true;
+    if (Config::Instance().ENABLE_SERVER_MODE()) {
+        this->librtConfig->enableServerMode = Config::Instance().ENABLE_SERVER_MODE();
+    }
     YRLOG_DEBUG("when start fsclient isDriver {}, enableServerMode {}", this->librtConfig->isDriver,
                 this->librtConfig->enableServerMode);
     // If this process is pulled up by function system, server listening address is specified by runtime-manager;
@@ -498,6 +516,48 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     return std::make_pair("", err);
 }
 
+bool ParseFaasController(const CallRequest &request, std::vector<std::shared_ptr<DataObject>> &rawArgs, bool isPosix)
+{
+    int argStart = isPosix ? METADATA_INDEX : ARGS_INDEX;
+    for (int i = argStart; i < request.args_size(); i++) {
+        auto rawArg = std::make_shared<DataObject>();
+        auto argBuf =
+            std::make_shared<ReadOnlyNativeBuffer>(request.args(i).value().data(), request.args(i).value().size());
+        rawArg->SetDataBuf(argBuf);
+        rawArgs.emplace_back(rawArg);
+    }
+    return true;
+}
+
+bool InvokeAdaptor::ParseRequest(const CallRequest &request, std::vector<std::shared_ptr<DataObject>> &rawArgs,
+                                 bool isPosix)
+{
+    int argStart = isPosix ? METADATA_INDEX : ARGS_INDEX;
+    for (int i = argStart; i < request.args_size(); i++) {
+        std::shared_ptr<DataObject> rawArg;
+        if (request.args(i).type() == common::Arg::OBJECT_REF) {
+            if (setTenantIdCb_) {
+                setTenantIdCb_();
+            }
+            // get arg by argid from ds
+            std::string argId = std::string(request.args(i).value().data(), request.args(i).value().size());
+            auto [err, argBuf] = memStore->GetBuffer(argId, NO_TIMEOUT);
+            if (err.Code() != ErrorCode::ERR_OK || argBuf == nullptr) {
+                YRLOG_ERROR("Get arg {} from DS err! Code {}, MCode {}, info {}.", argId, fmt::underlying(err.Code()),
+                            fmt::underlying(err.MCode()), err.Msg());
+                return false;
+            }
+            rawArg = std::make_shared<DataObject>(argId, argBuf);
+        } else {
+            auto argBuf =
+                std::make_shared<ReadOnlyNativeBuffer>(request.args(i).value().data(), request.args(i).value().size());
+            rawArg = std::make_shared<DataObject>("", argBuf);
+        }
+        rawArgs.emplace_back(rawArg);
+    }
+    return true;
+}
+
 CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaData &metaData,
                                const LibruntimeOptions &options, std::vector<std::string> &objectsInDs)
 {
@@ -508,10 +568,14 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     std::vector<std::shared_ptr<DataObject>> rawArgs;
     bool isPosix = this->librtConfig->selfApiType == libruntime::ApiType::Posix;
     bool returnByMsg = req.returnobjectids_size() == 0;
-    if (setTenantIdCb_) {
-        setTenantIdCb_();
+    bool isFaasController = req.requestid().find("faascontroller") != std::string::npos;
+    bool ok;
+    if (isFaasController) {
+        YRLOG_DEBUG("receive request about faas controller {}", req.requestid());
+        ok = ParseFaasController(req, rawArgs, isPosix);
+    } else {
+        ok = ParseRequest(req, rawArgs, isPosix);
     }
-    bool ok = ParseRequest(req, rawArgs, memStore, isPosix);
     if (!ok) {
         callResult.set_code(common::ERR_NONE);
         callResult.set_message(ErrMsgMap.at(common::ERR_NONE));
@@ -519,6 +583,11 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     }
 
     std::string genId;
+    if (metaData.functionmeta().isgenerator() && req.returnobjectids_size() > 0) {
+        generatorNotifier_->Initialize();
+        genId = req.returnobjectids(0);
+    }
+    GeneratorIdRecorder r(genId, metaData.invocationmeta().invokerruntimeid(), map_);
 
     size_t returnIdsize = req.returnobjectids_size() == 0 ? 1 : req.returnobjectids_size();
 
@@ -546,6 +615,24 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     functionMeta.isAsync = metaData.functionmeta().isasync();
     if (functionMeta.apiType != libruntime::ApiType::Function) {
         returnObjects[0]->alwaysNative = true;
+    }
+
+    if (functionMeta.IsServiceApiType() && rawArgs.size() > SCHEDULER_DATA_INDEX && req.iscreate()) {
+        auto schedulerDataStr =
+            std::string(reinterpret_cast<char *>(rawArgs[SCHEDULER_DATA_INDEX]->data->MutableData()),
+                        rawArgs[SCHEDULER_DATA_INDEX]->data->GetSize());
+        SchedulerInfo schedulerInfo;
+
+        auto err = ParseSchedulerInfo(schedulerDataStr, schedulerInfo);
+        if (!err.OK()) {
+            YRLOG_WARN(
+                "parse schedulerInfo failed, schedulerDataStr is {}, err is {}, in init_handler call another "
+                "function will failed",
+                schedulerDataStr, err.Msg());
+        } else {
+            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
+                                                         schedulerInfo.schedulerInstanceList);
+        }
     }
 
     auto err = options.functionExecuteCallback(functionMeta, metaData.invoketype(), rawArgs, returnObjects);
@@ -608,10 +695,6 @@ CallResult InvokeAdaptor::InitCall(const CallRequest &req, const libruntime::Met
     } else {
         librtConfig->InitConfig(metaData.config());
         taskSubmitter->UpdateConfig();
-        if (Config::Instance().ENABLE_METRICS()) {
-            InitMetricsAdaptor(metaData.config().enablemetrics());
-            return callResult;
-        }
     }
     return callResult;
 }
@@ -638,7 +721,10 @@ std::pair<common::ErrorCode, std::string> InvokeAdaptor::PrepareCallExecutor(con
         YRLOG_ERROR("{}, concurrency: {}", err, concurrency);
         return std::make_pair(common::ERR_PARAM_INVALID, err);
     }
-
+    if (req.createoptions().find(FAAS_INVOKE_TIMEOUT) != req.createoptions().end()) {
+        this->librtConfig->invokeTimeoutSec =
+            static_cast<int64_t>(std::stoull(req.createoptions().at(FAAS_INVOKE_TIMEOUT)));
+    }
     YRLOG_INFO("Call executor pool size: {}, need order: {}", concurrency, this->librtConfig->needOrder);
     if (this->librtConfig->needOrder) {
         this->execMgr = std::make_shared<OrderedExecutionManager>(concurrency, librtConfig->funcExecSubmitHook);
@@ -653,11 +739,14 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
 {
     YRLOG_DEBUG("receive signal {}", req.signal());
     SignalResponse resp;
+    if (!isRunning) {
+        return resp;
+    }
     switch (req.signal()) {
         case libruntime::Signal::Cancel: {
             auto objIds = requestManager->GetObjIds();
             Cancel(objIds, true, true);
-            Exit();
+            Exit(0, "");
             break;
         }
         case libruntime::Signal::ErasePendingThread: {
@@ -667,6 +756,19 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
             }
             break;
         }
+        case libruntime::Signal::UpdateAlias: {
+            std::vector<AliasElement> aliasInfo;
+            auto err = ParseAliasInfo(req, aliasInfo);
+            if (!err.OK()) {
+                YRLOG_INFO("recv alias update signal, but parse failed, {}", err.Msg());
+                resp.set_code(static_cast<common::ErrorCode>(err.Code()));
+                resp.set_message(err.Msg());
+            } else {
+                ar->UpdateAliasInfo(aliasInfo);
+            }
+            resp = ExecSignalCallback(req);
+            break;
+        }
         case libruntime::Signal::Update: {
             const std::string &payload = req.payload();
             NotificationPayload notifyPayload;
@@ -674,7 +776,9 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
             if (notifyPayload.has_instancetermination()) {
                 this->RemoveInsMetaInfo(notifyPayload.instancetermination().instanceid());
             } else if (notifyPayload.has_functionmasterevent()) {
-                this->functionMasterClient_->UpdateActiveMaster(notifyPayload.functionmasterevent().address());
+                if (functionMasterClient_) {
+                    this->functionMasterClient_->UpdateActiveMaster(notifyPayload.functionmasterevent().address());
+                }
             }
             break;
         }
@@ -697,10 +801,29 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 AccelerateMsgQueueHandle::FromJson(payload), outputHandle);
             if (!err.OK()) {
                 resp.set_code(static_cast<common::ErrorCode>(err.Code()));
-                YRLOG_WARN("execute accelerate callback err code: {}, msg: {}", err.Code(), err.Msg());
+                YRLOG_WARN("execute accelerate callback err code: {}, msg: {}", fmt::underlying(err.Code()), err.Msg());
                 resp.set_message(err.Msg());
             } else {
                 resp.set_message(outputHandle.ToJson());
+            }
+            break;
+        }
+        case libruntime::Signal::UpdateScheduler: {
+            YRLOG_INFO("recv faascheduler update signal");
+            resp = ExecSignalCallback(req);
+            break;
+        }
+        case libruntime::Signal::UpdateSchedulerHash: {
+            YRLOG_INFO("recv faaschedulerHash update signal");
+            SchedulerInfo schedulerInfo;
+            auto err = ParseSchedulerInfo(req.payload(), schedulerInfo);
+            if (!err.OK()) {
+                YRLOG_INFO("recv faascheduler update signal, but parse failed");
+                resp.set_code(static_cast<common::ErrorCode>(err.Code()));
+                resp.set_message(err.Msg());
+            } else {
+                this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
+                                                             schedulerInfo.schedulerInstanceList);
             }
             break;
         }
@@ -739,6 +862,17 @@ HeartbeatResponse InvokeAdaptor::HeartbeatHandler(const HeartbeatRequest &req)
     return resp;
 }
 
+ErrorInfo InvokeAdaptor::ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo)
+{
+    try {
+        json j = json::parse(req.payload());
+        aliasInfo = j.get<std::vector<AliasElement>>();
+    } catch (std::exception &e) {
+        return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, std::string("parse alias info: ") + e.what());
+    }
+    return ErrorInfo();
+}
+
 SignalResponse InvokeAdaptor::ExecSignalCallback(const SignalRequest &req)
 {
     SignalResponse resp;
@@ -771,7 +905,7 @@ ShutdownResponse InvokeAdaptor::ShutdownHandler(const ShutdownRequest &req)
 
 ErrorInfo InvokeAdaptor::ExecShutdownCallback(uint64_t gracePeriodSec)
 {
-    YRLOG_DEBUG("graceful shutdown period is {}", gracePeriodSec);
+    YRLOG_INFO("graceful shutdown period is {}", gracePeriodSec);
 
     auto notification = std::make_shared<utility::NotificationUtility>();
     auto thread = std::thread(&InvokeAdaptor::ExecUserShutdownCallback, this, gracePeriodSec, notification);
@@ -816,8 +950,8 @@ void InvokeAdaptor::ExecUserShutdownCallback(uint64_t gracePeriodSec,
         YRLOG_DEBUG("Start to call user shutdown callback, graceful shutdown time: {}", gracePeriodSec);
         err = librtConfig->libruntimeOptions.shutdownCallback(gracePeriodSec);
         if (!err.OK()) {
-            YRLOG_ERROR("Failed to call user shutdown callback, error: {}, error code: {}, error message: {}",
-                        err.Msg(), err.Code(), static_cast<common::ErrorCode>(err.Code()));
+            YRLOG_ERROR("Failed to call user shutdown callback, code: {}, message: {}", fmt::underlying(err.Code()),
+                        err.Msg());
         } else {
             YRLOG_DEBUG("Succeeded to call user shutdown callback");
         }
@@ -901,6 +1035,13 @@ void InvokeAdaptor::InvokeInstanceFunction(std::shared_ptr<InvokeSpec> spec)
 
 void InvokeAdaptor::SubmitFunction(std::shared_ptr<InvokeSpec> spec)
 {
+    if (ar->CheckAlias(spec->functionMeta.functionId)) {
+        std::string functionId = ar->ParseAlias(spec->functionMeta.functionId, spec->opts.aliasParams);
+        spec->downgradeFlag_ = (spec->functionMeta.functionId == functionId);
+        spec->functionMeta.functionId = functionId;
+        YRLOG_INFO("functionId contain alias, parseAlias to {}, requestId {}", functionId, spec->requestId);
+    }
+
     if (FunctionGroupEnabled(spec->opts.functionGroupOpts)) {
         YRLOG_DEBUG("Begin to create instances by function group scheduling, request ID: {}, group name is {}",
                     spec->requestId, spec->opts.groupName);
@@ -939,11 +1080,11 @@ void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallbac
     this->fsClient->CreateAsync(
         req,
         [insId, cb](const CreateResponse &resp) -> void {
-            YRLOG_DEBUG("recieve create raw response, code is {}, instance id is {}, msg is {}", resp.code(),
-                        resp.instanceid(), resp.message());
+            YRLOG_DEBUG("recieve create raw response, code is {}, instance id is {}, msg is {}",
+                        fmt::underlying(resp.code()), resp.instanceid(), resp.message());
             if (resp.code() != common::ERR_NONE) {
                 YRLOG_ERROR("start handle failed raw create response, code is {}, instance id is {}, msg is {}",
-                            resp.code(), resp.instanceid(), resp.message());
+                            fmt::underlying(resp.code()), resp.instanceid(), resp.message());
                 NotifyRequest notify;
                 notify.set_code(resp.code());
                 notify.set_message(resp.message());
@@ -957,8 +1098,8 @@ void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallbac
             *insId = resp.instanceid();
         },
         [insId, cb](const NotifyRequest &req) -> void {
-            YRLOG_DEBUG("recieve create raw notify, code is {}, req id is {}, msg is {}, instance id is {}", req.code(),
-                        req.requestid(), req.message(), *insId);
+            YRLOG_DEBUG("recieve create raw notify, code is {}, req id is {}, msg is {}, instance id is {}",
+                        fmt::underlying(req.code()), req.requestid(), req.message(), *insId);
             NotifyRequest notify;
             notify.set_code(req.code());
             notify.set_message(req.message());
@@ -985,8 +1126,8 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
     }
     auto messageSpec = std::make_shared<InvokeMessageSpec>(std::move(req));
     this->fsClient->InvokeAsync(messageSpec, [this, cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
-        YRLOG_DEBUG("recieve invoke raw notify, code is {}, req id is {}, msg is {}", req.code(), req.requestid(),
-                    req.message());
+        YRLOG_DEBUG("recieve invoke raw notify, code is {}, req id is {}, msg is {}", fmt::underlying(req.code()),
+                    req.requestid(), req.message());
         size_t size = req.ByteSizeLong();
         auto respRaw = std::make_shared<NativeBuffer>(size);
         req.SerializeToArray(respRaw->MutableData(), size);
@@ -997,9 +1138,11 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
 void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
     KillRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
-    this->fsClient->KillAsync(req, [this, cb](const KillResponse &resp, ErrorInfo err) -> void {
-        YRLOG_DEBUG("recieve kill raw response, code is {}", resp.code());
+    EraseFsIntf(req.instanceid());
+    this->fsClient->KillAsync(req, [this, cb](const KillResponse &resp, const ErrorInfo &err) -> void {
+        YRLOG_DEBUG("recieve kill raw response, code is {}", fmt::underlying(resp.code()));
         size_t size = resp.ByteSizeLong();
         auto respRaw = std::make_shared<NativeBuffer>(size);
         resp.SerializeToArray(respRaw->MutableData(), size);
@@ -1063,8 +1206,8 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
     if (req.code() != common::ERR_NONE) {
         bool isConsumeRetryTime = false;
         if (!NeedRetry(static_cast<ErrorCode>(req.code()), spec, isConsumeRetryTime)) {
-            YRLOG_ERROR("Failed to create instance, request ID: {}, code: {}, message: {}", req.requestid(), req.code(),
-                        req.message());
+            YRLOG_ERROR("Failed to create instance, request ID: {}, code: {}, message: {}", req.requestid(),
+                        fmt::underlying(req.code()), req.message());
             auto isCreate = spec->invokeType == libruntime::InvokeType::CreateInstanceStateless ||
                             spec->invokeType == libruntime::InvokeType::CreateInstance;
             std::vector<YR::Libruntime::StackTraceInfo> stackTraceInfos = GetStackTraceInfos(req);
@@ -1072,7 +1215,7 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
                                        stackTraceInfos));
         } else {
             YRLOG_ERROR("Failed to create instance, need retry, request ID: {}, code: {}, message: {}", req.requestid(),
-                        req.code(), req.message());
+                        fmt::underlying(req.code()), req.message());
             RetryCreateInstance(spec, isConsumeRetryTime);
             return;
         }
@@ -1094,7 +1237,7 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
     auto errorInfo = memStore->DecreGlobalReference(ids);
     if (!errorInfo.OK()) {
         YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", req.requestid(),
-                   errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                   fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
     }
 
     (void)requestManager->RemoveRequest(rawRequestId);
@@ -1132,7 +1275,7 @@ void InvokeAdaptor::HandleReturnedObject(const NotifyRequest &req, const std::sh
         auto err = memStore->IncreDSGlobalReference(dsObjs);
         if (!err.OK()) {
             YRLOG_WARN("failed to increase obj ref [{},...] by requestid {}, Code: {}, Msg: {}", dsObjs[0],
-                       req.requestid(), err.Code(), err.Msg());
+                       req.requestid(), fmt::underlying(err.Code()), err.Msg());
         }
     }
     memStore->SetReady(spec->returnIds);
@@ -1188,13 +1331,16 @@ void InvokeAdaptor::InvokeNotifyHandler(const NotifyRequest &req, const ErrorInf
     auto errorInfo = memStore->DecreGlobalReference(ids);
     if (!errorInfo.OK()) {
         YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", req.requestid(),
-                   errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                   fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
     }
     (void)requestManager->RemoveRequest(rawRequestId);
 }
 
 void InvokeAdaptor::ProcessErr(const std::shared_ptr<InvokeSpec> &spec, const ErrorInfo &errInfo)
 {
+    if (spec->functionMeta.isGenerator && generatorReceiver_) {
+        generatorReceiver_->MarkEndOfStream(spec->returnIds[0].id, errInfo);
+    }
     memStore->SetError(spec->returnIds, errInfo);
 }
 
@@ -1237,10 +1383,13 @@ ErrorInfo InvokeAdaptor::Cancel(const std::vector<std::string> &objids, bool isF
     return taskSubmitter->CancelStatelessRequest(objids, f, isForce, isRecursive);
 }
 
-void InvokeAdaptor::Exit(void)
+void InvokeAdaptor::Exit(const int code, const std::string &message)
 {
     absl::Notification notification;
     ExitRequest req;
+    req.set_code(static_cast<common::ErrorCode>(code));
+    req.set_message(message);
+    YRLOG_DEBUG("exit with{}, {}", fmt::underlying(req.code()), req.message());
     fsClient->ExitAsync(req, [&notification](const ExitResponse &resp) { notification.Notify(); });
     // default to wait 30s
     notification.WaitForNotificationWithTimeout(absl::Seconds(30));
@@ -1312,6 +1461,7 @@ void InvokeAdaptor::Finalize(bool isDriver)
             YRLOG_WARN("Failed to kill all instance, msg: {}", err.Msg());
         }
     }
+    isRunning = false;
     if (groupManager != nullptr) {
         groupManager->Stop();
     }
@@ -1321,11 +1471,15 @@ void InvokeAdaptor::Finalize(bool isDriver)
     if (functionMasterClient_) {
         functionMasterClient_->Stop();
     }
-    isRunning = false;
     taskSubmitter->Finalize();
     if (isDriver) {
         fsClient->Stop();
     }
+}
+
+void InvokeAdaptor::EraseFsIntf(const std::string &id)
+{
+    fsClient->EraseIntf(id);
 }
 
 void InvokeAdaptor::PushInvokeSpec(std::shared_ptr<InvokeSpec> spec)
@@ -1342,13 +1496,15 @@ ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &
     }
     YRLOG_DEBUG("start kill instance, instance id is {}, signal is {}", instanceId, signal);
     KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(instanceId);
     killReq.set_payload(payload);
     killReq.set_signal(signal);
 
     auto killPromise = std::make_shared<std::promise<KillResponse>>();
     std::shared_future<KillResponse> killFuture = killPromise->get_future().share();
-    this->fsClient->KillAsync(killReq, [killPromise](KillResponse rsp, ErrorInfo err) -> void { killPromise->set_value(rsp); });
+    this->fsClient->KillAsync(
+        killReq, [killPromise](KillResponse rsp, const ErrorInfo &err) -> void { killPromise->set_value(rsp); });
     ErrorInfo errInfo;
     if (signal == libruntime::Signal::killInstanceSync) {
         errInfo = WaitAndCheckResp(killFuture, instanceId, NO_TIMEOUT);
@@ -1360,17 +1516,33 @@ ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &
 
 void InvokeAdaptor::KillAsync(const std::string &instanceId, const std::string &payload, int signal)
 {
+    this->KillAsyncCB(instanceId, payload, signal, [instanceId, signal](const ErrorInfo &err) -> void {
+        if (!err.OK()) {
+            YRLOG_WARN("kill request failed, ins id is {}, signal is {}, err: ", instanceId, signal, err.CodeAndMsg());
+        }
+    });
+}
+
+void InvokeAdaptor::KillAsyncCB(const std::string &instanceId, const std::string &payload, int signal,
+                                std::function<void(const ErrorInfo &err)> cb)
+{
     YRLOG_DEBUG("start kill instance async, instance id is {}, signal is {}, payload is {}", instanceId, signal,
                 payload);
     KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(instanceId);
     killReq.set_payload(payload);
     killReq.set_signal(signal);
-    this->fsClient->KillAsync(killReq, [killReq](KillResponse rsp, ErrorInfo err) -> void {
-        if (rsp.code() != common::ERR_NONE) {
-            YRLOG_WARN("kill request failed, ins id is {}, signal is {}, err code is {}, err msg is {}",
-                       killReq.instanceid(), killReq.signal(), rsp.code(), rsp.message());
+    this->fsClient->KillAsync(killReq, [killReq, cb](KillResponse rsp, const ErrorInfo &err) -> void {
+        if (!err.OK()) {
+            cb(err);
+            return;
         }
+        if (rsp.code() != common::ERR_NONE) {
+            cb(ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()));
+            return;
+        }
+        cb({});
     });
 }
 
@@ -1490,7 +1662,6 @@ ErrorInfo InvokeAdaptor::ReadDataFromState(const std::string &instanceId, const 
                                            std::shared_ptr<Buffer> &data)
 {
     // deserialize state buffer. format: [uint_8(size of buf1)|buf1|buf2]
-    YRLOG_DEBUG("Start to read instance state, instance ID: {}", instanceId);
     const char *statePtr = state.data();
     size_t stateSize = state.size();
     if (stateSize == 0) {
@@ -1501,6 +1672,10 @@ ErrorInfo InvokeAdaptor::ReadDataFromState(const std::string &instanceId, const 
     size_t headerSize = sizeof(size_t);
     size_t bufInstanceSize = *reinterpret_cast<const size_t *>(statePtr);
     size_t bufMetaSize = stateSize - headerSize - bufInstanceSize;
+    YRLOG_INFO(
+        "Start to read instance state, instance ID: {}, state size is {}, buf ins size is {}, header size is {}, buf "
+        "meta size is {}",
+        instanceId, stateSize, bufInstanceSize, headerSize, bufMetaSize);
     auto bufInstance = std::make_shared<NativeBuffer>(bufInstanceSize);
     bufInstance->MemoryCopy(static_cast<const void *>(statePtr + headerSize), bufInstanceSize);
     data = bufInstance;
@@ -1566,7 +1741,7 @@ void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::strin
     data.labels["requestid"] = requestId;
     data.labels["traceid"] = traceId;
     data.value = value;
-    auto err = metricsAdaptor->ReportMetrics(data);
+    auto err = MetricsAdaptor::GetInstance()->ReportMetrics(data);
     if (!err.OK()) {
         YRLOG_WARN("failed to report metrics, requestid: {}, traceid: {}, value: {}", requestId, traceId, value);
     }
@@ -1593,7 +1768,7 @@ void InvokeAdaptor::InitMetricsAdaptor(bool userEnable)
 {
     if (!Config::Instance().METRICS_CONFIG().empty()) {
         try {
-            metricsAdaptor->Init(nlohmann::json::parse(Config::Instance().METRICS_CONFIG()), userEnable);
+            MetricsAdaptor::GetInstance()->Init(nlohmann::json::parse(Config::Instance().METRICS_CONFIG()), userEnable);
             return;
         } catch (std::exception &e) {
             YRLOG_ERROR("parse config json failed, error: {}", e.what());
@@ -1610,9 +1785,51 @@ void InvokeAdaptor::InitMetricsAdaptor(bool userEnable)
         return;
     }
     nlohmann::json config;
-    f >> config;
-    metricsAdaptor->Init(config, userEnable);
+    try {
+        f >> config;
+    } catch (const nlohmann::json::parse_error &e) {
+        YRLOG_ERROR("JSON parse error: {}", e.what());
+    }
+    MetricsAdaptor::GetInstance()->Init(config, userEnable);
     f.close();
+}
+
+std::pair<InstanceAllocation, ErrorInfo> InvokeAdaptor::AcquireInstance(const std::string &stateId,
+                                                                        const FunctionMeta &functionMeta,
+                                                                        InvokeOptions &opts)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->requestId = YR::utility::IDGenerator::GenRequestId();
+    spec->functionMeta = functionMeta;
+    if (!functionMeta.name.empty()) {
+        spec->designatedInstanceID = functionMeta.name;
+    }
+    if (opts.schedulerInstanceIds.size() == 0) {
+        opts.schedulerInstanceIds.push_back(librtConfig->schedulerInstanceIds[0]);
+    }
+
+    spec->opts = opts;
+    spec->traceId = opts.traceId;
+    auto [allocation, err] = taskSubmitter->AcquireInstance(stateId, spec);
+    if (err.OK()) {
+        requestManager->PushFaasRequest(allocation.leaseId, spec);
+    }
+    return std::make_pair(allocation, err);
+}
+
+ErrorInfo InvokeAdaptor::ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
+                                         InvokeOptions &opts)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    if (!stateId.empty()) {
+        spec->opts = opts;
+    } else {
+        if (!requestManager->PopRequest(leaseId, spec)) {
+            YRLOG_DEBUG("spec of leaseid: {} not exist, do not need release instance.", leaseId);
+            return ErrorInfo();
+        }
+    }
+    return taskSubmitter->ReleaseInstance(leaseId, stateId, abnormal, spec);
 }
 
 void InvokeAdaptor::CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec> spec)
@@ -1628,6 +1845,7 @@ void InvokeAdaptor::CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec>
             this_ptr->rGroupManager_->SetRGCreateErrInfo(spec->rGroupSpec.name, spec->requestId, err);
         }
     };
+
     fsClient->CreateRGroupAsync(spec->requestCreateRGroup, rspHandler);
     YRLOG_DEBUG("Create resource group request has been sent, req id is {}, Details: {}", spec->requestId,
                 spec->requestCreateRGroup.DebugString());
@@ -1651,27 +1869,36 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
         return std::make_pair(convertProtoToFuncMeta(metaCached), ErrorInfo());
     }
     KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(insId);
     killReq.set_signal(libruntime::Signal::GetInstance);
     auto promise = std::promise<std::pair<libruntime::FunctionMeta, ErrorInfo>>();
     auto future = promise.get_future();
-    this->fsClient->KillAsync(killReq, [&promise](const KillResponse &rsp, const ErrorInfo &err) -> void {
-        if (rsp.code() != common::ERR_NONE) {
-            YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME,
-                                              rsp.message());
-            errInfo.SetIsTimeout(err.IsTimeout());
-            promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
-        } else {
-            libruntime::FunctionMeta funcMeta;
-            funcMeta.ParseFromString(rsp.message());
-            promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
-        }
-    }, timeoutSec);
+    this->invokeOrderMgr->RegisterInstanceAndUpdateOrder(insId);
+    this->fsClient->KillAsync(
+        killReq,
+        [insId, &promise](const KillResponse &response, const ErrorInfo &err) -> void {
+            if (response.code() != common::ERR_NONE) {
+                YRLOG_ERROR("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
+                            fmt::underlying(response.code()), response.message());
+                YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(response.code()), ModuleCode::RUNTIME,
+                                                  response.message());
+                errInfo.SetIsTimeout(err.IsTimeout());
+                promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
+            } else {
+                libruntime::FunctionMeta funcMeta;
+                funcMeta.ParseFromString(response.message());
+                promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
+            }
+        },
+        timeoutSec);
     auto [funcMeta, errorInfo] = future.get();
-    YRLOG_DEBUG("get instance finished, err code is {}, err msg is {}, function meta is {}", errorInfo.Code(),
-                errorInfo.Msg(), funcMeta.DebugString());
+    YRLOG_DEBUG("get instance finished, err code is {}, err msg is {}, function meta is {}",
+                fmt::underlying(errorInfo.Code()), errorInfo.Msg(), funcMeta.DebugString());
     if (errorInfo.OK()) {
         this->UpdateAndSubcribeInsStatus(insId, funcMeta);
+        // for get instance req, invoke seq no is always 0 or no seq no
+        this->invokeOrderMgr->UpdateFinishReqSeqNo(insId, 0);
     } else {
         this->RemoveInsMetaInfo(insId);
     }
@@ -1698,7 +1925,8 @@ void InvokeAdaptor::UpdateAndSubcribeInsStatus(const std::string &insId, librunt
         YRLOG_DEBUG(
             "start add ins meta into metamap, ins id is: {}, class name is {}, module name is {}, function id is {}, "
             "language is {}",
-            insId, funcMeta.classname(), funcMeta.modulename(), funcMeta.functionid(), funcMeta.language());
+            insId, funcMeta.classname(), funcMeta.modulename(), funcMeta.functionid(),
+            fmt::underlying(funcMeta.language()));
         if (!funcMeta.name().empty() && funcMeta.ns().empty()) {
             funcMeta.set_ns(DEFAULT_YR_NAMESPACE);
         }
@@ -1726,12 +1954,12 @@ void InvokeAdaptor::Subscribe(const std::string &insId)
     std::string serializedPayload;
     subscription.SerializeToString(&serializedPayload);
     killReq.set_payload(serializedPayload);
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     auto weakThis = weak_from_this();
     YRLOG_DEBUG("start send subscribe req of instance: {}", insId);
-    this->fsClient->KillAsync(killReq, [insId, weakThis](KillResponse rsp, ErrorInfo err) -> void {
+    this->fsClient->KillAsync(killReq, [insId, weakThis](KillResponse rsp, const ErrorInfo &err) -> void {
         if (rsp.code() != common::ERR_NONE) {
-            YRLOG_WARN("subcribe ins status failed, ins id is : {}, code is {}, msg is {},", insId, rsp.code(),
-                       rsp.message());
+            YRLOG_WARN("subscribe ins status failed, ins id is : {}, code is {},", insId, fmt::underlying(rsp.code()));
         }
         if (rsp.code() == common::ERR_SCHEDULE_PLUGIN_CONFIG || rsp.code() == common::ERR_SUB_STATE_INVALID) {
             if (auto thisPtr = weakThis.lock(); thisPtr) {
@@ -1783,6 +2011,7 @@ void InvokeAdaptor::SubscribeActiveMaster()
     auto insId = Config::Instance().INSTANCE_ID();
     auto instanceId = insId.empty() ? "driver-" + runtimeContext->GetJobId() : insId;
     KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(instanceId);
     killReq.set_signal(libruntime::Signal::Subsribe);
     SubscriptionPayload subscription;
@@ -1793,9 +2022,74 @@ void InvokeAdaptor::SubscribeActiveMaster()
     killReq.set_payload(serializedPayload);
     auto weakThis = weak_from_this();
     YRLOG_DEBUG("start send subscribe function master req of instance: {}", instanceId);
-    this->fsClient->KillAsync(killReq, [instanceId](KillResponse rsp, ErrorInfo err) -> void {
-        YRLOG_DEBUG("get subcribe function master response, ins id is : {}, code is {},", instanceId, rsp.code());
+    this->fsClient->KillAsync(killReq, [instanceId, weakThis](KillResponse rsp, const ErrorInfo &err) -> void {
+        YRLOG_DEBUG("get subcribe function master response, ins id is : {}, code is {},", instanceId,
+                    fmt::underlying(rsp.code()));
     });
 }
+
+void InvokeAdaptor::UpdateSchdulerInfo(const std::string &scheduleName, const std::string &schedulerId,
+                                       const std::string &option)
+{
+    this->taskSubmitter->UpdateSchdulerInfo(scheduleName, schedulerId, option);
+}
+
+void InvokeAdaptor::CreateCallTimer(const std::string &reqId, const std::string &instanceId, int64_t invokeTimeoutSec)
+{
+    absl::MutexLock lock(&callTimerMtx_);
+    YRLOG_DEBUG("start add call req exec timer, invoke timeout is {}, req id is: {}, sender id is: {}",
+                invokeTimeoutSec, reqId, instanceId);
+    if (invokeTimeoutSec <= 0) {
+        return;
+    }
+    auto weakThis = weak_from_this();
+    callTimeoutTimerMap_[reqId] = YR::utility::ExecuteByGlobalTimer(
+        [weakThis, reqId, instanceId, invokeTimeoutSec]() {
+            auto thisPtr = weakThis.lock();
+            if (!thisPtr) {
+                return;
+            }
+            YRLOG_WARN("call req execution exceeds the set time: {}, req id is {}, sender id is {}", invokeTimeoutSec,
+                       reqId, instanceId);
+            auto result = std::make_shared<CallResultMessageSpec>();
+            auto &callResult = result->Mutable();
+            callResult.set_requestid(reqId);
+            callResult.set_instanceid(instanceId);
+            callResult.set_code(common::ERR_INNER_SYSTEM_ERROR);
+            std::string errMsg = "call req execution exceeds the set time: " + std::to_string(invokeTimeoutSec) +
+                                 " req id : " + reqId + ", senderid: " + instanceId;
+            callResult.set_message(errMsg);
+            auto callResultCallback = [reqId](const CallResultAck &resp) {
+                if (resp.code() != common::ERR_NONE) {
+                    YRLOG_WARN("failed to send CallResult, req id: {}, code: {}, message: {}", reqId,
+                               fmt::underlying(resp.code()), resp.message());
+                }
+            };
+            thisPtr->fsClient->ReturnCallResult(result, false, callResultCallback);
+            thisPtr->EraseCallTimer(reqId);
+        },
+        invokeTimeoutSec * MILLISECOND_UNIT, 1);
+}
+
+void InvokeAdaptor::EraseCallTimer(const std::string &reqId)
+{
+    absl::MutexLock lock(&callTimerMtx_);
+    auto it = callTimeoutTimerMap_.find(reqId);
+    if (it != callTimeoutTimerMap_.end()) {
+        YRLOG_DEBUG("start remove call timer of req: {}", reqId);
+        it->second->cancel();
+        it->second.reset();
+        callTimeoutTimerMap_.erase(it);
+    }
+}
+
+bool InvokeAdaptor::IsHealth()
+{
+    if (!fsClient) {
+        return false;
+    }
+    return fsClient->IsHealth();
+}
+
 }  // namespace Libruntime
 }  // namespace YR

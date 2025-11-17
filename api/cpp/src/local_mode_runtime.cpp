@@ -166,5 +166,10 @@ std::vector<std::string> LocalModeRuntime::KVDel(const std::vector<std::string> 
 {
     return stateStore_->Del(keys);
 }
+
+std::vector<bool> LocalModeRuntime::KVExist(const std::vector<std::string> &keys)
+{
+    return stateStore_->Exist(keys);
+}
 }  // namespace internal
 }  // namespace YR

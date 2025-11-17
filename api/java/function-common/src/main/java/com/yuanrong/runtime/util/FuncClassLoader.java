@@ -44,6 +44,7 @@ public class FuncClassLoader extends URLClassLoader {
                     add("com.services");
                     add("com.function");
                     add("com.datasystem");
+                    add("com.faas");
                     add("com.google.protobuf");
                     add("com.google.gson");
                 }
@@ -64,7 +65,7 @@ public class FuncClassLoader extends URLClassLoader {
      *                           Bootstrap ClassLoader
      *                                     |
      *                              Ext Classloader
-     *           not start with      /           \  com.yuanrong.runtime
+     *           not start with      /           \  start whit com.faas || com.yuanrong.runtime
      *                   FuncClassLoader   SystemClassLoader
      *                              |             |
      *                   SystemClassLoader     FuncClassLoader

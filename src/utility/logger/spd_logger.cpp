@@ -19,8 +19,8 @@
 #include <chrono>
 #include <iomanip>
 #include <iostream>
-#include <mutex>
 #include <sstream>
+#include <mutex>
 
 #include "spdlog/async.h"
 #include "spdlog/sinks/dup_filter_sink.h"
@@ -29,16 +29,17 @@ namespace YR {
 namespace utility {
 static const uint32_t DUP_FILTER_TIME = 60;
 const std::string DEFAULT_LOG_NAME = "driver";
+const std::string DEFAULT_LOG_NAME_PREFIX = "libruntime";
 static const int LOG_NOT_MERGE_TYPE = 0;
 static const int LOG_MERGE_TYPE = 1;
 
-spdlog::level::level_enum GetLogLevel(const std::string &level)
+yr_spdlog::level::level_enum GetLogLevel(const std::string &level)
 {
-    static std::map<std::string, spdlog::level::level_enum> logLevelMap = {
-        {"TRACE", spdlog::level::trace}, {"DEBUG", spdlog::level::debug}, {"INFO", spdlog::level::info},
-        {"WARN", spdlog::level::warn},   {"ERR", spdlog::level::err},     {"FATAL", spdlog::level::critical}};
+    static std::map<std::string, yr_spdlog::level::level_enum> logLevelMap = {
+        {"TRACE", yr_spdlog::level::trace}, {"DEBUG", yr_spdlog::level::debug}, {"INFO", yr_spdlog::level::info},
+        {"WARN", yr_spdlog::level::warn},   {"ERR", yr_spdlog::level::err},     {"FATAL", yr_spdlog::level::critical}};
     auto iter = logLevelMap.find(level);
-    return iter == logLevelMap.end() ? spdlog::level::info : iter->second;
+    return iter == logLevelMap.end() ? yr_spdlog::level::info : iter->second;
 }
 
 std::string FormatTimePoint()
@@ -71,10 +72,10 @@ std::string SpdLogger::GetModelName(void) const
     return this->modelName;
 }
 
-std::pair<std::shared_ptr<spdlog::logger>, std::string> SpdLogger::GetLogger()
+std::pair<std::shared_ptr<yr_spdlog::logger>, std::string> SpdLogger::GetLogger()
 {
     std::string loggerName = this->getLoggerNameFunc ? getLoggerNameFunc() : LOGGER_NAME;
-    auto logger = spdlog::get(loggerName);
+    auto logger = yr_spdlog::get(loggerName);
     std::string logPrefix = "";
     if (logMergeType_.load() == LOG_MERGE_TYPE) {
         GetLogPrefix(loggerName, logPrefix);
@@ -103,7 +104,15 @@ std::string SpdLogger::GetLogFile(const LogParam &logParam)
     } else if (logParam.logFileWithTime) {
         logFile += Join({logParam.nodeName, logParam.modelName, FormatTimePoint()}, "-") + LOG_SUFFIX;
     } else {
-        logFile += Join({logParam.nodeName, logParam.modelName}, "-") + LOG_SUFFIX;
+        if (logParam.modelName == DEFAULT_LOG_NAME) {
+            logFile += Join({logParam.nodeName, logParam.modelName}, "-") + LOG_SUFFIX;
+        } else {
+            if (logParam.withLogPrefix) {
+                logFile += Join({logParam.loggerId, DEFAULT_LOG_NAME_PREFIX}, "_") + LOG_SUFFIX;
+            } else {
+                logFile += Join({logParam.nodeName, logParam.modelName}, "-") + LOG_SUFFIX;
+            }
+        }
     }
 
     return logFile;
@@ -136,7 +145,7 @@ void SpdLogger::CreateLogger(const LogParam &logParam, const std::string &nodeNa
             InitAsyncThread(logParam);
             RegisterLogger(logParam, LOGGER_NAME, nodeName, modelName, logFile);
         }
-    } catch (const spdlog::spdlog_ex &ex) {
+    } catch (const yr_spdlog::spdlog_ex &ex) {
         std::cout << "failed to init logger:" << ex.what() << std::endl << std::flush;
     }
 }
@@ -145,27 +154,28 @@ void SpdLogger::RegisterLogger(const LogParam &logParam, const std::string &logg
                                const std::string &modelName, const std::string &logFile)
 {
     absl::WriterMutexLock lock(&spdLoggerMu_);
-    auto logger = spdlog::get(loggerName);
+    auto logger = yr_spdlog::get(loggerName);
     if (logger) {
         if (!logParam.isLogMerge) {
-            spdlog::drop(loggerName);
+            yr_spdlog::drop(loggerName);
         } else {
             return;
         }
     }
 
     if (sinks.empty()) {
-        auto rotatingSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        auto rotatingSink = std::make_shared<yr_spdlog::sinks::rotating_file_sink_mt>(
             logFile, logParam.maxSize * SIZE_MEGA_BYTES, logParam.maxFiles);
-        auto dupFilter = std::make_shared<spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds(DUP_FILTER_TIME));
+        auto dupFilter = std::make_shared<yr_spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds(DUP_FILTER_TIME));
         sinks = {rotatingSink, dupFilter};
         if (logParam.alsoLog2Stderr) {
-            auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+            auto consoleSink = std::make_shared<yr_spdlog::sinks::stdout_color_sink_mt>();
             (void)sinks.emplace_back(consoleSink);
         }
     }
-    logger = std::make_shared<spdlog::async_logger>(loggerName, sinks.begin(), sinks.end(), spdlog::thread_pool(),
-                                                    spdlog::async_overflow_policy::block);
+    logger = std::make_shared<yr_spdlog::async_logger>(loggerName, sinks.begin(), sinks.end(),
+                                                       yr_spdlog::thread_pool(),
+                                                       yr_spdlog::async_overflow_policy::block);
 
     logLevel = GetLogLevel(logParam.logLevel);
     logger->set_level(logLevel);
@@ -175,21 +185,21 @@ void SpdLogger::RegisterLogger(const LogParam &logParam, const std::string &logg
     if (logMergeType_.load() == LOG_MERGE_TYPE) {
         pattern = "%L%m%d %H:%M:%S.%f %t %s:%#] %P,%!]%v";
     }
-    logger->set_pattern(pattern, spdlog::pattern_time_type::utc);  // log with international UTC time
+    logger->set_pattern(pattern, yr_spdlog::pattern_time_type::utc);  // log with international UTC time
 
-    spdlog::register_logger(logger);
+    yr_spdlog::register_logger(logger);
 }
 
 void SpdLogger::Flush()
 {
     std::string loggerName = this->getLoggerNameFunc ? getLoggerNameFunc() : LOGGER_NAME;
-    auto logger = spdlog::get(loggerName);
+    auto logger = yr_spdlog::get(loggerName);
     if (logger) {
         logger->flush();
     }
 }
 
-spdlog::level::level_enum SpdLogger::level()
+yr_spdlog::level::level_enum SpdLogger::level()
 {
     return logLevel;
 }
@@ -217,7 +227,7 @@ void SpdLogger::GetLogPrefix(const std::string &key, std::string &value)
 void SpdLogger::Clear()
 {
     Flush();
-    spdlog::drop_all();
+    yr_spdlog::drop_all();
     sinks.clear();
 }
 
@@ -226,12 +236,10 @@ void SpdLogger::InitAsyncThread(const LogParam &logParam)
     static std::once_flag onceflag;
     std::call_once(onceflag, [logParam]() {
         try {
-            if (!spdlog::thread_pool()) {
-                spdlog::init_thread_pool(static_cast<size_t>(logParam.maxAsyncQueueSize),
-                                         static_cast<size_t>(logParam.asyncThreadCount));
-            }
-            spdlog::flush_every(std::chrono::seconds(logParam.logBufSecs));
-        } catch (const spdlog::spdlog_ex &ex) {
+            yr_spdlog::init_thread_pool(static_cast<size_t>(logParam.maxAsyncQueueSize),
+                                        static_cast<size_t>(logParam.asyncThreadCount));
+            yr_spdlog::flush_every(std::chrono::seconds(logParam.logBufSecs));
+        } catch (const yr_spdlog::spdlog_ex &ex) {
             std::cout << "failed to init logger thread pool:" << ex.what() << std::endl << std::flush;
         }
     });

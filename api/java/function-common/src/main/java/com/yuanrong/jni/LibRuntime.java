@@ -23,6 +23,7 @@ import com.yuanrong.InvokeOptions;
 import com.yuanrong.MSetParam;
 import com.yuanrong.SetParam;
 import com.yuanrong.api.InvokeArg;
+import com.yuanrong.api.Node;
 import com.yuanrong.errorcode.ErrorInfo;
 import com.yuanrong.errorcode.Pair;
 import com.yuanrong.exception.LibRuntimeException;
@@ -30,6 +31,8 @@ import com.yuanrong.libruntime.generated.Libruntime.FunctionMeta;
 import com.yuanrong.libruntime.generated.Socket.FunctionLog;
 import com.yuanrong.runtime.config.RuntimeContext;
 import com.yuanrong.storage.InternalWaitResult;
+import com.yuanrong.stream.ProducerConfig;
+import com.yuanrong.stream.SubscriptionType;
 
 import java.util.List;
 
@@ -84,9 +87,10 @@ public class LibRuntime {
      * @param args          invoke arguments
      * @param opt           invoke options
      * @return Pair of ErrorInfo and String
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native Pair<ErrorInfo, String> InvokeInstance(FunctionMeta funcMeta, String instanceId,
-            List<InvokeArg> args, InvokeOptions opt);
+            List<InvokeArg> args, InvokeOptions opt) throws LibRuntimeException;
 
     /**
      * Get invoke results with ObjectRefIds
@@ -107,8 +111,9 @@ public class LibRuntime {
      * @param data the data
      * @param nestObjIds the nestObjIds
      * @return Pair of ErrorInfo and String
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native Pair<ErrorInfo, String> Put(byte[] data, List<String> nestObjIds);
+    public static native Pair<ErrorInfo, String> Put(byte[] data, List<String> nestObjIds) throws LibRuntimeException;
 
     /**
      * Native method for put data
@@ -117,9 +122,10 @@ public class LibRuntime {
      * @param nestObjIds the nestObjIds
      * @param createParam create param of datasystem
      * @return Pair of ErrorInfo and String
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native Pair<ErrorInfo, String> PutWithParam(byte[] data, List<String> nestObjIds,
-            CreateParam createParam);
+            CreateParam createParam) throws LibRuntimeException;
 
     /**
      * Native method for Wait
@@ -128,8 +134,10 @@ public class LibRuntime {
      * @param waitNum the waitNum
      * @param timeoutSec the timeoutSec
      * @return InternalWaitResult
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native InternalWaitResult Wait(List<String> ids, int waitNum, int timeoutSec);
+    public static native InternalWaitResult Wait(List<String> ids, int waitNum, int timeoutSec)
+        throws LibRuntimeException;
 
     /**
      * Native method for ReceiveRequestLoop
@@ -162,7 +170,6 @@ public class LibRuntime {
 
     /**
      * Native method for setRuntimeContext
-     *
      * @param jobID jobID
      */
     public static native void setRuntimeContext(String jobID);
@@ -172,8 +179,9 @@ public class LibRuntime {
      *
      * @param instanceId the instanceId
      * @return ErrorInfo
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo Kill(String instanceId);
+    public static native ErrorInfo Kill(String instanceId) throws LibRuntimeException;
 
     /**
      * Native method for autoInitYR
@@ -189,8 +197,9 @@ public class LibRuntime {
      * @param objectID The ID of the object whose real instance ID is to be
      *                 retrieved
      * @return The real instance ID of the object as a String
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native String GetRealInstanceId(String objectID);
+    public static native String GetRealInstanceId(String objectID) throws LibRuntimeException;
 
     /**
      * Native method for saving the real instance ID of an object.
@@ -198,8 +207,10 @@ public class LibRuntime {
      * @param objectID the object id
      * @param instanceID the instance id
      * @param opts the invoke options
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native void SaveRealInstanceId(String objectID, String instanceID, InvokeOptions opts);
+    public static native void SaveRealInstanceId(String objectID, String instanceID, InvokeOptions opts)
+        throws LibRuntimeException;
 
     /**
      * Native method for writing key-value pairs to a key-value store.
@@ -210,8 +221,9 @@ public class LibRuntime {
      *                  ttlSecond, existence and cacheType.
      * @return An ErrorInfo object containing information about any errors that
      *         occurred during the write operation.
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo KVWrite(String key, byte[] value, SetParam setParam);
+    public static native ErrorInfo KVWrite(String key, byte[] value, SetParam setParam) throws LibRuntimeException;
 
     /**
      * Native method for writing key-value pairs to a key-value store.
@@ -222,8 +234,10 @@ public class LibRuntime {
      *                  ttlSecond, existence and cacheType.
      * @return An ErrorInfo object containing information about any errors that
      *         occurred during the write operation.
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo KVMSetTx(List<String> keys, List<byte[]> values, MSetParam mSetParam);
+    public static native ErrorInfo KVMSetTx(List<String> keys, List<byte[]> values, MSetParam mSetParam)
+        throws LibRuntimeException;
 
     /**
      * Native method for reading a single key-value pair.
@@ -232,8 +246,10 @@ public class LibRuntime {
      * @param timeoutMS The maximum amount of time in milliseconds to wait for the read operation
      * @return A Pair object containing the byte array value associated with the
      *         key, and an ErrorInfo object if there was an error.
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native Pair<byte[], ErrorInfo> KVRead(String key, int timeoutMS);
+    public static native Pair<byte[], ErrorInfo> KVRead(String key, int timeoutMS)
+        throws LibRuntimeException;
 
     /**
      * Native method for reading multiple key-value pairs.
@@ -245,8 +261,10 @@ public class LibRuntime {
      *                     results if some of the keys are not found.
      * @return A Pair object containing a list of byte array values associated with
      *         the keys, and an ErrorInfo object if there was an error.
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native Pair<List<byte[]>, ErrorInfo> KVRead(List<String> keys, int timeoutMS, boolean allowPartial);
+    public static native Pair<List<byte[]>, ErrorInfo> KVRead(List<String> keys, int timeoutMS, boolean allowPartial)
+        throws LibRuntimeException;
 
     /**
      * Native method for reading multiple key-value pairs with get params.
@@ -257,9 +275,10 @@ public class LibRuntime {
      *                     respond.
      * @return A Pair object containing a list of byte array values associated with
      *         the keys, and an ErrorInfo object if there was an error.
+     * @throws LibRuntimeException the LibRuntimeException
      */
     public static native Pair<List<byte[]>, ErrorInfo> KVGetWithParam(List<String> keys,
-            GetParams params, int timeoutMS);
+            GetParams params, int timeoutMS) throws LibRuntimeException;
 
     /**
      * Native method for deleting the value associated with the given key from the
@@ -268,8 +287,9 @@ public class LibRuntime {
      * @param key The key of the value to be deleted
      * @return An ErrorInfo object indicating the success or failure of the
      *         operation
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo KVDel(String key);
+    public static native ErrorInfo KVDel(String key) throws LibRuntimeException;
 
     /**
      * Native method for deleting the values associated with the given keys from the
@@ -279,24 +299,27 @@ public class LibRuntime {
      * @return A Pair object containing a List of keys that were successfully
      *         deleted and an instance of ErrorInfo indicating the success or
      *         failure of the operation
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native Pair<List<String>, ErrorInfo> KVDel(List<String> keys);
+    public static native Pair<List<String>, ErrorInfo> KVDel(List<String> keys) throws LibRuntimeException;
 
     /**
      * Native method for SaveState
      *
      * @param timeoutMs the timeoutMs
      * @return An ErrorInfo object indicating the success or failure of the operation
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo SaveState(int timeoutMs);
+    public static native ErrorInfo SaveState(int timeoutMs) throws LibRuntimeException;
 
     /**
      * Native method for LoadState
      *
      * @param timeoutMs the timeoutMs
      * @return An ErrorInfo object indicating the success or failure of the operation
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo LoadState(int timeoutMs);
+    public static native ErrorInfo LoadState(int timeoutMs) throws LibRuntimeException;
 
     /**
      * Native method for GroupCreate
@@ -304,8 +327,9 @@ public class LibRuntime {
      * @param groupName the groupName
      * @param opts the opts
      * @return An ErrorInfo object indicating the success or failure of the operation
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo GroupCreate(String groupName, GroupOptions opts);
+    public static native ErrorInfo GroupCreate(String groupName, GroupOptions opts) throws LibRuntimeException;
 
     /**
      * Native method for GroupTerminate
@@ -320,8 +344,9 @@ public class LibRuntime {
      *
      * @param groupName the groupName
      * @return An ErrorInfo object indicating the success or failure of the operation
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native ErrorInfo GroupWait(String groupName);
+    public static native ErrorInfo GroupWait(String groupName) throws LibRuntimeException;
 
     /**
      * Native method for processLog
@@ -332,6 +357,64 @@ public class LibRuntime {
     public static native ErrorInfo processLog(FunctionLog functionLog);
 
     /**
+     * Use jni to create producer.
+     *
+     * @param streamName               The name of the stream.
+     * @param delayFlushTimeMs         The time used in automatic flush after send.
+     * @param pageSizeByte             The size used in allocate page.
+     * @param maxStreamSize            The max stream size in worker.
+     * @param shouldCleanup            Should auto delete when last producer/consumer exit
+     * @param encryptStream            The encrypt stream
+     * @param retainForNumConsumers    The retain for num consumers
+     * @param reserveSize              The reserve size
+     * @return The Producer pointer.
+     * @throws LibRuntimeException if there is an exception during creating stream producer
+     */
+    public static native long CreateStreamProducer(String streamName, long delayFlushTimeMs,
+            long pageSizeByte, long maxStreamSize, boolean shouldCleanup, boolean encryptStream,
+            long retainForNumConsumers, long reserveSize)
+            throws LibRuntimeException;
+
+    /**
+     * Use jni to subscribe a new consumer onto master request
+     *
+     * @param streamName       The name of the stream.
+     * @param subName          The name of subscription.
+     * @param subscriptionType The type of SubscriptionType.
+     * @param shouldAutoAck    Should AutoAck be enabled for this subscriber or not.
+     * @return The Consumer pointer.
+     * @throws LibRuntimeException if there is an exception during creating stream consumer
+     */
+    public static native long CreateStreamConsumer(String streamName, String subName,
+            SubscriptionType subscriptionType, boolean shouldAutoAck) throws LibRuntimeException;
+
+    /**
+     * Use jni to delete the stream
+     *
+     * @param streamName The name of the target stream.
+     * @return ErrorInfo
+     */
+    public static native ErrorInfo DeleteStream(String streamName);
+
+    /**
+     * Use jni to query numbers of producer in global worker node
+     *
+     * @param streamName The name of the target stream.
+     * @return The query result.
+     * @throws LibRuntimeException if there is an exception during quering global producersNum
+     */
+    public static native long QueryGlobalProducersNum(String streamName) throws LibRuntimeException;
+
+    /**
+     * Use jni to query numbers of consumer in global worker node
+     *
+     * @param streamName The name of the target stream.
+     * @return The query result.
+     * @throws LibRuntimeException if there is an exception during quering global consumersNum
+     */
+    public static native long QueryGlobalConsumersNum(String streamName) throws LibRuntimeException;
+
+    /**
      * Native method for DecreaseReference
      *
      * @param ids the ids
@@ -339,20 +422,33 @@ public class LibRuntime {
     public static native void DecreaseReference(List<String> ids);
 
     /**
+     * Use jni to create producer.
+     *
+     * @param streamName               The name of the stream.
+     * @param producerConfig           The producer config
+     * @return The Producer pointer.
+     * @throws LibRuntimeException if there is an exception during creating stream producer
+     */
+    public static native long CreateStreamProducerWithConfig(String streamName, ProducerConfig producerConfig)
+            throws LibRuntimeException;
+
+    /**
      * Native method for retrieving the instance route of an object.
      *
      * @param objectID The ID of the object whose instance route is to be retrieved
      * @return The instance route of the object as a String
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native String GetInstanceRoute(String objectID);
+    public static native String GetInstanceRoute(String objectID) throws LibRuntimeException;
 
     /**
      * Native method for saving the instance route of an object.
      *
      * @param objectID the object id
      * @param instanceRoute the instance route
+     * @throws LibRuntimeException the LibRuntimeException
      */
-    public static native void SaveInstanceRoute(String objectID, String instanceRoute);
+    public static native void SaveInstanceRoute(String objectID, String instanceRoute) throws LibRuntimeException;
 
     /**
      * Native method for Kill instance sync
@@ -361,4 +457,12 @@ public class LibRuntime {
      * @return ErrorInfo
      */
     public static native ErrorInfo KillSync(String instanceId);
+
+    /**
+     * Get node information in the cluster.
+     *
+     * @return Pair of ErrorInfo and list of node information.
+     * @throws LibRuntimeException the LibRuntimeException.
+     */
+    public static native Pair<ErrorInfo, List<Node>> nodes() throws LibRuntimeException;
 }

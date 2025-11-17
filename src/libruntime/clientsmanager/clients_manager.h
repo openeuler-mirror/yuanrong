@@ -26,6 +26,8 @@
 #include "src/libruntime/objectstore/object_store.h"
 #include "src/libruntime/statestore/datasystem_state_store.h"
 #include "src/libruntime/statestore/state_store.h"
+#include "src/libruntime/streamstore/datasystem_stream_store.h"
+#include "src/libruntime/streamstore/stream_store.h"
 #include "src/libruntime/utils/security.h"
 #include "src/libruntime/utils/utils.h"
 #include "src/utility/logger/logger.h"
@@ -42,6 +44,7 @@ const std::string IP_PORT_REGEX = R"(((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5
 struct DatasystemClients {
     std::shared_ptr<ObjectStore> dsObjectStore;
     std::shared_ptr<StateStore> dsStateStore;
+    std::shared_ptr<StreamStore> dsStreamStore;
     std::shared_ptr<HeteroStore> dsHeteroStore;
 };
 
@@ -50,13 +53,17 @@ public:
     ClientsManager() = default;
 
     std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> NewFsConn(const std::string &ip, int port,
-                                                                   std::shared_ptr<Security> security);
+                                                                   std::shared_ptr<Security> security,
+                                                                   const std::string &dstInstance);
 
-    std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> GetFsConn(const std::string &ip, int port);
+    std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> GetFsConn(const std::string &ip, int port,
+                                                                   const std::string &dstInstance);
 
-    ErrorInfo ReleaseFsConn(const std::string &ip, int port);
+    ErrorInfo ReleaseFsConn(const std::string &ip, int port, const std::string &dstInstance);
 
     std::pair<DatasystemClients, ErrorInfo> GetOrNewDsClient(const std::shared_ptr<LibruntimeConfig> librtCfg,
+                                                             const std::string &ak,
+                                                             const datasystem::SensitiveValue &sk,
                                                              std::int32_t connectTimeout);
 
     ErrorInfo ReleaseDsClient(const std::string &ip, int port);
@@ -72,6 +79,7 @@ private:
     std::pair<DatasystemClients, ErrorInfo> InitDatasystemClient(
         const std::string &ip, int port, bool enableDsAuth, bool encryptEnable, const std::string &runtimePublicKey,
         const datasystem::SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey,
+        const datasystem::SensitiveValue &token, const std::string &ak, const datasystem::SensitiveValue &sk,
         std::int32_t connectTimeout);
 
     std::pair<std::shared_ptr<ClientManager>, ErrorInfo> InitHttpClient(

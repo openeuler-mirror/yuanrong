@@ -27,9 +27,9 @@ public:
     ~DatasystemHeteroStore() override = default;
     void Shutdown() override;
     ErrorInfo Init(datasystem::ConnectOptions &connectOptions) override;
-    ErrorInfo Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
-    ErrorInfo LocalDelete(const std::vector<std::string> &objectIds,
-                          std::vector<std::string> &failedObjectIds) override;
+    ErrorInfo DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
+    ErrorInfo DevLocalDelete(const std::vector<std::string> &objectIds,
+                             std::vector<std::string> &failedObjectIds) override;
     ErrorInfo DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                            std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec) override;
     ErrorInfo DevPublish(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,

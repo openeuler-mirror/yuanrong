@@ -66,6 +66,15 @@ const std::string LABEL_EXISTS = "LabelExists";
  *  @brief Label operation type, indicating that there is no corresponding label.
  */
 const std::string LABEL_DOES_NOT_EXIST = "LabelDoesNotExist";
+/*! @var AFFINITYSCOPE_POD
+ *  @brief Instance affinity scope, indicating Pod-level affinity.
+ */
+const std::string AFFINITYSCOPE_POD = "POD";
+/*! @var AFFINITYSCOPE_NODE
+ *  @brief Instance affinity scope, indicating Node-level affinity.
+ */
+const std::string AFFINITYSCOPE_NODE = "NODE";
+const uint32_t DEFAULT_HTTP_IOC_THREADS_NUM = 200;
 const size_t MAX_OPTIONS_RETRY_TIME = 10;
 const int DEFAULT_RECYCLETIME = 2;
 const std::string FUNCTION_NOT_REGISTERED_ERROR_MSG = "Function to be invoked is not registered by using YR_INVOKE";

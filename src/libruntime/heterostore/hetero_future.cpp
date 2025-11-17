@@ -19,10 +19,27 @@
 
 namespace YR {
 namespace Libruntime {
+
+YR::Libruntime::AsyncResult ConverDsAsyncResultToLib(datasystem::AsyncResult dsResult)
+{
+    YR::Libruntime::AsyncResult result;
+    YRLOG_DEBUG("convert async result, code is {}, msg is {}, failedList size is {}",
+                fmt::underlying(dsResult.status.GetCode()), dsResult.status.GetMsg(), result.failedList.size());
+    if (dsResult.status.IsOk()) {
+        result.error = YR::Libruntime::ErrorInfo();
+    } else {
+        result.error = ErrorInfo(YR::Libruntime::ConvertDatasystemErrorToCore(dsResult.status.GetCode()),
+                                 dsResult.status.GetMsg());
+    }
+    result.failedList = dsResult.failedList;
+    return result;
+}
+
 YR::Libruntime::AsyncResult ConverDsStatusToAsyncRes(datasystem::Status dsStatus)
 {
     YR::Libruntime::AsyncResult result;
-    YRLOG_DEBUG("convert async result from status, code is {}, msg is {}", dsStatus.GetCode(), dsStatus.GetMsg());
+    YRLOG_DEBUG("convert async result from status, code is {}, msg is {}", fmt::underlying(dsStatus.GetCode()),
+                dsStatus.GetMsg());
     if (dsStatus.IsOk()) {
         result.error = YR::Libruntime::ErrorInfo();
     } else {
@@ -30,6 +47,11 @@ YR::Libruntime::AsyncResult ConverDsStatusToAsyncRes(datasystem::Status dsStatus
     }
     result.failedList = {};
     return result;
+}
+
+HeteroFuture::HeteroFuture(std::shared_ptr<std::shared_future<datasystem::AsyncResult>> dsFuture)
+{
+    this->sharedFuture_ = dsFuture;
 }
 
 HeteroFuture::HeteroFuture(std::shared_ptr<datasystem::Future> dsFuture)
@@ -45,6 +67,10 @@ bool HeteroFuture::IsDsFuture()
 
 YR::Libruntime::AsyncResult HeteroFuture::Get()
 {
+    if (!this->isDsFuture_) {
+        auto dsResult = this->sharedFuture_->get();
+        return ConverDsAsyncResultToLib(dsResult);
+    }
     datasystem::Status status = this->dsFuture_->Get();
     return ConverDsStatusToAsyncRes(status);
 }

@@ -19,6 +19,12 @@
 namespace YR {
 namespace Libruntime {
 
+void RequestManager::PushFaasRequest(const std::string &leaseId, const std::shared_ptr<InvokeSpec> spec)
+{
+    absl::WriterMutexLock lock(&reqMtx_);
+    requestMap[leaseId] = spec;
+}
+
 void RequestManager::PushRequest(const std::shared_ptr<InvokeSpec> spec)
 {
     absl::WriterMutexLock lock(&reqMtx_);

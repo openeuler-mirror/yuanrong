@@ -50,6 +50,7 @@ public class Entrypoint {
      * INSTANCE_ID, DRIVER_SERVER_PORT, HOST_IP, YR_FUNCTION_LIB_PATH, LAYER_LIB_PATH, LD_LIBRARY_PATH is unused.
      * see functionsystem/src/runtime_manager/config/build.cpp for details
      */
+
     private static final String ENV_POSIX_LISTEN_ADDR = "POSIX_LISTEN_ADDR";
 
     private static final String ENV_DATASYSTEM_ADDR = "DATASYSTEM_ADDR";
@@ -57,6 +58,10 @@ public class Entrypoint {
     private static final String ENV_HOME = "HOME";
 
     private static final String ENV_LOG_LEVEL = "logLevel";
+
+    private static final String ENV_LOG_ID = "logId";
+
+    private static final String ENV_RUNTIME_ID = "runtimeId";
 
     private static final String ENV_GLOG_DIR = "GLOG_log_dir";
 
@@ -70,6 +75,8 @@ public class Entrypoint {
             put(ENV_LOG_LEVEL, "INFO");
             put(ENV_GLOG_DIR, "/home/snuser/log");
             put(ENV_JOB_ID, Utils.generateCloudJobId());
+            put(ENV_LOG_ID, "");
+            put(ENV_RUNTIME_ID, "");
         }
     };
 

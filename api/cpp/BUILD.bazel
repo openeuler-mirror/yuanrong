@@ -41,6 +41,8 @@ cc_library(
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
         "@securec",
+        "@nlohmann_json",
+        "@yaml-cpp",
     ],
     alwayslink = True,
 )
@@ -67,6 +69,58 @@ cc_library(
     ]),
     strip_include_prefix = "include",
     visibility = ["//visibility:public"],
+    deps = [
+         "@nlohmann_json",
+    ],
+)
+
+cc_library(
+    name = "functionsdk_lib",
+    srcs = glob([
+        "src/faas/*.cpp",
+        "src/faas/*.h",
+    ]) + [
+        "src/executor/executor.h",
+        "src/executor/executor_holder.h",
+        "src/utils/utils.h",
+        "src/utils/version.h",
+    ],
+    hdrs = glob([
+        "include/faas/*.h",
+    ]),
+    copts = COPTS,
+    linkopts = ["-lstdc++fs"],
+    linkstatic = True,
+    strip_include_prefix = "include/faas",
+    visibility = ["//visibility:public"],
+    deps = [
+        "yr_cpp_lib",
+        "//:runtime_lib_hdrs",
+        "@msgpack",
+        "@nlohmann_json",
+    ],
+    alwayslink = True,
+)
+
+cc_binary(
+    name = "libfunctionsdk.so",
+    copts = COPTS,
+    dynamic_deps = ["//:grpc_dynamic"],
+    linkopts = LOPTS,
+    linkshared = True,
+    linkstatic = True,
+    visibility = ["//visibility:public"],
+    deps = [":functionsdk_lib"],
+)
+
+cc_library(
+    name = "yr_faas_lib",
+    srcs = ["libfunctionsdk.so"],
+    hdrs = glob([
+        "include/faas/*.h",
+    ]),
+    strip_include_prefix = "include/faas",
+    visibility = ["//visibility:public"],
 )
 
 cc_binary(
@@ -87,6 +141,7 @@ cc_binary(
 cc_strip(
     name = "cpp_strip",
     srcs = [
+        "libfunctionsdk.so",
         "libyr-api.so",
         "runtime",
     ],
@@ -104,60 +159,62 @@ genrule(
     srcs = [
         ":cpp_strip",
         "//:grpc_strip",
-        "@boringssl//:gen_dir",
+        "@boringssl//:shared",
         ":cpp_include",
     ],
     outs = ["yr_cpp_pkg.out"],
     cmd = """
-        BASE_DIR="$$(pwd)" &&
-        CPP_SDK_DIR=$$BASE_DIR/build/output/runtime/sdk/cpp &&
-        CPP_SERVICE_DIR=$$BASE_DIR/build/output/runtime/service/cpp &&
-        rm -rf $$CPP_SDK_DIR $$CPP_SERVICE_DIR &&
-        mkdir -p $$CPP_SDK_DIR/include $$CPP_SDK_DIR/include/boost $$CPP_SDK_DIR/lib $$CPP_SDK_DIR/bin $$CPP_SERVICE_DIR &&
-        cp -rf $$BASE_DIR/external/msgpack/include $$CPP_SDK_DIR &&
-        cp -rf $(locations @boringssl//:gen_dir)/include/openssl $$CPP_SDK_DIR/include &&
-        cp -rf $$BASE_DIR/external/boost/boost/asio $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/any $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/assert $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/bind $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/callable_traits $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/chrono $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/config $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/container_hash $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/core $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/date_time $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/detail $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/exception $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/fiber $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/function $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/functional $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/fusion $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/integer $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/io $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/move $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/mpl $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/numeric $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/optional $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/predef $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/preprocessor $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/ratio $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/regex $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/smart_ptr $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/system $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/type_index $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/type_traits $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/utility $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/variant $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/winapi $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/*.hpp $$CPP_SDK_DIR/include/boost &&
-        cp -rf $$BASE_DIR/external/boost/boost/*.h $$CPP_SDK_DIR/include/boost &&
-        cp -rf $(locations @boringssl//:gen_dir)/lib/libssl.so.1.1 $$CPP_SDK_DIR/lib
-        cp -rf $(locations @boringssl//:gen_dir)/lib/libcrypto.so.1.1 $$CPP_SDK_DIR/lib
+        BASE_DIR="$$(pwd)"
+        CPP_SDK_DIR=$$BASE_DIR/build/output/runtime/sdk/cpp
+        CPP_SERVICE_DIR=$$BASE_DIR/build/output/runtime/service/cpp
+        rm -rf $$CPP_SDK_DIR $$CPP_SERVICE_DIR
+        mkdir -p $$CPP_SDK_DIR/include $$CPP_SDK_DIR/include/boost $$CPP_SDK_DIR/lib $$CPP_SDK_DIR/bin $$CPP_SERVICE_DIR
+        cp -rf $$BASE_DIR/external/msgpack/include $$CPP_SDK_DIR
+        if [ "$$BOOST_VERSION" != "1.72.0" ];then
+            cp -rf $$BASE_DIR/external/boost/boost/any $$CPP_SDK_DIR/include/boost
+            cp -rf $$BASE_DIR/external/boost/boost/assert $$CPP_SDK_DIR/include/boost
+        fi
+        cp -rf $$BASE_DIR/external/boringssl/install/include/openssl $$CPP_SDK_DIR/include
+        cp -rf $$BASE_DIR/external/boost/boost/asio $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/align $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/bind $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/callable_traits $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/chrono $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/config $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/container_hash $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/core $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/date_time $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/detail $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/exception $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/fiber $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/function $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/functional $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/fusion $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/integer $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/io $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/move $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/mpl $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/numeric $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/optional $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/predef $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/preprocessor $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/ratio $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/regex $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/smart_ptr $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/system $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/type_index $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/type_traits $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/utility $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/variant $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/winapi $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/*.hpp $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/boost/boost/*.h $$CPP_SDK_DIR/include/boost
+        cp -rf $$BASE_DIR/external/nlohmann_json/single_include/nlohmann/json.hpp $$CPP_SDK_DIR/include
         chmod +w $(locations :cpp_strip) $(locations //:grpc_strip) &&
         chrpath -d $(locations :cpp_strip) $(locations //:grpc_strip) &&
         cp -rf $(locations :cpp_strip) $(locations //:grpc_strip) $$CPP_SDK_DIR/lib/ &&
         cp -rf $(locations :cpp_strip) $$CPP_SDK_DIR/bin/ &&
-        rm -rf $$CPP_SDK_DIR/bin/libyr-api.so
+        rm -rf $$CPP_SDK_DIR/bin/libyr-api.so $$CPP_SDK_DIR/bin/libfunctionsdk.so
         cp -rf $$BASE_DIR/api/cpp/include $$CPP_SDK_DIR/ &&
         DATASYSTEM_DIR=$$BASE_DIR/external/datasystem_sdk/cpp &&
         cp -rf $$DATASYSTEM_DIR/include $$CPP_SDK_DIR &&

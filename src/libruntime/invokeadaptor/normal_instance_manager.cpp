@@ -28,11 +28,12 @@ void NormalInsManager::UpdateConfig(int inputRecycleTimeMs)
 void NormalInsManager::SendKillReq(const std::string &insId)
 {
     KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(insId);
     killReq.set_payload("");
     killReq.set_signal(libruntime::Signal::KillInstance);
     YRLOG_DEBUG("start send kill req, ins id is {}", insId);
-    this->fsClient->KillAsync(killReq, [insId](KillResponse rsp, ErrorInfo err) -> void {
+    this->fsClient->KillAsync(killReq, [insId](KillResponse rsp, const ErrorInfo &err) -> void {
         if (rsp.code() != common::ERR_NONE) {
             YRLOG_WARN("kill req send failed, instance id is {}", insId);
         }
@@ -51,6 +52,7 @@ void NormalInsManager::ScaleCancel(const RequestResource &resource, size_t reqNu
             SendKillReq(ins);
         }
     }
+    EraseResourceInfoMap(resource);
     return;
 }
 
@@ -111,31 +113,29 @@ void NormalInsManager::SendCreateReq(std::shared_ptr<InvokeSpec> spec, size_t de
     auto insInfo = std::make_shared<CreatingInsInfo>("", 0);
     this->AddCreatingInsInfo(resource, insInfo);
     auto weakThis = weak_from_this();
-    YR::utility::ExecuteByGlobalTimer(
-        [this, createSpec, insInfo, weakThis]() {
+    tw_->CreateTimer(deleyTime * MILLISECOND_UNIT, 1, [this, createSpec, insInfo, weakThis]() {
+        auto thisPtr = weakThis.lock();
+        if (thisPtr == nullptr) {
+            return;
+        }
+        YRLOG_DEBUG("send create instance request, req id is {}", createSpec->requestId);
+        requestManager->PushRequest(createSpec);
+        auto respCallback = [this, createSpec, insInfo, weakThis](const CreateResponse &resp) -> void {
             auto thisPtr = weakThis.lock();
             if (thisPtr == nullptr) {
                 return;
             }
-            YRLOG_DEBUG("send create instance request, req id is {}", createSpec->requestId);
-            requestManager->PushRequest(createSpec);
-            auto respCallback = [this, createSpec, insInfo, weakThis](const CreateResponse &resp) -> void {
-                auto thisPtr = weakThis.lock();
-                if (thisPtr == nullptr) {
-                    return;
-                }
-                HandleCreateResponse(createSpec, resp, insInfo);
-            };
-            if (!createSpec->opts.device.name.empty()) {
-                absl::ReaderMutexLock lock(&createCostMtx);
-                createCostMap[createSpec->opts.device.name] = TimeMeasurement(DEFAULT_CREATE_DURATION);
-                createCostMap[createSpec->opts.device.name].StartTimer(createSpec->requestId);
-                YRLOG_DEBUG("start timer for {}, reqID: {}", createSpec->opts.device.name, createSpec->requestId);
-            }
-            this->fsClient->CreateAsync(createSpec->requestCreate, respCallback,
-                                        std::bind(&NormalInsManager::HandleCreateNotify, this, std::placeholders::_1));
-        },
-        deleyTime * MILLISECOND_UNIT, 1);
+            HandleCreateResponse(createSpec, resp, insInfo);
+        };
+        if (!createSpec->opts.device.name.empty()) {
+            absl::ReaderMutexLock lock(&createCostMtx);
+            createCostMap[createSpec->opts.device.name] = TimeMeasurement(DEFAULT_CREATE_DURATION);
+            createCostMap[createSpec->opts.device.name].StartTimer(createSpec->requestId);
+            YRLOG_DEBUG("start timer for {}, reqID: {}", createSpec->opts.device.name, createSpec->requestId);
+        }
+        this->fsClient->CreateAsync(createSpec->requestCreate, respCallback,
+                                    std::bind(&NormalInsManager::HandleCreateNotify, this, std::placeholders::_1));
+    });
 }
 
 void NormalInsManager::HandleCreateResponse(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp,
@@ -151,7 +151,7 @@ void NormalInsManager::HandleCreateResponse(std::shared_ptr<InvokeSpec> spec, co
         YRLOG_ERROR(
             "start handle fail create response, req id is {}, trace id is {}, instance id is {}, code is {}, message "
             "is {}",
-            spec->requestId, spec->traceId, instanceId, resp.code(), resp.message());
+            spec->requestId, spec->traceId, instanceId, fmt::underlying(resp.code()), resp.message());
         auto resource = GetRequestResource(spec);
         HandleFailCreateNotify(spec, resource);
         scheduleInsCb(resource, ErrorInfo(static_cast<ErrorCode>(resp.code()), ModuleCode::CORE, resp.message(), true),
@@ -187,7 +187,7 @@ void NormalInsManager::HandleCreateNotify(const NotifyRequest &req)
         YRLOG_ERROR(
             "handle normal function instance create failed notify or response, request id is: {}, instance id is: {}, "
             "trace id is: {},err code is {}, err msg is {}",
-            reqId, createSpec->instanceId, createSpec->traceId, errInfo.Code(), errInfo.Msg());
+            reqId, createSpec->instanceId, createSpec->traceId, fmt::underlying(errInfo.Code()), errInfo.Msg());
         HandleFailCreateNotify(createSpec, resource);
     } else {
         HandleSuccessCreateNotify(createSpec, resource, req);
@@ -223,7 +223,7 @@ void NormalInsManager::HandleSuccessCreateNotify(const std::shared_ptr<InvokeSpe
                                                  const RequestResource &resource, const NotifyRequest &req)
 {
     this->ChangeCreateFailNum(resource, false);
-    auto info = GetRequestResourceInfo(resource);
+    auto info = GetOrAddRequestResourceInfo(resource);
     // ensure atomicity of erase creating and add instances.
     // avoid creating unnecessary instances when judge NeedCreateNewIns
     bool isErased;
@@ -242,18 +242,15 @@ void NormalInsManager::HandleSuccessCreateNotify(const std::shared_ptr<InvokeSpe
         this->StartNormalInsScaleDownTimer(resource, createSpec->instanceId);
     } else {
         SendKillReq(createSpec->instanceId);
+        EraseResourceInfoMap(resource, REQUEST_RESOURCE_USE_COUNT);
     }
 }
 
 void NormalInsManager::ScaleDownHandler(const RequestResource &resource, const std::string &id)
 {
-    std::shared_ptr<RequestResourceInfo> info;
-    {
-        absl::ReaderMutexLock lock(&insMtx);
-        if (requestResourceInfoMap.find(resource) == requestResourceInfoMap.end()) {
-            return;
-        }
-        info = requestResourceInfoMap[resource];
+    auto info = GetRequestResourceInfo(resource);
+    if (info == nullptr) {
+        return;
     }
     std::shared_ptr<InstanceInfo> insInfo;
     {
@@ -271,24 +268,22 @@ void NormalInsManager::ScaleDownHandler(const RequestResource &resource, const s
         DelInsInfoBare(id, info);
     }
     SendKillReq(id);
+    EraseResourceInfoMap(resource, REQUEST_RESOURCE_USE_COUNT);
     scheduleInsCb(resource, ErrorInfo(), IsRemainIns(resource));
 }
 
 void NormalInsManager::StartNormalInsScaleDownTimer(const RequestResource &resource, const std::string &id)
 {
     auto weakPtr = weak_from_this();
-    auto info = GetRequestResourceInfo(resource);
     std::shared_ptr<InstanceInfo> insInfo = GetInstanceInfo(resource, id);
     if (insInfo == nullptr) {
         return;
     }
-    auto timer = YR::utility::ExecuteByGlobalTimer(
-        [this, weakPtr, resource, id]() {
-            if (auto thisPtr = weakPtr.lock(); thisPtr) {
-                ScaleDownHandler(resource, id);
-            }
-        },
-        libRuntimeConfig->recycleTime * MILLISECOND_UNIT, 1);
+    auto timer = tw_->CreateTimer(libRuntimeConfig->recycleTime * MILLISECOND_UNIT, 1, [this, weakPtr, resource, id]() {
+        if (auto thisPtr = weakPtr.lock(); thisPtr) {
+            ScaleDownHandler(resource, id);
+        }
+    });
     CancelScaleDownTimer(insInfo);
     absl::WriterMutexLock insLock(&insInfo->mtx);
     insInfo->scaleDownTimer = timer;
@@ -296,7 +291,7 @@ void NormalInsManager::StartNormalInsScaleDownTimer(const RequestResource &resou
 
 void NormalInsManager::AddInsInfo(const std::shared_ptr<InvokeSpec> createSpec, const RequestResource &resource)
 {
-    auto info = GetRequestResourceInfo(resource);
+    auto info = GetOrAddRequestResourceInfo(resource);
     absl::WriterMutexLock lock(&info->mtx);
     AddInsInfoBare(createSpec, info);
 }
@@ -314,6 +309,6 @@ void NormalInsManager::AddInsInfoBare(const std::shared_ptr<InvokeSpec> createSp
     }
 }
 
-void NormalInsManager::StartRenewTimer(const RequestResource &resource, const std::string &insId) {}
+void NormalInsManager::StartBatchRenewTimer() {}
 }  // namespace Libruntime
 }  // namespace YR

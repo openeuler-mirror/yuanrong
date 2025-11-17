@@ -28,6 +28,7 @@ from typing import List
 import yr
 from yr import signature
 from yr.code_manager import CodeManager
+from yr.generator import ObjectRefGenerator
 from yr.common import constants, utils
 from yr.common.types import GroupInfo
 from yr.config import InvokeOptions, function_group_enabled
@@ -289,6 +290,7 @@ class InstanceCreator:
         """
         name = actor_options.get("name")
         namespace = actor_options.get("namespace")
+        lifecycle = actor_options.get("lifetime")
         if name is not None:
             if not isinstance(name, str):
                 raise TypeError(
@@ -301,9 +303,26 @@ class InstanceCreator:
             if namespace == "":
                 raise ValueError('"" is not a valid namespace. '
                                  "Pass None to not specify a namespace.")
+        if lifecycle is not None:
+            if not isinstance(lifecycle, str):
+                raise TypeError(
+                    f"lifetime must be None or a string, got: '{type(lifecycle)}'.")
+            if lifecycle != "detached":
+                raise ValueError(f"lifetime is only support detached")
+            self.__invoke_options__.custom_extensions["lifecycle"] = lifecycle
 
         self.__invoke_options__.name = name
         self.__invoke_options__.namespace = namespace
+
+        if "runtime_env" in actor_options:
+            if "env_vars" in actor_options["runtime_env"]:
+                self.__invoke_options__.env_vars = actor_options[
+                    "runtime_env"]["env_vars"]
+        if "resources" in actor_options:
+            resources = actor_options.get("resources")
+            if not isinstance(resources, dict):
+                raise TypeError("resources must be None or a string.")
+            self.__invoke_options__.custom_resources.update(resources)
         return self._options_yr(self.__invoke_options__)
 
     def _options_yr(self, invoke_options: InvokeOptions):
@@ -463,6 +482,7 @@ class InstanceProxy:
         info_[constants.BASE_CLS] = self._base_cls
         self._class_descriptor.to_dict()
         state = {**info_, **self._class_descriptor.to_dict()}
+        global_runtime.get_runtime().wait([self.instance_id], 1, -1)
         return state
 
     def terminate(self, is_sync: bool = False):
@@ -674,6 +694,9 @@ class MethodProxy:
         objref_list = []
         for i in obj_list:
             objref_list.append(ObjectRef(i, need_incre=False))
+
+        if self._method_descriptor.is_generator:
+            return ObjectRefGenerator(objref_list[0])
         return objref_list[0] if self._return_nums == 1 else objref_list
 
 

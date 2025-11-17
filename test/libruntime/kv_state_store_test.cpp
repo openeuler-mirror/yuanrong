@@ -62,7 +62,7 @@ public:
     std::shared_ptr<DSCacheStateStore> stateStore_;
 };
 
-TEST_F(KVStateStoreTest, KVWriteReadDel)
+TEST_F(KVStateStoreTest, KVWriteReadDelExist)
 {
     std::string key = "123";
     std::string key2 = "456";
@@ -84,17 +84,20 @@ TEST_F(KVStateStoreTest, KVWriteReadDel)
     // Read
     SingleReadResult readResult = stateStore_->Read(key, -1);
     ASSERT_EQ(readResult.second.Code(), ErrorCode::ERR_OK);
-
     MultipleReadResult multiReadResult = stateStore_->Read({key, key}, 100, false);
     ASSERT_EQ(multiReadResult.second.Code(), ErrorCode::ERR_GET_OPERATION_FAILED);
+
+    // Exist
+    MultipleExistResult emptyExistResult = stateStore_->Exist({});
+    ASSERT_EQ(emptyExistResult.second.Code(), ErrorCode::ERR_PARAM_INVALID);
+    MultipleExistResult existResult = stateStore_->Exist({key, key2});
+    ASSERT_EQ(existResult.second.Code(), ErrorCode::ERR_OK);
 
     // Del
     err = stateStore_->Del(key);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-
     MultipleDelResult mdResult = stateStore_->Del({key, key2});
     ASSERT_EQ(mdResult.second.Code(), ErrorCode::ERR_OK);
 }
-
 }  // namespace test
 }  // namespace YR

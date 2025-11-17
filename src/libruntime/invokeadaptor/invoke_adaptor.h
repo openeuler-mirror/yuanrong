@@ -21,17 +21,23 @@
 #include <future>
 #include <unordered_set>
 
+#include "alias_element.h"
+#include "alias_routing.h"
 #include "execution_manager.h"
 #include "request_manager.h"
 #include "src/dto/config.h"
 #include "src/dto/status.h"
+#include "src/libruntime/fiber.h"
 #include "src/libruntime/dependency_resolver.h"
 #include "src/libruntime/err_type.h"
-#include "src/libruntime/fiber.h"
-#include "src/libruntime/fsclient/fs_client.h"
 #include "src/libruntime/fmclient/fm_client.h"
+#include "src/libruntime/fsclient/fs_client.h"
+#include "src/libruntime/generator/generator_id_map.h"
+#include "src/libruntime/generator/generator_notifier.h"
+#include "src/libruntime/generator/generator_receiver.h"
 #include "src/libruntime/groupmanager/function_group.h"
 #include "src/libruntime/groupmanager/group_manager.h"
+#include "src/libruntime/gwclient/gw_client.h"
 #include "src/libruntime/invoke_order_manager.h"
 #include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/invokeadaptor/task_submitter.h"
@@ -39,17 +45,19 @@
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/objectstore/object_store.h"
+#include "src/libruntime/rgroupmanager/resource_group_create_spec.h"
+#include "src/libruntime/rgroupmanager/resource_group_manager.h"
 #include "src/libruntime/runtime_context.h"
 #include "src/libruntime/utils/constants.h"
 #include "src/libruntime/utils/exception.h"
 #include "src/libruntime/utils/utils.h"
-#include "src/libruntime/rgroupmanager/resource_group_create_spec.h"
-#include "src/libruntime/rgroupmanager/resource_group_manager.h"
 #include "src/utility/notification_utility.h"
 
 namespace YR {
 namespace Libruntime {
+extern thread_local std::string threadLocalTraceId;
 using FinalizeCallback = std::function<void()>;
+using DebugBreakpointHook = std::function<void()>;
 using SetTenantIdCallback = std::function<void()>;
 using RawCallback = std::function<void(const ErrorInfo &err, std::shared_ptr<Buffer> resultRaw)>;
 
@@ -60,7 +68,10 @@ public:
                   std::shared_ptr<FSClient> &fsClient, std::shared_ptr<MemoryStore> memStore,
                   std::shared_ptr<RuntimeContext> rtCtx, FinalizeCallback cb,
                   std::shared_ptr<WaitingObjectManager> waitManager, std::shared_ptr<InvokeOrderManager> invokeOrderMgr,
-                  std::shared_ptr<ClientsManager> clientsMgr, std::shared_ptr<MetricsAdaptor> metricsAdaptor);
+                  std::shared_ptr<ClientsManager> clientsMgr, std::shared_ptr<MetricsAdaptor> metricsAdaptor,
+                  std::shared_ptr<GeneratorIdMap> genIdMapper, std::shared_ptr<GeneratorReceiver> generatorReceiver,
+                  std::shared_ptr<GeneratorNotifier> generatorNotifier,
+                  std::shared_ptr<YR::scene::DowngradeController> downgrade = nullptr);
 
     std::pair<std::string, ErrorInfo> Init(RuntimeContext &runtimeContext, std::shared_ptr<Security> security);
 
@@ -94,13 +105,15 @@ public:
 
     virtual ErrorInfo Cancel(const std::vector<std::string> &objids, bool isForce, bool isRecursive);
 
-    virtual void Exit(void);
+    virtual void Exit(const int code, const std::string &message);
 
     virtual void Finalize(bool isDriver = true);
 
     virtual ErrorInfo Kill(const std::string &instanceId, const std::string &payload, int signal);
 
     virtual void KillAsync(const std::string &instanceId, const std::string &payload, int signal);
+    virtual void KillAsyncCB(const std::string &instanceId, const std::string &payload, int signal,
+                             std::function<void(const ErrorInfo &err)> cb);
 
     CallResponse CallReqProcess(const CallRequest &req);
 
@@ -120,13 +133,20 @@ public:
     virtual void GroupTerminate(const std::string &groupName);
 
     virtual std::pair<std::vector<std::string>, ErrorInfo> GetInstanceIds(const std::string &objId,
-                                                                  const std::string &groupName);
+                                                                          const std::string &groupName);
 
     virtual ErrorInfo SaveState(const std::shared_ptr<Buffer> data, const int &timeout);
 
     virtual ErrorInfo LoadState(std::shared_ptr<Buffer> &data, const int &timeout);
 
     virtual ErrorInfo ExecShutdownCallback(uint64_t gracePeriodSec);
+
+    virtual std::pair<InstanceAllocation, ErrorInfo> AcquireInstance(const std::string &stateId,
+                                                                     const FunctionMeta &functionMeta,
+                                                                     InvokeOptions &opts);
+
+    virtual ErrorInfo ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
+                                      InvokeOptions &opts);
     void InitHandler(const std::shared_ptr<CallMessageSpec> &req);
     void CallHandler(const std::shared_ptr<CallMessageSpec> &req);
     CheckpointResponse CheckpointHandler(const CheckpointRequest &req);
@@ -134,20 +154,27 @@ public:
 
     void CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec> spec);
     virtual std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> GetInstance(const std::string &name,
-                                                                   const std::string &nameSpace, int timeoutSec);
+                                                                           const std::string &nameSpace,
+                                                                           int timeoutSec);
     void SubscribeAll();
     void Subscribe(const std::string &insId);
+    void SubscribeActiveMaster();
     ErrorInfo Accelerate(const std::string &groupName, const AccelerateMsgQueueHandle &handle,
                          HandleReturnObjectCallback callback);
-
+    virtual void UpdateSchdulerInfo(const std::string &schedulerName, const std::string &schedulerId,
+                                    const std::string &option);
+    void CreateCallTimer(const std::string &reqId, const std::string &instanceId, int64_t invokeTimeoutSec);
+    void EraseCallTimer(const std::string &reqId);
+    virtual void EraseFsIntf(const std::string &id);
+    void PushInvokeSpec(std::shared_ptr<InvokeSpec> spec);
+    virtual bool IsHealth();
     virtual std::pair<ErrorInfo, std::string> GetNodeIpAddress();
 
     virtual std::pair<ErrorInfo, std::string> GetNodeId();
     virtual std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResources(void);
     virtual std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTable(const std::string &resourceGroupId);\
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
-    void PushInvokeSpec(std::shared_ptr<InvokeSpec> spec);
-    void SubscribeActiveMaster();
+
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
     void CreateNotifyHandler(const NotifyRequest &req);
@@ -159,6 +186,7 @@ private:
     HeartbeatResponse HeartbeatHandler(const HeartbeatRequest &req);
     void ExecUserShutdownCallback(uint64_t gracePeriodSec,
                                   const std::shared_ptr<utility::NotificationUtility> &notification);
+    ErrorInfo ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo);
 
     template <typename ResponseType>
     static ErrorInfo WaitAndCheckResp(std::shared_future<ResponseType> &future, const std::string &instanceId,
@@ -172,7 +200,7 @@ private:
     std::pair<common::ErrorCode, std::string> PrepareCallExecutor(const RequestType &req);
 
     CallResult CallProcess(const CallRequest &req);
-
+    bool ParseRequest(const CallRequest &request, std::vector<std::shared_ptr<DataObject>> &rawArgs, bool isPosix);
     CallResult Call(const CallRequest &request, const libruntime::MetaData &metaData, const LibruntimeOptions &options,
                     std::vector<std::string> &objectsInDs);
     // load user function libraries
@@ -184,6 +212,8 @@ private:
     std::shared_ptr<InvokeSpec> BuildCreateSpec(std::shared_ptr<InvokeSpec> spec);
 
     void ProcessErr(const std::shared_ptr<InvokeSpec> &spec, const ErrorInfo &errInfo);
+
+    void CheckAndSetDebugBreakpoint(const std::shared_ptr<CallMessageSpec> &req);
 
     void UpdateAndSubcribeInsStatus(const std::string &insId, libruntime::FunctionMeta &funcMeta);
     void RemoveInsMetaInfo(const std::string &insId);
@@ -204,14 +234,21 @@ private:
     std::shared_ptr<ExecutionManager> execMgr;
     std::shared_ptr<ClientsManager> clientsMgr;
     std::shared_ptr<MetricsAdaptor> metricsAdaptor;
+    std::shared_ptr<AliasRouting> ar;
     std::shared_ptr<FiberPool> fiberPool_;
+    std::shared_ptr<GeneratorIdMap> map_;
+    std::shared_ptr<GeneratorReceiver> generatorReceiver_;
+    std::shared_ptr<GeneratorNotifier> generatorNotifier_;
     std::shared_ptr<ResourceGroupManager> rGroupManager_;
+    std::shared_ptr<FMClient> functionMasterClient_;
     std::mutex finishTaskMtx;
+    DebugBreakpointHook setDebugBreakpoint_ = nullptr;
     SetTenantIdCallback setTenantIdCb_;
     std::mutex metaMapMtx;
     std::unordered_map<std::string, libruntime::FunctionMeta> metaMap;
     std::atomic<bool> accelerateRunFlag_{false};
-    std::shared_ptr<FMClient> functionMasterClient_;
+    std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> callTimeoutTimerMap_;
+    mutable absl::Mutex callTimerMtx_;
 };
 
 const static std::unordered_map<common::ErrorCode, std::string> ErrMsgMap = {

@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import com.yuanrong.errorcode.ErrorInfo;
+import com.yuanrong.exception.LibRuntimeException;
 import com.yuanrong.jni.LibRuntime;
 
 import org.junit.Assert;
@@ -46,7 +47,7 @@ public class TestGroup {
     }
 
     @Test
-    public void testInitGroup() {
+    public void testInitGroup() throws LibRuntimeException {
         when(LibRuntime.GroupCreate(anyString(), any())).thenReturn(new ErrorInfo());
         when(LibRuntime.GroupTerminate(anyString())).thenReturn(new ErrorInfo());
         when(LibRuntime.GroupWait(anyString())).thenReturn(new ErrorInfo());

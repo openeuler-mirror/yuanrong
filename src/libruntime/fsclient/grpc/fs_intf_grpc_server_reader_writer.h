@@ -53,6 +53,7 @@ public:
     bool GrpcBatchRead(const std::shared_ptr<BatchStreamingMessage> &message) override;
     bool GrpcBatchWrite(const std::shared_ptr<BatchStreamingMessage> &request) override;
     bool IsBatched() override;
+    bool IsHealth() override;
 
 private:
     void ClearStream();

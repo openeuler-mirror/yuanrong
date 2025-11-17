@@ -26,11 +26,13 @@ class HeteroFuture {
 public:
     HeteroFuture() = default;
     ~HeteroFuture() = default;
+    explicit HeteroFuture(std::shared_ptr<std::shared_future<datasystem::AsyncResult>> dsFuture);
     explicit HeteroFuture(std::shared_ptr<datasystem::Future> dsFuture);
     YR::Libruntime::AsyncResult Get();
     bool IsDsFuture();
 
 private:
+    std::shared_ptr<std::shared_future<datasystem::AsyncResult>> sharedFuture_;
     std::shared_ptr<datasystem::Future> dsFuture_;
     bool isDsFuture_ = false;
 };

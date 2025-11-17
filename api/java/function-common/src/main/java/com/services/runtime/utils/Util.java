@@ -17,11 +17,13 @@
 
 package com.services.runtime.utils;
 
+import com.services.runtime.Context;
 import com.services.runtime.action.CustomLoggerStream;
 import com.yuanrong.jni.LibRuntime;
 import com.yuanrong.libruntime.generated.Socket.FunctionLog;
 import com.yuanrong.runtime.util.Constants;
 import com.yuanrong.runtime.util.ExtClasspathLoader;
+import com.yuanrong.runtime.util.Utils;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -31,6 +33,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Locale;
 
 /**
  * The type Util.
@@ -170,6 +173,51 @@ public class Util {
      */
     public static void clearInheritableThreadLocal() {
         inheritableThreadLocal.remove();
+    }
+
+    /**
+     * get ServiceNameFromEnv
+     *
+     * @param context the context
+     * @return service
+     */
+    public static String getServiceNameFromEnv(Context context) {
+        String service = "";
+        if (context != null) {
+            service = context.getPackage();
+        }
+        if (service == null || service.isEmpty()) {
+            service = Utils.getFromJavaEnv("RUNTIME_PACKAGE");
+        }
+        return service;
+    }
+
+    /**
+     * get TenantIdFromEnv
+     *
+     * @param context the context
+     * @return tenantId
+     */
+    public static String getTenantIdFromEnv(Context context) {
+        String tenantId = "";
+        if (context != null) {
+            tenantId = context.getProjectID();
+        }
+        if (tenantId == null || tenantId.isEmpty()) {
+            tenantId = Utils.getFromJavaEnv("RUNTIME_PROJECT_ID");
+        }
+        return tenantId;
+    }
+
+    /**
+     * getFunctionInfo
+     *
+     * @param context context
+     * @return function info
+     */
+    public static String getFunctionInfo(Context context) {
+        return String.format(Locale.ROOT, "%s:function:0@%s@%s:%s", getTenantIdFromEnv(context),
+                            getServiceNameFromEnv(context), context.getFunctionName(), context.getVersion());
     }
 
     /**

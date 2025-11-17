@@ -26,9 +26,10 @@ const int DEFAULT_RETENTION_DAYS = 30;
 const int64_t SIZE_MEGA_BYTES = 1024 * 1024;  // 1 MB
 const int DEFAULT_LOG_BUF_SECONDS = 10;
 const std::string LOGGER_NAME = "Logger";
+const std::string REPORT_LOGGER_NAME = "interface";
 const std::string DEFAULT_JOB_ID = "job-ffffffff";
 const std::string LOG_SUFFIX = ".log";
-const unsigned int DEFAULT_MAX_ASYNC_QUEUE_SIZE = 51200;  // 1024*50(every log length)
+const unsigned int DEFAULT_MAX_ASYNC_QUEUE_SIZE = 1024;  // 1024(every log length)
 const unsigned int DEFAULT_ASYNC_THREAD_COUNT = 1;
 
 struct LogParam {
@@ -45,6 +46,8 @@ struct LogParam {
     unsigned int asyncThreadCount = DEFAULT_ASYNC_THREAD_COUNT;
     bool alsoLog2Stderr = false;
     bool isLogMerge = false;
+    bool withLogPrefix = false;
+    std::string loggerId;
 };
 }  // namespace utility
 }  // namespace YR

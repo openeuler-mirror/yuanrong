@@ -23,11 +23,14 @@ const char *STORAGE_TYPE = "storage_type";
 const char *CODE_PATH = "code_path";
 const char *WORKING_DIR = "working_dir";
 const char *DELEGATE_DOWNLOAD = "DELEGATE_DOWNLOAD";
+const char *ENABLE_DEBUG_KEY = "enable";
+const char *ENABLE_DEBUG = "true";
+const char *DEBUG_CONFIG_KEY = "debug_config";
 
 InvokeSpec::InvokeSpec(const std::string &jobId, const FunctionMeta &functionMeta,
                        const std::vector<DataObject> &returnObjs, std::vector<InvokeArg> invokeArgs,
                        const libruntime::InvokeType invokeType, std::string traceId, std::string requestId,
-                       const std::string &instanceId, const InvokeOptions &opts)
+                       const std::string &instanceId, InvokeOptions opts)
     : jobId(jobId),
       functionMeta(functionMeta),
       returnIds(returnObjs),
@@ -39,6 +42,7 @@ InvokeSpec::InvokeSpec(const std::string &jobId, const FunctionMeta &functionMet
       opts(std::move(opts)),
       requestInvoke(std::make_shared<InvokeMessageSpec>())
 {
+    schedulerInstanceIdMtx_ = std::make_shared<absl::Mutex>();
 }
 
 void InvokeSpec::ConsumeRetryTime()
@@ -46,6 +50,18 @@ void InvokeSpec::ConsumeRetryTime()
     if (opts.retryTimes > 0) {
         --opts.retryTimes;
     }
+}
+
+bool InvokeSpec::ExceedMaxRetryTime()
+{
+    if (opts.maxRetryTime == -1) {
+        return false;
+    }
+    if (opts.maxRetryTime == 0) {
+        return true;
+    }
+    --opts.maxRetryTime;
+    return false;
 }
 
 void InvokeSpec::IncrementSeq()
@@ -60,11 +76,11 @@ std::string InvokeSpec::ConstructRequestID()
 
 std::string InvokeSpec::GetNamedInstanceId()
 {
-    if (functionMeta.name && !functionMeta.name.value().empty()) {
-        if (functionMeta.ns && !functionMeta.ns.value().empty()) {
-            return functionMeta.ns.value() + "-" + functionMeta.name.value();
+    if (!functionMeta.name.empty()) {
+        if (!functionMeta.ns.empty()) {
+            return functionMeta.ns + "-" + functionMeta.name;
         } else {
-            return DEFAULT_YR_NAMESPACE + "-" + functionMeta.name.value();
+            return DEFAULT_YR_NAMESPACE + "-" + functionMeta.name;
         }
     }
     return "";
@@ -86,13 +102,38 @@ std::string InvokeSpec::GetInstanceId(std::shared_ptr<LibruntimeConfig> config)
 
 void InvokeSpec::InitDesignatedInstanceId(const LibruntimeConfig &config)
 {
-    if (functionMeta.name && !functionMeta.name.value().empty()) {
-        auto ns = (!functionMeta.ns.has_value() || functionMeta.ns->empty()) ? config.ns : functionMeta.ns.value();
+    if (!functionMeta.name.empty()) {
+        auto ns = functionMeta.ns.empty() ? config.ns : functionMeta.ns;
         if (ns.empty()) {
-            designatedInstanceID = *functionMeta.name;
+            designatedInstanceID = functionMeta.name;
         } else {
-            designatedInstanceID = ns + "-" + *functionMeta.name;
+            designatedInstanceID = ns + "-" + functionMeta.name;
         }
+    }
+}
+
+std::vector<std::string> InvokeSpec::GetSchedulerInstanceIds()
+{
+    absl::ReaderMutexLock lock(schedulerInstanceIdMtx_.get());
+    return this->opts.schedulerInstanceIds;
+}
+
+std::string InvokeSpec::GetSchedulerInstanceId()
+{
+    absl::ReaderMutexLock lock(schedulerInstanceIdMtx_.get());
+    if (this->opts.schedulerInstanceIds.empty()) {
+        return "";
+    }
+    return this->opts.schedulerInstanceIds[0];
+}
+
+void InvokeSpec::SetSchedulerInstanceId(const std::string &schedulerId)
+{
+    absl::WriterMutexLock lock(schedulerInstanceIdMtx_.get());
+    if (this->opts.schedulerInstanceIds.empty()) {
+        this->opts.schedulerInstanceIds.push_back(schedulerId);
+    } else {
+        this->opts.schedulerInstanceIds[0] = schedulerId;
     }
 }
 
@@ -173,6 +214,7 @@ void InvokeSpec::BuildRequestPbCreateOptions(InvokeOptions &opts, const Librunti
                                              CreateRequest &request)
 {
     auto *createOptions = request.mutable_createoptions();
+    createOptions->insert({"DATA_AFFINITY_ENABLED", opts.isDataAffinity ? "true" : "false"});
     for (auto &opt : opts.createOptions) {
         createOptions->insert({opt.first, opt.second});
     }
@@ -233,6 +275,11 @@ void InvokeSpec::BuildRequestPbCreateOptions(InvokeOptions &opts, const Librunti
                                       ? LOW_RELIABILITY_TYPE
                                       : HIGH_RELIABILITY_TYPE;
         createOptions->insert({RELIABILITY_TYPE, reliability});
+    }
+    if (opts.debug.enable) {
+        nlohmann::json debugJson;
+        debugJson[std::string(ENABLE_DEBUG_KEY)] = std::string(ENABLE_DEBUG);
+        createOptions->insert({std::string(DEBUG_CONFIG_KEY), debugJson.dump()});
     }
 }
 
@@ -306,10 +353,12 @@ std::string InvokeSpec::BuildCreateMetaData(const LibruntimeConfig &config)
     funcMeta->set_language(this->functionMeta.languageType);
     funcMeta->set_modulename(this->functionMeta.moduleName);
     funcMeta->set_signature(this->functionMeta.signature);
-    funcMeta->set_name(this->functionMeta.name.value_or(""));
-    funcMeta->set_ns((!this->functionMeta.ns.has_value() || this->functionMeta.ns->empty())
-                         ? config.ns
-                         : this->functionMeta.ns.value_or(""));
+    if (!this->functionMeta.name.empty()) {
+        funcMeta->set_name(this->functionMeta.name);
+    }
+    if (!this->functionMeta.ns.empty()) {
+        funcMeta->set_ns(this->functionMeta.ns);
+    }
     auto metaConfig = meta.mutable_config();
     config.BuildMetaConfig(*metaConfig);
     if (!this->opts.codePaths.empty()) {
@@ -339,6 +388,7 @@ std::string InvokeSpec::BuildCreateMetaData(const LibruntimeConfig &config)
             metaConfig->add_schedulerinstanceids(id);
         }
     }
+
     auto invocationMeta = meta.mutable_invocationmeta();
     if (config.runtimeId == "driver") {
         invocationMeta->set_invokerruntimeid(config.runtimeId + "_" + config.jobId);
@@ -347,7 +397,7 @@ std::string InvokeSpec::BuildCreateMetaData(const LibruntimeConfig &config)
     }
     invocationMeta->set_invocationsequenceno(this->invokeSeqNo);
     invocationMeta->set_minunfinishedsequenceno(this->invokeUnfinishedSeqNo);
-    YRLOG_DEBUG("create meta data is {}", meta.DebugString());
+    YRLOG_DEBUG("create meta data: >{}<", meta.DebugString());
     return meta.SerializeAsString();
 }
 
@@ -403,11 +453,16 @@ bool RequestResource::operator==(const RequestResource &r) const
         std::size_t h2 = (*it)->GetAffinityHash();
         affinityHash = affinityHash ^ h2;
     }
-    if (opts.instanceSession != r.opts.instanceSession) {
-        return false;
-    }
-    if (opts.instanceSession != nullptr && opts.instanceSession->sessionID != r.opts.instanceSession->sessionID) {
-        return false;
+    if (opts.instanceSession || r.opts.instanceSession) {
+        if (!opts.instanceSession || !r.opts.instanceSession) {
+            return false;
+        }
+        if (opts.instanceSession->sessionID != r.opts.instanceSession->sessionID) {
+            return false;
+        }
+        if (opts.instanceSession->sessionTTL != r.opts.instanceSession->sessionTTL) {
+            return false;
+        }
     }
     if (r.opts.invokeLabels.size() != opts.invokeLabels.size()) {
         return false;
@@ -439,9 +494,22 @@ bool RequestResource::operator==(const RequestResource &r) const
             opts.resourceGroupOpts.resourceGroupName == r.opts.resourceGroupOpts.resourceGroupName) &&
            affinityHash == 0;
 }
+
+std::size_t FaasInfoForBatchRenewFn::operator()(const FaasInfoForBatchRenew &i) const
+{
+    return std::hash<std::string>{}(i.schedulerFunctionID) ^ std::hash<std::string>{}(i.schedulerInstanceID) ^
+           std::hash<std::string>{}(i.functionId) ^ std::hash<int64_t>{}(i.batchIndex);
+}
+
+bool FaasInfoForBatchRenew::operator==(const FaasInfoForBatchRenew &i) const
+{
+    return schedulerInstanceID == i.schedulerInstanceID && schedulerFunctionID == i.schedulerFunctionID &&
+           functionId == i.functionId && batchIndex == i.batchIndex;
+}
+
 void RequestResource::Print(void) const
 {
-    YRLOG_DEBUG("function meta: {} {}", functionMeta.languageType, functionMeta.functionId);
+    YRLOG_DEBUG("function meta: {} {}", fmt::underlying(functionMeta.languageType), functionMeta.functionId);
 }
 
 std::size_t HashFn::operator()(const RequestResource &r) const
@@ -469,13 +537,15 @@ std::size_t HashFn::operator()(const RequestResource &r) const
     }
     if (r.opts.instanceSession) {
         std::size_t h10 = std::hash<std::string>()(r.opts.instanceSession->sessionID);
-        result = result ^ h10;
+        std::size_t h11 = std::hash<int>()(r.opts.instanceSession->sessionTTL);
+        result = result ^ h10 ^ h11;
     }
     for (const auto &envPair: r.opts.envVars) {
-        std::size_t h11 = std::hash<std::string>()(envPair.first);
-        std::size_t h12 = std::hash<std::string>()(envPair.second);
-        result = result ^ h11 ^ h12;
+        std::size_t h12 = std::hash<std::string>()(envPair.first);
+        std::size_t h13 = std::hash<std::string>()(envPair.second);
+        result = result ^ h12 ^ h13;
     }
+    result = result ^ std::hash<DebugConfig>()(r.opts.debug);
     return result;
 }
 }  // namespace Libruntime

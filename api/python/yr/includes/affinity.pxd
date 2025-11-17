@@ -22,6 +22,7 @@ from libcpp.vector cimport vector
 
 cdef extern from "src/libruntime/fsclient/protobuf/common.pb.h" nogil:
     cdef cppclass PBAffinity "::common::Affinity"
+    cdef cppclass PBInstanceAffinity "::common::InstanceAffinity"
     cdef cppclass CLabelMatchExpression "::common::LabelMatchExpression"
 
 cdef extern from "src/dto/affinity.h" nogil:
@@ -45,6 +46,9 @@ cdef extern from "src/dto/affinity.h" nogil:
         void SetRequiredPriority(bool requiredPriority)
         void SetPreferredAntiOtherLabels(bool preferredAntiOtherLabels)
         bool GetPreferredAntiOtherLabels()
+        string GetAffinityScope() const
+        void SetAffinityScope(const string &affinityScope)
+        void UpdateAffinityScope(PBInstanceAffinity *pbInstanceAffinity)
         void UpdatePbAffinity(PBAffinity *pbAffinity)
         size_t GetAffinityHash()
         vector[CLabelMatchExpression] GetLabels()

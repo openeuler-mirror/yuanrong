@@ -126,6 +126,21 @@ std::vector<std::string> LocalStateStore::Del(const std::vector<std::string> &ke
     return failedKeys;
 }
 
+std::vector<bool> LocalStateStore::Exist(const std::vector<std::string> &keys)
+{
+    std::vector<bool> exists;
+    exists.reserve(keys.size());
+    std::lock_guard<std::mutex> lock(mtx);
+    for (auto &key : keys) {
+        if (kv_map.count(key) > 0) {
+            exists.push_back(true);
+        } else {
+            exists.push_back(false);
+        }
+    }
+    return exists;
+}
+
 bool LocalStateStore::IsEmpty()
 {
     std::lock_guard<std::mutex> lock(mtx);

@@ -19,6 +19,9 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+
+#include <boost/type_traits/is_same.hpp>
+
 #include "yr/api/buffer.h"
 #include "yr/api/err_type.h"
 #include "yr/api/object_ref.h"
@@ -55,13 +58,17 @@ void CheckIfObjectRefsHomogeneous(const std::vector<ObjectRef<T>> &objs)
 }
 
 template <typename T>
-void CheckObjsAndTimeout(const std::vector<ObjectRef<T>> &objs, int timeoutSec)
+void CheckObjs(const std::vector<ObjectRef<T>> &objs)
 {
     CheckInitialized();
     if (objs.empty()) {
         throw Exception::InvalidParamException("Get does not accept empty object list");
     }
     CheckIfObjectRefsHomogeneous(objs);
+}
+
+inline void CheckTimeout(int timeoutSec)
+{
     if (timeoutSec < NO_TIMEOUT) {
         std::string msg = "get config timeout (" + std::to_string(timeoutSec) + " s) is invalid";
         throw YR::Exception::InvalidParamException(msg);
@@ -79,8 +86,12 @@ void ExtractSuccessObjects(std::vector<std::string> &remainIds,
     for (size_t i = 0; i < remainIds.size(); i++) {
         if ((i < remainBuffers.size()) && remainBuffers[i]) {
             auto &indices = idToIndices[remainIds[i]];
-            auto obj = YR::internal::Deserialize<std::shared_ptr<T>>(remainBuffers[i]);
-            returnObjects[indices.front()] = obj;
+            if constexpr (boost::is_same<T, Buffer>::value) {
+                returnObjects[indices.front()] = remainBuffers[i];
+            } else {
+                auto obj = YR::internal::Deserialize<std::shared_ptr<T>>(remainBuffers[i]);
+                returnObjects[indices.front()] = obj;
+            }
             indices.pop_front();
         } else {
             newRemainIds.emplace_back(std::move(remainIds[i]));

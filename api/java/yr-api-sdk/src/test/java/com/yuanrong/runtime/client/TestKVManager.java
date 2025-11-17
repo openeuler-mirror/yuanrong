@@ -57,7 +57,8 @@ public class TestKVManager {
         "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
         "127.0.0.0",
         "127.0.0.0",
-        "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+        "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+        true);
 
     @Before
     public void init() throws Exception {
@@ -184,6 +185,9 @@ public class TestKVManager {
             add("test".getBytes(StandardCharsets.UTF_8));
             add("test".getBytes(StandardCharsets.UTF_8));
         }};
+        List<byte[]> vals2 = new ArrayList<byte[]>(){{
+            add(null);
+        }};
         List<Integer> lengths = Arrays.asList(5, 5);
         boolean isException = false;
         MSetParam abnormalParam = new MSetParam.Builder().ttlSecond(-1).build();
@@ -240,6 +244,14 @@ public class TestKVManager {
         List<Integer> abnormalLengths = Arrays.asList(100000, 100000);
         try {
             kvManager.mSetTx(keys1, vals, abnormalLengths, okParam);
+        } catch (Exception e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+
+        isException = false;
+        try {
+            kvManager.mSetTx(keys2, vals2, okParam);
         } catch (Exception e) {
             isException = true;
         }

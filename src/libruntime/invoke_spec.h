@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <json.hpp>
+#include "absl/synchronization/mutex.h"
 
 #include "src/dto/acquire_options.h"
 #include "src/dto/config.h"
@@ -29,6 +30,7 @@
 #include "src/libruntime/fsclient/fs_intf.h"
 #include "src/libruntime/fsclient/protobuf/common.grpc.pb.h"
 #include "src/libruntime/invokeadaptor/report_record.h"
+#include "src/libruntime/invokeadaptor/scheduler_instance_info.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/libruntime/utils/serializer.h"
 #include "src/libruntime/utils/utils.h"
@@ -54,13 +56,21 @@ extern const char *CODE_PATH;
 extern const char *WORKING_DIR;
 extern const char *DELEGATE_DOWNLOAD;
 const std::string NEED_ORDER = "need_order";
+const std::string FAAS_INVOKE_TIMEOUT = "INVOKE_TIMEOUT";
 const std::string RECOVER_RETRY_TIMES = "RecoverRetryTimes";
+extern const char *ENABLE_DEBUG_KEY;
+extern const char *ENABLE_DEBUG;
+extern const char *DEBUG_CONFIG_KEY;
 
 struct InvokeSpec {
     InvokeSpec(const std::string &jobId, const FunctionMeta &functionMeta, const std::vector<DataObject> &returnObjs,
-               std::vector<InvokeArg> invokeArgs, const libruntime::InvokeType invokeType, std::string traceId,
-               std::string requestId, const std::string &instanceId, const InvokeOptions &opts);
-    InvokeSpec() : requestInvoke(std::make_shared<InvokeMessageSpec>()) {}
+               std::vector<InvokeArg> invokeArgs, const libruntime::InvokeType invokeType,
+               std::string traceId, std::string requestId, const std::string &instanceId,
+               InvokeOptions opts);
+    InvokeSpec() : requestInvoke(std::make_shared<InvokeMessageSpec>())
+    {
+        schedulerInstanceIdMtx_ = std::make_shared<absl::Mutex>();
+    }
     ~InvokeSpec() = default;
     std::string jobId;
     FunctionMeta functionMeta;
@@ -82,9 +92,9 @@ struct InvokeSpec {
     std::shared_ptr<InvokeMessageSpec> requestInvoke;
     uint8_t seq = 0;
     std::string instanceRoute = "";
-
+    bool downgradeFlag_{false};
     void ConsumeRetryTime(void);
-
+    bool ExceedMaxRetryTime();
     void IncrementSeq();
 
     std::string ConstructRequestID();
@@ -113,6 +123,8 @@ struct InvokeSpec {
     std::string BuildCreateMetaData(const LibruntimeConfig &config);
 
     std::string BuildInvokeMetaData(const LibruntimeConfig &config);
+
+    std::shared_ptr<AvailableSchedulerInfos> schedulerInfos = std::make_shared<AvailableSchedulerInfos>();
 
     template <typename T>
     void BuildRequestPbArgs(const LibruntimeConfig &config, T &request, bool isCreate)
@@ -152,9 +164,15 @@ struct InvokeSpec {
         }
     }
 
+    std::vector<std::string> GetSchedulerInstanceIds();
+    std::string GetSchedulerInstanceId();
+    void SetSchedulerInstanceId(const std::string &schedulerId);
+
 private:
     void BuildRequestPbScheduleOptions(InvokeOptions &opts, const LibruntimeConfig &config, CreateRequest &request);
     void BuildRequestPbCreateOptions(InvokeOptions &opts, const LibruntimeConfig &config, CreateRequest &request);
+
+    std::shared_ptr<absl::Mutex> schedulerInstanceIdMtx_;
 };
 
 struct FaasAllocationInfo {
@@ -164,6 +182,25 @@ struct FaasAllocationInfo {
     std::string schedulerInstanceID;
     std::string schedulerFunctionID;
     // ReportRecord record; // metrics, faas scheduler弹性依据
+};
+
+struct FaasInfoForBatchRenew {
+    std::string schedulerInstanceID;
+    std::string schedulerFunctionID;
+    std::string functionId;
+    int64_t batchIndex;
+    bool operator==(const FaasInfoForBatchRenew &r) const;
+    FaasInfoForBatchRenew(const FaasAllocationInfo &faasInfo, int64_t index)
+        : schedulerInstanceID(faasInfo.schedulerInstanceID),
+          schedulerFunctionID(faasInfo.schedulerFunctionID),
+          functionId(faasInfo.functionId),
+          batchIndex(index)
+    {
+    }
+};
+
+struct FaasInfoForBatchRenewFn {
+    std::size_t operator()(const FaasInfoForBatchRenew &i) const;
 };
 
 struct InstanceInfo {
@@ -178,6 +215,7 @@ struct InstanceInfo {
     std::string stateId = "" ABSL_GUARDED_BY(mtx);
     std::shared_ptr<YR::utility::Timer> scaleDownTimer ABSL_GUARDED_BY(mtx);
     int64_t claimTime = 0 ABSL_GUARDED_BY(mtx);
+    bool needReacquire = false ABSL_GUARDED_BY(mtx);
     mutable absl::Mutex mtx;
 };
 
@@ -188,6 +226,18 @@ struct CreatingInsInfo {
     CreatingInsInfo(const std::string &id = "", int64_t time = 0) : instanceId(id), startTime(time) {}
 };
 
+struct RequestResource {
+    FunctionMeta functionMeta;
+    size_t concurrency = 1;
+    InvokeOptions opts;
+    bool operator==(const RequestResource &r) const;
+    void Print(void) const;
+};
+
+struct HashFn {
+    std::size_t operator()(const RequestResource &r) const;
+};
+
 struct RequestResourceInfo {
     std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> instanceInfos ABSL_GUARDED_BY(mtx);
     std::unordered_map<std::string, std::shared_ptr<InstanceInfo>> avaliableInstanceInfos ABSL_GUARDED_BY(mtx);
@@ -196,19 +246,8 @@ struct RequestResourceInfo {
     // The time to create an instance. when cancle a creating instance
     // the waiting time should not be less than the createTime.
     int createTime ABSL_GUARDED_BY(mtx);
+    int tLeaseInterval ABSL_GUARDED_BY(mtx);
     mutable absl::Mutex mtx;
-};
-
-struct RequestResource {
-    FunctionMeta functionMeta;
-    size_t concurrency;
-    InvokeOptions opts;
-    bool operator==(const RequestResource &r) const;
-    void Print(void) const;
-};
-
-struct HashFn {
-    std::size_t operator()(const RequestResource &r) const;
 };
 
 struct ConcurrencyGroup {

@@ -43,22 +43,40 @@ class YRInvokeError(YRError):
     """
     Represents an error that occurred during an invocation.
 
+    Attributes:
+        traceback_str (str): The traceback information as a string.
+        cause (Exception): The original exception that caused this error.
+
+    Methods:
+        __str__(): Returns the string representation of the exception, which is the traceback information.
+        origin_error(): Returns the original error that caused this invocation error.
+
     """
 
     def __init__(self, cause, traceback_str: str):
+        """
+        init
+        """
         self.traceback_str = traceback_str
         self.cause = cause
 
     def __str__(self):
         """
         Return the string representation of the exception, which is the traceback information.
+
+        Returns:
+             The traceback information as a string.
         """
         return str(self.traceback_str)
 
     def origin_error(self):
         """
         Return a origin error for invoke stateless function.
+
+        Returns:
+            The original error that caused this invocation error.
         """
+
         cause_cls = self.cause.__class__
         if issubclass(YRInvokeError, cause_cls):
             return self
@@ -115,6 +133,40 @@ class YRequestError(YRError, RuntimeError):
     def message(self) -> str:
         """message"""
         return self.__message
+
+
+class GetTimeoutError(YRError, TimeoutError):
+    """Indicates that a call to the worker timed out."""
+    pass
+
+
+class YRChannelError(YRError):
+    """Indicates that encountered a system error related
+    to yr.dag.channel.
+    """
+    pass
+
+
+class YRChannelTimeoutError(YRError, TimeoutError):
+    """Raised when the Compiled Graph channel operation times out."""
+    pass
+
+
+class YRCgraphCapacityExceeded(YRError):
+    """Raised when the Compiled Graph channel's buffer is at max capacity"""
+    pass
+
+
+class GeneratorFinished(Exception):
+    """
+    A custom exception raised when a generator has finished its operation.
+    """
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+    def __str__(self):
+        return f"MyCustomError: {self.message}"
 
 
 def deal_with_yr_error(future, err):

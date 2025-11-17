@@ -30,6 +30,7 @@ using namespace YR::utility;
 namespace YR {
 namespace Libruntime {
 YR::Libruntime::AsyncResult ConverDsStatusToAsyncRes(datasystem::Status dsStatus);
+YR::Libruntime::AsyncResult ConverDsAsyncResultToLib(datasystem::AsyncResult dsResult);
 }  // namespace Libruntime
 }  // namespace YR
 
@@ -64,6 +65,28 @@ public:
 
     std::shared_ptr<HeteroFuture> heteroFuture_;
 };
+
+TEST_F(HeteroFutureTest, TestSharedFutureGet)
+{
+    std::promise<datasystem::AsyncResult> promise;
+    auto future = promise.get_future().share();
+    heteroFuture_ = std::make_shared<HeteroFuture>(std::make_shared<std::shared_future<datasystem::AsyncResult>>(future));
+    ASSERT_EQ(heteroFuture_->IsDsFuture(), false);
+    promise.set_value(datasystem::AsyncResult());
+    YR::Libruntime::AsyncResult result = heteroFuture_->Get();
+    ASSERT_EQ(result.error.OK(), true);
+}
+
+TEST_F(HeteroFutureTest, TestConverDsAsyncResultToLib)
+{
+    datasystem::AsyncResult dsResult;
+    auto result_1 = ConverDsAsyncResultToLib(dsResult);
+    ASSERT_EQ(result_1.error.OK(), true);
+    datasystem::Status status(datasystem::StatusCode::K_DUPLICATED, "err");
+    dsResult.status = status;
+    auto result_2 = ConverDsAsyncResultToLib(dsResult);
+    ASSERT_EQ(result_2.error.Code(), YR::Libruntime::ErrorCode::ERR_PARAM_INVALID);
+}
 
 TEST_F(HeteroFutureTest, TestConverDsStatusToAsyncRes)
 {

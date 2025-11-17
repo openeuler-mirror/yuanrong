@@ -24,7 +24,9 @@
 namespace YR {
 class ReadOnlyBuffer : public Buffer {
 public:
-    ReadOnlyBuffer(std::shared_ptr<YR::Libruntime::Buffer> buf) : buf_(buf) {}
+    ReadOnlyBuffer(std::shared_ptr<YR::Libruntime::Buffer> buf) : Buffer(nullptr, 0), buf_(buf) {
+    }
+
     virtual uint64_t GetSize() const override
     {
         return buf_->GetSize();

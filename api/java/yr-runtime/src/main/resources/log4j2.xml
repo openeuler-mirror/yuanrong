@@ -10,44 +10,16 @@ DEBUG > TRACE > ALL -->
             <ThresholdFilter level="error" onMatch="ACCEPT" onMismatch="DENY" />
             <PatternLayout charset="UTF-8" pattern=" %l | %enc{%m}{CRLF}%n" />
         </console>
-        <RollingFile name="RollingFileLog" fileName="${sys:logPath}/java-runtime-all.log"
-            filePattern="${sys:logPath}/$${date:yyyy-MM}/java-runtime-all-%d{yyyy-MM-dd}-%i.log">
+        <RollingFile name="RollingFileLog" fileName="${sys:logPath}/${sys:logId}_runtime.log"
+            filePattern="${sys:logPath}/$${date:yyyy-MM}/${sys:logId}_runtime-%d{yyyy-MM-dd}-%i.log.gz">
             <ThresholdFilter level="${sys:logLevel}" onMatch="ACCEPT" onMismatch="DENY" />
             <PatternLayout
-                charset="UTF-8" pattern="[%d{HH:mm:ss:SSS}{GMT+8}] | [%p] | %l | %t | runtime-java | %enc{%m}{CRLF}%n" />
+                charset="UTF-8" pattern="[%d{HH:mm:ss:SSS}{GMT+8}] | [%p] | %l | %t | runtime-java | ${sys:runtimeId} | %enc{%m}{CRLF}%n" />
             <Policies>
                 <TimeBasedTriggeringPolicy />
-                <SizeBasedTriggeringPolicy size="400 MB" />
+                <SizeBasedTriggeringPolicy size="40 MB" />
             </Policies>
-        </RollingFile>
-        <RollingFile name="RollingFileLogWarn" fileName="${sys:logPath}/java-runtime-warn.log"
-            filePattern="${sys:logPath}/$${date:yyyy-MM}/java-runtime-warn-%d{yyyy-MM-dd}-%i.log">
-            <ThresholdFilter level="warn" onMatch="ACCEPT" onMismatch="DENY" />
-            <PatternLayout
-                charset="UTF-8" pattern="[%d{HH:mm:ss:SSS}{GMT+8}] | [%p] | %l | %t | runtime-java | %enc{%m}{CRLF}%n" />
-            <Policies>
-                <TimeBasedTriggeringPolicy />
-                <SizeBasedTriggeringPolicy size="400 MB" />
-            </Policies>
-        </RollingFile>
-        <RollingFile name="RollingFileLogError" fileName="${sys:logPath}/java-runtime-error.log"
-            filePattern="${sys:logPath}/$${date:yyyy-MM}/java-runtime-error-%d{yyyy-MM-dd}-%i.log">
-            <ThresholdFilter level="error" onMatch="ACCEPT" onMismatch="DENY" />
-            <PatternLayout
-                charset="UTF-8" pattern="[%d{HH:mm:ss:SSS}{GMT+8}] | [%p] | %l | %t | runtime-java | %enc{%m}{CRLF}%n" />
-            <Policies>
-                <TimeBasedTriggeringPolicy />
-                <SizeBasedTriggeringPolicy size="400 MB" />
-            </Policies>
-        </RollingFile>
-        <RollingFile name="RollingFileUserLog" fileName="${sys:logPath}/user-log.log"
-            filePattern="${sys:logPath}/$${date:yyyy-MM}/user-log-%d{yyyy-MM-dd}-%i.log">
-            <ThresholdFilter level="info" onMatch="ACCEPT" onMismatch="DENY" />
-            <PatternLayout charset="UTF-8" pattern="[%d{HH:mm:ss:SSS}{GMT+8}] | [%p] | %l | %t | userLog | %enc{%m}{CRLF}%n" />
-            <Policies>
-                <TimeBasedTriggeringPolicy />
-                <SizeBasedTriggeringPolicy size="400 MB" />
-            </Policies>
+            <DefaultRolloverStrategy max="20"/>
         </RollingFile>
         <Async name="AsyncRollingFileLog">
             <AppenderRef ref="RollingFileLog" />
@@ -59,8 +31,5 @@ DEBUG > TRACE > ALL -->
         <root level="${sys:logLevel}">
             <appender-ref ref="AsyncRollingFileLog" />
         </root>
-        <logger name="userLogger" level="info" additivity="false">
-            <appender-ref ref="RollingFileUserLog" />
-        </logger>
     </loggers>
 </configuration>

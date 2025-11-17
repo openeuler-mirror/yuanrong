@@ -68,11 +68,44 @@ public:
     bool GetFunctionSystemConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey);
 
     /**
+     * @brief Get the Token
+     *
+     * @param token runtime's session token for build connections with function system and data system
+     */
+    void GetToken(SensitiveValue &token);
+
+    /**
+     * @brief Get the AK and SK
+     *
+     * @param ak system function runtime's access key for build connections with data system
+     * @param sk system function runtime's security key for build connections with data system
+     */
+    virtual void GetAKSK(std::string &ak, SensitiveValue &sk);
+
+    /**
+     * @brief register handler when token updated
+     *
+     * @param updateTokenHandler registered token updated event handler, input parameter is the token updated
+     */
+    void WhenTokenUpdated(std::function<void(const SensitiveValue &)> updateTokenHandler);
+
+    /**
+     * @brief register handler when token updated
+     *
+     * @param updateAkSkHandler registered aksk updated event handler, input parameter is the aksk updated
+     */
+    void WhenAkSkUpdated(std::function<void(const std::string &, const SensitiveValue &)> updateAkSkHandler);
+
+    /**
      * @brief clear private key
      */
     void ClearPrivateKey();
 
     int GetUpdateHandersSize();
+
+    virtual bool IsFsAuthEnable();
+
+    Credential GetCredential();
 
     Security(int confFileNo = STDIN_FILENO, size_t stdinPipeTimeoutMs = DEFAULT_STDIN_PIPE_TIMEOUT_MS);
 
@@ -81,6 +114,9 @@ public:
     virtual ErrorInfo Init();
 
     virtual ErrorInfo InitWithDriver(std::shared_ptr<LibruntimeConfig> librtConfig);
+
+    virtual void SetAKSKAndCredential(const std::string &ak, const SensitiveValue &sk);
+
     std::string GetValueFromFile(const std::string &path);
 
 private:
@@ -115,8 +151,16 @@ private:
         SensitiveData privateKeyData;
     };
     FunctionSystemSecurityConfig fsConf_;
+    SensitiveValue token_ = "";
+    std::string ak_ = "";
+    SensitiveValue sk_ = "";
+    std::string dk_ = "";
+    bool isCredential_ = false;  // true means runtime auth with ds and fs use ak、sk
     bool fsConnMode_ = false;    // false means runtime is server, function system is client
     std::string serverNameoverride_ = "";
+
+    std::list<std::function<void(const SensitiveValue &)>> updateTokenHandlers;
+    std::list<std::function<void(const std::string &, const SensitiveValue &)>> updateAkSkHandlers;
     size_t stdinPipeTimeoutMs_;
 };
 }  // namespace Libruntime

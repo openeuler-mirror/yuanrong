@@ -32,6 +32,7 @@
 #define protected public
 #include "src/libruntime/invokeadaptor/instance_manager.h"
 #define private public
+#include "src/libruntime/invokeadaptor/faas_instance_manager.h"
 #include "src/libruntime/invokeadaptor/normal_instance_manager.h"
 #include "src/libruntime/invokeadaptor/task_submitter.h"
 
@@ -48,8 +49,8 @@ class TaskSubmitterTest : public testing::Test {
 public:
     TaskSubmitterTest(){};
     ~TaskSubmitterTest(){};
-    static void SetUpTestCase(){};
-    static void TearDownTestCase(){};
+    static void SetUpTestCase() {};
+    static void TearDownTestCase() {};
     void SetUp() override
     {
         Mkdir("/tmp/log");
@@ -79,7 +80,13 @@ public:
         KillFunc f = [](const std::string &instanceId, const std::string &payload, int signal) -> ErrorInfo {
             return ErrorInfo();
         };
-        taskSubmitter = std::make_shared<TaskSubmitter>(librtCfg, memoryStore, fsClient, reqMgr, f);
+        std::string functionId = "";
+        auto clientsMgr = std::make_shared<ClientsManager>();
+        auto security = std::make_shared<Security>();
+        auto downgrade = std::make_shared<YR::scene::DowngradeController>(functionId, clientsMgr, security);
+        downgrade->Init();
+        taskSubmitter =
+            std::make_shared<TaskSubmitter>(librtCfg, memoryStore, fsClient, reqMgr, f, nullptr, nullptr, downgrade);
     }
     void TearDown() override
     {
@@ -93,11 +100,12 @@ public:
 
 protected:
     bool NeedRetryWrapper(std::shared_ptr<InvokeSpec> &spec, ErrorCode errcode, bool &consume);
-    std::shared_ptr<MockFSIntfClient> SetMaxConcurrencyInstanceNum(int concurrencyCreateNum = 100000);
+    std::shared_ptr<MockGwClient> SetMaxConcurrencyInstanceNum(int concurrencyCreateNum = 100000);
     void SubmitFunction(int total, bool differentResource = false);
     void CommonAssert(std::shared_ptr<TimerWorker> timerWorker, std::mutex &timersMtx,
-                      std::shared_ptr<MockFSIntfClient> mockFsIntf, std::vector<std::shared_ptr<YR::utility::Timer>> &timers,
-                      bool differentResource = false);
+                      std::shared_ptr<MockGwClient> mockFsIntf,
+                      std::vector<std::shared_ptr<YR::utility::Timer>> &timers, bool differentResource = false,
+                      int total = 10000);
     std::shared_ptr<TaskSubmitter> taskSubmitter;
     std::shared_ptr<FSIntf> mockFsIntf;
 };
@@ -115,7 +123,7 @@ TEST_F(TaskSubmitterTest, ScheduleFunction)
     auto resource = GetRequestResource(spec);
     taskSubmitter->SubmitFunction(spec);
     absl::ReaderMutexLock lock(&taskSubmitter->reqMtx_);
-    ASSERT_EQ(taskSubmitter->waitScheduleReqMap_[resource]->Empty(), false);
+    ASSERT_EQ(taskSubmitter->taskSchedulerMap_[resource]->queue->Empty(), false);
     sleep(3);
 }
 
@@ -142,7 +150,7 @@ TEST_F(TaskSubmitterTest, HandleInvokeNotify)
     taskSubmitter->HandleInvokeNotify(req, ErrorInfo());
     auto resource = GetRequestResource(spec);
     absl::ReaderMutexLock lock(&taskSubmitter->reqMtx_);
-    ASSERT_TRUE(taskSubmitter->waitScheduleReqMap_[resource]->Size() <= 1);
+    ASSERT_TRUE(taskSubmitter->taskSchedulerMap_[resource]->queue->Size() <= 1);
 }
 
 TEST_F(TaskSubmitterTest, HandleFailInvokeNotify)
@@ -160,7 +168,7 @@ TEST_F(TaskSubmitterTest, HandleFailInvokeNotify)
     spec->invokeInstanceId = "insId";
     spec->invokeLeaseId = "leaseId";
     spec->functionMeta = {
-        "", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "", libruntime::ApiType::Function};
+        "", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "", libruntime::ApiType::Faas};
     spec->invokeType = libruntime::InvokeType::InvokeFunctionStateless;
     auto resource = GetRequestResource(spec);
     taskSubmitter->HandleFailInvokeNotify(req, spec, resource, ErrorInfo());
@@ -170,10 +178,7 @@ TEST_F(TaskSubmitterTest, HandleFailInvokeNotify)
     req.set_code(common::ErrorCode::ERR_INSTANCE_EVICTED);
     {
         absl::WriterMutexLock lock(&taskSubmitter->reqMtx_);
-        taskSubmitter->waitScheduleReqMap_[resource] = std::make_shared<PriorityQueue>();
-        auto cb = []() {};
-        auto taskScheduler = std::make_shared<TaskScheduler>(cb);
-        taskSubmitter->taskSchedulerMap_[resource] = taskScheduler;
+        taskSubmitter->taskSchedulerMap_[resource] = std::make_shared<TaskSchedulerWrapper>(false);
     }
     taskSubmitter->HandleFailInvokeNotify(req, spec, resource, ErrorInfo());
     auto [rawRequestId, seq] = YR::utility::IDGenerator::DecodeRawRequestId(spec->requestInvoke->Mutable().requestid());
@@ -303,7 +308,7 @@ TEST_F(TaskSubmitterTest, CancelStatelessRequest)
     auto spec = std::make_shared<InvokeSpec>();
     spec->jobId = "jobId";
     spec->requestId = requestId;
-    spec->functionMeta = {.apiType = libruntime::ApiType::Function};
+    spec->functionMeta = {.apiType = libruntime::ApiType::Faas};
     taskSubmitter->requestManager->PushRequest(spec);
     taskSubmitter->CancelStatelessRequest(objids, f, true, true);
 
@@ -358,6 +363,7 @@ std::list<std::shared_ptr<YR::Libruntime::Affinity>> GetMockAffinity()
     resourceRequiredAnti->SetLabelOperators(GetMockLabelOperators());
     std::shared_ptr<Affinity> instanceRequiredAnti = std::make_shared<InstanceRequiredAntiAffinity>();
     instanceRequiredAnti->SetLabelOperators(GetMockLabelOperators());
+    instanceRequiredAnti->SetAffinityScope(AFFINITYSCOPE_NODE);
     affinities.push_back(resourcePreferred);
     affinities.push_back(instancePreferred);
     affinities.push_back(resourcePreferredAnti);
@@ -387,6 +393,8 @@ TEST_F(TaskSubmitterTest, TestAffinity)
     ASSERT_EQ(inOperator->GetOperatorType(), "LabelIn");
     ASSERT_EQ(inOperator->GetKey(), "k1");
     ASSERT_EQ(inOperator->GetValues().size(), 2);
+    std::shared_ptr<Affinity> last = affinities.back();
+    ASSERT_EQ(last->GetAffinityScope(), "NODE");
     opts.scheduleAffinities = affinities;
     spec->opts = opts;
     spec->returnIds = std::vector<DataObject>({DataObject{"obj-id"}});
@@ -394,7 +402,7 @@ TEST_F(TaskSubmitterTest, TestAffinity)
     auto resource = GetRequestResource(spec);
     taskSubmitter->SubmitFunction(spec);
     absl::ReaderMutexLock lock(&taskSubmitter->reqMtx_);
-    ASSERT_EQ(taskSubmitter->waitScheduleReqMap_[resource]->Empty(), false);
+    ASSERT_EQ(taskSubmitter->taskSchedulerMap_[resource]->queue->Empty(), false);
     sleep(3);
 }
 
@@ -433,18 +441,15 @@ TEST_F(TaskSubmitterTest, ScheduleInsTest)
     auto resource = GetRequestResource(spec);
     {
         absl::WriterMutexLock lock(&taskSubmitter->reqMtx_);
-        taskSubmitter->waitScheduleReqMap_[resource] = std::make_shared<PriorityQueue>();
-        taskSubmitter->waitScheduleReqMap_[resource]->Push(spec);
-        auto cb = []() {};
-        auto taskScheduler = std::make_shared<TaskScheduler>(cb);
-        taskSubmitter->taskSchedulerMap_[resource] = taskScheduler;
+        taskSubmitter->taskSchedulerMap_[resource] = std::make_shared<TaskSchedulerWrapper>(false);
+        taskSubmitter->taskSchedulerMap_[resource]->queue->Push(spec);
     }
     taskSubmitter->ScheduleIns(resource, err, false);
     absl::ReaderMutexLock lock(&taskSubmitter->reqMtx_);
-    EXPECT_EQ(taskSubmitter->waitScheduleReqMap_[resource]->Empty(), true);
+    EXPECT_EQ(taskSubmitter->taskSchedulerMap_[resource]->queue->Empty(), true);
 }
 
-std::shared_ptr<MockFSIntfClient> TaskSubmitterTest::SetMaxConcurrencyInstanceNum(int concurrencyCreateNum)
+std::shared_ptr<MockGwClient> TaskSubmitterTest::SetMaxConcurrencyInstanceNum(int concurrencyCreateNum)
 {
     // construct taskSubmitter
     KillFunc f = [](const std::string &instanceId, const std::string &payload, int signal) -> ErrorInfo {
@@ -453,28 +458,36 @@ std::shared_ptr<MockFSIntfClient> TaskSubmitterTest::SetMaxConcurrencyInstanceNu
     auto reqMgr = std::make_shared<RequestManager>();
     auto librtCfg = std::make_shared<LibruntimeConfig>();
     librtCfg->maxConcurrencyCreateNum = concurrencyCreateNum;
-    auto mockFsIntf = std::make_shared<MockFSIntfClient>();
+    auto mockFsIntf = std::make_shared<MockGwClient>();
     auto fsClient = std::make_shared<FSClient>(mockFsIntf);
     std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
     auto dsObjectStore = std::make_shared<DSCacheObjectStore>();
     dsObjectStore->Init("127.0.0.1", 8080);
     auto wom = std::make_shared<WaitingObjectManager>();
     memoryStore->Init(dsObjectStore, wom);
-    taskSubmitter = std::make_shared<TaskSubmitter>(librtCfg, memoryStore, fsClient, reqMgr, f);
+    std::string functionId = "";
+    auto clientsMgr = std::make_shared<ClientsManager>();
+    auto security = std::make_shared<Security>();
+    auto downgrade = std::make_shared<YR::scene::DowngradeController>(functionId, clientsMgr, security);
+    downgrade->Init();
+    taskSubmitter =
+        std::make_shared<TaskSubmitter>(librtCfg, memoryStore, fsClient, reqMgr, f, nullptr, nullptr, downgrade);
     return mockFsIntf;
 }
 
 void TaskSubmitterTest::SubmitFunction(int total, bool differentResource)
 {
-    if (differentResource) {
-        total = total / 2;
-    }
     for (int i = 0; i < total; i++) {
         auto spec = std::make_shared<InvokeSpec>();
         spec->jobId = "job-7c8e6fab";
         spec->functionMeta = {
             "", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "", libruntime::ApiType::Function};
-        spec->opts = {};
+        InvokeOptions options = {};
+        if (differentResource) {
+            options.instanceSession = std::make_shared<InstanceSession>();
+            options.instanceSession->sessionID = YR::utility::IDGenerator::GenRequestId();
+        }
+        spec->opts = options;
         spec->returnIds = std::vector<DataObject>({DataObject{"obj-id"}});
         spec->invokeArgs = std::vector<InvokeArg>();
         spec->requestId = YR::utility::IDGenerator::GenRequestId();
@@ -483,32 +496,13 @@ void TaskSubmitterTest::SubmitFunction(int total, bool differentResource)
         taskSubmitter->requestManager->PushRequest(spec);
         taskSubmitter->SubmitFunction(spec);
     }
-    if (!differentResource) {
-        return;
-    }
-    for (int i = 0; i < total; i++) {
-        auto spec = std::make_shared<InvokeSpec>();
-        spec->jobId = "job-7c8e6fab";
-        spec->functionMeta = {
-            "", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "", libruntime::ApiType::Function};
-        spec->opts = {};
-        spec->opts.cpu = 1000;
-        spec->opts.memory = 2000;
-        spec->opts.customExtensions["Concurrency"] = "3";
-        spec->returnIds = std::vector<DataObject>({DataObject{"obj-id"}});
-        spec->invokeArgs = std::vector<InvokeArg>();
-        spec->requestId = YR::utility::IDGenerator::GenRequestId();
-        LibruntimeConfig config;
-        spec->BuildInstanceInvokeRequest(config);
-        taskSubmitter->SubmitFunction(spec);
-    }
 }
 
 void TaskSubmitterTest::CommonAssert(std::shared_ptr<TimerWorker> timerWorker, std::mutex &timersMtx,
-                                     std::shared_ptr<MockFSIntfClient> mockFsIntf,
-                                     std::vector<std::shared_ptr<YR::utility::Timer>> &timers, bool differentResource)
+                                     std::shared_ptr<MockGwClient> mockFsIntf,
+                                     std::vector<std::shared_ptr<YR::utility::Timer>> &timers, bool differentResource,
+                                     int total)
 {
-    int total = 10000;
     std::mutex mtx;
     int get = 0;
     auto promise = std::promise<bool>();
@@ -532,7 +526,7 @@ void TaskSubmitterTest::CommonAssert(std::shared_ptr<TimerWorker> timerWorker, s
                 timers.push_back(timer);
             });
     EXPECT_CALL(*mockFsIntf, KillAsync(_, _, _)).WillRepeatedly(Return());
-    SubmitFunction(total);
+    SubmitFunction(total, differentResource);
     ASSERT_TRUE(future.get());
     auto instanceIds = taskSubmitter->GetInstanceIds();
     std::cout << " create " << instanceIds.size() << std::endl;
@@ -576,12 +570,14 @@ TEST_F(TaskSubmitterTest, ScheduleFunction_Benchmark)
     EXPECT_CALL(*mockFsIntf, InvokeAsync(_, _, _))
         .WillRepeatedly(
             [](const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeoutSec) { return; });
+    EXPECT_CALL(*mockFsIntf, KillAsync(_, _, _)).WillRepeatedly(Return());
     // benchmark
     auto start = std::chrono::high_resolution_clock::now();
     size_t total = 50000;
     if (const char *env = std::getenv("YR_BENCHMARK_SCALE")) {
         total = std::stoi(env);
     }
+
     SubmitFunction(total);
     auto submitEnd = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> submitCostMs = submitEnd - start;
@@ -669,7 +665,7 @@ TEST_F(TaskSubmitterTest, ScheduleFunction_CreateRandomAbnormal)
     CommonAssert(timerWorker, timersMtx, mockFsIntf, timers);
 }
 
-TEST_F(TaskSubmitterTest, ScheduleFunction_DifferentResource)
+TEST_F(TaskSubmitterTest, ScheduleFunction_DifferentSessionResource)
 {
     auto mockFsIntf = SetMaxConcurrencyInstanceNum(10000);
     auto timerWorker = std::make_shared<TimerWorker>();
@@ -694,7 +690,151 @@ TEST_F(TaskSubmitterTest, ScheduleFunction_DifferentResource)
             std::lock_guard<std::mutex> lockGuard(timersMtx);
             timers.push_back(timer);
         });
-    CommonAssert(timerWorker, timersMtx, mockFsIntf, timers, true);
+    CommonAssert(timerWorker, timersMtx, mockFsIntf, timers, true, 3000);
+}
+
+TEST_F(TaskSubmitterTest, CancelFaasScheduleTimeoutReqTest)
+{
+    ASSERT_NO_THROW(taskSubmitter->CancelFaasScheduleTimeoutReq("reqId", 100 * 1000));
+
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->requestId = "reqId";
+    spec->returnIds = {DataObject("objId")};
+    auto resource = GetRequestResource(spec);
+    taskSubmitter->taskSchedulerMap_[resource] = std::make_shared<TaskSchedulerWrapper>(false);
+    taskSubmitter->taskSchedulerMap_[resource]->queue->Push(spec);
+    taskSubmitter->requestManager->PushRequest(spec);
+    taskSubmitter->CancelFaasScheduleTimeoutReq("reqId", 100 * 1000);
+    ASSERT_EQ(taskSubmitter->requestManager->GetRequest("reqId"), nullptr);
+
+    taskSubmitter->requestManager->PushRequest(spec);
+    resource = GetRequestResource(spec);
+    taskSubmitter->taskSchedulerMap_[resource] = std::make_shared<TaskSchedulerWrapper>(false);
+    taskSubmitter->taskSchedulerMap_[resource]->SetLastError(
+        ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "error"));
+    taskSubmitter->CancelFaasScheduleTimeoutReq("reqId", 100 * 1000);
+    ASSERT_EQ(taskSubmitter->requestManager->GetRequest("reqId"), nullptr);
+}
+
+TEST_F(TaskSubmitterTest, EraseFaasCancelTimerTest)
+{
+    taskSubmitter->faasCancelTimerWorkers["reqId"] = YR::utility::ExecuteByGlobalTimer([]() -> void {}, 1, 1);
+    ASSERT_EQ(taskSubmitter->faasCancelTimerWorkers.size(), 1);
+    taskSubmitter->EraseFaasCancelTimer("reqId");
+    ASSERT_EQ(taskSubmitter->faasCancelTimerWorkers.size(), 0);
+}
+
+TEST_F(TaskSubmitterTest, UpdateSchdulerInfoTest)
+{
+    ASSERT_NO_THROW(taskSubmitter->UpdateSchdulerInfo("schedulerName", "schedulerId", "ADD"));
+    ASSERT_NO_THROW(taskSubmitter->UpdateSchdulerInfo("schedulerName", "schedulerId", "REMOVE"));
+    ASSERT_NO_THROW(taskSubmitter->UpdateSchdulerInfo("schedulerName", "schedulerId", "UNKOWN"));
+}
+
+TEST_F(TaskSubmitterTest, RecordFaasInvokeDataAndUpdateTest)
+{
+    taskSubmitter->metricsEnable_ = true;
+    ASSERT_NO_THROW(taskSubmitter->UpdateFaasInvokeLog("reqId", ErrorInfo()));
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->requestId = "reqId";
+    spec->functionMeta = YR::Libruntime::FunctionMeta{.funcName = "funcName"};
+    taskSubmitter->RecordFaasInvokeData(spec);
+    ASSERT_TRUE(!taskSubmitter->faasInvokeDataMap_.empty());
+    ASSERT_NO_THROW(taskSubmitter->UpdateFaasInvokeLog("reqId", ErrorInfo()));
+    taskSubmitter->faasInvokeDataMap_.erase("reqId");
+    ASSERT_NO_THROW(taskSubmitter->UpdateFaasInvokeLog(
+        "reqId", ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "err msg")));
+}
+
+TEST_F(TaskSubmitterTest, InvokeExceedMaxRetryTimeShouldNotStuck)
+{
+    auto mockFsIntf = SetMaxConcurrencyInstanceNum(100000);
+    // mock function
+    EXPECT_CALL(*mockFsIntf, CreateAsync(_, _, _, _))
+        .WillRepeatedly(
+            [](const CreateRequest &req, CreateRespCallback respCallback, CreateCallBack callback, int timeoutSec) {
+                CreateResponse response;
+                auto instanceId = YR::utility::IDGenerator::GenRequestId();
+                response.set_instanceid(instanceId);
+                response.set_code(::common::ErrorCode::ERR_NONE);
+                respCallback(response);
+                NotifyRequest notifyReq;
+                notifyReq.set_requestid(req.requestid());
+                notifyReq.set_code(::common::ErrorCode::ERR_NONE);
+                callback(notifyReq);
+            });
+    std::mutex mtx;
+    int get = 0;
+    int retry = 5;
+    int want = retry + 1;
+    auto promise = std::promise<bool>();
+    auto future = promise.get_future();
+    EXPECT_CALL(*mockFsIntf, InvokeAsync(_, _, _))
+        .WillRepeatedly([&](const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeoutSec) {
+            NotifyRequest notifyReq;
+            notifyReq.set_requestid(req->Immutable().requestid());
+            notifyReq.set_code(::common::ErrorCode::ERR_INSTANCE_EVICTED);
+            callback(notifyReq, ErrorInfo());
+            std::lock_guard<std::mutex> lockGuard(mtx);
+            get++;
+            if (get == want) {
+                promise.set_value(true);
+            }
+        });
+    EXPECT_CALL(*mockFsIntf, KillAsync(_, _, _)).WillRepeatedly(Return());
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->jobId = "job-7c8e6fab";
+    spec->functionMeta = {
+        "", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "", libruntime::ApiType::Function};
+    InvokeOptions options = {};
+    options.maxRetryTime = retry;
+    spec->opts = options;
+    spec->invokeType = libruntime::InvokeType::InvokeFunctionStateless;
+    spec->returnIds = std::vector<DataObject>({DataObject{"obj-id"}});
+    spec->invokeArgs = std::vector<InvokeArg>();
+    spec->requestId = YR::utility::IDGenerator::GenRequestId();
+    LibruntimeConfig config;
+    spec->BuildInstanceInvokeRequest(config);
+    taskSubmitter->requestManager->PushRequest(spec);
+    taskSubmitter->SubmitFunction(spec);
+    ASSERT_TRUE(future.get());
+    ASSERT_EQ(get, want);
+}
+
+TEST_F(TaskSubmitterTest, ConvertToGaugeDataTest)
+{
+    auto data = std::make_shared<YR::Libruntime::FaasInvokeData>(
+        YR::Libruntime::FaasInvokeData("tenantId", "functionName", "inputAlias", "traceId", 0));
+    auto res = taskSubmitter->ConvertToGaugeData(data, "reqId");
+    ASSERT_EQ(res.name, "report_faas_invoke_data");
+}
+
+TEST_F(TaskSubmitterTest, AddFaasCancelTimerTest)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->opts.acquireTimeout = 300;
+    spec->functionMeta.apiType = libruntime::ApiType::Faas;
+    ASSERT_NO_THROW(taskSubmitter->AddFaasCancelTimer(spec));
+}
+
+TEST_F(TaskSubmitterTest, SendInvokeReqTest)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->opts.device = YR::Libruntime::Device{.name = "deviceName", .batch_size = 1};
+    spec->functionMeta.apiType = libruntime::ApiType::Faas;
+    auto resource = GetRequestResource(spec);
+    ASSERT_NO_THROW(taskSubmitter->SendInvokeReq(resource, spec));
+}
+
+TEST_F(TaskSubmitterTest, UpdateFaasInvokeSendTimeTest)
+{
+    taskSubmitter->metricsEnable_ = true;
+    auto currentTime = GetCurrentTimestampNs();
+    auto data = std::make_shared<FaasInvokeData>();
+    data->sendTime = currentTime;
+    taskSubmitter->faasInvokeDataMap_["reqId"] = data;
+    taskSubmitter->UpdateFaasInvokeSendTime("reqId");
+    ASSERT_TRUE(taskSubmitter->faasInvokeDataMap_["reqId"]->sendTime > currentTime);
 }
 }  // namespace test
 }  // namespace YR

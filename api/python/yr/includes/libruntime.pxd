@@ -235,6 +235,8 @@ cdef extern from "src/libruntime/libruntime_config.h" nogil:
         string logDir
         uint32_t logFileSizeMax
         uint32_t logFileNumMax
+        bool logToDriver
+        bool dedupLogs
         int logFlushInterval
         CLibruntimeOptions libruntimeOptions
         string metaConfig
@@ -250,6 +252,9 @@ cdef extern from "src/libruntime/libruntime_config.h" nogil:
         string privateKeyPath
         string certificateFilePath
         string verifyFilePath
+        char privateKeyPaaswd[MAX_PASSWD_LENGTH]
+        shared_ptr[void] tlsContext
+        uint32_t httpIocThreadsNum
         string serverName
         string clientId
         bool inCluster
@@ -293,7 +298,9 @@ cdef extern from "src/proto/libruntime.pb.h" nogil:
 
     cdef enum CApiType "libruntime::ApiType":
         ACTOR "libruntime::ApiType::Function",
+        FAAS "libruntime::ApiType::Faas"
         POSIX "libruntime::ApiType::Posix"
+        SERVE "libruntime::ApiType::Serve"
 
     cdef enum CSignal "libruntime::Signal":
         DEFAULTSIGNAL "libruntime::Signal::DefaultSignal",
@@ -337,8 +344,8 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         string signature
         string functionId
         CApiType apiType
-        optional[string] name
-        optional[string] ns
+        string name
+        string ns
         string initializerCodeId
         bool isGenerator
         bool isAsync
@@ -377,6 +384,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         int maxInvokeLatency
         int minInstances
         int maxInstances
+        bool isDataAffinity
         list[shared_ptr[CAffinity]] scheduleAffinities
         bool needOrder
         int recoverRetryTimes
@@ -388,6 +396,9 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         bool isGetInstance
         string traceId
         string workingDir
+        bool preemptedAllowed
+        int instancePriority
+        int64_t scheduleTimeoutMs
 
     cdef cppclass CMetaConfig "YR::Libruntime::MetaConfig":
         string jobID
@@ -523,12 +534,38 @@ cdef extern from "src/libruntime/statestore/state_store.h" nogil:
 
     ctypedef pair[vector[shared_ptr[CBuffer]], CErrorInfo] CMultipleReadResult "YR::Libruntime::MultipleReadResult"
 
+cdef extern from "src/dto/stream_conf.h" nogil:
+    cdef cppclass CElement "YR::Libruntime::Element":
+        CElement(uint8_t *ptr, uint64_t size, uint64_t id)
+        CElement()
+        uint8_t *ptr
+        uint64_t size
+        uint64_t id
+
+    cdef cppclass CProducerConf "YR::Libruntime::ProducerConf":
+        int64_t delayFlushTime
+        int64_t pageSize
+        uint64_t maxStreamSize
+        bool autoCleanup
+        bool encryptStream
+        uint64_t retainForNumConsumers
+        uint64_t reserveSize
+        unordered_map[string, string] extendConfig
+
+    cdef cppclass CSubscriptionConfig "YR::Libruntime::SubscriptionConfig":
+        string subscriptionName
+        CSubscriptionType subscriptionType
+        unordered_map[string, string] extendConfig
+        SubscriptionConfig(string subName, const CSubscriptionType subType)
+        SubscriptionConfig()
+
 cdef extern from "src/dto/resource_unit.h" nogil:
     cdef cppclass CResourceUnit "YR::Libruntime::ResourceUnit":
         string id
         uint32_t status
         unordered_map[string, float] capacity
         unordered_map[string, float] allocatable
+        unordered_map[string, vector[string]] nodeLabels
 
 cdef extern from "src/dto/resource_unit.h" nogil:
     cdef cppclass CScalar "YR::Libruntime::Resource::Scalar":
@@ -583,6 +620,19 @@ cdef extern from "src/dto/resource_unit.h" nogil:
     cdef cppclass CResourceGroupUnit "YR::Libruntime::ResourceGroupUnit":
         unordered_map[string, CRgInfo] resourceGroups;
 
+cdef extern from "src/libruntime/streamstore/stream_producer_consumer.h" nogil:
+    cdef cppclass CStreamProducer "YR::Libruntime::StreamProducer":
+        CErrorInfo Send(const CElement & element)
+        CErrorInfo Send(const CElement & element, int64_t timeoutMs)
+        CErrorInfo Flush()
+        CErrorInfo Close()
+
+    cdef cppclass CStreamConsumer "YR::Libruntime::StreamConsumer":
+        CErrorInfo Receive(uint32_t expectNum, uint32_t timeoutMs, vector[CElement] & outElements)
+        CErrorInfo Receive(uint32_t timeoutMs, vector[CElement] & outElements)
+        CErrorInfo Ack(uint64_t elementId)
+        CErrorInfo Close()
+
 cdef extern from "src/libruntime/libruntime.h" nogil:
     cdef cppclass CLibruntime "YR::Libruntime::Libruntime":
         CLibruntime(shared_ptr[CLibruntimeConfig] config)
@@ -630,6 +680,14 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo KVDel(const string & key)
         CMultipleDelResult KVDel(const vector[string] & keys)
 
+        CErrorInfo CreateStreamProducer(const string & streamName, CProducerConf producerConf,
+                                        shared_ptr[CStreamProducer] producer)
+        CErrorInfo CreateStreamConsumer(const string & streamName, const CSubscriptionConfig & config,
+                                        shared_ptr[CStreamConsumer] consumer)
+        CErrorInfo DeleteStream(const string & streamName)
+        CErrorInfo QueryGlobalProducersNum(const string & streamName, uint64_t & gProducerNum)
+        CErrorInfo QueryGlobalConsumersNum(const string & streamName, uint64_t & gConsumerNum)
+
         void SetTenantIdWithPriority()
         string GetTenantId()
 
@@ -653,6 +711,9 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
 
         string GenerateGroupName();
 
+        pair[CErrorInfo, string] PeekObjectRefStream(const string & generatorId, bool blocking);
+        CErrorInfo NotifyGeneratorResult(const string & generatorId, int index, shared_ptr[CDataObject] & resultObj, CErrorInfo & resultErr);
+        CErrorInfo NotifyGeneratorFinished(const string & generatorId, int numResults);
         void WaitAsync(const string & objectId, CWaitAsyncCallback callback, void *userData);
         void GetAsync(const string & objectId, CGetAsyncCallback callback, void *userData);
 

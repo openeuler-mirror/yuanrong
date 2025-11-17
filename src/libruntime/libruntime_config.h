@@ -34,6 +34,7 @@ const int DEFAULT_RECYCLETIME = 2;
 const int MAX_RECYCLETIME = 3000;
 const int MIN_RECYCLETIME = 1;
 const int MAX_PASSWD_LENGTH = 100;
+const int HTTP_IDLE_TIME = 120;
 std::pair<uint32_t, ErrorInfo> GetValidMaxLogFileNum(uint32_t maxLogFileNum);
 std::pair<uint32_t, ErrorInfo> GetValidMaxLogSizeMb(uint32_t maxLogSizeMb);
 struct LibruntimeConfig {
@@ -46,9 +47,7 @@ struct LibruntimeConfig {
         this->enableMetrics = config.enablemetrics();
         this->threadPoolSize = config.threadpoolsize();
         this->localThreadPoolSize = config.localthreadpoolsize();
-        if (!config.ns().empty()) {
-            this->ns = config.ns();
-        }
+        this->ns = config.ns();
         this->tenantId = config.tenantid();
         for (int i = 0; i < config.functionids_size(); i++) {
             this->functionIds[config.functionids(i).language()] = config.functionids(i).functionid();
@@ -201,15 +200,15 @@ struct LibruntimeConfig {
     libruntime::ApiType selfApiType = libruntime::ApiType::Function;
     std::string logLevel = "";
     std::string logDir = ".";
-    uint32_t logFileSizeMax = 1024;
-    uint32_t logFileNumMax = 1024;
+    uint32_t logFileSizeMax = 0;
+    uint32_t logFileNumMax = 0;
     int logFlushInterval = 1;
     bool isLogMerge = false;
     LibruntimeOptions libruntimeOptions;
     int recycleTime = 2;
     int maxTaskInstanceNum = -1;
     int maxConcurrencyCreateNum = 100;
-    bool enableMetrics = false;
+    bool enableMetrics = true;
     uint32_t threadPoolSize = 0;
     uint32_t localThreadPoolSize = 0;
     std::vector<std::string> loadPaths;
@@ -217,10 +216,14 @@ struct LibruntimeConfig {
 
     std::string metaConfig = "";  // deprecated? pyx use it.
     bool enableMTLS = false;
+    bool enableTLS = false;
     std::string privateKeyPath = "";
     std::string certificateFilePath = "";
     std::string verifyFilePath = "";
+    char privateKeyPaaswd[MAX_PASSWD_LENGTH] = {0};
+    std::shared_ptr<void> tlsContext = nullptr;
     uint32_t httpIocThreadsNum = 200;
+    int httpIdleTime = HTTP_IDLE_TIME;
     std::string serverName = "";
     bool inCluster = true;
     std::string ns = "";
@@ -236,6 +239,9 @@ struct LibruntimeConfig {
     std::string runtimePublicKey = "";
     SensitiveValue runtimePrivateKey = "";
     std::string dsPublicKey = "";
+    SensitiveValue token = "";
+    std::string ak_ = "";
+    SensitiveValue sk_ = "";
 
     using SubmitHook = std::function<void(std::function<void(void)> &&)>;
     SubmitHook funcExecSubmitHook = nullptr;
@@ -245,11 +251,19 @@ struct LibruntimeConfig {
     std::function<ErrorInfo()> checkSignals_ = nullptr;
     std::string workingDir;
     std::string rtCtx;
+    bool logToDriver = false;
+    bool dedupLogs = false;
     std::string primaryKeyStoreFile;
     std::string standbyKeyStoreFile;
+    std::string encryptPrivateKeyPasswd;
+    std::string encryptDsPublicKeyContext;
+    std::string encryptRuntimePublicKeyContext;
+    std::string encryptRuntimePrivateKeyContext;
     libruntime::FunctionMeta funcMeta;
     bool needOrder = false;
     bool enableSigaction = true;
+    int64_t invokeTimeoutSec = 0;
+    uint32_t maxConnSize = 10000;
     std::string nodeId;
     std::string nodeIp;
 private:

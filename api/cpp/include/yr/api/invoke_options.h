@@ -21,6 +21,7 @@
 
 #include "yr/api/affinity.h"
 #include "yr/api/exception.h"
+#include "yr/api/runtime_env.h"
 
 namespace YR {
 /*!
@@ -107,6 +108,21 @@ struct InstanceRange {
      * scheduling when kernel resources are insufficient.
      */
     RangeOptions rangeOpts;
+};
+
+/**
+ * @struct DebugConfig
+ * @brief 结构体 DebugConfig 是所有 debug 相关的配置，用于指定初始化 debug 实例的配置。
+ * @note 当指定 enable 为 true 时，runtime 进程会关闭心跳检测，且可以被远程 debug 工具连接调试
+ */
+struct DebugConfig {
+    DebugConfig() = default;
+    ~DebugConfig() = default;
+    /**
+     * @brief 指定是否初始化 debug 实例。当指定 enable 为 true 时，runtime 进程会关闭心跳检测，且可以被远
+     * 程 debug 工具连接调试
+     */
+    bool enable = false;
 };
 
 /*!
@@ -201,6 +217,12 @@ struct InvokeOptions {
     size_t retryTimes = 0;
 
     /*!
+    *  @var size_t maxRetryTime
+    *  @brief 定义无限重试最大重试次数，默认为-1，表示无限重试。
+     */
+    int maxRetryTime = -1;
+
+    /*!
      * @var std::function retryChecker
      * @brief 无状态函数的重试判断钩子，默认为空。当 retryTimes = 0 时，本参数不生效。
      */
@@ -248,6 +270,8 @@ struct InvokeOptions {
      */
     std::unordered_map<std::string, std::string> envVars;
 
+    DebugConfig debug;
+
     /*!
      * @var std::sring traceId
      * @brief 设置函数调用的 traceId，用于链路追踪。
@@ -259,6 +283,32 @@ struct InvokeOptions {
      * @brief 实例创建和函数调用超时时间
      */
     int timeout = -1;
+
+    /*!
+     * @var bool preemptedAllowed
+     * @brief 实例是否可以被抢占，仅在优先级场景下(元戎部署的 maxPriority 配置项大于 0 的场景)生效。默认为 false
+     */
+    bool preemptedAllowed = false;
+
+    /*!
+     * @var int instancePriority
+     * @brief 实例的优先级，数值越大优先级越高，高优先级的实例可以抢占低优先级且被配置为（preemptedAllowed = true）
+     * 的实例。仅在优先级场景下(元戎部署的 maxPriority 配置项大于 0 的场景)生效。instancePriority 的最小值为 0，最
+     * 大值为元戎部署的 maxPriority 配置。默认为 0
+     */
+    int instancePriority = 0;
+
+    /*!
+     * @var size_t scheduleTimeoutMs
+     * @brief 实例的调度超时时间，单位毫秒，取值[-1, int64_t 类型最大值]。默认为 30000
+     */
+    int64_t scheduleTimeoutMs = 30000;
+
+    /*!
+     * @var RuntimeEnv runtimeEnv
+     * @brief 设置python的virtual env
+     */
+    RuntimeEnv runtimeEnv;
 
     void CheckOptionsValid()
     {
@@ -313,8 +363,8 @@ struct FuncMeta {
     std::string funcUrn;
     std::string className;
     FunctionLanguage language;
-    std::optional<std::string> name;
-    std::optional<std::string> ns;
+    std::string name;
+    std::string ns;
     bool isAsync;
     bool isGenerator;
 };

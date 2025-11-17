@@ -8,7 +8,6 @@ cc_library(
         "lib/liblitebus.so.0.0.1",
         "lib/libyrlogs.so",
         "lib/libspdlog.so.1.*",
-        "lib/libspdlog.so.1.*.0",
     ]),
     hdrs = glob(["include/metrics/**/*.h"]),
     strip_include_prefix = "include",

@@ -21,6 +21,7 @@
 int main()
 {
     YR::Config conf;
+    conf.inCluster = true;
     conf.functionUrn = "sn:cn:yrk:12345678901234561234567890123456:function:0-opc-opc:$latest";
     conf.serverAddr = "";      // bus proxy IP:port
     conf.dataSystemAddr = "";  // datasystem worker IP:port

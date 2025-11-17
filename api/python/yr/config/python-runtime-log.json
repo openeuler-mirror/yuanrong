@@ -3,7 +3,7 @@
     "disable_existing_loggers": false,
     "formatters": {
         "extra": {
-            "format": "[%(asctime)s %(levelname)s %(filename)s:%(lineno)d] [%(podname)s %(thread)d] %(message)s"
+            "format": "[%(asctime)s %(levelname)s %(filename)s:%(lineno)d] [%(podname)s %(thread)d] [%(runtime_id)s] %(message)s"
         }
     },
     "handlers": {

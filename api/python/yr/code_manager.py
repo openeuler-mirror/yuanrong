@@ -18,17 +18,29 @@
 
 import importlib.util
 import os
+import re
 import sys
 import threading
 from typing import Callable, List
 
 from yr import log
-from yr.common import constants
+from yr.common import constants, utils
 from yr.common.singleton import Singleton
-from yr.err_type import ErrorInfo
+from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
+from yr.functionsdk.error_code import FaasErrorCode
 from yr.libruntime_pb2 import LanguageType
 
 _DEFAULT_ADMIN_FUNC_PATH = "/adminfunc/"
+_MAX_FAAS_ENTRY_NUMS = 3
+_MIN_FAAS_ENTRY_NUMS = 2
+
+
+def _are_faas_entries(code_paths: List[str]) -> bool:
+    if len(code_paths) > _MAX_FAAS_ENTRY_NUMS or len(code_paths) < _MIN_FAAS_ENTRY_NUMS:
+        return False
+    match_re = re.match(constants.PATTERN_FAAS_ENTRY, code_paths[constants.INDEX_SECOND]) is not None
+    # For example, '/dcache/init.d/bucket-id' is also not a valid faas entry.
+    return match_re
 
 
 @Singleton
@@ -51,21 +63,6 @@ class CodeManager:
         self.custom_handler = os.environ.get(constants.ENV_KEY_ENV_DELEGATE_DOWNLOAD)
         self.deploy_dir = os.environ.get(constants.ENV_KEY_FUNCTION_LIBRARY_PATH)
         self.load_code_from_datasystem_func: Callable = None
-
-    @staticmethod
-    def load_functions(code_paths: List[str]) -> ErrorInfo:
-        """
-        Load code paths and return ErrorInfo object.
-
-        Args:
-            code_paths (List[str]): List of paths to load.
-
-        Returns:
-            ErrorInfo: Error information for any errors encountered during loading.
-        """
-        for code_path in code_paths:
-            sys.path.insert(constants.INDEX_FIRST, code_path)
-        return ErrorInfo()
 
     def clear(self):
         """clear"""
@@ -179,6 +176,77 @@ class CodeManager:
                                code_dir, module_name, code_key, entry_name)
         return code
 
+    def load_functions(self, code_paths: List[str]) -> ErrorInfo:
+        """
+        Load code paths and return ErrorInfo object.
+
+        Args:
+            code_paths (List[str]): List of paths to load.
+
+        Returns:
+            ErrorInfo: Error information for any errors encountered during loading.
+        """
+        if _are_faas_entries(code_paths):
+            # to judge 'code_paths' are FaaS entries.
+            for code_path, code_key in zip(code_paths, [constants.KEY_USER_INIT_ENTRY, constants.KEY_USER_CALL_ENTRY,
+                                                        constants.KEY_USER_SHUT_DOWN_ENTRY]):
+                with self.__lock:
+                    self.entry_map[code_key] = code_path
+                error_info = self.__load_faas_entry(code_path, code_key)
+                if error_info.error_code != ErrorCode.ERR_OK:
+                    return error_info
+        else:
+            for code_path in code_paths:
+                sys.path.insert(constants.INDEX_FIRST, code_path)
+        return ErrorInfo()
+
+    def __load_faas_entry(self, user_entry: str, code_key: str):
+        """
+        load module and the entry code, throw RuntimeError if failed.
+        """
+        user_hook_length = 2
+        log.get_logger().debug("Faas load module and entry [%s] from [%s]", user_entry, self.custom_handler)
+        user_hook_splits = user_entry.rsplit(".", maxsplit=1) if isinstance(user_entry, str) else None
+        if len(user_hook_splits) != user_hook_length:
+            if code_key == constants.KEY_USER_INIT_ENTRY:
+                return ErrorInfo()
+            msg = convert_response_to_jsonstr(
+                "User hook not satisfy requirement, expect: xxx.xxx",
+                FaasErrorCode.INIT_FUNCTION_FAIL)
+            return ErrorInfo(ErrorCode.ERR_USER_CODE_LOAD, ModuleCode.RUNTIME, msg)
+
+        user_module, user_entry = user_hook_splits[0], user_hook_splits[1]
+        log.get_logger().debug("User module: %s, entry: %s", user_module, user_entry)
+
+        try:
+            user_code = self.load_code_from_local(self.custom_handler, user_module, user_entry, code_key)
+        except ValueError as exp:
+            log.get_logger().error("Missing user module: %s, exception: %s", user_entry, exp)
+            msg = convert_response_to_jsonstr(f"Missing user module: {user_entry}, err: {exp}",
+                                              FaasErrorCode.ENTRY_EXCEPTION)
+            return ErrorInfo(ErrorCode.ERR_USER_CODE_LOAD, ModuleCode.RUNTIME, msg)
+        except ImportError as exp:
+            log.get_logger().error("Failed to import user module: %s, exception: %s", user_entry, exp)
+            msg = convert_response_to_jsonstr(f"Failed to import user module: {user_entry}, err: {exp}",
+                                              FaasErrorCode.ENTRY_EXCEPTION)
+            return ErrorInfo(ErrorCode.ERR_USER_CODE_LOAD, ModuleCode.RUNTIME, msg)
+        except SyntaxError as exp:
+            log.get_logger().error("Failed to load user code: %s, exception: %s", user_entry, exp)
+            msg = convert_response_to_jsonstr("Failed to load user code. There is syntax error in user code: "
+                                              f"{user_entry}, err: {exp}", FaasErrorCode.ENTRY_EXCEPTION)
+            return ErrorInfo(ErrorCode.ERR_USER_CODE_LOAD, ModuleCode.RUNTIME, msg)
+        except Exception as exp:
+            log.get_logger().error("Failed to load user code: %s, exception: %s", user_entry, exp)
+            msg = convert_response_to_jsonstr(f"Failed to load user code: {user_entry}, err: {exp}",
+                                              FaasErrorCode.ENTRY_EXCEPTION)
+            return ErrorInfo(ErrorCode.ERR_USER_CODE_LOAD, ModuleCode.RUNTIME, msg)
+
+        if user_code is None:
+            log.get_logger().error("Missing user entry. %s", user_entry)
+            msg = convert_response_to_jsonstr(f"Missing user entry. {user_entry}", FaasErrorCode.ENTRY_EXCEPTION)
+            return ErrorInfo(ErrorCode.ERR_USER_CODE_LOAD, ModuleCode.RUNTIME, msg)
+        return ErrorInfo()
+
     def __load_module(self, code_dir, module_name):
         """load module using cache"""
         if code_dir is None:
@@ -220,3 +288,13 @@ class CodeManager:
             raise
         self.module_cache[file_path] = module
         return module
+
+
+def convert_response_to_jsonstr(message: str, status_code: FaasErrorCode) -> str:
+    """Method transform_call_response_to_str"""
+    message = "" if message is None else message
+    result = dict(
+        message=message,
+        errorCode=str(status_code.value)
+    )
+    return utils.to_json_string(result)

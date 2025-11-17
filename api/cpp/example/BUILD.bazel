@@ -26,6 +26,18 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+cc_library(
+    name = "yr_faas",
+    srcs = [
+        "3rd/lib/libfunctionsdk.so",
+    ],
+    hdrs = glob([
+        "3rd/include/faas/*.h",
+    ]),
+    strip_include_prefix = "3rd/include/faas",
+    visibility = ["//visibility:public"],
+)
+
 [
     cc_binary(
         name = example,
@@ -47,9 +59,16 @@ cc_library(
 
 ]
 
+cc_binary(
+    name = "faas_example",
+    srcs = ["faas_example.cpp"],
+    linkstatic = True,
+    deps = [":yr_faas"],
+)
+
 genrule(
     name = "example_all",
-    srcs = [example for example in examples] + [example + ".so" for example in examples],
+    srcs = [example for example in examples] + [example + ".so" for example in examples] + [ "faas_example" ],
     outs = ["example_all.out"],
     cmd = "echo ok > $@",
     visibility = ["//visibility:public"],

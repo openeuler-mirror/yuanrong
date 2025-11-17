@@ -56,7 +56,7 @@ public class InstanceExample {
             }
         }
         public static void main(String[] args) throws Exception {
-            Config conf = new Config("FunctionURN", "ip", "ip", "");
+            Config conf = new Config("FunctionURN", "ip", "ip", ""， false);
             YR.init(conf);
             MyYRApp myapp = new MyYRApp();
             InstanceCreator<MyYRApp> myYRapp = YR.instance(MyYRApp::new);
@@ -76,7 +76,7 @@ public class InstanceExample {
             }
         }
         public static void main(String[] args) throws Exception {
-            Config conf = new Config("FunctionURN", "ip", "ip", "");
+            Config conf = new Config("FunctionURN", "ip", "ip", "", false);
             YR.init(conf);
             MyYRApp myapp = new MyYRApp();
             // The instance name of this named instance is funcB
@@ -104,7 +104,7 @@ public class InstanceExample {
             }
         }
         public static void main(String[] args) throws Exception {
-            Config conf = new Config("FunctionURN", "ip", "ip", "");
+            Config conf = new Config("FunctionURN", "ip", "ip", "", false);
             YR.init(conf);
             MyYRApp myapp = new MyYRApp();
             // The instance name of this named instance is nsA-funcB

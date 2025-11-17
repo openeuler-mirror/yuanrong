@@ -111,5 +111,26 @@ TEST_F(ExecutionManagerTest, HandleNormalRequestTest)
     ASSERT_TRUE(handled);
 }
 
+TEST_F(ExecutionManagerTest, isMultipleConcurrencyTest)
+{
+    execMgr = std::make_shared<GeneralExecutionManager>(1, nullptr);
+    ASSERT_TRUE(!(execMgr->isMultipleConcurrency()));
+}
+
+TEST_F(ExecutionManagerTest, DoInitWithUserHookTest)
+{
+    std::function func = [](std::function<void(void)> userFuc)->void{};
+    execMgr = std::make_shared<GeneralExecutionManager>(1, func);
+    ASSERT_TRUE(execMgr->DoInit(1).OK());
+    ASSERT_NO_THROW(execMgr->ErasePendingThread("reqID"));
+}
+
+TEST_F(ExecutionManagerTest, ErasePendingThreadTest)
+{
+    execMgr = std::make_shared<GeneralExecutionManager>(2, nullptr);
+    execMgr->DoInit(2);
+    ASSERT_NO_THROW(execMgr->ErasePendingThread("reqID"));
+}
+
 }  // namespace test
 }  // namespace YR

@@ -59,7 +59,9 @@ public:
     virtual ErrorInfo Init(const std::string &addr, int port, std::int32_t connectTimeout) = 0;
     virtual ErrorInfo Init(const std::string &addr, int port, bool enableDsAuth, bool encryptEnable,
                            const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                           const std::string &dsPublicKey, std::int32_t connectTimeout) = 0;
+                           const std::string &dsPublicKey, const datasystem::SensitiveValue &token,
+                           const std::string &ak, const datasystem::SensitiveValue &sk,
+                           std::int32_t connectTimeout) = 0;
     virtual ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) = 0;
     virtual ErrorInfo CreateBuffer(const std::string &objectId, size_t dataSize, std::shared_ptr<Buffer> &dataBuf,
                                    const CreateParam &createParam) = 0;
@@ -85,10 +87,14 @@ public:
         return std::make_pair(ErrorInfo(), std::vector<std::string>());
     }
     virtual std::vector<int> QueryGlobalReference(const std::vector<std::string> &objectIds) = 0;
+    virtual ErrorInfo ReleaseGRefs(const std::string &remoteId) = 0;
     virtual ErrorInfo GenerateKey(std::string &key, const std::string &prefix, bool isPut) = 0;
+    virtual ErrorInfo GetPrefix(const std::string &key, std::string &prefix) = 0;
     virtual void SetTenantId(const std::string &tenantId) = 0;
     virtual void Clear() = 0;
     virtual void Shutdown() = 0;
+    virtual ErrorInfo UpdateToken(datasystem::SensitiveValue token) = 0;
+    virtual ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) = 0;
 };
 
 class MsgpackBuffer : public NativeBuffer {

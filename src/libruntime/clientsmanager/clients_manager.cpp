@@ -15,29 +15,33 @@
  */
 
 #include "clients_manager.h"
+#include "src/libruntime/fsclient/grpc/posix_auth_interceptor.h"
 
 namespace YR {
 namespace Libruntime {
 
-std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::GetFsConn(const std::string &ip, int port)
+std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::GetFsConn(const std::string &ip, int port,
+                                                                               const std::string &dstInstance)
 {
     auto addr = GetIpAddr(ip, port);
-    YRLOG_DEBUG("grpc client target is {}", addr);
+    auto connKey = dstInstance + ":" + addr;
+    YRLOG_DEBUG("grpc client target is {}", connKey);
     if (!RE2::FullMatch(addr, re2::RE2(IP_PORT_REGEX))) {
         YRLOG_ERROR("failed to get valid runtime-rpc server address({})", addr);
         return std::make_pair(nullptr, ErrorInfo(ErrorCode::ERR_CONNECTION_FAILED, "The server address is invalid."));
     }
     std::lock_guard<std::mutex> fsConnsLock(fsConnsMtx);
-    auto iter = fsConns.find(addr);
+    auto iter = fsConns.find(connKey);
     if (iter != fsConns.end()) {
-        fsConnsReferCounter[addr]++;
+        fsConnsReferCounter[connKey]++;
         return std::make_pair(iter->second, ErrorInfo());
     }
     return std::make_pair(nullptr, ErrorInfo());
 }
 
 std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::NewFsConn(const std::string &ip, int port,
-                                                                               std::shared_ptr<Security> security)
+                                                                               std::shared_ptr<Security> security,
+                                                                               const std::string &dstInstance)
 {
     auto addr = GetIpAddr(ip, port);
     auto [res, error] = InitFunctionSystemConn(addr, security);
@@ -45,29 +49,32 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::NewFsConn(c
         return std::make_pair(nullptr, error);
     }
     std::lock_guard<std::mutex> fsConnsLock(fsConnsMtx);
-    fsConns[addr] = res;
-    fsConnsReferCounter[addr]++;
+    auto connKey = dstInstance + ":" + addr;
+    fsConns[connKey] = res;
+    fsConnsReferCounter[connKey]++;
     return std::make_pair(res, ErrorInfo());
 }
 
-ErrorInfo ClientsManager::ReleaseFsConn(const std::string &ip, int port)
+ErrorInfo ClientsManager::ReleaseFsConn(const std::string &ip, int port, const std::string &dstInstance)
 {
     auto addr = GetIpAddr(ip, port);
     std::lock_guard<std::mutex> fsConnsLock(fsConnsMtx);
-    auto iter = fsConnsReferCounter.find(addr);
+    auto connKey = dstInstance + ":" + addr;
+    auto iter = fsConnsReferCounter.find(connKey);
     if (iter == fsConnsReferCounter.end()) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "Cannot find function system conn's ref count info.");
     }
-    fsConnsReferCounter[addr]--;
-    if (fsConnsReferCounter[addr] == 0) {
-        fsConnsReferCounter.erase(addr);
-        fsConns.erase(addr);
+    fsConnsReferCounter[connKey]--;
+    if (fsConnsReferCounter[connKey] == 0) {
+        fsConnsReferCounter.erase(connKey);
+        fsConns.erase(connKey);
     }
     return ErrorInfo();
 }
 
 std::pair<DatasystemClients, ErrorInfo> ClientsManager::GetOrNewDsClient(
-    const std::shared_ptr<LibruntimeConfig> librtCfg, std::int32_t connectTimeout)
+    const std::shared_ptr<LibruntimeConfig> librtCfg, const std::string &ak, const datasystem::SensitiveValue &sk,
+    std::int32_t connectTimeout)
 {
     auto key = GetIpAddr(librtCfg->dataSystemIpAddr, librtCfg->dataSystemPort);
     std::lock_guard<std::mutex> dsClientsLock(dsClientsMtx);
@@ -78,7 +85,7 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::GetOrNewDsClient(
     }
     auto res = InitDatasystemClient(librtCfg->dataSystemIpAddr, librtCfg->dataSystemPort, librtCfg->enableAuth,
                                     librtCfg->encryptEnable, librtCfg->runtimePublicKey, librtCfg->runtimePrivateKey,
-                                    librtCfg->dsPublicKey, connectTimeout);
+                                    librtCfg->dsPublicKey, librtCfg->token, ak, sk, connectTimeout);
     if (res.second.OK()) {
         dsClients[key] = res.first;
         dsClientsReferCounter[key]++;
@@ -105,6 +112,10 @@ ErrorInfo ClientsManager::ReleaseDsClient(const std::string &ip, int port)
         if (dsClients[key].dsStateStore != nullptr) {
             dsClients[key].dsStateStore->Shutdown();
             YRLOG_DEBUG("Shutdown state store clients");
+        }
+        if (dsClients[key].dsStreamStore != nullptr) {
+            dsClients[key].dsStreamStore->Shutdown();
+            YRLOG_DEBUG("Shutdown stream store clients");
         }
         if (dsClients[key].dsHeteroStore != nullptr) {
             dsClients[key].dsHeteroStore->Shutdown();
@@ -171,12 +182,21 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctio
     }
     try {
         std::string prefix = "ipv4:///";
-        channel = grpc::CreateCustomChannel(prefix + target, YR::GetChannelCreds(security), args);
+        if (security != nullptr && security->IsFsAuthEnable()) {
+            std::vector<std::unique_ptr<grpc::experimental::ClientInterceptorFactoryInterface>> interCeptorCreators;
+            auto interCeptorCreator = new PosixClientAuthInterceptorFactory();
+            interCeptorCreator->RegisterSecurity(security);
+            interCeptorCreators.push_back(std::unique_ptr<PosixClientAuthInterceptorFactory>(interCeptorCreator));
+            channel = grpc::experimental::CreateCustomChannelWithInterceptors(
+                prefix + target, YR::GetChannelCreds(security), args, std::move(interCeptorCreators));
+        } else {
+            channel = grpc::CreateCustomChannel(prefix + target, YR::GetChannelCreds(security), args);
+        }
         auto tmout = gpr_time_add(gpr_now(GPR_CLOCK_MONOTONIC), {WAIT_FOR_STAGE_CHANGE_TIMEOUT_SEC, 0, GPR_TIMESPAN});
         auto isConnect = channel->WaitForConnected(tmout);
         auto state = channel->GetState(true);
         if (!isConnect) {
-            YRLOG_ERROR("failed to connect to grpc server {}, channel state: {}", target, state);
+            YRLOG_ERROR("failed to connect to grpc server {}, channel state: {}", target, fmt::underlying(state));
             return std::make_pair(nullptr,
                                   ErrorInfo(ErrorCode::ERR_CONNECTION_FAILED, "failed to connect to grpc server"));
         }
@@ -190,25 +210,34 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctio
 
 std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
     const std::string &ip, int port, bool enableDsAuth, bool encryptEnable, const std::string &runtimePublicKey,
-    const datasystem::SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey, std::int32_t connectTimeout)
+    const datasystem::SensitiveValue &runtimePrivateKey, const std::string &dsPublicKey,
+    const datasystem::SensitiveValue &token, const std::string &ak, const datasystem::SensitiveValue &sk,
+    std::int32_t connectTimeout)
 {
     datasystem::ConnectOptions connectOptions;
     connectOptions.host = ip;
     connectOptions.port = port;
-    connectOptions.connectTimeoutMs = ToMs(connectTimeout);
+    connectOptions.connectTimeoutMs = connectTimeout * S_TO_MS;
     if (encryptEnable) {
         connectOptions.clientPublicKey = runtimePublicKey;
         connectOptions.clientPrivateKey = runtimePrivateKey;
         connectOptions.serverPublicKey = dsPublicKey;
+    }
+    if (enableDsAuth) {
+        if (!ak.empty() && !sk.Empty()) {
+            connectOptions.accessKey = ak;
+            connectOptions.secretKey = sk;
+        }
     }
     std::string tenantId = Config::Instance().YR_TENANT_ID();
     if (!tenantId.empty()) {
         connectOptions.tenantId = tenantId;
     }
     YRLOG_DEBUG(
-        "start init datasystem client connect param, ip is {}, port is {}, enableDsAuth is {}, "
-        "encryptEnableis {}, runtimePublicKey is empty {}, timeout is {}",
-        ip, port, enableDsAuth, encryptEnable, runtimePublicKey.empty(), connectTimeout);
+        "start init datasystem client connect param, tenant id is {}, ip is {}, port is {}, enableDsAuth is {}, "
+        "encryptEnableis {}, runtimePublicKey is empty {}, ak is empty {}, token is empty {}, timeout is {}",
+        tenantId, ip, port, enableDsAuth, encryptEnable, runtimePublicKey.empty(), ak.empty(), token.Empty(),
+        connectTimeout);
     DatasystemClients clients;
     clients.dsObjectStore = std::make_shared<DSCacheObjectStore>();
     ErrorInfo infoObjectStore = clients.dsObjectStore->Init(connectOptions);
@@ -220,6 +249,12 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
     ErrorInfo infoStateStore = clients.dsStateStore->Init(connectOptions);
     if (!infoStateStore.OK()) {
         return std::make_pair(clients, infoObjectStore);
+    }
+
+    clients.dsStreamStore = std::make_shared<DatasystemStreamStore>();
+    ErrorInfo infoStreamStore = clients.dsStreamStore->Init(connectOptions, clients.dsStateStore);
+    if (!infoStreamStore.OK()) {
+        return std::make_pair(clients, infoStreamStore);
     }
 
     clients.dsHeteroStore = std::make_shared<DatasystemHeteroStore>();
@@ -235,7 +270,7 @@ std::pair<std::shared_ptr<ClientManager>, ErrorInfo> ClientsManager::InitHttpCli
     const std::string &ip, int port, const std::shared_ptr<LibruntimeConfig> &config)
 {
     auto httpClient = std::make_shared<ClientManager>(config);
-    ErrorInfo error = httpClient->Init(ConnectionParam{ip, std::to_string(port)});
+    ErrorInfo error = httpClient->Init(ConnectionParam{ip, std::to_string(port), config->httpIdleTime});
     if (!error.OK()) {
         return std::make_pair(nullptr, error);
     }

@@ -55,11 +55,13 @@ public:
     std::shared_ptr<Buffer> KVRead(const std::string &key, int timeoutMs);
 
     std::vector<std::shared_ptr<Buffer>> KVRead(const std::vector<std::string> &keys, int timeoutMs,
-                                                          bool allowPartial = false);
+                                                bool allowPartial = false);
 
     void KVDel(const std::string &key);
 
     std::vector<std::string> KVDel(const std::vector<std::string> &keys);
+
+    std::vector<bool> KVExist(const std::vector<std::string> &keys);
 
     template <typename T>
     bool IsAllFail(const std::vector<std::shared_ptr<T>> &results);
@@ -80,7 +82,7 @@ private:
     std::shared_ptr<WaitRequestManager> waitRequestManager_;
     std::shared_ptr<LocalStateStore> stateStore_;
     std::shared_ptr<YR::utility::ThreadPool> pool_;
-    std::atomic<bool> initPool_ = false;
+    std::atomic<bool> initPool_{false};
 };
 
 template <typename T>

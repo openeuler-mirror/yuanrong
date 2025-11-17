@@ -54,6 +54,8 @@ public:
     void RemoveInsRtIntf(const std::string &instanceId);
     void CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateResourceGroupCallBack callback,
                              int timeoutSec = -1);
+    void EraseIntf(const std::string &id);
+    bool IsHealth();
 
 private:
     std::shared_ptr<FSIntf> fsIntf;

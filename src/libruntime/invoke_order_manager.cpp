@@ -30,15 +30,13 @@ void InvokeOrderManager::CreateInstance(std::shared_ptr<InvokeSpec> spec)
     if (instanceId.empty()) {
         return;
     }
-    YRLOG_DEBUG("instanceid is {}, function meta name is {}, function meta ns is {}", instanceId,
-                spec->functionMeta.name.value_or("NONE"), spec->functionMeta.ns.value_or("NONE"));
 
     absl::MutexLock lock(&mu);
     if (instances.find(instanceId) == instances.end()) {
-        YRLOG_DEBUG("insert instance for ordering, instance id: {}", instanceId);
         auto [it, inserted] = instances.insert({instanceId, ConstuctInstOrder()});
         (void)inserted;
         spec->invokeSeqNo = it->second->orderingCounter++;
+        YRLOG_DEBUG("current order of instance {} is : {}", instanceId, instances[instanceId]->orderingCounter.load());
     } else {
         YRLOG_DEBUG("insert instance for ordering, instance already exists, instance id: {}", instanceId);
     }
@@ -93,6 +91,21 @@ void InvokeOrderManager::RegisterInstance(const std::string &instanceId)
     }
 }
 
+void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &instanceId)
+{
+    if (instanceId.empty()) {
+        return;
+    }
+    absl::MutexLock lock(&mu);
+    if (instances.find(instanceId) == instances.end()) {
+        instances.insert({instanceId, ConstuctInstOrder()});
+        instances[instanceId]->orderingCounter++;
+        YRLOG_DEBUG("current order of instance {} is : {}", instanceId, instances[instanceId]->orderingCounter.load());
+    } else {
+        YRLOG_DEBUG("register instance for ordering, instance already exists, instance id: {}", instanceId);
+    }
+}
+
 void InvokeOrderManager::RemoveInstance(std::shared_ptr<InvokeSpec> spec)
 {
     if (!spec->opts.needOrder || spec->returnIds.empty()) {
@@ -106,9 +119,6 @@ void InvokeOrderManager::RemoveInstance(std::shared_ptr<InvokeSpec> spec)
         return;
     }
 
-    YRLOG_DEBUG(
-        "start Romove instanceid from order manager, id is {}, function meta name is {}, function meta ns is {}",
-        instanceId, spec->functionMeta.name.value_or("NONE"), spec->functionMeta.ns.value_or("NONE"));
     absl::MutexLock lock(&mu);
     if (instances.find(instanceId) != instances.end()) {
         YRLOG_DEBUG("remove instance for ordering, instance id: {}", instanceId);
@@ -131,8 +141,11 @@ void InvokeOrderManager::Invoke(std::shared_ptr<InvokeSpec> spec)
     if (instances.find(instanceId) != instances.end()) {
         auto instOrder = instances[instanceId];
         spec->invokeSeqNo = instOrder->orderingCounter++;
-        YRLOG_DEBUG("instance invoke with order, instance id: {}, request id: {}, sequence No.: {}, unfinished: {}",
-                    instanceId, spec->requestId, spec->invokeSeqNo, instOrder->unfinishedSeqNo);
+        YRLOG_DEBUG(
+            "instance id: {}, request id: {}, invoke sequence No.: {}, ordered count: {}, "
+            "unfinished: {}",
+            instanceId, spec->requestId, spec->invokeSeqNo, instOrder->orderingCounter.load(),
+            instOrder->unfinishedSeqNo);
     } else {
         if (spec->opts.isGetInstance) {
             YRLOG_DEBUG("when inovke type is get named instance, need insert instance for ordering, instance id: {}",
@@ -202,22 +215,25 @@ void InvokeOrderManager::NotifyInvokeSuccess(std::shared_ptr<InvokeSpec> spec)
     if (instanceId.empty()) {
         return;
     }
+    this->UpdateFinishReqSeqNo(instanceId, spec->invokeSeqNo);
+}
 
+void InvokeOrderManager::UpdateFinishReqSeqNo(const std::string &instanceId, int64_t invokeSeqNo)
+{
     absl::MutexLock lock(&mu);
     if (instances.find(instanceId) != instances.end()) {
         auto instOrder = instances[instanceId];
-        instOrder->finishedUnorderedInvokeSpecs.insert({spec->invokeSeqNo, spec});
-        auto it = instOrder->finishedUnorderedInvokeSpecs.begin();
-        while (it != instOrder->finishedUnorderedInvokeSpecs.end()) {
-            if (it->first == instOrder->unfinishedSeqNo) {
+        instOrder->finishedOrderedReqSeqNo.emplace(invokeSeqNo);
+        auto it = instOrder->finishedOrderedReqSeqNo.begin();
+        while (it != instOrder->finishedOrderedReqSeqNo.end()) {
+            if (*it == instOrder->unfinishedSeqNo) {
                 instOrder->unfinishedSeqNo++;
-                it = instOrder->finishedUnorderedInvokeSpecs.erase(it);
+                it = instOrder->finishedOrderedReqSeqNo.erase(it);
             } else {
                 break;
             }
         }
-        YRLOG_DEBUG("current unfinished sequence No. is {}, instance id: {}, finished unordered spec size: {}",
-                    instOrder->unfinishedSeqNo, instanceId, instOrder->finishedUnorderedInvokeSpecs.size());
+        YRLOG_DEBUG("current unfinished sequence No. is {}, instance id: {}", instOrder->unfinishedSeqNo, instanceId);
     }
 }
 

@@ -29,6 +29,9 @@ import lombok.Data;
 public class ExtendedMetaData {
     private Initializer initializer;
 
+    @SerializedName("pre_stop")
+    private PreStop preStop;
+
     @SerializedName("log_tank_service")
     private LogTankService logTankService;
 }

@@ -24,12 +24,13 @@ from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 from yr.common.types import InvokeArg, GroupInfo
 from yr.config import InvokeOptions
 from yr.config_manager import ConfigManager
-from yr.fnruntime import Fnruntime, SharedBuffer
-from yr.libruntime_pb2 import FunctionMeta
+from yr.fnruntime import Consumer, Fnruntime, Producer, SharedBuffer
+from yr.libruntime_pb2 import ApiType, FunctionMeta
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.object_ref import ObjectRef
 from yr.runtime import Runtime, AlarmInfo, SetParam, MSetParam, CreateParam, GetParams
 from yr.serialization import Serialization
+from yr.stream import ProducerConfig, SubscriptionConfig
 from yr.accelerate.shm_broadcast import Handle
 
 _logger = logging.getLogger(__name__)
@@ -236,6 +237,8 @@ class ClusterModeRuntime(Runtime):
         :return: None
         """
         self._check_init()
+        if func_meta.apiType == ApiType.Faas:
+            return self.libruntime.invoke_by_name(func_meta, self._package_python_args(args, True), opt, return_nums)
         return self.libruntime.invoke_by_name(func_meta, self._package_python_args(args), opt, return_nums, group_info)
 
     def create_instance(self, func_meta: FunctionMeta, args: List[Any], opt: InvokeOptions,
@@ -319,6 +322,55 @@ class ClusterModeRuntime(Runtime):
         """
         self.libruntime.finalize()
         self.__enable_flag = False
+
+    def create_stream_producer(self, stream_name: str, config: ProducerConfig) -> Producer:
+        """
+        create stream producer
+        :param stream_name: stream name
+        :param config: ProducerConfig
+        :return: producer
+        """
+        if config.max_stream_size < 0:
+            raise RuntimeError(f"Invalid parameter, max_stream_size: {config.max_stream_size}, expect >= 0")
+        if config.retain_for_num_consumers < 0:
+            raise RuntimeError(
+                f"Invalid parameter, retain_for_num_consumers: {config.retain_for_num_consumers}, expect >= 0")
+        if config.reserve_size < 0:
+            raise RuntimeError(f"Invalid parameter, reserve_size: {config.reserve_size}, expect >= 0")
+        return self.libruntime.create_stream_producer(stream_name, config)
+
+    def create_stream_consumer(self, stream_name: str, config: SubscriptionConfig) -> Consumer:
+        """
+        create stream consumer
+        :param stream_name: stream name
+        :param config: SubscriptionConfig
+        :return: consumer
+        """
+        return self.libruntime.create_stream_consumer(stream_name, config)
+
+    def delete_stream(self, stream_name: str) -> None:
+        """
+        delete stream
+        :param stream_name: stream name
+        :return: None
+        """
+        self.libruntime.delete_stream(stream_name)
+
+    def query_global_producers_num(self, stream_name: str) -> int:
+        """
+        query global producers num
+        :param stream_name: stream name
+        :return: producers num
+        """
+        return self.libruntime.query_global_producers_num(stream_name)
+
+    def query_global_consumers_num(self, stream_name: str) -> int:
+        """
+        query global consumers num
+        :param stream_name: stream name
+        :return: consumers num
+        """
+        return self.libruntime.query_global_consumers_num(stream_name)
 
     def get_real_instance_id(self, instance_id: str) -> str:
         """
@@ -503,6 +555,24 @@ class ClusterModeRuntime(Runtime):
         """
         self.libruntime.set_alarm(name, description, info)
 
+    def peek_object_ref_stream(self, generator_id, blocking=True, timeout_ms=-1):
+        """
+        peek object reference stream.
+        Args:
+            timeout_ms int.
+            generator_id str.
+        Returns:
+            object_id
+        """
+        self._check_init()
+        result = self.libruntime.peek_object_ref_stream(generator_id, blocking, timeout_ms)
+        if not isinstance(result, str):
+            objects = Serialization().deserialize(result)
+            for obj in objects:
+                if isinstance(obj, YRInvokeError):
+                    raise obj.origin_error()
+        return result
+
     def generate_group_name(self) -> str:
         """
         generate group name.
@@ -597,17 +667,21 @@ class ClusterModeRuntime(Runtime):
         """
         return self.libruntime.add_return_object(obj_ids)
 
-    def _package_python_args(self, args_list):
+    def _package_python_args(self, args_list, is_faas=False):
         """package python args"""
         args_list_new = []
         for arg in args_list:
             if isinstance(arg, ObjectRef):
                 invoke_arg = InvokeArg(buf=bytes(), is_ref=True, obj_id=arg.id, nested_objects=set())
             else:
-                serialized_arg = Serialization().serialize(arg)
-                invoke_arg = InvokeArg(buf=None, is_ref=False, obj_id="",
-                                       nested_objects=set([ref.id for ref in serialized_arg.nested_refs]),
-                                       serialized_obj=serialized_arg)
+                if is_faas:
+                    invoke_arg = InvokeArg(buf=arg, is_ref=False, obj_id="",
+                                           nested_objects=set())
+                else:
+                    serialized_arg = Serialization().serialize(arg)
+                    invoke_arg = InvokeArg(buf=None, is_ref=False, obj_id="",
+                                           nested_objects=set([ref.id for ref in serialized_arg.nested_refs]),
+                                           serialized_obj=serialized_arg)
             args_list_new.append(invoke_arg)
         return args_list_new
 

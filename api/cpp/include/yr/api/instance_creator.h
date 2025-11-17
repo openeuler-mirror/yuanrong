@@ -183,8 +183,8 @@ public:
         handler.SetClassName(funcMeta.className);
         handler.SetFunctionUrn(funcMeta.funcUrn);
         handler.SetNeedOrder(opts.needOrder);
-        handler.SetName(funcMeta.name.value_or(""));
-        handler.SetNs(funcMeta.ns.value_or(""));
+        handler.SetName(funcMeta.name);
+        handler.SetNs(funcMeta.ns);
         if (InstanceRangeEnabled(this->opts.instanceRange)) {
             handler.SetGroupName(this->opts.groupName);
         }

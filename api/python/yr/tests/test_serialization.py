@@ -17,6 +17,7 @@ import unittest
 import pickle
 from unittest.mock import patch, Mock
 
+from yr.common import constants
 from yr.serialization import Serialization
 from yr.fnruntime import write_to_cbuffer
 import numpy as np
@@ -70,5 +71,17 @@ class TestApi(unittest.TestCase):
                 assert ret.sum() == value.sum()
             pickle.HIGHEST_PROTOCOL = default_highest_protocol
 
+    def test_normalize_input(self):
+        input_one = b"hello, world"
+        res_one, res_two = Serialization().normalize_input(input_one)
+        assert res_one == constants.Metadata.BYTES
+
+        input_two = memoryview(input_one)
+        res_three, res_four = Serialization().normalize_input(input_two)
+        assert res_three == constants.Metadata.MEMORYVIEW
+
+        input_three = bytearray(input_one)
+        res_five, res_six = Serialization().normalize_input(input_three)
+        assert res_five == constants.Metadata.BYTEARRAY
 if __name__ == "__main__":
     unittest.main()

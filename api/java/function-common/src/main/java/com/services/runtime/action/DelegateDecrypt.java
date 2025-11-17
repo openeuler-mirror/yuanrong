@@ -27,6 +27,14 @@ import lombok.Data;
  */
 @Data
 public class DelegateDecrypt {
+    private String accessKey;
+
+    private String secretKey;
+
+    private String authToken;
+
+    private String securityToken;
+
     private String environment;
 
     @SerializedName("encrypted_user_data")

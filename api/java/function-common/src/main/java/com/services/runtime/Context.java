@@ -42,6 +42,34 @@ public interface Context {
     int getRemainingTimeInMilliSeconds();
 
     /**
+     * Get the Access key information of the tenant
+     *
+     * @return access key
+     */
+    String getAccessKey();
+
+    /**
+     * Get the Secret Key information of the tenant
+     *
+     * @return secret key
+     */
+    String getSecretKey();
+
+    /**
+     * Get the Security Access key information of the tenant
+     *
+     * @return access key
+     */
+    String getSecurityAccessKey();
+
+    /**
+     * Get the Security Secret Key information of the tenant
+     *
+     * @return secret key
+     */
+    String getSecuritySecretKey();
+
+    /**
      * Get the user data, which saved in a map
      *
      * @param key user key
@@ -104,6 +132,21 @@ public interface Context {
     String getPackage();
 
     /**
+     * Get token of the tenant
+     *
+     * @return token
+     */
+    String getToken();
+
+    /**
+     * Get security token. In order to invoke interface of other service,
+     * AK,SK and security token should been provided.
+     *
+     * @return security token
+     */
+    String getSecurityToken();
+
+    /**
      * Get function alias.
      *
      * @return function alias
@@ -163,6 +206,13 @@ public interface Context {
     String getTraceID();
 
     /**
+     * Set the traceID
+     *
+     * @param traceID for the user traceId
+     */
+    void setTraceID(String traceID);
+
+    /**
      * Gets the invoke id
      *
      * @return invokeID
@@ -210,6 +260,13 @@ public interface Context {
      * @return frontend response streamName
      */
     String getFrontendResponseStreamName();
+
+    /**
+     * Get iam token
+     *
+     * @return iam token
+     */
+    String getIAMToken();
 
     /**
      * Get extra map

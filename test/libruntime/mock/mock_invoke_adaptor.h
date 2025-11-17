@@ -39,6 +39,9 @@ public:
 
     MOCK_METHOD3(KillAsync, void(const std::string &instanceId, const std::string &payload, int sigNo));
 
+    MOCK_METHOD4(KillAsyncCB, void(const std::string &instanceId, const std::string &payload, int signal,
+                                   std::function<void(const ErrorInfo &err)> cb));
+
     MOCK_METHOD2(GroupCreate, ErrorInfo(const std::string &groupName, GroupOpts &opts));
 
     MOCK_METHOD2(RangeCreate, ErrorInfo(const std::string &groupName, InstanceRange &range));
@@ -56,9 +59,21 @@ public:
 
     MOCK_METHOD1(ExecShutdownCallback, ErrorInfo(uint64_t gracePeriodSec));
 
+    MOCK_METHOD3(AcquireInstance,
+                 std::pair<InstanceAllocation, ErrorInfo>(const std::string &stateId, const FunctionMeta &functionMeta,
+                                                          InvokeOptions &opts));
+
+    MOCK_METHOD4(ReleaseInstance,
+                 ErrorInfo(const std::string &leaseId, const std::string &stateId, bool abnormal, InvokeOptions &opts));
+
     MOCK_METHOD3(GetInstance,
                  std::pair<YR::Libruntime::FunctionMeta, ErrorInfo>(const std::string &name,
                                                                     const std::string &nameSpace, int timeoutSec));
+    MOCK_METHOD3(UpdateSchdulerInfo,
+                 void(const std::string &scheduleName, const std::string &schedulerId, const std::string &option));
+
+    MOCK_METHOD1(EraseFsIntf, void(const std::string &id));
+    MOCK_METHOD0(IsHealth, bool());
 };
 }  // namespace Libruntime
 }  // namespace YR

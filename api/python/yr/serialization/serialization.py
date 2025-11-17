@@ -37,13 +37,24 @@ class Serialization:
         self._protocol = 5
 
     @staticmethod
-    def serialize(value: Any) -> SerializedObject:
+    def normalize_input(value: Any):
+        """
+        Normalize bytes, memoryview, bytearray to memoryview to avoid copying and attach meta-information
+        """
+        if isinstance(value, bytes):
+            return constants.Metadata.BYTES, value
+        if isinstance(value, memoryview):
+            return constants.Metadata.MEMORYVIEW, value
+        if isinstance(value, bytearray):
+            return constants.Metadata.BYTEARRAY, value
+        raise TypeError(f"Unsupported input type: {type(value)}")
+
+    def serialize(self, value: Any) -> SerializedObject:
         """serialize"""
         metadata = constants.Metadata.CROSS_LANGUAGE
         py_serialized_object = None
-        if isinstance(value, bytes):
-            metadata = constants.Metadata.BYTES
-            msgpack_data = value
+        if isinstance(value, (bytes, memoryview, bytearray)):
+            metadata, msgpack_data = self.normalize_input(value)
         else:
             msgpack_serialized_object = MessagePackSerializer.serialize(value)
             msgpack_data = msgpack_serialized_object.msgpack_data
@@ -51,6 +62,8 @@ class Serialization:
             if py_objects:
                 metadata = constants.Metadata.PYTHON
                 py_serialized_object = PySerializer.serialize(py_objects)
+        if not isinstance(msgpack_data, bytes):
+            msgpack_data = bytes(msgpack_data)
         return SerializedObject(
             metadata=metadata.value,
             msgpack_data=msgpack_data,
@@ -63,7 +76,7 @@ class Serialization:
         structure. Otherwise, cloudpickles is directly used for deserialization.
 
         Args:
-            values (Union[bytes, List[bytes]]): Bytes data to  be deserialized.
+            buffers (Union[None, Buffer, memoryview, List[Buffer]]): Bytes data to  be deserialized.
 
         Returns:
             Union[Any, List]: The deserialized result.
@@ -72,7 +85,6 @@ class Serialization:
 
         if is_buffer:
             buffers = [buffers]
-
         pop_local_object_refs()
         result = []
         # Deserializing user code may execute 'import' operation, which is not thread safe.
@@ -83,21 +95,21 @@ class Serialization:
                     result.append(None)
                     continue
                 metadata, msgpack_data, py_serialized_data = split_buffer(buf)
-                if constants.Metadata(metadata) == constants.Metadata.BYTES:
-                    result.append(bytes(msgpack_data))
+                if constants.Metadata(metadata) in [
+                    constants.Metadata.BYTES,
+                    constants.Metadata.BYTEARRAY,
+                    constants.Metadata.MEMORYVIEW
+                ]:
+                    result.append(memoryview(msgpack_data))
                     continue
-
                 python_objects = []
                 if constants.Metadata(metadata) == constants.Metadata.PYTHON:
                     python_objects = PySerializer.deserialize(py_serialized_data)
-
                 result.append(MessagePackSerializer.deserialize(msgpack_data, python_objects))
-
         object_refs = pop_local_object_refs()
         if len(object_refs) != 0:
             object_ref_ids = [ref.id for ref in object_refs]
             yr.runtime_holder.global_runtime.get_runtime().increase_global_reference(object_ref_ids)
-
         return result[0] if is_buffer else result
 
     def register_pack_hook(self, hook):

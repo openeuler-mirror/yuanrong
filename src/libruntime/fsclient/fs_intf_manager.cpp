@@ -109,8 +109,8 @@ void FSIntfManager::Remove(const std::string &instanceID)
         absl::WriterMutexLock lock(&this->mu);
         if (auto iter = this->rtIntfs.find(instanceID); iter != this->rtIntfs.end()) {
             intfNeedStop = iter->second;
+            (void)this->rtIntfs.erase(instanceID);
         }
-        (void)this->rtIntfs.erase(instanceID);
     }
     if (intfNeedStop) {
         intfNeedStop->Stop();

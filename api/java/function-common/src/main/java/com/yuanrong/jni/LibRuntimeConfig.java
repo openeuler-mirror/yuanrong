@@ -59,7 +59,10 @@ public class LibRuntimeConfig {
     private String certificateFilePath;
     private String privateKeyPath;
     private String verifyFilePath;
+    private String privateKeyPaaswd;
     private String serverName;
+    private int httpIocThreadsNum;
+    private int httpIdleTime;
     private boolean inCluster = true;
     private int rpcTimeout = 60;
     private String tenantId = "";

@@ -27,10 +27,12 @@ public:
     virtual ~InvokeOrderManager() = default;
     void CreateInstance(std::shared_ptr<InvokeSpec> spec);
     void RegisterInstance(const std::string &instanceId);
+    void RegisterInstanceAndUpdateOrder(const std::string &instanceId);
     void RemoveInstance(std::shared_ptr<InvokeSpec> spec);
     void Invoke(std::shared_ptr<InvokeSpec> spec);
     void UpdateUnfinishedSeq(std::shared_ptr<InvokeSpec> spec);
     void NotifyInvokeSuccess(std::shared_ptr<InvokeSpec> spec);
+    void UpdateFinishReqSeqNo(const std::string &instanceId, int64_t invokeSeqNo);
     void ClearInsOrderMsg(const std::string &insId, int signal);
     void RemoveGroupInstance(const std::string &instanceId);
     void CreateGroupInstance(const std::string &instanceId);
@@ -49,6 +51,7 @@ struct InstanceOrdering {
     std::atomic<int64_t> orderingCounter{0};
     int64_t unfinishedSeqNo = 0;
     std::map<int64_t, std::shared_ptr<InvokeSpec>> finishedUnorderedInvokeSpecs;
+    std::set<int64_t> finishedOrderedReqSeqNo;
 };
 }  // namespace Libruntime
 }  // namespace YR

@@ -192,6 +192,9 @@ public class LoadUtil {
             }
             if (outChannel.size() == 0) {
                 copyJarSoToLocal(soFilePath, outChannel);
+                if (!localSoFile.setReadOnly()) {
+                    LOGGER.warn("set file: {} read permission failed.", localSoFile.getAbsolutePath());
+                }
                 System.load(localSoFile.getCanonicalPath());
                 return true;
             }
@@ -205,6 +208,9 @@ public class LoadUtil {
         try (FileChannel outChannel = FileChannel.open(tempSoFile.toPath(), StandardOpenOption.WRITE,
                 StandardOpenOption.APPEND)) {
             copyJarSoToLocal(soFilePath, outChannel);
+            if (!tempSoFile.setReadOnly()) {
+                LOGGER.warn("set file: {} read permission failed.", tempSoFile.getAbsolutePath());
+            }
             System.load(tempSoFile.getCanonicalPath());
         }
     }

@@ -27,8 +27,14 @@ import lombok.Setter;
 @Setter
 @Getter
 public class ContextInvokeParams {
+    private String accessKey = "";
+    private String secretKey = "";
+    private String securityAccessKey = "";
+    private String securitySecretKey = "";
     private String requestID = "";
     private String invokeID = "";
+    private String token = "";
+    private String securityToken = "";
     private String alias = "";
     private String workflowID = "";
     private String workflowRunID = "";

@@ -113,5 +113,23 @@ TEST_F(InvokeOrderManagerTest, RemoveInstanceTest)
     invokeOrderMgr->RemoveInstance(spec);
     ASSERT_EQ(invokeOrderMgr->instances.find("id") == invokeOrderMgr->instances.end(), true);
 }
+
+TEST_F(InvokeOrderManagerTest, RegisterInstanceAndUpdateOrderTest)
+{
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto insId = "instanceId";
+    invokeOrderMgr->RegisterInstanceAndUpdateOrder(insId);
+    ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") != invokeOrderMgr->instances.end(), true);
+    ASSERT_EQ(invokeOrderMgr->instances["instanceId"]->orderingCounter, 1);
+}
+
+TEST_F(InvokeOrderManagerTest, RegisterInstance)
+{
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto insId = "instanceId";
+    invokeOrderMgr->RegisterInstance(insId);
+    ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") != invokeOrderMgr->instances.end(), true);
+    ASSERT_EQ(invokeOrderMgr->instances["instanceId"]->orderingCounter, 0);
+}
 }  // namespace test
 }  // namespace YR

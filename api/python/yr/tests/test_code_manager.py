@@ -41,13 +41,20 @@ class TestCodeManager(TestCase):
         self.cm.load_functions([path])
         mock_sys_path.insert.assert_called_once_with(0, path)
 
+    @mock.patch("yr.log.get_logger")
+    def test_load_functions_when_input_invalid_faas_entry(self, mock_logger):
+        mock_logger.return_value = logger
+        self.cm.custom_handler = "/tmp"
+        err = self.cm.load_functions(["test.init", "test.handler"])
+        assert err.error_code == ErrorCode.ERR_USER_CODE_LOAD
+
     @mock.patch.object(CodeManager(), 'load_code_from_local')
     @mock.patch("yr.log.get_logger")
     def test_load_functions_when_user_code_syntax_err(self, mock_logger, mock_load_code_from_local):
         mock_logger.return_value = logger
         mock_load_code_from_local.side_effect = SyntaxError("a syntax error in user code")
         err = CodeManager().load_functions(["test.init", "test.handler"])
-        self.assertTrue(err.error_code == ErrorCode.ERR_OK)
+        assert err.error_code == ErrorCode.ERR_USER_CODE_LOAD
 
     @mock.patch("yr.log.get_logger")
     def test_entry_load(self, mock_logger):

@@ -23,14 +23,14 @@
 namespace YR {
 namespace Libruntime {
 
-void FSIntfGrpcServerReaderWriter::PreStart()
-{
-    isConnect_.store(true);
-}
-
 bool FSIntfGrpcServerReaderWriter::IsBatched()
 {
     return batchStream_ != nullptr;
+}
+
+void FSIntfGrpcServerReaderWriter::PreStart()
+{
+    isConnect_.store(true);
 }
 
 ErrorInfo FSIntfGrpcServerReaderWriter::Start()
@@ -90,6 +90,11 @@ bool FSIntfGrpcServerReaderWriter::GrpcBatchWrite(const std::shared_ptr<BatchStr
         return false;
     }
     return batchStream_->Write(*request.get());
+}
+
+bool FSIntfGrpcServerReaderWriter::IsHealth()
+{
+    return true;
 }
 
 void FSIntfGrpcServerReaderWriter::ClearStream()

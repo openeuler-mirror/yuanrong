@@ -33,6 +33,8 @@ public class Affinity {
 
     private List<LabelOperator> labelOperators;
 
+    private AffinityScope affinityScope;
+
     private ResourceAffinity resourceAffinity;
 
     private InstanceAffinity instanceAffinity;
@@ -48,6 +50,20 @@ public class Affinity {
         this.affinityType = affinityType;
         this.affinityKind = affinityKind;
         this.labelOperators = labelOperators;
+    }
+
+    /**
+     * Init Affinity with affinityScope
+     *
+     * @param affinityKind the affinityKind
+     * @param affinityType the affinityType
+     * @param labelOperators the labelOperators
+     * @param affinityScope the affinityScope
+     */
+    public Affinity(AffinityKind affinityKind, AffinityType affinityType, List<LabelOperator> labelOperators,
+        AffinityScope affinityScope) {
+        this(affinityKind, affinityType, labelOperators);
+        this.affinityScope = affinityScope;
     }
 
     /**
@@ -89,5 +105,17 @@ public class Affinity {
             return 0;
         }
         return this.affinityKind.getKind() + this.affinityType.getType();
+    }
+
+    /**
+     * get affinityKind value
+     *
+     * @return value
+     */
+    public int getAffinityScopeValue() {
+        if (this.affinityScope == null) {
+            return 0;
+        }
+        return this.affinityScope.getScope();
     }
 }

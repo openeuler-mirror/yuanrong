@@ -24,11 +24,13 @@
 #include "src/dto/config.h"
 #include "src/dto/constant.h"
 #include "src/libruntime/fsclient/protobuf/core_service.grpc.pb.h"
+#include "src/libruntime/invokeadaptor/faas_instance_manager.h"
 #include "src/libruntime/invokeadaptor/normal_instance_manager.h"
 #include "src/libruntime/utils/constants.h"
 #include "src/libruntime/utils/exception.h"
 #include "src/libruntime/utils/serializer.h"
 #include "src/proto/libruntime.pb.h"
+#include "src/scene/downgrade.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/timer_worker.h"
 #include "task_submitter.h"
@@ -37,11 +39,11 @@ namespace Libruntime {
 const std::string INSTANCE_REQUIREMENT_RESOURKEY = "resourcesData";
 const std::string INSTANCE_REQUIREMENT_INSKEY = "designateInstanceID";
 const std::string INSTANCE_REQUIREMENT_POOLLABELKEY = "poolLabel";
-const int64_t BEFOR_RETAIN_TIME = 30;  // millisecond
+const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
 const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
 const int64_t IDLE_TIMER_INTERNAL = 10;
-const int DEFALUT_CANCEL_DELAY_TIME = 5; // second
-const std::string DS_OBJECTID_SEPERATOR = ";";
+const int DEFALUT_CANCEL_DELAY_TIME = 5;  // second
+const int ERASE_DELAY_TIME = 30;
 using namespace YR::utility;
 using json = nlohmann::json;
 
@@ -56,9 +58,19 @@ ErrorInfo PackageNotifyErr(const NotifyRequest &notifyReq, bool isCreate)
 
 TaskSubmitter::TaskSubmitter(std::shared_ptr<LibruntimeConfig> config, std::shared_ptr<MemoryStore> store,
                              std::shared_ptr<FSClient> client, std::shared_ptr<RequestManager> reqMgr,
-                             CancelFunc cancelFunc)
-    : libRuntimeConfig(config), memoryStore(store), fsClient(client), requestManager(reqMgr), cancelCb(cancelFunc)
+                             CancelFunc cancelFunc, std::shared_ptr<AliasRouting> ar,
+                             std::shared_ptr<MetricsAdaptor> adaptor,
+                             std::shared_ptr<YR::scene::DowngradeController> downgrade)
+    : libRuntimeConfig(config),
+      memoryStore(store),
+      fsClient(client),
+      requestManager(reqMgr),
+      cancelCb(cancelFunc),
+      ar_(ar),
+      metricsAdaptor_(adaptor),
+      downgrade_(downgrade)
 {
+    enablePriority_ = Config::Instance().ENABLE_PRIORITY();
     this->Init();
 }
 
@@ -69,8 +81,32 @@ void TaskSubmitter::Init()
                                                      std::placeholders::_2, std::placeholders::_3),
                                            fsClient, memoryStore, requestManager, libRuntimeConfig);
     normalInsManager->SetDeleleInsCallback(std::bind(&TaskSubmitter::DeleteInsCallback, this, std::placeholders::_1));
+    auto faasInsManager =
+        std::make_shared<FaasInsManager>(std::bind(&TaskSubmitter::ScheduleIns, this, std::placeholders::_1,
+                                                   std::placeholders::_2, std::placeholders::_3),
+                                         fsClient, memoryStore, requestManager, libRuntimeConfig);
+    insManagers[libruntime::ApiType::Faas] = faasInsManager;
+    insManagers[libruntime::ApiType::Serve] = faasInsManager;
     insManagers[libruntime::ApiType::Function] = normalInsManager;
     this->UpdateConfig();
+    if (Config::Instance().ENABLE_METRICS()) {
+        this->metricsEnable_ = true;
+    }
+    faasInsManager->StartBatchRenewTimer();
+    taskScheduler_ = std::make_shared<TaskScheduler>(std::bind(&TaskSubmitter::ScheduleFunctions, this));
+    taskScheduler_->Run();
+    if (downgrade_) {
+        downgrade_->Init();
+    }
+    eraseTimer_ = YR::utility::ExecuteByGlobalTimer([this]() { this->EraseInsResourceMap(); },
+                                                    ERASE_DELAY_TIME * MILLISECOND_UNIT, -1);
+}
+
+void TaskSubmitter::EraseInsResourceMap()
+{
+    for (auto it = insManagers.begin(); it != insManagers.end(); ++it) {
+        it->second->EraseResourceInfoMap();
+    }
 }
 
 void TaskSubmitter::UpdateConfig()
@@ -130,6 +166,40 @@ void TaskSubmitter::HandleInvokeNotify(const NotifyRequest &req, const ErrorInfo
     }
 }
 
+void TaskSubmitter::DowngradeCallback(const std::string &requestId, Libruntime::ErrorCode code,
+                                      const std::string &result)
+{
+    auto spec = requestManager->GetRequest(requestId);
+    if (spec == nullptr) {
+        YRLOG_WARN(
+            "request id : {} did not exit in request manager, may be the invoke request has been canceled or finished.",
+            requestId);
+        return;
+    }
+    ErrorInfo errInfo;
+    if (code != ErrorCode::ERR_OK) {
+        errInfo = ErrorInfo(code, result);
+        memoryStore->SetError(spec->returnIds, errInfo);
+    } else {
+        auto &dataObj = spec->returnIds.front();
+        std::shared_ptr<Buffer> buf = std::make_shared<NativeBuffer>(result.size() + MetaDataLen);
+        dataObj.SetBuffer(buf);
+        (void)memset_s(dataObj.meta->MutableData(), dataObj.meta->GetSize(), 0, dataObj.meta->GetSize());
+        dataObj.data->MemoryCopy(result.data(), result.size());
+        memoryStore->Put(dataObj.buffer, dataObj.id, {}, false);
+        memoryStore->SetReady(dataObj.id);
+    }
+    auto ids = this->memoryStore->UnbindObjRefInReq(spec->requestId);
+    auto errorInfo = this->memoryStore->DecreGlobalReference(ids);
+    if (!errorInfo.OK()) {
+        YRLOG_WARN("failed to decrease obj ref [{},...] by requestid {}. Code: {}, MCode: {}, Msg: {}", ids[0],
+                   spec->requestId, fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()),
+                   errorInfo.Msg());
+    }
+    requestManager->RemoveRequest(spec->requestId);
+    this->UpdateFaasInvokeLog(spec->requestId, errInfo);
+}
+
 bool TaskSubmitter::HandleFailInvokeIsDelayScaleDown(const NotifyRequest &req, const ErrorInfo &err)
 {
     // If error code is less than 2000, it means user operation error, and the instance is normal,
@@ -137,7 +207,8 @@ bool TaskSubmitter::HandleFailInvokeIsDelayScaleDown(const NotifyRequest &req, c
     // Otherwise, invoke failure is either because of fault or only user code error,
     // it cannot be distinguished here, so just scale down the instance with no delay,
     // to avoid instance/node fault.
-    YRLOG_INFO("check if invoke is abnormal notify request code {} requestid {}", req.code(), req.requestid());
+    YRLOG_INFO("check if invoke is abnormal notify request code {} requestid {}", fmt::underlying(req.code()),
+               req.requestid());
     if (req.code() == common::ErrorCode::ERR_INSTANCE_NOT_FOUND ||
         req.code() == common::ErrorCode::ERR_INSTANCE_EXITED || req.code() == common::ErrorCode::ERR_INSTANCE_EVICTED) {
         return false;
@@ -164,25 +235,23 @@ void TaskSubmitter::HandleFailInvokeNotify(const NotifyRequest &req, const std::
         YRLOG_ERROR(
             "normal invoke requet fail, need retry, raw request id is {}, code is: {}, trace id is {}, seq is {}, "
             "complete request id is {}",
-            req.requestid(), req.code(), spec->traceId, spec->seq, spec->requestInvoke->Mutable().requestid());
+            req.requestid(), fmt::underlying(req.code()), spec->traceId, spec->seq,
+            spec->requestInvoke->Mutable().requestid());
         if (isConsumeRetryTime) {
             spec->ConsumeRetryTime();
             YRLOG_DEBUG("consumed invoke retry time to {}, req id is {}", spec->opts.retryTimes, req.requestid());
         }
-        std::shared_ptr<BaseQueue> requestQueue;
+        auto taskScheduler = GetOrAddTaskScheduler(resource);
         {
-            absl::ReaderMutexLock lock(&reqMtx_);
-            requestQueue = waitScheduleReqMap_[resource];
-        }
-        {
-            std::lock_guard<std::mutex> lockGuard(requestQueue->atomicMtx);
-            requestQueue->Push(spec);
+            std::lock_guard<std::mutex> lockGuard(taskScheduler->queue->atomicMtx);
+            taskScheduler->queue->Push(spec);
         }
     } else {
         YRLOG_ERROR(
             "normal invoke requet fail, don't need retry, raw request id is {}, code is: {}, trace id is {}, seq is "
             "{}, complete request id is {}",
-            req.requestid(), req.code(), spec->traceId, spec->seq, spec->requestInvoke->Mutable().requestid());
+            req.requestid(), fmt::underlying(req.code()), spec->traceId, spec->seq,
+            spec->requestInvoke->Mutable().requestid());
         if (this->libRuntimeConfig->inCluster) {
             std::vector<std::string> dsObjs;
             for (auto it = spec->returnIds.begin(); it != spec->returnIds.end(); ++it) {
@@ -195,15 +264,14 @@ void TaskSubmitter::HandleFailInvokeNotify(const NotifyRequest &req, const std::
         auto errorInfo = this->memoryStore->DecreGlobalReference(ids);
         if (!errorInfo.OK()) {
             YRLOG_WARN("failed to decrease obj ref [{},...] by requestid {}. Code: {}, MCode: {}, Msg: {}", ids[0],
-                       spec->requestId, errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                       spec->requestId, fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()),
+                       errorInfo.Msg());
         }
         this->memoryStore->SetError(spec->returnIds, errInfo);
         (void)requestManager->RemoveRequest(spec->requestId);
+        this->UpdateFaasInvokeLog(spec->requestId, errInfo);
     }
-    absl::ReaderMutexLock lock(&reqMtx_);
-    if (taskSchedulerMap_.find(resource) != taskSchedulerMap_.end()) {
-        taskSchedulerMap_[resource]->Notify();
-    }
+    NotifyScheduler(resource);
 }
 
 void TaskSubmitter::HandleSuccessInvokeNotify(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> spec,
@@ -248,12 +316,72 @@ void TaskSubmitter::HandleSuccessInvokeNotify(const NotifyRequest &req, const st
     auto errorInfo = this->memoryStore->DecreGlobalReference(ids);
     if (!errorInfo.OK()) {
         YRLOG_WARN("failed to decrease obj ref [{},...] by requestid {}. Code: {}, MCode: {}, Msg: {}", ids[0],
-                   spec->requestId, errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                   spec->requestId, fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()),
+                   errorInfo.Msg());
     }
-    absl::ReaderMutexLock lock(&reqMtx_);
-    if (taskSchedulerMap_.find(resource) != taskSchedulerMap_.end()) {
-        taskSchedulerMap_[resource]->Notify();
+    if (spec->functionMeta.apiType == libruntime::ApiType::Faas) {
+        this->UpdateFaasInvokeLog(spec->requestId, ErrorInfo());
     }
+    NotifyScheduler(resource);
+}
+
+void TaskSubmitter::AddFaasCancelTimer(std::shared_ptr<InvokeSpec> spec)
+{
+    if (spec->functionMeta.apiType == libruntime::ApiType::Faas) {
+        auto weakThis = weak_from_this();
+        auto reqId = spec->requestId;
+        auto timeoutSec =
+            spec->opts.acquireTimeout > 0 ? spec->opts.acquireTimeout : Config::Instance().FASS_SCHEDULE_TIMEOUT();
+        // The Purpose of this timer is to remove the corresponding spec from request manager and set the invoke req
+        // as failed if it do not send invoke req after set timeout seconds(default 120s).
+        {
+            absl::WriterMutexLock lock(&cancelTimerMtx_);
+            faasCancelTimerWorkers[reqId] = YR::utility::ExecuteByGlobalTimer(
+                [weakThis, reqId, timeoutSec]() {
+                    auto thisPtr = weakThis.lock();
+                    if (!thisPtr) {
+                        return;
+                    }
+                    thisPtr->CancelFaasScheduleTimeoutReq(reqId, timeoutSec);
+                },
+                (timeoutSec + DEFALUT_CANCEL_DELAY_TIME) * MILLISECOND_UNIT, 1);
+        }
+        /**
+         * Record faas invoke function data in 3 steps:
+           1. initializes the relevant data when submit the faas function
+           2. Record the time of sending faas invoke request after the success of the acquire request, and record
+         the end time of the faas request when the acquire fails
+           3. After receiving notify (whether successful or failed), record the end time of the faas request
+        */
+        this->RecordFaasInvokeData(spec);
+    }
+}
+
+std::shared_ptr<TaskSchedulerWrapper> TaskSubmitter::GetTaskScheduler(const RequestResource &resource)
+{
+    std::shared_ptr<TaskSchedulerWrapper> taskScheduler;
+    {
+        absl::ReaderMutexLock lock(&reqMtx_);
+        if (taskSchedulerMap_.find(resource) != taskSchedulerMap_.end()) {
+            taskScheduler = taskSchedulerMap_[resource];
+        }
+    }
+    return taskScheduler;
+}
+
+std::shared_ptr<TaskSchedulerWrapper> TaskSubmitter::GetOrAddTaskScheduler(const RequestResource &resource)
+{
+    auto taskScheduler = GetTaskScheduler(resource);
+    if (taskScheduler == nullptr) {
+        absl::WriterMutexLock lock(&reqMtx_);
+        if (taskSchedulerMap_.find(resource) == taskSchedulerMap_.end()) {
+            taskScheduler = std::make_shared<TaskSchedulerWrapper>(taskScheduler_, enablePriority_);
+            taskSchedulerMap_[resource] = taskScheduler;
+        } else {
+            taskScheduler = taskSchedulerMap_[resource];
+        }
+    }
+    return taskScheduler;
 }
 
 void TaskSubmitter::SubmitFunction(std::shared_ptr<InvokeSpec> spec)
@@ -261,84 +389,156 @@ void TaskSubmitter::SubmitFunction(std::shared_ptr<InvokeSpec> spec)
     YRLOG_DEBUG("start submit stateless function, req id is {}, return obj id is {}, trace id is {}", spec->requestId,
                 spec->returnIds[0].id, spec->traceId);
     RequestResource resource = GetRequestResource(spec);
-    std::shared_ptr<BaseQueue> queue;
-    std::shared_ptr<TaskScheduler> taskScheduler;
+    auto taskScheduler = GetOrAddTaskScheduler(resource);
     {
-        absl::ReaderMutexLock lock(&reqMtx_);
-        if (waitScheduleReqMap_.find(resource) != waitScheduleReqMap_.end()) {
-            queue = waitScheduleReqMap_[resource];
-        }
-        if (taskSchedulerMap_.find(resource) != taskSchedulerMap_.end()) {
-            taskScheduler = taskSchedulerMap_[resource];
-        }
+        std::lock_guard<std::mutex> lockGuard(taskScheduler->queue->atomicMtx);
+        taskScheduler->queue->Push(spec);
     }
-    if (queue == nullptr && taskScheduler == nullptr) {
-        absl::WriterMutexLock lock(&reqMtx_);
-        if (waitScheduleReqMap_.find(resource) == waitScheduleReqMap_.end()) {
-            queue = std::make_shared<PriorityQueue>();
-            auto weakPtr = weak_from_this();
-            auto cb = [weakPtr, resource, this]() {
-                auto thisPtr = weakPtr.lock();
-                if (!thisPtr) {
-                    return;
-                }
-                ScheduleFunction(resource);
-            };
-            taskScheduler = std::make_shared<TaskScheduler>(cb);
-            taskScheduler->Run();
-            waitScheduleReqMap_[resource] = queue;
-            taskSchedulerMap_[resource] = taskScheduler;
-        } else {
-            queue = waitScheduleReqMap_[resource];
-            taskScheduler = taskSchedulerMap_[resource];
-        }
-    }
-    {
-        std::lock_guard<std::mutex> lockGuard(queue->atomicMtx);
-        queue->Push(spec);
-    }
+    AddFaasCancelTimer(spec);
     taskScheduler->Notify();
+}
+
+void TaskSubmitter::RecordFaasInvokeData(const std::shared_ptr<InvokeSpec> spec)
+{
+    YRLOG_DEBUG("start recorde value, function id is {}, req id is {}", spec->functionMeta.functionId, spec->requestId);
+    absl::WriterMutexLock lock(&invokeDataMtx_);
+    if (!metricsEnable_) {
+        return;
+    }
+    if (faasInvokeDataMap_.find(spec->requestId) == faasInvokeDataMap_.end()) {
+        FaasInvokeData data(this->libRuntimeConfig->tenantId, spec->functionMeta.funcName,
+                            ar_ ? this->ar_->ParseAlias(spec->functionMeta.functionId, spec->opts.aliasParams) : "",
+                            spec->traceId, GetCurrentTimestampNs());
+        auto pos = data.aliAs.find_last_of('/');
+        if (pos != std::string::npos && pos != data.aliAs.length() - 1) {
+            data.version = data.aliAs.substr(pos + 1);
+        }
+        faasInvokeDataMap_[spec->requestId] = std::make_shared<FaasInvokeData>(data);
+    }
+}
+
+void TaskSubmitter::CancelFaasScheduleTimeoutReq(const std::string &reqId, int timeoutSeconds)
+{
+    auto spec = requestManager->GetRequest(reqId);
+    if (!spec) {
+        YRLOG_DEBUG("spec of request {} is nullptr, return directly", reqId);
+        return;
+    }
+    if (spec->invokeInstanceId.empty()) {
+        (void)requestManager->RemoveRequest(reqId);
+        auto ids = memoryStore->UnbindObjRefInReq(spec->requestId);
+        auto errorInfo = memoryStore->DecreGlobalReference(ids);
+        if (!errorInfo.OK()) {
+            YRLOG_WARN("failed to decrease obj ref [{},...] by requestid {}. Code: {}, MCode: {}, Msg: {}", ids[0],
+                       spec->requestId, fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()),
+                       errorInfo.Msg());
+        }
+        auto resource = GetRequestResource(spec);
+        ErrorInfo err = ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                                  "request is still scheduled within " + std::to_string(timeoutSeconds) +
+                                      " seconds, cancel the faas invoke request");
+        {
+            absl::ReaderMutexLock lock(&reqMtx_);
+            auto it = taskSchedulerMap_.find(resource);
+            if (it != taskSchedulerMap_.end()) {
+                auto scheduler = it->second;
+                if (!scheduler->IsLastErrorOk()) {
+                    err = scheduler->GetLastError();
+                }
+            }
+        }
+        memoryStore->SetError(spec->returnIds, err);
+        YRLOG_ERROR("cancel req {} with {}s no scheduled, code: {}, message: {}, trace: {}", spec->requestId,
+                    timeoutSeconds, fmt::underlying(err.Code()), err.Msg(), spec->traceId);
+        this->UpdateFaasInvokeLog(reqId, err);
+    }
+}
+
+void TaskSubmitter::EraseFaasCancelTimer(const std::string &reqId)
+{
+    // three situations need to erase faas cancel timer
+    // 1. create ins failed and no need retry, there are no running or creating instance in current resource, then the
+    // faas req is considered a failure and then need to erase the cancel timer. Refer to TaskSubmitter::ScheduleIns
+    // method else branch for details.
+    // 2. RequestManager does not have a spec for reqId, indicating that timer has already been executed or the request
+    // has been cancelled for other reasons, so need to erase the cancel timer. Refer to TaskSubmitter::ScheduleRequest
+    // method for details.
+    // 3. Before send faas invoke req, need to stop and erase the cancel timer. Refer to TaskSubmitter::ScheduleRequest
+    // method for details.
+    absl::WriterMutexLock lock(&cancelTimerMtx_);
+    if (auto it = faasCancelTimerWorkers.find(reqId); it != faasCancelTimerWorkers.end()) {
+        if (it->second) {
+            YRLOG_DEBUG("start stop and erase the cancel timer of faas req: {}", reqId);
+            it->second->cancel();
+            it->second.reset();
+            faasCancelTimerWorkers.erase(it);
+        }
+    }
+}
+
+void TaskSubmitter::NotifyScheduler(const RequestResource &resource, const ErrorInfo &err)
+{
+    auto taskScheduler = GetTaskScheduler(resource);
+    if (taskScheduler) {
+        if (!err.OK()) {
+            taskScheduler->SetLastError(err);
+        }
+        taskScheduler->Notify();
+        return;
+    }
+    auto resources = GetScheduleResources();
+    for (const auto &resource : resources) {
+        taskScheduler = GetTaskScheduler(resource);
+        if (taskScheduler) {
+            taskScheduler->Notify();
+            return;
+        }
+    }
 }
 
 void TaskSubmitter::ScheduleIns(const RequestResource &resource, const ErrorInfo &errInfo, bool isRemainIns)
 {
     if (errInfo.OK()) {
-        absl::ReaderMutexLock lock(&reqMtx_);
-        if (taskSchedulerMap_.find(resource) != taskSchedulerMap_.end()) {
-            taskSchedulerMap_[resource]->Notify();
-        }
+        NotifyScheduler(resource);
         return;
     }
     if (NeedRetryCreate(errInfo)) {
-        YRLOG_INFO("start retry create task instance, code: {}, msg: {}", errInfo.Code(), errInfo.Msg());
-        absl::ReaderMutexLock lock(&reqMtx_);
-        if (taskSchedulerMap_.find(resource) != taskSchedulerMap_.end()) {
-            taskSchedulerMap_[resource]->Notify();
-        }
+        YRLOG_INFO("start retry create task instance, code: {}, msg: {}", fmt::underlying(errInfo.Code()),
+                   errInfo.Msg());
+        NotifyScheduler(resource, errInfo);
         return;
     }
-    std::shared_ptr<BaseQueue> requestQueue;
-    std::shared_ptr<TaskScheduler> taskScheduler;
-    {
-        absl::ReaderMutexLock lock(&reqMtx_);
-        if (waitScheduleReqMap_.find(resource) == waitScheduleReqMap_.end()) {
-            return;
-        }
-        requestQueue = waitScheduleReqMap_[resource];
-        taskScheduler = taskSchedulerMap_[resource];
+    auto taskScheduler = GetTaskScheduler(resource);
+    if (taskScheduler == nullptr) {
+        return;
     }
     // If there are still other instances existing or being created under resource, equals the
     // isRemainIns value is true, then all requests under that resource should not be set as failed
     if (!isRemainIns) {
-        std::lock_guard<std::mutex> lockGuard(requestQueue->atomicMtx);
-        for (; !requestQueue->Empty(); requestQueue->Pop()) {
-            auto reqId = requestQueue->Top()->requestId;
+        std::lock_guard<std::mutex> lockGuard(taskScheduler->queue->atomicMtx);
+        for (; !taskScheduler->queue->Empty(); taskScheduler->queue->Pop()) {
+            auto reqId = taskScheduler->queue->Top()->requestId;
+            this->EraseFaasCancelTimer(reqId);
+            if (downgrade_->ShouldFaultDowngrade()) {
+                auto spec = requestManager->GetRequest(reqId);
+                downgrade_->Downgrade(spec, std::bind(&TaskSubmitter::DowngradeCallback, this, std::placeholders::_1,
+                                                      std::placeholders::_2, std::placeholders::_3));
+                continue;
+            }
             std::shared_ptr<InvokeSpec> invokeSpecNeedFailed;
             bool specExits = requestManager->PopRequest(reqId, invokeSpecNeedFailed);
             if (!specExits) {
                 continue;
             }
+            if (invokeSpecNeedFailed) {
+                YRLOG_ERROR(
+                    "there is no available ins of resource, start set error, req id is {}, trace id is {}, invoke ins "
+                    "id is {}",
+                    invokeSpecNeedFailed->requestId, invokeSpecNeedFailed->traceId,
+                    invokeSpecNeedFailed->invokeInstanceId);
+            }
             this->memoryStore->SetError(invokeSpecNeedFailed->returnIds[0].id, errInfo);
+            this->UpdateFaasInvokeLog(reqId, errInfo);
         }
     }
     if (taskScheduler) {
@@ -348,11 +548,8 @@ void TaskSubmitter::ScheduleIns(const RequestResource &resource, const ErrorInfo
 
 void TaskSubmitter::SendInvokeReq(const RequestResource &resource, std::shared_ptr<InvokeSpec> invokeSpec)
 {
-    YRLOG_DEBUG(
-        "start send stateless function invoke req, instance id is: {}, lease id is: {}, req id is: {}, return obj "
-        "id is: {}, function name is: {}, trace id is: {}",
-        invokeSpec->invokeInstanceId, invokeSpec->invokeLeaseId, invokeSpec->requestId, invokeSpec->returnIds[0].id,
-        invokeSpec->functionMeta.funcName, invokeSpec->traceId);
+    YRLOG_INFO("invoke function {}, instance: {}, lease: {}, req: {}, trace: {}", invokeSpec->functionMeta.funcName,
+               invokeSpec->invokeInstanceId, invokeSpec->invokeLeaseId, invokeSpec->requestId, invokeSpec->traceId);
 
     if (!invokeSpec->opts.device.name.empty()) {
         absl::WriterMutexLock lock(&invokeCostMtx_);
@@ -360,6 +557,9 @@ void TaskSubmitter::SendInvokeReq(const RequestResource &resource, std::shared_p
         YRLOG_DEBUG("start timer for instance: {}, reqID: {}", invokeSpec->invokeInstanceId, invokeSpec->requestId);
     }
 
+    if (invokeSpec->functionMeta.IsServiceApiType()) {
+        this->UpdateFaasInvokeSendTime(invokeSpec->requestId);
+    }
     auto weakThis = weak_from_this();
     auto insId = invokeSpec->invokeInstanceId;
     this->fsClient->InvokeAsync(
@@ -389,16 +589,31 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
     auto invokeSpec = requestManager->GetRequest(requestId);
     if (invokeSpec == nullptr) {
         YRLOG_WARN("The request {} has been cancelled", requestId);
+        this->EraseFaasCancelTimer(requestId);
         requestQueue->Pop();
         return false;
     }
-    auto [instanceId, leaseId] = insManagers[invokeSpec->functionMeta.apiType]->ScheduleIns(resource);
+    if (downgrade_->ShouldDowngrade(invokeSpec)) {
+        this->EraseFaasCancelTimer(requestId);
+        requestQueue->Pop();
+        atomicLock.unlock();
+        auto weakPtr = weak_from_this();
+        downgrade_->Downgrade(
+            invokeSpec, [weakPtr](const std::string &requestId, Libruntime::ErrorCode code, const std::string &result) {
+                if (auto thisPtr = weakPtr.lock(); thisPtr) {
+                    thisPtr->DowngradeCallback(requestId, code, result);
+                }
+            });
+        return false;
+    }
+    auto [instanceId, leaseId] = insManagers[invokeSpec->functionMeta.apiType]->GetAvailableIns(resource);
     if (instanceId.empty()) {
         atomicLock.unlock();
         YRLOG_DEBUG("invoke request {} can not be scheduled, instanceId is empty", requestId);
         bool needCreate = insManagers[invokeSpec->functionMeta.apiType]->ScaleUp(invokeSpec, requestQueueSize);
         return !needCreate;
     }
+    this->EraseFaasCancelTimer(requestId);
     requestQueue->Pop();
     atomicLock.unlock();
     invokeSpec->invokeInstanceId = instanceId;
@@ -412,29 +627,44 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
 bool TaskSubmitter::CancelAndScheOtherRes(const RequestResource &resource)
 {
     absl::ReaderMutexLock lock(&reqMtx_);
-    auto it = waitScheduleReqMap_.find(resource);
-    if (it == waitScheduleReqMap_.end()) {
+    auto it = taskSchedulerMap_.find(resource);
+    if (it == taskSchedulerMap_.end()) {
         return true;
     }
-    if (!it->second->Empty()) {
+    if (!it->second->queue->Empty()) {
         return false;
     }
-    YRLOG_DEBUG(
-        "current resource req queue is empty, try scheduler other resource req. func name is {}, class "
-        "name is "
-        "{}",
-        resource.functionMeta.funcName, resource.functionMeta.className);
+    YRLOG_DEBUG("queue is empty, try schedule other queue. func name {}, class name {}", resource.functionMeta.funcName,
+                resource.functionMeta.className);
     insManagers[resource.functionMeta.apiType]->ScaleCancel(resource, 0, true);
-    for (auto &entry : waitScheduleReqMap_) {
-        if (waitScheduleReqMap_.find(entry.first) == it) {
+    for (auto &entry : taskSchedulerMap_) {
+        if (taskSchedulerMap_.find(entry.first) == it) {
             continue;
         }
-        if (!entry.second->Empty()) {
+        if (!entry.second->queue->Empty()) {
             taskSchedulerMap_[entry.first]->Notify();
             return true;
         }
     }
     return true;
+}
+
+void TaskSubmitter::ScheduleFunctions()
+{
+    auto resources = GetScheduleResources();
+    for (const auto &resource : resources) {
+        ScheduleFunction(resource);
+    }
+}
+
+std::vector<RequestResource> TaskSubmitter::GetScheduleResources()
+{
+    absl::ReaderMutexLock lock(&reqMtx_);
+    std::vector<RequestResource> resources;
+    for (const auto &pair : taskSchedulerMap_) {
+        resources.push_back(pair.first);
+    }
+    return resources;
 }
 
 void TaskSubmitter::ScheduleFunction(const RequestResource &resource)
@@ -445,16 +675,37 @@ void TaskSubmitter::ScheduleFunction(const RequestResource &resource)
         return;
     }
     if (CancelAndScheOtherRes(resource)) {
+        EraseTaskSchedulerMap(resource);
         return;
     }
-    std::shared_ptr<BaseQueue> requestQueue;
-    {
-        absl::ReaderMutexLock lock(&reqMtx_);
-        requestQueue = waitScheduleReqMap_[resource];
+    auto taskScheduler = GetTaskScheduler(resource);
+    if (taskScheduler == nullptr) {
+        return;
     }
-    while (!requestQueue->Empty()) {
-        if (auto finish = ScheduleRequest(resource, requestQueue); finish) {
+    while (!taskScheduler->queue->Empty()) {
+        if (auto finish = ScheduleRequest(resource, taskScheduler->queue); finish) {
             break;
+        }
+    }
+    EraseTaskSchedulerMap(resource);
+}
+
+void TaskSubmitter::EraseTaskSchedulerMap(const RequestResource &resource)
+{
+    // yield make SubmitFunction can be executed first avoid frequent cleaning taskSchedulerMap
+    std::this_thread::yield();
+    auto taskScheduler = GetTaskScheduler(resource);
+    if (taskScheduler == nullptr) {
+        return;
+    }
+    const static int currentCount = 2;
+    std::unique_lock<std::mutex> atomicLock(taskScheduler->queue->atomicMtx);
+    if (taskScheduler->queue->Empty()) {
+        absl::WriterMutexLock lock(&reqMtx_);
+        // if there are still references elsewhere, do not erase.
+        if (taskScheduler.use_count() <= currentCount) {
+            YRLOG_DEBUG("remove taskScheduler");
+            taskSchedulerMap_.erase(resource);
         }
     }
 }
@@ -476,6 +727,9 @@ bool TaskSubmitter::NeedRetry(const ErrorInfo &errInfo, const std::shared_ptr<In
     if (spec->invokeType == libruntime::InvokeType::InvokeFunctionStateless &&
         (errCode == ErrorCode::ERR_INSTANCE_EVICTED || errCode == ErrorCode::ERR_INSTANCE_NOT_FOUND ||
          errCode == ErrorCode::ERR_INSTANCE_EXITED)) {
+        if (spec->ExceedMaxRetryTime()) {
+            return false;
+        }
         isConsumeRetryTime = false;  // the only case to retry without consuming
         return true;
     }
@@ -560,6 +814,7 @@ ErrorInfo TaskSubmitter::CancelStatelessRequest(const std::vector<std::string> &
         }
         if (cancelReq.find(requestId) != cancelReq.end()) {
             memoryStore->SetError(objids[i], cancelErr);
+            this->UpdateFaasInvokeLog(requestId, cancelErr);
         }
     }
     return ErrorInfo();
@@ -588,18 +843,54 @@ void TaskSubmitter::Finalize()
     }
     runFlag = false;
     {
-        absl::ReaderMutexLock lock(&reqMtx_);
-        for (auto &pair : taskSchedulerMap_) {
-            pair.second->Stop();
-        }
-    }
-    {
         absl::WriterMutexLock lock(&reqMtx_);
         taskSchedulerMap_.clear();
-        waitScheduleReqMap_.clear();
     }
+    if (taskScheduler_) {
+        taskScheduler_->Stop();
+    }
+
     for (auto &pair : insManagers) {
         pair.second->Stop();
+    }
+    {
+        absl::WriterMutexLock lock(&cancelTimerMtx_);
+        for (auto it = faasCancelTimerWorkers.begin(); it != faasCancelTimerWorkers.end(); ++it) {
+            if (it->second) {
+                it->second->cancel();
+                it->second.reset();
+            }
+        }
+        faasCancelTimerWorkers.clear();
+    }
+    if (eraseTimer_) {
+        eraseTimer_->cancel();
+        eraseTimer_.reset();
+    }
+}
+
+std::pair<InstanceAllocation, ErrorInfo> TaskSubmitter::AcquireInstance(const std::string &stateId,
+                                                                        std::shared_ptr<InvokeSpec> spec)
+{
+    return std::static_pointer_cast<FaasInsManager>(insManagers[spec->functionMeta.apiType])
+        ->AcquireInstance(stateId, spec);
+}
+
+ErrorInfo TaskSubmitter::ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
+                                         std::shared_ptr<InvokeSpec> spec)
+{
+    return std::static_pointer_cast<FaasInsManager>(insManagers[spec->functionMeta.apiType])
+        ->ReleaseInstance(leaseId, stateId, abnormal, spec);
+}
+
+void TaskSubmitter::UpdateFaaSSchedulerInfo(std::string schedulerFuncKey,
+                                            const std::vector<SchedulerInstance> &schedulerInfoList)
+{
+    if (insManagers[libruntime::ApiType::Faas]) {
+        insManagers[libruntime::ApiType::Faas]->UpdateSchedulerInfo(schedulerFuncKey, schedulerInfoList);
+    }
+    if (insManagers[libruntime::ApiType::Serve]) {
+        insManagers[libruntime::ApiType::Serve]->UpdateSchedulerInfo(schedulerFuncKey, schedulerInfoList);
     }
 }
 
@@ -607,6 +898,92 @@ void TaskSubmitter::DeleteInsCallback(const std::string &instanceId)
 {
     if (fsClient) {
         fsClient->RemoveInsRtIntf(instanceId);
+    }
+}
+
+void TaskSubmitter::UpdateSchdulerInfo(const std::string &schedulerName, const std::string &schedulerId,
+                                       const std::string &option)
+{
+    if (insManagers[libruntime::ApiType::Faas]) {
+        YRLOG_INFO("start update scheduler info, scheduler name is {}, schduler id is {},  option is {}", schedulerName,
+                   schedulerId, option);
+        insManagers[libruntime::ApiType::Faas]->UpdateSchdulerInfo(schedulerName, schedulerId, option);
+    }
+}
+
+YR::Libruntime::GaugeData TaskSubmitter::ConvertToGaugeData(const std::shared_ptr<FaasInvokeData> data,
+                                                            const std::string &reqId)
+{
+    YR::Libruntime::GaugeData gaugeData;
+    gaugeData.name = "report_faas_invoke_data";
+    gaugeData.labels["requestId"] = reqId;
+    gaugeData.labels["businessId"] = data->businessId;
+    gaugeData.labels["tenantId"] = data->tenantId;
+    gaugeData.labels["srcAppId"] = data->srcAppId;
+    gaugeData.labels["functionName"] = data->functionName;
+    gaugeData.labels["traceId"] = data->traceId;
+    gaugeData.labels["version"] = data->version;
+    gaugeData.labels["aliAs"] = data->aliAs;
+    gaugeData.labels["code"] = data->code;
+    gaugeData.labels["innerCode"] = data->innerCode;
+    gaugeData.labels["describeMsg"] = data->describeMsg;
+    gaugeData.labels["exec"] =
+        data->endTime - data->sendTime > 0 ? std::to_string(data->endTime - data->sendTime) : "0";
+    gaugeData.labels["cost"] =
+        data->endTime - data->submitTime > 0 ? std::to_string(data->endTime - data->submitTime) : "0";
+    return gaugeData;
+}
+
+void TaskSubmitter::UpdateFaasInvokeSendTime(const std::string &reqId)
+{
+    absl::WriterMutexLock lock(&invokeDataMtx_);
+    if (!metricsEnable_) {
+        return;
+    }
+    if (faasInvokeDataMap_.find(reqId) != faasInvokeDataMap_.end()) {
+        faasInvokeDataMap_[reqId]->sendTime = GetCurrentTimestampNs();
+    }
+}
+
+void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInfo &err)
+{
+    {
+        absl::WriterMutexLock lock(&invokeDataMtx_);
+        if (!metricsEnable_) {
+            return;
+        }
+    }
+    std::shared_ptr<FaasInvokeData> data;
+    {
+        absl::WriterMutexLock lock(&invokeDataMtx_);
+        auto it = faasInvokeDataMap_.find(reqId);
+        if (it == faasInvokeDataMap_.end()) {
+            YRLOG_DEBUG("there is no invoke data of req: {}, no need update", reqId);
+            return;
+        }
+        it->second->endTime = GetCurrentTimestampNs();
+        if (err.OK()) {
+            it->second->code = "200";
+        } else {
+            if (it->second->sendTime > 0) {
+                it->second->code = "500";
+            } else {
+                it->second->code = "400";
+            }
+        }
+        it->second->innerCode = std::to_string(err.Code());
+        auto errIt = errCodeToString.find(err.Code());
+        it->second->describeMsg = errIt == errCodeToString.end() ? "UNKOWN" : errIt->second;
+        data = it->second;
+        faasInvokeDataMap_.erase(it);
+    }
+    if (this->metricsAdaptor_ && Config::Instance().ENABLE_METRICS()) {
+        YRLOG_DEBUG("start report faas invoke data, req id is {}, function id is {}", reqId, data->aliAs);
+        auto reportErr = this->metricsAdaptor_->ReportMetrics(ConvertToGaugeData(data, reqId));
+        if (!reportErr.OK()) {
+            YRLOG_WARN("failed to report metrics, req id is {}, trace id is {}, err code is {}, msg is {}", reqId,
+                       data->traceId, fmt::underlying(reportErr.Code()), reportErr.Msg());
+        }
     }
 }
 }  // namespace Libruntime

@@ -45,6 +45,11 @@ ErrorInfo MemoryStore::GenerateReturnObjectIds(const std::string &requestId,
     return ErrorInfo();
 }
 
+ErrorInfo MemoryStore::GetPrefix(const std::string &key, std::string &prefix)
+{
+    return dsObjectStore->GetPrefix(key, prefix);
+}
+
 // Default Put to datasystem
 ErrorInfo MemoryStore::Put(std::shared_ptr<Buffer> data, const std::string &objID,
                            const std::unordered_set<std::string> &nestedID, const CreateParam &createParam)
@@ -54,7 +59,7 @@ ErrorInfo MemoryStore::Put(std::shared_ptr<Buffer> data, const std::string &objI
 
 ErrorInfo MemoryStore::Put(std::shared_ptr<Buffer> data, const std::string &objID,
                            const std::unordered_set<std::string> &nestedID, bool toDataSystem,
-                           const CreateParam &createParam)
+                           const CreateParam &createParam, const ErrorInfo &err)
 {
     std::unique_lock<std::mutex> lock(mu);
     std::unique_lock<std::mutex> objectDetailLock;
@@ -106,6 +111,7 @@ ErrorInfo MemoryStore::Put(std::shared_ptr<Buffer> data, const std::string &objI
         // save to memory
         objDetail->data = data;
         objDetail->storeInMemory = true;
+        objDetail->err = err;
         totalInMemBufSize += data->GetSize();
         return ErrorInfo();
     } else {
@@ -117,6 +123,12 @@ ErrorInfo MemoryStore::Put(std::shared_ptr<Buffer> data, const std::string &objI
         e.SetErrorMsg(msg);
         return e;
     }
+}
+
+ErrorInfo MemoryStore::Put(std::shared_ptr<Buffer> data, const std::string &objID,
+                           const std::unordered_set<std::string> &nestedID, bool toDataSystem, const ErrorInfo &err)
+{
+    return this->Put(data, objID, nestedID, toDataSystem, {}, err);
 }
 
 SingleResult MemoryStore::Get(const std::string &objID, int timeoutMS)
@@ -208,47 +220,37 @@ std::pair<ErrorInfo, std::vector<std::string>> MemoryStore::IncreaseGRefInMemory
     lock.unlock();
 
     auto result = std::make_pair(ErrorInfo(), std::vector<std::string>());
-    if (shouldIncreInDS.empty()) {
-        return result;
-    }
-    YRLOG_DEBUG("ds increase id {}..., objs size {}", shouldIncreInDS[0], shouldIncreInDS.size());
-    if (!remoteId.empty()) {
-        result = dsObjectStore->IncreGlobalReference(shouldIncreInDS, remoteId);
-    } else {
-        auto err = dsObjectStore->IncreGlobalReference(shouldIncreInDS);
-        if (!err.OK()) {
-            YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
-                        shouldIncreInDS[0], err.Code(), err.MCode(), err.Msg());
-            result.first = err;
+    if (!shouldIncreInDS.empty()) {
+        YRLOG_DEBUG("ds increase id {}..., objs size {}", shouldIncreInDS[0], shouldIncreInDS.size());
+        if (!remoteId.empty()) {
+            result = dsObjectStore->IncreGlobalReference(shouldIncreInDS, remoteId);
+        } else {
+            auto err = dsObjectStore->IncreGlobalReference(shouldIncreInDS);
+            if (!err.OK()) {
+                YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
+                            shouldIncreInDS[0], fmt::underlying(err.Code()), fmt::underlying(err.MCode()), err.Msg());
+                result.first = err;
+            }
         }
-    }
-
-    for (auto objDetail : increseObjectDetails) {
-        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+        for (auto objDetail : increseObjectDetails) {
+            std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+            if (!result.first.OK()) {
+                objDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
+            } else {
+                objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
+            }
+            objDetail->notification.Notify();
+            objectDetailLock.unlock();
+        }
         if (!result.first.OK()) {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-        } else {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
+            YRLOG_WARN("increase global reference failed, ds increase id {}..., objs size is {}, remote id is {}",
+                       shouldIncreInDS[0], shouldIncreInDS.size(), remoteId);
+            return result;
         }
-        objDetail->notification.Notify();
-        objectDetailLock.unlock();
     }
-
-    if (!result.first.OK()) {
-        YRLOG_WARN("increase global reference failed, ds increase id {}..., objs size is {}, remote id is {}",
-                   shouldIncreInDS[0], shouldIncreInDS.size(), remoteId);
-        return result;
-    }
-
     for (auto objDetail : waitObjectDetails) {
-        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
-        if (!objDetail->notification.WaitForNotificationWithTimeout(
-                absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()))) {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-        } else {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
-        }
-        objectDetailLock.unlock();
+        objDetail->notification.WaitForNotificationWithTimeout(
+            absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
     }
     return result;
 }
@@ -257,7 +259,7 @@ ErrorInfo MemoryStore::IncreDSGlobalReference(const std::vector<std::string> &ob
 {
     std::unique_lock<std::mutex> lock(mu);
     std::vector<std::string> shouldIncreInDS;
-    std::vector<std::shared_ptr<ObjectDetail>> increseObjectDetails;
+    std::vector<std::shared_ptr<ObjectDetail>> increaseObjectDetails;
     std::vector<std::shared_ptr<ObjectDetail>> waitObjectDetails;
     for (const std::string &id : objectIds) {
         auto [it, insertSuccess] = storeMap.emplace(id, std::make_shared<ObjectDetail>());
@@ -271,45 +273,36 @@ ErrorInfo MemoryStore::IncreDSGlobalReference(const std::vector<std::string> &ob
             // Not exist before, should Incre in DS
             shouldIncreInDS.push_back(id);
             objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASING_IN_DS;
-            increseObjectDetails.push_back(objDetail);
+            increaseObjectDetails.push_back(objDetail);
         }
         objectDetailLock.unlock();
     }
     lock.unlock();
 
-    if (shouldIncreInDS.empty()) {
-        return ErrorInfo();
-    }
+    if (!shouldIncreInDS.empty()) {
+        YRLOG_DEBUG("ds increase id {}..., objs size {}", shouldIncreInDS[0], shouldIncreInDS.size());
+        auto err = dsObjectStore->IncreGlobalReference(shouldIncreInDS);
 
-    YRLOG_DEBUG("ds increase id {}..., objs size {}", shouldIncreInDS[0], shouldIncreInDS.size());
-    auto err = dsObjectStore->IncreGlobalReference(shouldIncreInDS);
+        for (auto objDetail : increaseObjectDetails) {
+            std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+            if (!err.OK()) {
+                objDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
+            } else {
+                objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
+            }
+            objDetail->notification.Notify();
+            objectDetailLock.unlock();
+        }
 
-    for (auto objDetail : increseObjectDetails) {
-        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
         if (!err.OK()) {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-        } else {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
+            YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
+                        shouldIncreInDS[0], fmt::underlying(err.Code()), fmt::underlying(err.MCode()), err.Msg());
+            return err;
         }
-        objDetail->notification.Notify();
-        objectDetailLock.unlock();
     }
 
-    if (!err.OK()) {
-        YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
-                    shouldIncreInDS[0], err.Code(), err.MCode(), err.Msg());
-        return err;
-    }
-
-    for (auto objDetail : waitObjectDetails) {
-        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
-        if (!objDetail->notification.WaitForNotificationWithTimeout(
-                absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()))) {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-        } else {
-            objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
-        }
-        objectDetailLock.unlock();
+    for (auto detail : waitObjectDetails) {
+        detail->notification.WaitForNotificationWithTimeout(absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
     }
     return ErrorInfo();
 }
@@ -428,6 +421,11 @@ std::vector<int> MemoryStore::QueryGlobalReference(const std::vector<std::string
     return globalRef;
 }
 
+ErrorInfo MemoryStore::ReleaseGRefs(const std::string &remoteId)
+{
+    return dsObjectStore->ReleaseGRefs(remoteId);
+}
+
 void MemoryStore::Clear()
 {
     std::lock_guard<std::mutex> lock(mu);
@@ -463,8 +461,8 @@ ErrorInfo MemoryStore::DoPutToDS(const std::string &id, const CreateParam &creat
         ErrorInfo dsErr = dsObjectStore->IncreGlobalReference({id});
         objDetail->notification.Notify();
         if (dsErr.Code() != ErrorCode::ERR_OK) {
-            YRLOG_ERROR("id {} datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}", id, dsErr.Code(),
-                        dsErr.MCode(), dsErr.Msg());
+            YRLOG_ERROR("id {} datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}", id,
+                        fmt::underlying(dsErr.Code()), fmt::underlying(dsErr.MCode()), dsErr.Msg());
             return dsErr;
         }
         objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
@@ -480,8 +478,8 @@ ErrorInfo MemoryStore::DoPutToDS(const std::string &id, const CreateParam &creat
     YRLOG_DEBUG("try put id {} to dsObjectStore", id);
     ErrorInfo dsErr = dsObjectStore->Put(objDetail->data, id, std::unordered_set<std::string>(), createParam);
     if (dsErr.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("id {} datasystem Put failed. Code: {}, MCode: {}, Msg: {}", id, dsErr.Code(), dsErr.MCode(),
-                    dsErr.Msg());
+        YRLOG_ERROR("id {} datasystem Put failed. Code: {}, MCode: {}, Msg: {}", id, fmt::underlying(dsErr.Code()),
+                    fmt::underlying(dsErr.MCode()), dsErr.Msg());
         dsObjectStore->DecreGlobalReference({id});
         return dsErr;
     }
@@ -550,33 +548,26 @@ ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
         objectDetailLock.unlock();
     }
     lock.unlock();
-    if (objectIdsNeedIncre.empty()) {
-        return ErrorInfo();
-    }
-    ErrorInfo dsErr = dsObjectStore->IncreGlobalReference(objectIdsNeedIncre);
-    for (auto objectDetail : increseObjectDetails) {
-        std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
+    if (!objectIdsNeedIncre.empty()) {
+        ErrorInfo dsErr = dsObjectStore->IncreGlobalReference(objectIdsNeedIncre);
+        for (auto objectDetail : increseObjectDetails) {
+            std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
+            if (dsErr.Code() != ErrorCode::ERR_OK) {
+                objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
+            }
+            objectDetail->notification.Notify();
+            objectDetailLock.unlock();
+        }
         if (dsErr.Code() != ErrorCode::ERR_OK) {
-            objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
+            YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
+                        objectIdsNeedIncre[0], fmt::underlying(dsErr.Code()), fmt::underlying(dsErr.MCode()),
+                        dsErr.Msg());
+            return dsErr;
         }
-        objectDetail->notification.Notify();
-        objectDetailLock.unlock();
     }
-    if (dsErr.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
-                    objectIdsNeedIncre[0], dsErr.Code(), dsErr.MCode(), dsErr.Msg());
-        return dsErr;
-    }
-
     for (auto objectDetail : waitObjectDetails) {
-        std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
-        if (!objectDetail->notification.WaitForNotificationWithTimeout(
-                absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()))) {
-            objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-        } else {
-            objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASE_IN_DS;
-        }
-        objectDetailLock.unlock();
+        objectDetail->notification.WaitForNotificationWithTimeout(
+            absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
     }
     return ErrorInfo();
 }
@@ -762,7 +753,7 @@ bool MemoryStore::SetError(const std::vector<DataObject> &objs, const ErrorInfo 
 
 bool MemoryStore::SetError(const std::string &id, const ErrorInfo &err)
 {
-    YRLOG_DEBUG("set id {}, error {}", id, err.Msg());
+    YRLOG_DEBUG("set id {}, msg: {}", id, err.Msg());
     std::list<YR::Libruntime::ObjectReadyCallback> callbacks;
     std::list<YR::Libruntime::ObjectReadyCallbackWithData> callbacksWithData;
     {
@@ -813,7 +804,7 @@ void MemoryStore::AddOutput(const std::string &generatorId, const std::string &o
             std::unique_lock<std::mutex> objectDetailLock(detail->_mu);
             YRLOG_DEBUG(
                 "start add object id into generator res map, id is {}, index is {}, err code is {}, err msg is {}",
-                objectId, index, errInfo.Code(), errInfo.Msg());
+                objectId, index, fmt::underlying(errInfo.Code()), errInfo.Msg());
             auto [iterator, insertSuccess] =
                 detail->generatorResMap.emplace(index, GeneratorRes{.objectId = objectId, .err = errInfo});
             if (!insertSuccess) {
@@ -824,9 +815,8 @@ void MemoryStore::AddOutput(const std::string &generatorId, const std::string &o
         }
         detail->cv.notify_all();
     } else {
-        YRLOG_WARN(
-            "generator id {} does not exist in store map, object id is {}, index is {}, error code is {}, msg is {}",
-            generatorId, objectId, index, errInfo.Code(), errInfo.Msg());
+        YRLOG_WARN("generator id {} does not exist in store map, object id is {}, index is {}, ec is {}, msg is {}",
+                   generatorId, objectId, index, fmt::underlying(errInfo.Code()), errInfo.Msg());
     }
 }
 
@@ -868,7 +858,7 @@ std::pair<ErrorInfo, std::string> MemoryStore::GetOutput(const std::string &gene
             YRLOG_DEBUG(
                 "succeed to get generator res, res object id is {}, err code is {}, err msg is {}, index is {}, "
                 "generator id is {}",
-                res.objectId, res.err.Code(), res.err.Msg(), detail->getIndex, generatorId);
+                res.objectId, fmt::underlying(res.err.Code()), res.err.Msg(), detail->getIndex.load(), generatorId);
             detail->getIndex++;
             return std::make_pair(res.err, res.objectId);
         }
@@ -992,12 +982,12 @@ bool MemoryStore::AddReturnObject(const std::string &objId)
     {
         std::lock_guard<std::mutex> lock(mu);
         auto [it, insertSuccess] = storeMap.emplace(objId, std::make_shared<ObjectDetail>());
-        if (!insertSuccess) {
-            return false;
-        }
         std::shared_ptr<ObjectDetail> objDetail = it->second;
         std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
         objDetail->localRefCount++;
+        if (!insertSuccess) {
+            return false;
+        }
         objDetail->ready = false;
     }
     waitingObjectManager->SetUnready(objId);
@@ -1093,7 +1083,9 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
         f = objDetail->instanceRouteFuture;
     }
     if (timeoutSec != NO_TIMEOUT && f.wait_for(std::chrono::seconds(timeoutSec)) != std::future_status::ready) {
-        YRLOG_WARN("get instance route timeout, return empty string as instanceRoute. objectID is: {}.", objId);
+        if (timeoutSec != ZERO_TIMEOUT) {
+            YRLOG_WARN("get instance route timeout, return empty string as instanceRoute. objectID is: {}.", objId);
+        }
         return retInstanceRoute;
     }
     return f.get();

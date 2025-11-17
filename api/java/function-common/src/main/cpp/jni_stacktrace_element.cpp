@@ -75,7 +75,11 @@ jobject JNIStackTraceElement::FromCc(JNIEnv *env, const YR::Libruntime::StackTra
         return nullptr;
     }
 
-    return (jobject)env->NewObject(clz_, init_, jclassName, jmethodName, jfileName, lineNumberInt);
+    jobject jStackTraceElement = env->NewObject(clz_, init_, jclassName, jmethodName, jfileName, lineNumberInt);
+    env->DeleteLocalRef(jclassName);
+    env->DeleteLocalRef(jmethodName);
+    env->DeleteLocalRef(jfileName);
+    return jStackTraceElement;
 }
 
 YR::Libruntime::StackTraceElement JNIStackTraceElement::FromJava(JNIEnv *env, jobject obj)

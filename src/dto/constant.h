@@ -42,6 +42,8 @@ const std::string LABEL_IN = "LabelIn";
 const std::string LABEL_NOT_IN = "LabelNotIn";
 const std::string LABEL_EXISTS = "LabelExists";
 const std::string LABEL_DOES_NOT_EXIST = "LabelDoesNotExist";
+const std::string AFFINITYSCOPE_POD = "POD";
+const std::string AFFINITYSCOPE_NODE = "NODE";
 const std::string DEFAULT_YR_NAMESPACE = "yr_defalut_namespace";
 }  // namespace Libruntime
 }  // namespace YR

@@ -87,6 +87,9 @@ struct Config {
      * defaults to CPU cores count. Default is `10`.
      */
     uint32_t localThreadPoolSize = 10;
+
+    bool inCluster = true;
+
     /**
      * @brief Maximum idle time for instances. Instances will be terminated if idle beyond this duration. Unit: seconds.
      * Valid range: `1~3000`. Defaults to `2` if not configured.
@@ -108,39 +111,21 @@ struct Config {
      * @brief Server certificate file path.
      */
     std::string verifyFilePath = "";
-    /**
-     * @brief Server name for TLS.
-     */
+    char privateKeyPaaswd[MAX_PASSWD_LENGTH] = {0};
+    std::string encryptPrivateKeyPasswd;
     std::string serverName = "";
-    /**
-     * @brief Enable data system authentication. Default is `false`.
-     */
+    std::shared_ptr<void> tlsContext;
+    uint32_t httpIocThreadsNum = DEFAULT_HTTP_IOC_THREADS_NUM;
     bool enableDsAuth = false;
-    /**
-     * @brief `true`: Enable data system encryption (requires public/private key configs). Default is `false`.
-     */
     bool enableDsEncrypt = false;
-    /**
-     * @brief The path of worker public key for data system tls authentication, if enableDsEncrypt is ``true`` and the
-     * dsPublicKeyContextPath is empty, an exception will be thrown.
-     */
-    std::string dsPublicKeyContextPath = "";
-    /**
-     * @brief The path of client public key for data system tls authentication, if enableDsEncrypt is ``true`` and the
-     * runtimePublicKeyContextPath is empty, an exception will be thrown.
-     */
-    std::string runtimePublicKeyContextPath = "";
-    /**
-     * @brief The path of client private key for data system tls authentication, if enableDsEncrypt is ``true`` and the
-     * runtimePrivateKeyContextPath is empty, an exception will be thrown.
-     */
-    std::string runtimePrivateKeyContextPath = "";
+    std::string dsPublicKeyContext = "";
+    std::string runtimePublicKeyContext = "";
+    std::string runtimePrivateKeyContext = "";
+    std::string encryptDsPublicKeyContext;
+    std::string encryptRuntimePublicKeyContext;
+    std::string encryptRuntimePrivateKeyContext;
     std::string primaryKeyStoreFile;
     std::string standbyKeyStoreFile;
-    /**
-     * @brief Limits the maximum number of stateless function instances. Valid range: `1~65536`. Defaults to `-1` if
-     * unconfigured. The `Init` interface throws exceptions for invalid values.
-     */
     int maxTaskInstanceNum = -1;
     /**
      * @brief Custom path for metrics logs. The corresponding environment variable is `YR_METRICS_LOG_PATH`.
@@ -150,7 +135,7 @@ struct Config {
      * @brief Whether to enable metrics collection. `false` means disabled, `true` means enabled. Only effective within
      * the cluster. Default is `false`. The corresponding environment variable is `YR_ENABLE_METRICS`.
      */
-    bool enableMetrics = false;
+    bool enableMetrics = true;
     uint32_t defaultGetTimeoutSec = 300;  // 0 means never time out
     bool isDriver = true;                // internal use only, user do not set it.
     /**
@@ -202,15 +187,11 @@ struct Config {
      * @brief Custom environment variables for runtime (only `LD_LIBRARY_PATH` supported).
      */
     std::unordered_map<std::string, std::string> customEnvs;
-    /**
-     * @brief Enable low-reliability mode for stateless instances (improves creation performance in large-scale
-     * scenarios).
-     */
+    std::string httpVersion = "";
+    bool autodeploy = false;
+    std::string tenantId = "";
     bool isLowReliabilityTask = false;
-    /**
-     * @brief Attach `libruntime` instance to existing instances during initialization (only supports KV APIs).
-     * Default is `false`.
-     */
     bool attach = false;
+    bool launchUserBinary = false;
 };
 }  // namespace YR

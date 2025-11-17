@@ -84,7 +84,9 @@ public class JavaFunctionHandler<R> {
     /**
      * When Java calls a stateless function in Java, set the functionUrn for the function.
      *
-     * @param urn functionUrn, can be obtained after the function is deployed.
+     * @param urn functionUrn, can be obtained after the function is deployed. The tenant ID in the function urn must be
+     *            consistent with the tenant ID configured in the config. For information about tenant ID configuration,
+     *            see "About tenant ID" in Config.
      * @return JavaFunctionHandler<R>, with built-in invoke method, can create and invoke the java function instance.
      *
      * @snippet{trimleft} SetUrnExample.java set urn of java invoke java stateless function

@@ -19,12 +19,16 @@ package com.yuanrong;
 import com.yuanrong.call.CppFunctionHandler;
 import com.yuanrong.call.CppInstanceCreator;
 import com.yuanrong.call.FunctionHandler;
+import com.yuanrong.call.GoFunctionHandler;
+import com.yuanrong.call.GoInstanceCreator;
 import com.yuanrong.call.InstanceCreator;
 import com.yuanrong.call.JavaFunctionHandler;
 import com.yuanrong.call.JavaInstanceCreator;
 import com.yuanrong.call.VoidFunctionHandler;
 import com.yuanrong.function.CppFunction;
 import com.yuanrong.function.CppInstanceClass;
+import com.yuanrong.function.GoFunction;
+import com.yuanrong.function.GoInstanceClass;
 import com.yuanrong.function.JavaFunction;
 import com.yuanrong.function.JavaInstanceClass;
 import com.yuanrong.function.YRFunc0;
@@ -591,5 +595,53 @@ public class YRCall extends YRGetInstance {
      */
     public static CppInstanceCreator instance(CppInstanceClass cppInstanceClass, String name, String nameSpace) {
         return new CppInstanceCreator(cppInstanceClass, name, nameSpace);
+    }
+
+    /**
+     * Function go function handler.
+     *
+     * @param <R> Return value type.
+     * @param goFunction  go Function name.
+     * @return GoFunctionHandler Instance.
+     */
+    public static <R> GoFunctionHandler<R> function(GoFunction<R> goFunction) {
+        return new GoFunctionHandler<>(goFunction);
+    }
+
+    /**
+     * Instance go instance creator.
+     *
+     * @param goInstanceClass the go function instance class.
+     * @return GoInstanceCreator Instance.
+     */
+    public static GoInstanceCreator instance(GoInstanceClass goInstanceClass) {
+        return new GoInstanceCreator(goInstanceClass, "", ConfigManager.getInstance().getNs());
+    }
+
+    /**
+     * Instance go instance creator.
+     *
+     * @param goInstanceClass the go instance class.
+     * @param name The instance name of the named instance, the second parameter.
+     *             When only name exists, the instance name will be set to name.
+     * @return GoInstanceCreator Instance.
+     */
+    public static GoInstanceCreator instance(GoInstanceClass goInstanceClass, String name) {
+        return new GoInstanceCreator(goInstanceClass, name, ConfigManager.getInstance().getNs());
+    }
+
+    /**
+     * Instance go instance creator.
+     *
+     * @param goInstanceClass the go instance class.
+     * @param name The instance name of the named instance, the second parameter.
+     *             When only name exists, the instance name will be set to name.
+     * @param nameSpace Namespace of the named instance. When both name and nameSpace exist, the instance name is
+     *                  concatenated into nameSpace-name.
+     *                  This field is currently used only for concatenation.
+     * @return GoInstanceCreator Instance.
+     */
+    public static GoInstanceCreator instance(GoInstanceClass goInstanceClass, String name, String nameSpace) {
+        return new GoInstanceCreator(goInstanceClass, name, nameSpace);
     }
 }

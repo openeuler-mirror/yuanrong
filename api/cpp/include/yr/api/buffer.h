@@ -19,7 +19,26 @@
 namespace YR {
 class Buffer {
 public:
-    virtual uint64_t GetSize() const = 0;
-    virtual const void *ImmutableData() const = 0;
+    Buffer() = default;
+
+    Buffer(void *data, uint64_t size)
+    {
+        data_ = data;
+        size_ = size;
+    }
+
+    virtual uint64_t GetSize() const
+    {
+        return size_;
+    }
+
+    virtual const void *ImmutableData() const
+    {
+        return data_;
+    }
+
+private:
+    void *data_ = nullptr;
+    uint64_t size_ = 0;
 };
 }  // namespace YR

@@ -254,6 +254,16 @@ inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &message
 }
 
 template <>
+inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &messageId,
+                                                      const CreateResourceGroupResponse &msg)
+{
+    auto streamMsg = std::make_shared<StreamingMessage>();
+    streamMsg->mutable_rgrouprsp()->CopyFrom(msg);
+    streamMsg->set_messageid(messageId);
+    return streamMsg;
+}
+
+template <>
 inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &messageId, const CreateRequests &msg)
 {
     auto streamMsg = std::make_shared<StreamingMessage>();
@@ -318,6 +328,7 @@ inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &message
 }
 
 struct WiredRequest : public std::enable_shared_from_this<WiredRequest> {
+    WiredRequest() = default;
     WiredRequest(std::function<void(StreamingMessage, ErrorInfo, std::function<void(bool)>)> cb,
                  std::shared_ptr<TimerWorker> tw)
         : callback(cb), notifyCallback(nullptr), retryCount(0), timer_(nullptr), timerWorkerWeak(tw)
@@ -422,7 +433,7 @@ struct WiredRequest : public std::enable_shared_from_this<WiredRequest> {
         int currentRetryInterval = std::min(requestACKTimeout, Config::Instance().REQUEST_ACK_ACC_MAX_SEC());
         auto weakThis = weak_from_this();
         if (timer_ != nullptr) {
-            timer_->cancel();
+            return;
         }
         this->timer_ = timerWorker->CreateTimer(currentRetryInterval * YR::Libruntime::MILLISECOND_UNIT, 1, [weakThis] {
             if (auto thisPtr = weakThis.lock(); thisPtr) {
@@ -520,6 +531,7 @@ public:
         enableDirectCall = true;
     }
     void RemoveInsRtIntf(const std::string &instanceId) override;
+    bool IsHealth() override;
 
 protected:
     void Write(const std::shared_ptr<StreamingMessage> &msg, std::function<void(ErrorInfo)> callback = nullptr);

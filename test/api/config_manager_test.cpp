@@ -184,6 +184,21 @@ TEST_F(ConfigManagerTest, ConfigManagerInitTest7)
     EXPECT_EQ(ConfigManager::Singleton().threadPoolSize, wantSize) << "Test failed";
 }
 
+TEST_F(ConfigManagerTest, GetValidLocalThreadPoolSizeTest)
+{
+    Config conf = GetMockConf();
+    conf.localThreadPoolSize = 1000;
+    int mockArgc = 1;
+    char *mockArgv[] = {"--logDir=/tmp/log"};
+    int wantSize = static_cast<int>(std::thread::hardware_concurrency());
+    try {
+        ConfigManager::Singleton().Init(conf, mockArgc, mockArgv);
+    } catch (const std::invalid_argument &e) {
+        EXPECT_EQ(1, 0) << "Test failed";
+    }
+    EXPECT_EQ(ConfigManager::Singleton().localThreadPoolSize, wantSize) << "Test failed";
+}
+
 TEST_F(ConfigManagerTest, ConfigManagerInitTest8)
 {
     Config conf;
@@ -232,6 +247,46 @@ TEST_F(ConfigManagerTest, GetValidMaxLogSizeMbTest)
     ConfigManager::Singleton().Init(conf, mockArgc, mockArgv);
     ASSERT_EQ(conf.maxLogSizeMb, ConfigManager::Singleton().maxLogFileSize);
     ASSERT_EQ(conf.maxLogFileNum, ConfigManager::Singleton().maxLogFileNum);
+}
+
+TEST_F(ConfigManagerTest, ConfigManagerInitEnableMTLSTest)
+{
+    Config conf = GetMockConf();
+    conf.enableMTLS = true;
+    conf.privateKeyPath = "ddd/module.key";
+    conf.certificateFilePath = "ddd/module.crt";
+    conf.verifyFilePath = "ddd/ca.crt";
+    std::strcpy(conf.privateKeyPaaswd, "paaswd");
+    conf.encryptPrivateKeyPasswd = "abcd";
+    int mockArgc = 1;
+    char *mockArgv[] = {"--logDir=/tmp/log"};
+    ConfigManager::Singleton().Init(conf, mockArgc, mockArgv);
+    ASSERT_EQ(conf.privateKeyPath, ConfigManager::Singleton().privateKeyPath);
+    ASSERT_EQ(conf.certificateFilePath, ConfigManager::Singleton().certificateFilePath);
+    ASSERT_EQ(conf.verifyFilePath, ConfigManager::Singleton().verifyFilePath);
+    ASSERT_EQ(std::string(conf.privateKeyPaaswd), std::string(ConfigManager::Singleton().privateKeyPaaswd));
+    ASSERT_EQ(conf.encryptPrivateKeyPasswd, ConfigManager::Singleton().encryptPrivateKeyPasswd);
+}
+
+TEST_F(ConfigManagerTest, ConfigManagerInitEnableDsEncryptTest)
+{
+    Config conf = GetMockConf();
+    conf.enableDsEncrypt = true;
+    conf.dsPublicKeyContext = "aaa";
+    conf.runtimePublicKeyContext = "bbb";
+    conf.runtimePrivateKeyContext = "ccc";
+    conf.encryptDsPublicKeyContext = "ddd";
+    conf.encryptRuntimePublicKeyContext = "eee";
+    conf.encryptRuntimePrivateKeyContext = "fff";
+    int mockArgc = 1;
+    char *mockArgv[] = {"--logDir=/tmp/log"};
+    ConfigManager::Singleton().Init(conf, mockArgc, mockArgv);
+    ASSERT_EQ(conf.dsPublicKeyContext, ConfigManager::Singleton().dsPublicKeyContext);
+    ASSERT_EQ(conf.runtimePublicKeyContext, ConfigManager::Singleton().runtimePublicKeyContext);
+    ASSERT_EQ(conf.runtimePrivateKeyContext, ConfigManager::Singleton().runtimePrivateKeyContext);
+    ASSERT_EQ(conf.encryptDsPublicKeyContext, ConfigManager::Singleton().encryptDsPublicKeyContext);
+    ASSERT_EQ(conf.encryptRuntimePublicKeyContext, ConfigManager::Singleton().encryptRuntimePublicKeyContext);
+    ASSERT_EQ(conf.encryptRuntimePrivateKeyContext, ConfigManager::Singleton().encryptRuntimePrivateKeyContext);
 }
 
 TEST_F(ConfigManagerTest, GetValidLogCompressTest)

@@ -47,6 +47,7 @@ public:
     virtual void PreStart() = 0;
     virtual ErrorInfo Start() = 0;
     void Init();
+    virtual bool IsHealth() = 0;
     void Stop() override;
     bool Available() override;
     bool Abnormal() override;

@@ -30,6 +30,9 @@ public:
     const std::string INSTANCE_ID_META = "instance_id";
     const std::string RUNTIME_ID_META = "runtime_id";
     const std::string TOKEN_META = "authorization";
+    const std::string TENANT_ACCESS_KEY = "access_key";
+    const std::string SIGNATURE = "signature";
+    const std::string TIMESTAMP = "timestamp";
     const std::string SOURCE_ID_META = "source_id";
     const std::string DST_ID_META = "dst_id";
     const std::string JOB_ID_META = "job_id";
@@ -60,6 +63,7 @@ public:
     ErrorInfo BuildStreamWithRetry(std::shared_ptr<grpc::Channel> channel, const int retryTimes = RETRY_TIME);
     void PreStart() override {}
     ErrorInfo Start() override;
+    bool IsHealth() override;
     ErrorInfo Reconnect();
     void Stop() override;
     bool GrpcRead(const std::shared_ptr<StreamingMessage> &message) override;

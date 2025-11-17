@@ -1067,6 +1067,26 @@ public:
                                        : internal::GetRuntime()->KVDel(keys, delParam);
     }
 
+    /**
+     * @brief Check if multiple specified keys exist.
+     *
+     * @param keys A list of keys to check. The maximum number of keys is 10000。
+     * @return std::vector<std::string> A vector containing the existence of the corresponding key. The order of values
+     * corresponds to the order of keys.
+     *
+     * @throw Exception Thrown in the following cases:
+     * - **1001**: Invalid input parameters (e.g., empty keys or invalid characters).
+     * - **1002**: Internal communication errors.
+     * - **4299**: DataSystem failed.
+     */
+    static std::vector<bool> Exist(const std::vector<std::string> &keys)
+    {
+        CheckInitialized();
+        return internal::IsLocalMode()
+                   ? internal::GetLocalModeRuntime()->KVExist(keys)
+                   : internal::GetRuntime()->KVExist(keys);
+    }
+
 private:
     template <typename T>
     static void CheckMSetTxParams(const std::vector<std::string> &keys, const std::vector<T> &vals,

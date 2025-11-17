@@ -25,13 +25,13 @@ MAKE_TARGETS = [
 
 alias(
     name = "ssl",
-    actual = "openssl",
+    actual = "boringssl_sdk",
     visibility = ["//visibility:public"],
 )
 
 alias(
     name = "crypto",
-    actual = "openssl",
+    actual = "boringssl_sdk",
     visibility = ["//visibility:public"],
 )
 
@@ -57,13 +57,6 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-filter_files_with_suffix(
-    name = "shared",
-    srcs = [":openssl"],
-    suffix = ".so",
-    visibility = ["//visibility:public"],
-)
-
 cc_library(
     name = "boringssl_sdk",
     hdrs = glob(["install/include/**/*.h"]),
@@ -74,4 +67,11 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     alwayslink = True,
+)
+
+filter_files_with_suffix(
+    name = "shared",
+    srcs = glob(["install/lib/lib*.so*"]),
+    suffix = ".so",
+    visibility = ["//visibility:public"],
 )

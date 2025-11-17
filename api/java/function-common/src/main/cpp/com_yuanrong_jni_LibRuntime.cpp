@@ -35,6 +35,7 @@
 #include "src/dto/invoke_arg.h"
 #include "src/dto/invoke_options.h"
 #include "src/dto/status.h"
+#include "src/dto/stream_conf.h"
 #include "src/libruntime/auto_init.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/invokeadaptor/request_manager.h"
@@ -42,6 +43,7 @@
 #include "src/libruntime/libruntime_manager.h"
 #include "src/libruntime/libruntime_options.h"
 
+#include "src/libruntime/streamstore/stream_producer_consumer.h"
 #include "src/proto/libruntime.pb.h"
 
 /**
@@ -81,11 +83,13 @@ extern "C" {
         }                                                                              \
     }
 
-static jobject get_runtime_context_callback(JNIEnv *env, jclass c)
+static std::string get_runtime_context_callback(JNIEnv *env, jclass c)
 {
     jmethodID callbackMethodID = env->GetStaticMethodID(c, "GetRuntimeContext", "()Ljava/lang/String;");
     jobject result = env->CallStaticObjectMethod(c, callbackMethodID);
-    return result;
+    std::string resultStr = YR::jni::JNIString::FromJava(env, (jstring)result);
+    env->DeleteLocalRef(result);
+    return resultStr;
 }
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Init(JNIEnv *env, jclass c, jobject jconfig)
@@ -144,8 +148,7 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Init(JNIEnv *env, jcl
     config.libruntimeOptions.checkpointCallback = checkpointCb;
     config.libruntimeOptions.recoverCallback = recoverCb;
     config.libruntimeOptions.shutdownCallback = functionShutdownCb;
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     auto err = YR::Libruntime::LibruntimeManager::Instance().Init(config, rtCtx);
     jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
     if (jerr == nullptr) {
@@ -165,25 +168,24 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_CreateInstance(JNIEnv
                                                                                  jobject functionMeta, jobject args,
                                                                                  jobject opt)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     auto funcMeta = YR::jni::JNIFunctionMeta::FromJava(env, functionMeta);
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(env, nullptr,
                                                            "exception occurred when convert funcMeta from java to cc");
-    auto invokeArgs = YR::jni::JNIInvokeArg::FromJavaList(
-        env, args, YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GetTenantId());
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto invokeArgs = YR::jni::JNIInvokeArg::FromJavaList(env, args, libRuntime->GetTenantId());
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(
         env, nullptr, "exception occurred when convert invokeArgs from java to cc");
     auto invokeOptions = YR::jni::JNIInvokeOptions::FromJava(env, opt);
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(
         env, nullptr, "exception occurred when convert invokeOptions from java to cc");
 
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
-    auto [err, objectID] = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->CreateInstance(
-        funcMeta, invokeArgs, invokeOptions);
+    libRuntime->SetTenantIdWithPriority();
+    auto [err, objectID] = libRuntime->CreateInstance(funcMeta, invokeArgs, invokeOptions);
 
     if (!err.OK()) {
-        YRLOG_WARN("failed to CreateInstance, err({}), msg({})", err.Code(), err.Msg());
+        YRLOG_WARN("failed to CreateInstance, err({}), msg({})", fmt::underlying(err.Code()), err.Msg());
         YR::jni::JNILibruntimeException::Throw(
             env, err.Code(), err.MCode(),
             "failed to CreateInstance, err " + std::to_string(err.Code()) + ", msg: " + err.Msg());
@@ -204,7 +206,10 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_CreateInstance(JNIEnv
         return nullptr;
     }
 
-    return YR::jni::JNIPair::CreateJPair(env, jerr, jobjectID);
+    jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, jobjectID);
+    env->DeleteLocalRef(jerr);
+    env->DeleteLocalRef(jobjectID);
+    return jpair;
 }
 
 /*
@@ -218,16 +223,16 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_InvokeInstance(JNIEnv
                                                                                  jstring instanceId, jobject args,
                                                                                  jobject opt)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     auto funcMeta = YR::jni::JNIFunctionMeta::FromJava(env, functionMeta);
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(env, nullptr,
                                                            "exception occurred when convert funcMeta from java to cc");
     auto instanceIdStr = YR::jni::JNIString::FromJava(env, instanceId);
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(
         env, nullptr, "exception occurred when convert instanceIdStr from java to cc");
-    auto invokeArgs = YR::jni::JNIInvokeArg::FromJavaList(
-        env, args, YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GetTenantId());
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto invokeArgs = YR::jni::JNIInvokeArg::FromJavaList(env, args, libRuntime->GetTenantId());
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(
         env, nullptr, "exception occurred when convert invokeArgs from java to cc");
     auto invokeOptions = YR::jni::JNIInvokeOptions::FromJava(env, opt);
@@ -237,13 +242,11 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_InvokeInstance(JNIEnv
         env, nullptr, "exception occurred when convert returnDataObjs from java to cc");
     YR::Libruntime::ErrorInfo err;
     std::vector<YR::Libruntime::DataObject> returnDataObjs{{""}};
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    libRuntime->SetTenantIdWithPriority();
     if (instanceIdStr.size() > 0) {
-        err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->InvokeByInstanceId(
-            funcMeta, instanceIdStr, invokeArgs, invokeOptions, returnDataObjs);
+        err = libRuntime->InvokeByInstanceId(funcMeta, instanceIdStr, invokeArgs, invokeOptions, returnDataObjs);
     } else {
-        err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->InvokeByFunctionName(
-            funcMeta, invokeArgs, invokeOptions, returnDataObjs);
+        err = libRuntime->InvokeByFunctionName(funcMeta, invokeArgs, invokeOptions, returnDataObjs);
     }
     if (!err.OK()) {
         YR::jni::JNILibruntimeException::Throw(
@@ -263,15 +266,18 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_InvokeInstance(JNIEnv
             env, "failed to convert ReturnDataObjId when invokeByInstanceID, get null");
         return nullptr;
     }
-    return YR::jni::JNIPair::CreateJPair(env, jerr, jreturnDataObjId);
+
+    jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, jreturnDataObjId);
+    env->DeleteLocalRef(jerr);
+    env->DeleteLocalRef(jreturnDataObjId);
+    return jpair;
 }
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Put(JNIEnv *env, jclass c, jbyteArray byteArray,
                                                                       jobject objectIds)
 {
     auto nestedObjectIds = YR::jni::JNIString::FromJArrayToUnorderedSet(env, objectIds);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     std::shared_ptr<YR::Libruntime::DataObject> dataObj;
     auto errInfo = YR::jni::JNIDataObject::WriteDataObject(env, dataObj, byteArray);
     if (errInfo.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
@@ -280,9 +286,10 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Put(JNIEnv *env, jcla
             "put finished, return code is " + std::to_string(errInfo.Code()) + ", msg: " + errInfo.Msg());
         return nullptr;
     }
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
-    auto [err, objId] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Put(dataObj, nestedObjectIds);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto [err, objId] = libRuntime->Put(dataObj, nestedObjectIds);
     jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
     jstring jobjId = YR::jni::JNIString::FromCc(env, objId);
 
@@ -295,8 +302,7 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_PutWithParam(JNIEnv *
 {
     auto nestedObjectIds = YR::jni::JNIString::FromJArrayToUnorderedSet(env, objectIds);
     auto ccreateParam = YR::jni::JNICreateParam::FromJava(env, createParam);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     std::shared_ptr<YR::Libruntime::DataObject> dataObj;
     auto errInfo = YR::jni::JNIDataObject::WriteDataObject(env, dataObj, byteArray);
     if (errInfo.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
@@ -305,9 +311,10 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_PutWithParam(JNIEnv *
             "put finished, return code is " + std::to_string(errInfo.Code()) + ", msg: " + errInfo.Msg());
         return nullptr;
     }
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
-    auto [err, objId] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Put(dataObj, nestedObjectIds, ccreateParam);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto [err, objId] = libRuntime->Put(dataObj, nestedObjectIds, ccreateParam);
     jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
     jstring jobjId = YR::jni::JNIString::FromCc(env, objId);
 
@@ -325,16 +332,16 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Get(JNIEnv *env, jcla
     auto objIds = YR::jni::JNIList::FromJava<std::string>(env, listOfIds, [](JNIEnv *env, jobject obj) -> std::string {
         return YR::jni::JNIString::FromJava(env, static_cast<jstring>(obj));
     });
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(
         env, nullptr, "LibRuntime_Get called, but exception occurred when convert args from java to cc");
     int timeoutMsInt = static_cast<int>(timeoutMs);
     bool allowPartialBool = static_cast<bool>(allowPartial);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // A special constraint: call wait first before call get
-    auto [err, res] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Get(objIds, timeoutMsInt, allowPartialBool);
+    auto [err, res] = libRuntime->Get(objIds, timeoutMsInt, allowPartialBool);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
         YR::jni::JNILibruntimeException::Throw(
             env, err.Code(), err.MCode(),
@@ -354,7 +361,10 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Get(JNIEnv *env, jcla
         return nullptr;
     }
 
-    return YR::jni::JNIPair::CreateJPair(env, jerr, listResult);
+    jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, listResult);
+    env->DeleteLocalRef(jerr);
+    env->DeleteLocalRef(listResult);
+    return jpair;
 }
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Wait(JNIEnv *env, jclass c, jobject objList,
@@ -363,15 +373,15 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Wait(JNIEnv *env, jcl
     auto objIds = YR::jni::JNIList::FromJava<std::string>(env, objList, [](JNIEnv *env, jobject obj) -> std::string {
         return YR::jni::JNIString::FromJava(env, static_cast<jstring>(obj));
     });
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     CHECK_JAVA_EXCEPTION_AND_THROW_NEW_AND_RETURN_IF_OCCUR(
         env, nullptr, "LibRuntime_Wait called, but exception occurred when convert args from java to cc");
     int timeoutSecInt = static_cast<int>(timeoutSec);
     int waitNumInt = static_cast<int>(waitNum);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
-    auto internalWaitResult =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Wait(objIds, waitNumInt, timeoutSecInt);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto internalWaitResult = libRuntime->Wait(objIds, waitNumInt, timeoutSecInt);
     jobject res = YR::jni::JNIInternalWaitResult::FromCc(env, internalWaitResult);
     if (res == nullptr) {
         YR::jni::JNILibruntimeException::ThrowNew(env, "get null when transform wait result from cpp to java");
@@ -391,8 +401,7 @@ JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_DecreaseReference(JNIEnv
     auto objIds = YR::jni::JNIList::FromJava<std::string>(env, objList, [](JNIEnv *env, jobject obj) -> std::string {
         return YR::jni::JNIString::FromJava(env, static_cast<jstring>(obj));
     });
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
     if (libRuntime) {
         libRuntime->SetTenantIdWithPriority();
@@ -407,8 +416,7 @@ JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_DecreaseReference(JNIEnv
  */
 JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_ReceiveRequestLoop(JNIEnv *env, jclass c)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     YR::Libruntime::LibruntimeManager::Instance().ReceiveRequestLoop(rtCtx);
 }
 
@@ -431,8 +439,7 @@ JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_FinalizeWithCtx(JNIEnv *
  */
 JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_Finalize(JNIEnv *env, jclass c)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     YR::Libruntime::LibruntimeManager::Instance().Finalize(rtCtx);
 }
 
@@ -443,9 +450,11 @@ JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_Finalize(JNIEnv *env, jc
  */
 JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_Exit(JNIEnv *env, jclass c)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Exit();
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    if (libRuntime) {
+        libRuntime->Exit();
+    }
 }
 
 /*
@@ -463,9 +472,10 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_AutoInitYR(JNIEnv *en
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Kill(JNIEnv *env, jclass c, jstring instanceID)
 {
     auto instID = YR::jni::JNIString::FromJava(env, instanceID);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Kill(instID);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto err = libRuntime->Kill(instID);
     jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
     if (jerr == nullptr) {
         YR::jni::JNILibruntimeException::ThrowNew(env, "failed to convert jerr when Libruntime_Kill, get null");
@@ -481,8 +491,7 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_Kill(JNIEnv *env, jcl
  */
 JNIEXPORT jboolean JNICALL Java_com_yuanrong_jni_LibRuntime_IsInitialized(JNIEnv *env, jclass c)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     return static_cast<jboolean>(YR::Libruntime::LibruntimeManager::Instance().IsInitialized(rtCtx));
 }
 
@@ -506,9 +515,10 @@ JNIEXPORT jstring JNICALL Java_com_yuanrong_jni_LibRuntime_GetRealInstanceId(JNI
                                                                                     jstring objectID)
 {
     std::string cobjectID = YR::jni::JNIString::FromJava(env, objectID);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    auto instanceID = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GetRealInstanceId(cobjectID);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto instanceID = libRuntime->GetRealInstanceId(cobjectID);
     jstring jinstanceID = YR::jni::JNIString::FromCc(env, instanceID);
     ASSERT_NOT_NULL(jinstanceID);
 
@@ -529,10 +539,10 @@ JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_SaveRealInstanceId(JNIEn
     auto opts = YR::jni::JNIInvokeOptions::FromJava(env, opt);
     YR::Libruntime::InstanceOptions instOpts;
     instOpts.needOrder = opts.needOrder;
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SaveRealInstanceId(cobjectID, cinstanceID,
-                                                                                           instOpts);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN_VOID(env, libRuntime, "exception occurred because LibRuntime is null");
+    libRuntime->SaveRealInstanceId(cobjectID, cinstanceID, instOpts);
 }
 
 /*
@@ -547,12 +557,12 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVWrite(JNIEnv *env, 
     auto ckey = YR::jni::JNIString::FromJava(env, key);
     auto cvalue = YR::jni::JNIByteBuffer::FromJava(env, value);
     auto csetParam = YR::jni::JNISetParam::FromJava(env, setParam);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // result from cpp to java
-    auto cerrorInfo =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVWrite(ckey, cvalue, csetParam);
+    auto cerrorInfo = libRuntime->KVWrite(ckey, cvalue, csetParam);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, cerrorInfo);
     ASSERT_NOT_NULL(jerrorInfo);
 
@@ -578,12 +588,12 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVMSetTx(JNIEnv *env,
         });
     auto cmSetParam = YR::jni::JNIMSetParam::FromJava(env, mSetParam);
 
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // result from cpp to java
-    auto cerrorInfo =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVMSetTx(ckeys, cvalues, cmSetParam);
+    auto cerrorInfo = libRuntime->KVMSetTx(ckeys, cvalues, cmSetParam);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, cerrorInfo);
     ASSERT_NOT_NULL(jerrorInfo);
 
@@ -601,13 +611,13 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVRead__Ljava_lang_St
 {
     // parameters from java to cpp
     auto ckey = YR::jni::JNIString::FromJava(env, key);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     int ctimeoutMS = static_cast<int>(timeoutMS);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // result from cpp to java (std::pair<std::shared_ptr<YR::Libruntime::Buffer>, ErrorInfo>)
-    auto [sbuf_ptr, cerrorInfo] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVRead(ckey, ctimeoutMS);
+    auto [sbuf_ptr, cerrorInfo] = libRuntime->KVRead(ckey, ctimeoutMS);
     jbyteArray byteArray = nullptr;
     if (sbuf_ptr != nullptr) {
         byteArray = env->NewByteArray(sbuf_ptr->GetSize());
@@ -634,14 +644,14 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVRead__Ljava_util_Li
     auto ckeys = YR::jni::JNIList::FromJava<std::string>(env, keys, [](JNIEnv *env, jobject obj) -> std::string {
         return YR::jni::JNIString::FromJava(env, static_cast<jstring>(obj));
     });
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     int ctimeoutMS = static_cast<int>(timeoutMS);
     bool callowPartial = static_cast<jboolean>(allowPartial);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // result from cpp to java (std::pair<std::vector<std::shared_ptr<YR::Libruntime::Buffer>>, ErrorInfo>)
-    auto [sbuf_ptr_vector, cerrorInfo] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVRead(ckeys, ctimeoutMS, callowPartial);
+    auto [sbuf_ptr_vector, cerrorInfo] = libRuntime->KVRead(ckeys, ctimeoutMS, callowPartial);
     jobject listByteArray = YR::jni::JNIByteBuffer::FromCcPrtVectorToList(env, sbuf_ptr_vector);
     ASSERT_NOT_NULL(listByteArray);
 
@@ -663,14 +673,13 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVGetWithParam(JNIEnv
     auto ckeys = YR::jni::JNIList::FromJava<std::string>(env, keys, [](JNIEnv *env, jobject obj) -> std::string {
         return YR::jni::JNIString::FromJava(env, static_cast<jstring>(obj));
     });
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     int ctimeoutMS = static_cast<int>(timeoutMS);
     auto cgetParams = YR::jni::JNIGetParams::FromJava(env, getParams);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
-    auto [sbuf_ptr_vector, cerrorInfo] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVGetWithParam(ckeys, cgetParams,
-                                                                                           ctimeoutMS);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto [sbuf_ptr_vector, cerrorInfo] = libRuntime->KVGetWithParam(ckeys, cgetParams, ctimeoutMS);
     jobject listByteArray = YR::jni::JNIByteBuffer::FromCcPrtVectorToList(env, sbuf_ptr_vector);
     ASSERT_NOT_NULL(listByteArray);
 
@@ -690,11 +699,12 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVDel__Ljava_lang_Str
 {
     // parameters from java to cpp
     auto ckey = YR::jni::JNIString::FromJava(env, key);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // result from cpp to java (ErrorInfo)
-    auto cerrorInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVDel(ckey);
+    auto cerrorInfo = libRuntime->KVDel(ckey);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, cerrorInfo);
     ASSERT_NOT_NULL(jerrorInfo);
     return jerrorInfo;
@@ -712,11 +722,12 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVDel__Ljava_util_Lis
     auto ckeys = YR::jni::JNIList::FromJava<std::string>(env, keys, [](JNIEnv *env, jobject obj) -> std::string {
         return YR::jni::JNIString::FromJava(env, static_cast<jstring>(obj));
     });
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SetTenantIdWithPriority();
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
     // result from cpp to java (std::pair<std::vector<std::string>>, ErrorInfo>)
-    auto [cvector_keys, cerrorInfo] = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->KVDel(ckeys);
+    auto [cvector_keys, cerrorInfo] = libRuntime->KVDel(ckeys);
     jobject keysDeleted = YR::jni::JNIString::FromCcVectorToList(env, cvector_keys);
     ASSERT_NOT_NULL(keysDeleted);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, cerrorInfo);
@@ -732,8 +743,7 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KVDel__Ljava_util_Lis
  */
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_SaveState(JNIEnv *env, jclass c, jint timeoutMs)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
 
     std::shared_ptr<YR::Libruntime::Buffer> data;
     auto errInfo = YR::jni::JNICodeExecutor::DumpInstance(env, "", data);
@@ -743,7 +753,9 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_SaveState(JNIEnv *env
         return jerrorInfo;
     }
 
-    errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SaveState(data, timeoutMs);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    errInfo = libRuntime->SaveState(data, timeoutMs);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, errInfo);
     ASSERT_NOT_NULL(jerrorInfo);
     return jerrorInfo;
@@ -756,12 +768,13 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_SaveState(JNIEnv *env
  */
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_LoadState(JNIEnv *env, jclass c, jint timeoutMs)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
 
     std::shared_ptr<YR::Libruntime::Buffer> data;
     jobject jerrorInfo;
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->LoadState(data, timeoutMs);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto errInfo = libRuntime->LoadState(data, timeoutMs);
     if (!errInfo.OK()) {
         jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, errInfo);
         ASSERT_NOT_NULL(jerrorInfo);
@@ -779,9 +792,10 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_GroupCreate(JNIEnv *e
 {
     auto groupOpts = YR::jni::JNIGroupOptions::FromJava(env, opt);
     auto cStr = YR::jni::JNIString::FromJava(env, str);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GroupCreate(cStr, groupOpts);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto errInfo = libRuntime->GroupCreate(cStr, groupOpts);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, errInfo);
     ASSERT_NOT_NULL(jerrorInfo);
     return jerrorInfo;
@@ -790,17 +804,20 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_GroupCreate(JNIEnv *e
 JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_GroupTerminate(JNIEnv *env, jclass c, jstring str)
 {
     auto cStr = YR::jni::JNIString::FromJava(env, str);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GroupTerminate(cStr);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    if (libRuntime) {
+        libRuntime->GroupTerminate(cStr);
+    }
 }
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_GroupWait(JNIEnv *env, jclass c, jstring str)
 {
     auto cStr = YR::jni::JNIString::FromJava(env, str);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GroupWait(cStr);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto errInfo = libRuntime->GroupWait(cStr);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, errInfo);
     ASSERT_NOT_NULL(jerrorInfo);
     return jerrorInfo;
@@ -808,13 +825,131 @@ JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_GroupWait(JNIEnv *env
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_processLog(JNIEnv *env, jclass c, jobject functionLog)
 {
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
+    auto rtCtx = get_runtime_context_callback(env, c);
     auto cFunctionLog = YR::jni::JNIFunctionLog::FromJava(env, functionLog);
     auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->ProcessLog(cFunctionLog);
     jobject jerrorInfo = YR::jni::JNIErrorInfo::FromCc(env, errInfo);
     ASSERT_NOT_NULL(jerrorInfo);
     return jerrorInfo;
+}
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_CreateStreamProducer(
+    JNIEnv *env, jclass c, jstring streamName, jlong delay, jlong pageSize, jlong maxStreamSize, jboolean autoCleanup,
+    jboolean encryptStream, jlong retainForNumConsumers, jlong reserveSize)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto cStreamName = YR::jni::JNIString::FromJava(env, streamName);
+    YR::Libruntime::ProducerConf producerConf = {.delayFlushTime = delay,
+                                                 .pageSize = pageSize,
+                                                 .maxStreamSize = static_cast<uint64_t>(maxStreamSize),
+                                                 .autoCleanup = static_cast<bool>(autoCleanup),
+                                                 .encryptStream = static_cast<bool>(encryptStream),
+                                                 .retainForNumConsumers = static_cast<uint64_t>(retainForNumConsumers),
+                                                 .reserveSize = static_cast<uint64_t>(reserveSize)};
+    std::shared_ptr<YR::Libruntime::StreamProducer> streamProducer;
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, -1, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->CreateStreamProducer(cStreamName, producerConf, streamProducer);
+    CHECK_ERROR_AND_THROW(
+        env, err, -1,
+        "create stream producer finished, return code is " + std::to_string(err.Code()) + ", msg: " + err.Msg())
+    std::unique_ptr<std::shared_ptr<YR::Libruntime::StreamProducer>> pOutProducer =
+        std::make_unique<std::shared_ptr<YR::Libruntime::StreamProducer>>(std::move(streamProducer));
+    return reinterpret_cast<jlong>(pOutProducer.release());
+}
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_CreateStreamConsumer(
+    JNIEnv *env, jclass c, jstring streamName, jstring subName, jobject subscription, jboolean shouldAutoAck)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto cStreamName = YR::jni::JNIString::FromJava(env, streamName);
+    auto cSubName = YR::jni::JNIString::FromJava(env, subName);
+    jclass jniSubscription = env->GetObjectClass(subscription);
+    jmethodID jniMethoId = env->GetMethodID(jniSubscription, "ordinal", "()I");
+    int subscriptionTypeInt = env->CallIntMethod(jniSubscription, jniMethoId);
+    libruntime::SubscriptionType subType = (libruntime::SubscriptionType)subscriptionTypeInt;
+    const struct YR::Libruntime::SubscriptionConfig config(cSubName, subType);
+    std::shared_ptr<YR::Libruntime::StreamConsumer> streamConsumer;
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, -1, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->CreateStreamConsumer(cStreamName, config, streamConsumer, static_cast<bool>(shouldAutoAck));
+    CHECK_ERROR_AND_THROW(
+        env, err, -1,
+        "create stream consumer finished, return code is " + std::to_string(err.Code()) + ", msg: " + err.Msg())
+    std::unique_ptr<std::shared_ptr<YR::Libruntime::StreamConsumer>> pOutConsumer =
+        std::make_unique<std::shared_ptr<YR::Libruntime::StreamConsumer>>(std::move(streamConsumer));
+    return reinterpret_cast<jlong>(pOutConsumer.release());
+}
+
+JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_DeleteStream(JNIEnv *env, jclass c,
+                                                                               jstring streamName)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto cStreamName = YR::jni::JNIString::FromJava(env, streamName);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->DeleteStream(cStreamName);
+    jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
+    if (jerr == nullptr) {
+        YR::jni::JNILibruntimeException::ThrowNew(env, "failed to convert jerr when Libruntime_DeleteStream, get null");
+        return nullptr;
+    }
+    return jerr;
+}
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_QueryGlobalProducersNum(JNIEnv *env, jclass c,
+                                                                                        jstring streamName)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto cStreamName = YR::jni::JNIString::FromJava(env, streamName);
+    uint64_t producerNum;
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, -1, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->QueryGlobalProducersNum(cStreamName, producerNum);
+    CHECK_ERROR_AND_THROW(
+        env, err, -1,
+        "query global producers num finished, return code is " + std::to_string(err.Code()) + ", msg: " + err.Msg())
+    return static_cast<jlong>(producerNum);
+}
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_QueryGlobalConsumersNum(JNIEnv *env, jclass c,
+                                                                                        jstring streamName)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto cStreamName = YR::jni::JNIString::FromJava(env, streamName);
+    uint64_t consumerNum;
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, -1, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->QueryGlobalConsumersNum(cStreamName, consumerNum);
+    CHECK_ERROR_AND_THROW(
+        env, err, -1,
+        "query global consumers num finished, return code is " + std::to_string(err.Code()) + ", msg: " + err.Msg())
+    return static_cast<jlong>(consumerNum);
+}
+
+JNIEXPORT jlong JNICALL Java_com_yuanrong_jni_LibRuntime_CreateStreamProducerWithConfig(JNIEnv *env, jclass c,
+                                                                                               jstring streamName,
+                                                                                               jobject producerConfig)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto cStreamName = YR::jni::JNIString::FromJava(env, streamName);
+    auto cProducerConf = YR::jni::JNIProducerConfig::FromJava(env, producerConfig);
+    std::shared_ptr<YR::Libruntime::StreamProducer> streamProducer;
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, -1, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->CreateStreamProducer(cStreamName, cProducerConf, streamProducer);
+    CHECK_ERROR_AND_THROW(
+        env, err, -1,
+        "create stream producer finished, return code is " + std::to_string(err.Code()) + ", msg: " + err.Msg())
+    std::unique_ptr<std::shared_ptr<YR::Libruntime::StreamProducer>> pOutProducer =
+        std::make_unique<std::shared_ptr<YR::Libruntime::StreamProducer>>(std::move(streamProducer));
+    return reinterpret_cast<jlong>(pOutProducer.release());
 }
 
 /*
@@ -826,10 +961,10 @@ JNIEXPORT jstring JNICALL Java_com_yuanrong_jni_LibRuntime_GetInstanceRoute(JNIE
                                                                                    jstring objectID)
 {
     std::string cobjectID = YR::jni::JNIString::FromJava(env, objectID);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    auto instanceRoute =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->GetInstanceRoute(cobjectID);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto instanceRoute = libRuntime->GetInstanceRoute(cobjectID);
     jstring jinstanceRoute = YR::jni::JNIString::FromCc(env, instanceRoute);
     ASSERT_NOT_NULL(jinstanceRoute);
 
@@ -847,24 +982,54 @@ JNIEXPORT void JNICALL Java_com_yuanrong_jni_LibRuntime_SaveInstanceRoute(JNIEnv
 {
     std::string cobjectID = YR::jni::JNIString::FromJava(env, objectID);
     std::string cinstanceRoute = YR::jni::JNIString::FromJava(env, instanceRoute);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->SaveInstanceRoute(cobjectID, cinstanceRoute);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN_VOID(env, libRuntime, "exception occurred because LibRuntime is null");
+    libRuntime->SaveInstanceRoute(cobjectID, cinstanceRoute);
 }
 
 JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_KillSync(JNIEnv *env, jclass c, jstring instanceID)
 {
     auto instID = YR::jni::JNIString::FromJava(env, instanceID);
-    auto result = get_runtime_context_callback(env, c);
-    auto rtCtx = YR::jni::JNIString::FromJava(env, (jstring)result);
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx)->Kill(
-        instID, libruntime::Signal::killInstanceSync);
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto err = libRuntime->Kill(instID, libruntime::Signal::killInstanceSync);
     jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
     if (jerr == nullptr) {
         YR::jni::JNILibruntimeException::ThrowNew(env, "failed to convert jerr when Libruntime_Kill, get null");
         return nullptr;
     }
     return jerr;
+}
+
+/*
+ * Class:     com_yuanrong_jni_LibRuntime
+ * Method:    Nodes
+ * Signature: ()Lcom/yuanrong/errorcode/Pair
+ */
+JNIEXPORT jobject JNICALL Java_com_yuanrong_jni_LibRuntime_nodes(JNIEnv *env, jclass c)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    auto [err, resourceUnitVector] = libRuntime->GetResources();
+    if (!err.OK()) {
+        YRLOG_WARN("failed to GetResources, err({}), msg({})", fmt::underlying(err.Code()), err.Msg());
+        YR::jni::JNILibruntimeException::Throw(
+            env, err.Code(), err.MCode(),
+            "failed to GetResources, err " + std::to_string(err.Code()) + ", msg: " + err.Msg());
+        return nullptr;
+    }
+    jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
+    jobject jnodes = YR::jni::JNIArrayList::FromCc<YR::Libruntime::ResourceUnit>(
+        env, resourceUnitVector, [](JNIEnv *env, const YR::Libruntime::ResourceUnit &resourceUnit) {
+            return YR::jni::JNINode::FromCc(env, resourceUnit);
+        });
+    jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, jnodes);
+    env->DeleteLocalRef(jerr);
+    env->DeleteLocalRef(jnodes);
+    return jpair;
 }
 
 #ifdef __cplusplus

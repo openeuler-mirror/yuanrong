@@ -23,6 +23,7 @@ public:
     MOCK_METHOD(void, Stop, (), (override));
     MOCK_METHOD(bool, Available, (), (override));
     MOCK_METHOD(bool, Abnormal, (), (override));
+    MOCK_METHOD(bool, IsHealth, (), (override));
 };
 }  // namespace test
 }  // namespace YR

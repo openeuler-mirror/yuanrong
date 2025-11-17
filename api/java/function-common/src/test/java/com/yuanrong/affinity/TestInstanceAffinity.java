@@ -62,8 +62,122 @@ public class TestInstanceAffinity {
         instanceAffinity6.toString();
         instanceAffinity.canEqual(instanceAffinity2);
 
-        Assert.assertEquals(1, instanceAffinity11.getScope().getScope());
+        Assert.assertEquals(2, instanceAffinity11.getScope().getScope());
         Assert.assertFalse(instanceAffinity3.equals(instanceAffinity8));
+        Assert.assertEquals(AffinityScope.POD, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinityPreferredAffinity() {
+        InstanceAffinity instanceAffinity = new InstanceAffinity(AffinityType.PREFERRED, new Selector(),
+                AffinityScope.NODE);
+
+        Assert.assertNotNull(instanceAffinity.getPreferredAffinity());
+
+        Assert.assertNull(instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertEquals(AffinityScope.NODE, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinityPreferredAntiAffinity() {
+        InstanceAffinity instanceAffinity = new InstanceAffinity(AffinityType.PREFERRED_ANTI, new Selector(),
+                AffinityScope.NODE);
+
+        Assert.assertNotNull(instanceAffinity.getPreferredAntiAffinity());
+
+        Assert.assertNull(instanceAffinity.getPreferredAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertEquals(AffinityScope.NODE, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinityRequiredAffinity() {
+        InstanceAffinity instanceAffinity = new InstanceAffinity(AffinityType.REQUIRED, new Selector(),
+                AffinityScope.NODE);
+
+        Assert.assertNotNull(instanceAffinity.getRequiredAffinity());
+
+        Assert.assertNull(instanceAffinity.getPreferredAffinity());
+        Assert.assertNull(instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertEquals(AffinityScope.NODE, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinityRequiredAntiAffinity() {
+        InstanceAffinity instanceAffinity = new InstanceAffinity(AffinityType.REQUIRED_ANTI, new Selector(),
+                AffinityScope.NODE);
+
+        Assert.assertNotNull(instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertNull(instanceAffinity.getPreferredAffinity());
+        Assert.assertNull(instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAffinity());
+
+        Assert.assertEquals(AffinityScope.NODE, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinitySelector() {
+        Selector pa = new Selector();
+        InstanceAffinity instanceAffinity = new InstanceAffinity(pa);
+
+        Assert.assertEquals(pa, instanceAffinity.getPreferredAffinity());
+
+        Assert.assertNull(instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertEquals(AffinityScope.NODE, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinitySelectorScope() {
+        Selector pa = new Selector();
+        InstanceAffinity instanceAffinity = new InstanceAffinity(pa, AffinityScope.POD);
+
+        Assert.assertEquals(pa, instanceAffinity.getPreferredAffinity());
+
+        Assert.assertNull(instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAffinity());
+        Assert.assertNull(instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertEquals(AffinityScope.POD, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinitySelectors() {
+        Selector pa = new Selector();
+        Selector paa = new Selector();
+        Selector ra = new Selector();
+        Selector raa = new Selector();
+        InstanceAffinity instanceAffinity = new InstanceAffinity(pa, paa, ra, raa);
+        Assert.assertEquals(pa, instanceAffinity.getPreferredAffinity());
+        Assert.assertEquals(paa, instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertEquals(ra, instanceAffinity.getRequiredAffinity());
+        Assert.assertEquals(raa, instanceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertEquals(AffinityScope.NODE, instanceAffinity.getScope());
+    }
+
+    @Test
+    public void testInitInstanceAffinitySelectorsScope() {
+        Selector pa = new Selector();
+        Selector paa = new Selector();
+        Selector ra = new Selector();
+        Selector raa = new Selector();
+        InstanceAffinity instanceAffinity = new InstanceAffinity(pa, paa, ra, raa, AffinityScope.POD);
+        Assert.assertEquals(pa, instanceAffinity.getPreferredAffinity());
+        Assert.assertEquals(paa, instanceAffinity.getPreferredAntiAffinity());
+        Assert.assertEquals(ra, instanceAffinity.getRequiredAffinity());
+        Assert.assertEquals(raa, instanceAffinity.getRequiredAntiAffinity());
+
         Assert.assertEquals(AffinityScope.POD, instanceAffinity.getScope());
     }
 }

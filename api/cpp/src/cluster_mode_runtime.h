@@ -21,10 +21,10 @@
 #include <unordered_set>
 
 #include "config_manager.h"
+#include "src/libruntime/libruntime_config.h"
 #include "src/libruntime/libruntime_options.h"
 #include "yr/api/runtime.h"
 #include "yr/api/wait_result.h"
-
 namespace YR {
 YR::Libruntime::InvokeOptions BuildOptions(const YR::InvokeOptions &opts);
 class ClusterModeRuntime : public Runtime {
@@ -38,7 +38,12 @@ public:
     // return objid
     std::string Put(std::shared_ptr<msgpack::sbuffer> data, const std::unordered_set<std::string> &nestedId);
 
+    std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId);
+
     std::string Put(std::shared_ptr<msgpack::sbuffer> data, const std::unordered_set<std::string> &nestedId,
+                    const CreateParam &createParam);
+
+    std::string Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId,
                     const CreateParam &createParam);
 
     void Put(const std::string &objId, std::shared_ptr<msgpack::sbuffer> data,
@@ -69,6 +74,19 @@ public:
 
     std::vector<std::string> KVDel(const std::vector<std::string> &keys, const DelParam &delParam = {});
 
+    std::vector<bool> KVExist(const std::vector<std::string> &keys);
+
+    std::shared_ptr<Producer> CreateStreamProducer(const std::string &streamName, ProducerConf producerConf);
+
+    std::shared_ptr<Consumer> CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
+                                                   bool autoAck = false);
+
+    void DeleteStream(const std::string &streamName);
+
+    void QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum);
+
+    void QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum);
+
     std::string InvokeByName(const internal::FuncMeta &funcMeta, std::vector<YR::internal::InvokeArg> &args,
                              const InvokeOptions &opt) override;
 
@@ -97,7 +115,7 @@ public:
     std::string GenerateGroupName() override;
 
     // throw YR::Libruntime::Exception
-    void IncreGlobalReference(const std::vector<std::string> &objids);
+    void IncreGlobalReference(const std::vector<std::string> &objids, bool toDatasystem = true);
 
     void DecreGlobalReference(const std::vector<std::string> &objids);
 
@@ -119,9 +137,9 @@ public:
 
     void LoadState(const int &timeout);
 
-    void Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
+    void DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
 
-    void LocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
+    void DevLocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds) override;
 
     void DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                       std::vector<std::shared_ptr<YR::Future>> &futureVec) override;
@@ -136,7 +154,7 @@ public:
                  std::vector<std::string> &failedKeys, int32_t timeout) override;
 
     internal::FuncMeta GetInstance(const std::string &name, const std::string &nameSpace, int timeoutSec) override;
-    
+
     std::string GetGroupInstanceIds(const std::string &objectId);
 
     void SaveGroupInstanceIds(const std::string &objectId, const std::string &groupInsIds, const InvokeOptions &opts);
@@ -146,5 +164,18 @@ public:
     void SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute);
 
     void TerminateInstanceSync(const std::string &instanceId);
+
+    std::vector<Node> Nodes();
+
+    std::shared_ptr<MutableBuffer> CreateMutableBuffer(uint64_t size) override;
+
+    std::vector<std::shared_ptr<MutableBuffer>> GetMutableBuffer(const std::vector<std::string> &ids,
+                                                                 int timeout) override;
+
+    std::shared_future<void> TerminateInstanceAsync(const std::string &instanceId, bool isSync) override;
+
+private:
+    std::string Put(const void *data, uint64_t dataSize, const std::unordered_set<std::string> &nestedId,
+                    const CreateParam &createParam);
 };
 }  // namespace YR

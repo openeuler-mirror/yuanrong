@@ -18,6 +18,7 @@
 #include <boost/asio.hpp>
 #include "absl/synchronization/mutex.h"
 #include <atomic>
+
 using BoostTimer = boost::asio::deadline_timer;
 
 namespace YR {
@@ -27,7 +28,7 @@ class TimerWorker;
 
 class Timer : public std::enable_shared_from_this<Timer> {
 public:
-    Timer(boost::asio::io_service &io, int timeoutMS, std::weak_ptr<TimerWorker> tw);
+    Timer(boost::asio::io_context &io, int timeoutMS, std::weak_ptr<TimerWorker> tw);
     ~Timer() = default;
     std::shared_ptr<BoostTimer> &GetTimer();
     void cancel();
@@ -61,8 +62,8 @@ private:
     absl::Mutex timerMu;
     bool isRunning ABSL_GUARDED_BY(mu);
     std::thread th;
-    boost::asio::io_service io ABSL_GUARDED_BY(mu);
-    std::unique_ptr<boost::asio::io_service::work> work;
+    boost::asio::io_context io ABSL_GUARDED_BY(mu);
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> timerStore_ ABSL_GUARDED_BY(timerMu);
 };
 

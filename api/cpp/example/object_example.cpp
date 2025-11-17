@@ -21,6 +21,7 @@
 int main(int argc, char **argv)
 {
     YR::Config conf;
+    conf.inCluster = true;
     YR::Init(conf);
     auto ref = YR::Put<int>(123);
     std::cout << "get result is " << *YR::Get(ref) << std::endl;

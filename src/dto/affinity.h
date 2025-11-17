@@ -31,6 +31,8 @@ using LabelExpression = ::common::LabelExpression;
 using SubCondition = ::common::SubCondition;
 using Condition = ::common::Condition;
 using Selector = ::common::Selector;
+using PBInstanceAffinity = ::common::InstanceAffinity;
+using PBAffinityScope = ::common::AffinityScope;
 
 class LabelOperator {
 public:
@@ -62,7 +64,7 @@ public:
         auto values = GetValues();
         for (auto &value : values) {
             std::size_t h3 = std::hash<std::string>()(value);
-            res = res ^ h3;
+            std::size_t res = res ^ h3;
         }
         return res;
     }
@@ -203,6 +205,25 @@ public:
         return this->preferredAntiOtherLabels;
     }
 
+    std::string GetAffinityScope() const
+    {
+        return this->affinityScope;
+    }
+
+    void SetAffinityScope(const std::string &affinityScope)
+    {
+        this->affinityScope = affinityScope;
+    }
+
+    void UpdateAffinityScope(PBInstanceAffinity *pbInstanceAffinity)
+    {
+        if (affinityScope == AFFINITYSCOPE_NODE) {
+            pbInstanceAffinity->set_scope(common::AffinityScope::NODE);
+        } else if (affinityScope == AFFINITYSCOPE_POD) {
+            pbInstanceAffinity->set_scope(common::AffinityScope::POD);
+        }
+    }
+
     virtual void UpdatePbAffinity(PBAffinity *pbAffinity)
     {
         auto *condition = pbAffinity->mutable_resource()->mutable_preferredaffinity()->mutable_condition();
@@ -258,6 +279,7 @@ protected:
     bool requiredPriority = false;
     bool preferredAntiOtherLabels = false;
     std::list<std::shared_ptr<LabelOperator>> labelOperators;
+    std::string affinityScope;
 };
 
 class ResourcePreferredAffinity : public Affinity {
@@ -284,6 +306,8 @@ public:
     {
         auto *condition = pbAffinity->mutable_instance()->mutable_preferredaffinity()->mutable_condition();
         UpdateCondition(condition);
+        auto *pbInstanceAffinity = pbAffinity->mutable_instance();
+        UpdateAffinityScope(pbInstanceAffinity);
     }
 };
 
@@ -311,6 +335,8 @@ public:
     {
         auto *condition = pbAffinity->mutable_instance()->mutable_preferredantiaffinity()->mutable_condition();
         UpdateCondition(condition);
+        auto *pbInstanceAffinity = pbAffinity->mutable_instance();
+        UpdateAffinityScope(pbInstanceAffinity);
     }
 };
 
@@ -333,6 +359,8 @@ public:
     {
         auto *condition = pbAffinity->mutable_instance()->mutable_requiredaffinity()->mutable_condition();
         UpdateCondition(condition);
+        auto *pbInstanceAffinity = pbAffinity->mutable_instance();
+        UpdateAffinityScope(pbInstanceAffinity);
     }
 };
 
@@ -355,6 +383,8 @@ public:
     {
         auto *condition = pbAffinity->mutable_instance()->mutable_requiredantiaffinity()->mutable_condition();
         UpdateCondition(condition);
+        auto *pbInstanceAffinity = pbAffinity->mutable_instance();
+        UpdateAffinityScope(pbInstanceAffinity);
     }
 };
 }  // namespace Libruntime

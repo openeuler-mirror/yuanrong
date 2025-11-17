@@ -25,10 +25,8 @@ import com.yuanrong.InvokeOptions;
 import com.yuanrong.MSetParam;
 import com.yuanrong.SetParam;
 import com.yuanrong.api.InvokeArg;
+import com.yuanrong.api.Node;
 import com.yuanrong.api.YR;
-import com.yuanrong.call.CppInstanceHandler;
-import com.yuanrong.call.InstanceHandler;
-import com.yuanrong.call.JavaInstanceHandler;
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ErrorInfo;
 import com.yuanrong.errorcode.ModuleCode;
@@ -47,6 +45,12 @@ import com.yuanrong.runtime.util.Utils;
 import com.yuanrong.serialization.Serializer;
 import com.yuanrong.serialization.strategy.Strategy;
 import com.yuanrong.storage.InternalWaitResult;
+import com.yuanrong.stream.Consumer;
+import com.yuanrong.stream.ConsumerImpl;
+import com.yuanrong.stream.Producer;
+import com.yuanrong.stream.ProducerConfig;
+import com.yuanrong.stream.ProducerImpl;
+import com.yuanrong.stream.SubscriptionConfig;
 import com.yuanrong.utils.SdkUtils;
 
 import lombok.Getter;
@@ -95,27 +99,6 @@ public class ClusterModeRuntime implements Runtime {
     ConcurrentMap<String, Map<org.apache.commons.lang3.tuple.Pair<String, String>,
         org.apache.commons.lang3.tuple.Pair<FunctionWrapper, Boolean>>>
         functions = new ConcurrentHashMap<>();
-
-    /**
-     * The Inheritance info.
-     */
-    @Getter
-    Map<String, HashSet<String>> inheritanceInfo = new ConcurrentHashMap<>();
-
-    /**
-     * The Java instance handler map.
-     */
-    Map<String, InstanceHandler> instanceHandlerMap = new ConcurrentHashMap<>();
-
-    /**
-     * The Java instance handler map.
-     */
-    Map<String, JavaInstanceHandler> javaInstanceHandlerMap = new ConcurrentHashMap<>();
-
-    /**
-     * The Cpp instance handler map.
-     */
-    Map<String, CppInstanceHandler> cppInstanceHandlerMap = new ConcurrentHashMap<>();
 
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -193,7 +176,12 @@ public class ClusterModeRuntime implements Runtime {
             throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, e);
         }
         List<String> nestObjIds = new ArrayList<>(Serializer.CONTAINED_OBJECT_IDS.get());
-        Pair<ErrorInfo, String> res = LibRuntime.Put(byteBuffer.array(), nestObjIds);
+        Pair<ErrorInfo, String> res;
+        try {
+            res = LibRuntime.Put(byteBuffer.array(), nestObjIds);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(res.getFirst(), "put object");
         ObjectRef ret = new ObjectRef(res.getSecond());
         ret.setByteBuffer((obj instanceof ByteBuffer));
@@ -211,7 +199,12 @@ public class ClusterModeRuntime implements Runtime {
             throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, e);
         }
         List<String> nestObjIds = new ArrayList<>(Serializer.CONTAINED_OBJECT_IDS.get());
-        Pair<ErrorInfo, String> res = LibRuntime.PutWithParam(byteBuffer.array(), nestObjIds, createParam);
+        Pair<ErrorInfo, String> res;
+        try {
+            res = LibRuntime.PutWithParam(byteBuffer.array(), nestObjIds, createParam);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(res.getFirst(), "put object");
         ObjectRef ret = new ObjectRef(res.getSecond());
         ret.setByteBuffer((obj instanceof ByteBuffer));
@@ -232,7 +225,12 @@ public class ClusterModeRuntime implements Runtime {
         if (waitNum == 0) {
             throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "waitNum cannot be 0");
         }
-        InternalWaitResult waitResult = LibRuntime.Wait(objIds, waitNum, timeoutSec);
+        InternalWaitResult waitResult;
+        try {
+            waitResult = LibRuntime.Wait(objIds, waitNum, timeoutSec);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         if (waitResult == null) {
             throw new YRException(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME,
                     "failed to get wait result");
@@ -278,7 +276,12 @@ public class ClusterModeRuntime implements Runtime {
             FunctionMeta functionMeta, List<InvokeArg> args, InvokeOptions opt) throws YRException {
         String language = functionMeta.getLanguage().name();
         LOGGER.debug("start invoke function by name({}), language({})", functionMeta.getFunctionName(), language);
-        Pair<ErrorInfo, String> res = LibRuntime.InvokeInstance(functionMeta, "", args, opt);
+        Pair<ErrorInfo, String> res;
+        try {
+            res = LibRuntime.InvokeInstance(functionMeta, "", args, opt);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(res.getFirst(), "invoke function");
         String objId = res.getSecond();
         LOGGER.debug("succeed to invoke function by name({}), language({}), objId({})", functionMeta.getFunctionName(),
@@ -312,7 +315,12 @@ public class ClusterModeRuntime implements Runtime {
     public String invokeInstance(FunctionMeta functionMeta, String instanceId, List<InvokeArg> args,
             InvokeOptions opt) throws YRException {
         LOGGER.debug("start to invoke instance({}) functionMeta is {}", instanceId, functionMeta);
-        Pair<ErrorInfo, String> res = LibRuntime.InvokeInstance(functionMeta, instanceId, args, opt);
+        Pair<ErrorInfo, String> res;
+        try {
+            res = LibRuntime.InvokeInstance(functionMeta, instanceId, args, opt);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(res.getFirst(), "invoke instance");
         String objId = res.getSecond();
         LOGGER.debug("succeed to invoke instance({}) objId({})", instanceId, objId);
@@ -361,9 +369,24 @@ public class ClusterModeRuntime implements Runtime {
      */
     @Override
     public void terminateInstance(String instanceId) throws YRException {
-        ErrorInfo errorInfo = LibRuntime.Kill(instanceId);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.Kill(instanceId);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(errorInfo, "kill instance(" + instanceId + ")");
         LOGGER.info("succeed to terminate instance({})", instanceId);
+    }
+
+    /**
+     * Decrease reference.
+     *
+     * @param ids the ids.
+     */
+    @Override
+    public void decreaseReference(List<String> ids) {
+        LibRuntime.DecreaseReference(ids);
     }
 
     /**
@@ -372,8 +395,8 @@ public class ClusterModeRuntime implements Runtime {
      * @return the boolean
      */
     @Override
-    public boolean isOnCloud() {
-        return false;
+    public boolean isDriver() {
+        return true;
     }
 
     /**
@@ -381,10 +404,15 @@ public class ClusterModeRuntime implements Runtime {
      *
      * @param objectId the object id
      * @return the string representing the real instance id
+     * @throws YRException the actor task exception.
      */
     @Override
-    public String getRealInstanceId(String objectId) {
-        return LibRuntime.GetRealInstanceId(objectId);
+    public String getRealInstanceId(String objectId) throws YRException {
+        try {
+            return LibRuntime.GetRealInstanceId(objectId);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
     }
 
     /**
@@ -393,42 +421,15 @@ public class ClusterModeRuntime implements Runtime {
      * @param objectId the object id
      * @param instanceId the instance id
      * @param opts the invoke options
+     * @throws YRException the actor task exception.
      */
     @Override
-    public void saveRealInstanceId(String objectId, String instanceId, InvokeOptions opts) {
-        LibRuntime.SaveRealInstanceId(objectId, instanceId, opts);
-    }
-
-    /**
-     * Collect instance handler info.
-     *
-     * @param instanceHandler the instance handler
-     */
-    @Override
-    public void collectInstanceHandlerInfo(InstanceHandler instanceHandler) {
-        instanceHandlerMap.put(instanceHandler.getInstanceId(), instanceHandler);
-    }
-
-    @Override
-    public void collectInstanceHandlerInfo(JavaInstanceHandler javaInstanceHandler) {
-        javaInstanceHandlerMap.put(javaInstanceHandler.getInstanceId(), javaInstanceHandler);
-    }
-
-    @Override
-    public void collectInstanceHandlerInfo(CppInstanceHandler cppInstanceHandler) {
-        cppInstanceHandlerMap.put(cppInstanceHandler.getInstanceId(), cppInstanceHandler);
-    }
-
-    /**
-     * Returns an InstanceHandler object that contains the Java instance handler
-     * which is NOT terminated and associated with the specified instanceID.
-     *
-     * @param instanceID The instanceID that identifies the Java instance handler
-     * @return An InstanceHandler object associated with the specified instanceID
-     */
-    @Override
-    public InstanceHandler getInstanceHandlerInfo(String instanceID) {
-        return this.instanceHandlerMap.get(instanceID);
+    public void saveRealInstanceId(String objectId, String instanceId, InvokeOptions opts) throws YRException {
+        try {
+            LibRuntime.SaveRealInstanceId(objectId, instanceId, opts);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
     }
 
     /**
@@ -440,7 +441,6 @@ public class ClusterModeRuntime implements Runtime {
     @Override
     public void Finalize() {
         LibRuntime.Finalize();
-        clearInstanceHandlerInfo();
     }
 
     /**
@@ -455,9 +455,6 @@ public class ClusterModeRuntime implements Runtime {
     @Override
     public void Finalize(String runtimeCtx, int leftRuntimeNum) {
         LibRuntime.FinalizeWithCtx(runtimeCtx);
-        if (leftRuntimeNum == 0) {
-            clearInstanceHandlerInfo();
-        }
     }
 
     /**
@@ -494,7 +491,12 @@ public class ClusterModeRuntime implements Runtime {
             throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME,
                     "Cannot set a null value to key: " + key);
         }
-        ErrorInfo errorInfo = LibRuntime.KVWrite(key, value, setParam);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.KVWrite(key, value, setParam);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVWrite err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(), errorInfo.getModuleCode(),
                     errorInfo.getErrorMessage());
@@ -520,7 +522,12 @@ public class ClusterModeRuntime implements Runtime {
                         "Cannot set a null value to key: " + keys.get(i));
             }
         }
-        ErrorInfo errorInfo = LibRuntime.KVMSetTx(keys, values, mSetParam);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.KVMSetTx(keys, values, mSetParam);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVMSetTx err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(), errorInfo.getModuleCode(),
                     errorInfo.getErrorMessage());
@@ -545,7 +552,6 @@ public class ClusterModeRuntime implements Runtime {
             synchronized (this) {
                 allClassFunctions = functions.get(className);
                 if (allClassFunctions == null) {
-                    inheritanceInfo.putIfAbsent(className, new HashSet<>());
                     allClassFunctions = loadFunctionsForClass(className);
                     functions.putIfAbsent(className, allClassFunctions);
                 }
@@ -618,7 +624,6 @@ public class ClusterModeRuntime implements Runtime {
             }
             final String signature = type.getDescriptor();
             String declaringClassName = executable.getDeclaringClass().getName();
-            inheritanceInfo.get(className).add(declaringClassName);
             final String methodName = executable instanceof Method ? executable.getName() : CONSTRUCTOR_NAME;
             FunctionMeta meta = FunctionMeta.newBuilder().setClassName(declaringClassName)
                     .setFunctionName(methodName)
@@ -642,7 +647,12 @@ public class ClusterModeRuntime implements Runtime {
      */
     @Override
     public byte[] KVRead(String key, int timeoutMS) throws YRException {
-        Pair<byte[], ErrorInfo> result = LibRuntime.KVRead(key, timeoutMS);
+        Pair<byte[], ErrorInfo> result;
+        try {
+            result = LibRuntime.KVRead(key, timeoutMS);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         ErrorInfo errorInfo = result.getSecond();
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVRead err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(), errorInfo.getModuleCode(),
@@ -665,7 +675,12 @@ public class ClusterModeRuntime implements Runtime {
      */
     @Override
     public List<byte[]> KVRead(List<String> keys, int timeoutMS, boolean allowPartial) throws YRException {
-        Pair<List<byte[]>, ErrorInfo> result = LibRuntime.KVRead(keys, timeoutMS, allowPartial);
+        Pair<List<byte[]>, ErrorInfo> result;
+        try {
+            result = LibRuntime.KVRead(keys, timeoutMS, allowPartial);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         ErrorInfo errorInfo = result.getSecond();
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVRead err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(), errorInfo.getModuleCode(),
@@ -688,7 +703,12 @@ public class ClusterModeRuntime implements Runtime {
      */
     @Override
     public List<byte[]> KVGetWithParam(List<String> keys, GetParams params, int timeoutMS) throws YRException {
-        Pair<List<byte[]>, ErrorInfo> result = LibRuntime.KVGetWithParam(keys, params, timeoutMS);
+        Pair<List<byte[]>, ErrorInfo> result;
+        try {
+            result = LibRuntime.KVGetWithParam(keys, params, timeoutMS);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         ErrorInfo errorInfo = result.getSecond();
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVGetWithParam err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(),
@@ -706,7 +726,12 @@ public class ClusterModeRuntime implements Runtime {
      */
     @Override
     public void KVDel(String key) throws YRException {
-        ErrorInfo errorInfo = LibRuntime.KVDel(key);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.KVDel(key);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVDel err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(), errorInfo.getModuleCode(),
             errorInfo.getErrorMessage());
@@ -719,10 +744,16 @@ public class ClusterModeRuntime implements Runtime {
      *
      * @param keys A list of keys of the pairs to be deleted
      * @return A list of keys that were failed to be deleted
+     * @throws YRException If an error occurs while performing the delete operation
      */
     @Override
-    public List<String> KVDel(List<String> keys) {
-        Pair<List<String>, ErrorInfo> result = LibRuntime.KVDel(keys);
+    public List<String> KVDel(List<String> keys) throws YRException {
+        Pair<List<String>, ErrorInfo> result = null;
+        try {
+            result = LibRuntime.KVDel(keys);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         ErrorInfo errorInfo = result.getSecond();
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("KVDel err: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(), errorInfo.getModuleCode(),
@@ -744,7 +775,12 @@ public class ClusterModeRuntime implements Runtime {
         if (timeoutSec != Constants.NO_TIMEOUT) {
             timeoutMs = timeoutSec * Constants.SEC_TO_MS;
         }
-        ErrorInfo errorInfo = LibRuntime.LoadState(timeoutMs);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.LoadState(timeoutMs);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(errorInfo, "Load state error");
     }
 
@@ -761,23 +797,13 @@ public class ClusterModeRuntime implements Runtime {
         if (timeoutSec != Constants.NO_TIMEOUT) {
             timeoutMs = timeoutSec * Constants.SEC_TO_MS;
         }
-        ErrorInfo errorInfo = LibRuntime.SaveState(timeoutMs);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.SaveState(timeoutMs);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         Utils.checkErrorAndThrow(errorInfo, "Save state error");
-    }
-
-    private void clearInstanceHandlerInfo() {
-        for (Map.Entry<String, InstanceHandler> entry : instanceHandlerMap.entrySet()) {
-            InstanceHandler instanceHandler = entry.getValue();
-            instanceHandler.clearHandlerInfo();
-        }
-        for (Map.Entry<String, JavaInstanceHandler> entry : javaInstanceHandlerMap.entrySet()) {
-            JavaInstanceHandler javaInstanceHandler = entry.getValue();
-            javaInstanceHandler.clearHandlerInfo();
-        }
-        for (Map.Entry<String, CppInstanceHandler> entry : cppInstanceHandlerMap.entrySet()) {
-            CppInstanceHandler cppInstanceHandler = entry.getValue();
-            cppInstanceHandler.clearHandlerInfo();
-        }
     }
 
     @Override
@@ -787,7 +813,12 @@ public class ClusterModeRuntime implements Runtime {
                 "The value of timeout should be -1 or greater than 0");
             throw new YRException(errorInfo);
         }
-        ErrorInfo errorInfo = LibRuntime.GroupCreate(groupName, opts);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.GroupCreate(groupName, opts);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("group create error: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(),
                 errorInfo.getModuleCode(), errorInfo.getErrorMessage());
@@ -796,7 +827,12 @@ public class ClusterModeRuntime implements Runtime {
     }
     @Override
     public void groupWait(String groupName) throws YRException {
-        ErrorInfo errorInfo = LibRuntime.GroupWait(groupName);
+        ErrorInfo errorInfo;
+        try {
+            errorInfo = LibRuntime.GroupWait(groupName);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
         if (!errorInfo.getErrorCode().equals(ErrorCode.ERR_OK)) {
             LOGGER.error("group wait error: Code:{}, MCode:{}, Msg:{}", errorInfo.getErrorCode(),
                 errorInfo.getModuleCode(), errorInfo.getErrorMessage());
@@ -810,14 +846,131 @@ public class ClusterModeRuntime implements Runtime {
     }
 
     /**
+     * createStreamProducer
+     *
+     * @param streamName the stream name
+     * @param producerConf the producer conf
+     * @return Producer the stream producer
+     * @throws YRException if there is an exception during creating stream producer
+     */
+    @Override
+    public Producer createStreamProducer(String streamName, ProducerConfig producerConf) throws YRException {
+        if (producerConf.getMaxStreamSize() < 0) {
+            throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME,
+                    "maxStreamSize (" + producerConf.getMaxStreamSize() + ") is invalid, expect >= 0");
+        }
+        if (producerConf.getRetainForNumConsumers() < 0) {
+            throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME,
+                    "retainForNumConsumers (" + producerConf.getRetainForNumConsumers() + ") is invalid, expect >= 0");
+        }
+        if (producerConf.getReserveSize() < 0) {
+            throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME,
+                    "reserveSize (" + producerConf.getReserveSize() + ") is invalid, expect >= 0");
+        }
+        rLock.lock();
+        try {
+            long producerPtr = LibRuntime.CreateStreamProducerWithConfig(streamName, producerConf);
+            return new ProducerImpl(producerPtr);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        } finally {
+            rLock.unlock();
+        }
+    }
+
+    /**
+     * createStreamConsumer
+     *
+     * @param streamName the stream name
+     * @param config the subscription conf
+     * @param autoAck if consumer auto ack
+     * @return Consumer the stream consumer
+     * @throws YRException if there is an exception during creating stream consumer
+     */
+    @Override
+    public Consumer createStreamConsumer(String streamName, SubscriptionConfig config, boolean autoAck)
+        throws YRException {
+        rLock.lock();
+        try {
+            long consumerPtr = LibRuntime.CreateStreamConsumer(streamName, config.getSubscriptionName(),
+                config.getSubscriptionType(), autoAck);
+            return new ConsumerImpl(consumerPtr);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        } finally {
+            rLock.unlock();
+        }
+    }
+
+    /**
+     * deleteStream
+     *
+     * @param streamName the stream name
+     * @throws YRException if there is an exception when delete stream
+     */
+    @Override
+    public void deleteStream(String streamName) throws YRException {
+        rLock.lock();
+        try {
+            ErrorInfo err = LibRuntime.DeleteStream(streamName);
+            StackTraceUtils.checkErrorAndThrowForInvokeException(err, err.getErrorMessage());
+        } finally {
+            rLock.unlock();
+        }
+    }
+
+    /**
+     * queryGlobalProducersNum
+     *
+     * @param streamName the stream name
+     * @return long the producers num
+     * @throws YRException if there is an exception during quering global producersNum
+     */
+    @Override
+    public long queryGlobalProducersNum(String streamName) throws YRException {
+        rLock.lock();
+        try {
+            return LibRuntime.QueryGlobalProducersNum(streamName);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        } finally {
+            rLock.unlock();
+        }
+    }
+
+    /**
+     * queryGlobalConsumersNum
+     *
+     * @param streamName the stream name
+     * @return long the consumers num
+     * @throws YRException if there is an exception during quering global consumersNum
+     */
+    @Override
+    public long queryGlobalConsumersNum(String streamName) throws YRException {
+        rLock.lock();
+        try {
+            return LibRuntime.QueryGlobalConsumersNum(streamName);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        } finally {
+            rLock.unlock();
+        }
+    }
+
+    /**
      * Get instance route.
      *
      * @param objectId the object id
      * @return the string representing the instance route
+     * @throws YRException the YR exception.
      */
     @Override
-    public String getInstanceRoute(String objectId) {
-        return LibRuntime.GetInstanceRoute(objectId);
+    public String getInstanceRoute(String objectId) throws YRException {
+        try {
+            return LibRuntime.GetInstanceRoute(objectId);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
     }
 
     /**
@@ -825,10 +978,15 @@ public class ClusterModeRuntime implements Runtime {
      *
      * @param objectId the object id
      * @param instanceRoute the instance route
+     * @throws YRException the YR exception.
      */
     @Override
-    public void saveInstanceRoute(String objectId, String instanceRoute) {
-        LibRuntime.SaveInstanceRoute(objectId, instanceRoute);
+    public void saveInstanceRoute(String objectId, String instanceRoute) throws YRException {
+        try {
+            LibRuntime.SaveInstanceRoute(objectId, instanceRoute);
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
     }
 
     /**
@@ -842,5 +1000,23 @@ public class ClusterModeRuntime implements Runtime {
         ErrorInfo errorInfo = LibRuntime.KillSync(instanceId);
         Utils.checkErrorAndThrow(errorInfo, "kill instance sync(" + instanceId + ")");
         LOGGER.info("succeed to terminate instance sync({})", instanceId);
+    }
+
+    /**
+     * Get node information in the cluster.
+     *
+     * @return List<Node>: node information
+     * @throws YRException the actor task exception.
+     */
+    @Override
+    public List<Node> nodes() throws YRException {
+        Pair<ErrorInfo, List<Node>> res;
+        try {
+            res = LibRuntime.nodes();
+        } catch (LibRuntimeException e) {
+            throw new YRException(e.getErrorCode(), e.getModuleCode(), e.getMessage());
+        }
+        Utils.checkErrorAndThrow(res.getFirst(), "get node information");
+        return res.getSecond();
     }
 }

@@ -31,10 +31,11 @@ from yr.config import ClientInfo, Config, InvokeOptions
 from yr.config_manager import ConfigManager
 from yr.decorator import function_proxy, instance_proxy
 from yr.executor.executor import Executor
-from yr.fnruntime import auto_get_cluster_access_info
+from yr.fnruntime import Consumer, Producer, auto_get_cluster_access_info
 from yr.object_ref import ObjectRef
 from yr.resource_group_ref import RgObjectRef
 from yr.runtime import ExistenceOpt, WriteMode, CacheType, SetParam, MSetParam, CreateParam, GetParams
+from yr.stream import ProducerConfig, SubscriptionConfig
 from yr.decorator.function_proxy import FunctionProxy
 from yr.decorator.instance_proxy import InstanceCreator, InstanceProxy
 from yr.common.utils import CrossLanguageInfo
@@ -113,10 +114,12 @@ def _auto_get_cluster_access_info(conf):
     cluster_access_info = auto_get_cluster_access_info({
         "serverAddr": conf.server_address,
         "dsAddr": conf.ds_address,
+        "inCluster": conf.in_cluster
     }, args)
 
     conf.server_address = cluster_access_info["serverAddr"]
     conf.ds_address = cluster_access_info["dsAddr"]
+    conf.in_cluster = cluster_access_info["inCluster"]
     return conf
 
 
@@ -256,7 +259,7 @@ def put(obj: object, create_param: CreateParam = CreateParam()) -> ObjectRef:
         >>> print(yr.get(obj_ref4))
         >>> 100
     """
-    if (isinstance(obj, (bytes, bytearray, memoryview)) and len(obj) == 0):
+    if obj is None or (isinstance(obj, (bytes, bytearray, memoryview)) and len(obj) == 0):
         raise ValueError("value is None or has zero length")
     # Make sure that the value is not an object ref.
     if isinstance(obj, ObjectRef):
@@ -272,6 +275,9 @@ def get(obj_refs: Union["ObjectRef", List, "RgObjectRef"], timeout: int = consta
     """
     Retrieve the value of an object stored in the backend based on the object's key.
     The interface call will block until the object's value is obtained or a timeout occurs.
+
+    Note:
+        yr.get() uniformly returns a memoryview pointer for bytes, bytearray, and memoryview types.
 
     Args:
         obj_refs (ObjectRef, List[ObjectRef]): The object_ref of the object in the data system.
@@ -670,6 +676,121 @@ def exit() -> None:
         None.
     """
     runtime_holder.global_runtime.get_runtime().exit()
+
+
+@check_initialized
+def create_stream_producer(stream_name: str, config: ProducerConfig) -> Producer:
+    """
+    Create a producer.
+
+    Args:
+        stream_name (str): The name of the stream.
+            The length must be less than 256 characters and contain only the following characters
+            `(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^&*()\\+\\=;:)` .
+        config (ProducerConfig): The configuration of the producer.
+
+    Returns:
+        Producer.
+
+    Raises:
+        RuntimeError: If creating the Producer fails.
+
+    Examples:
+        >>> try:
+        ...     producer_config = ProducerConfig(
+        ...         delay_flush_time=5,
+        ...         page_size=1024 * 1024,
+        ...         max_stream_size=1024 * 1024 * 1024,
+        ...         auto_clean_up=True,
+        ...     )
+        ...     stream_producer = create_stream_producer("streamName", producer_config)
+        ... except RuntimeError as exp:
+        ...     # 处理异常
+        ...     pass
+    """
+    return runtime_holder.global_runtime.get_runtime().create_stream_producer(stream_name, config)
+
+
+@check_initialized
+def create_stream_consumer(stream_name: str, config: SubscriptionConfig) -> Consumer:
+    """
+    Create a consumer.
+
+    Args:
+        stream_name (str): The name of the stream.
+            The length must be less than 256 characters and contain only the following characters
+            `(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^&*()\\+\\=;:)` .
+        config (SubscriptionConfig): The configuration of the consumer.
+
+    Returns:
+        Consumer.
+
+    Raises:
+        RuntimeError:  If creating the Consumer fails.
+
+    Examples:
+        >>> try:
+        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
+        ...     consumer = create_stream_consumer("streamName", config)
+        ... except RuntimeError as exp:
+        ...     pass
+    """
+    return runtime_holder.global_runtime.get_runtime().create_stream_consumer(stream_name, config)
+
+
+@check_initialized
+def query_global_producers_num(stream_name: str) -> int:
+    """
+    查询流生产者数量
+
+    Args:
+        stream_name: 流名称
+
+    Returns:
+        数量
+    """
+    return runtime_holder.global_runtime.get_runtime().query_global_producers_num(stream_name)
+
+
+@check_initialized
+def query_global_consumers_num(stream_name: str) -> int:
+    """
+    查询流消费者数量
+
+    Args:
+        stream_name: 流名称
+
+    Returns:
+        数量
+    """
+    return runtime_holder.global_runtime.get_runtime().query_global_consumers_num(stream_name)
+
+
+@check_initialized
+def delete_stream(stream_name: str) -> None:
+    """
+    Delete the data stream. When the global count of producers and consumers is 0, the data stream is no longer in use,
+    and the metadata related to the data stream on each worker and master is cleaned up.
+    This function can be called on any Host node.
+
+    Args:
+        stream_name (str): The name of the stream.
+            The length must be less than 256 characters and contain only the following characters
+            `(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^&*()\\+\\=;:)` .
+
+    Returns:
+        None.
+
+    Raises:
+        RuntimeError: If the stream fails to be deleted in the data system, an exception will be thrown.
+
+    Examples:
+        >>> try:
+        ...     delete_stream("streamName")
+        ... except RuntimeError as exp:
+        ...     pass
+    """
+    runtime_holder.global_runtime.get_runtime().delete_stream(stream_name)
 
 
 @check_initialized

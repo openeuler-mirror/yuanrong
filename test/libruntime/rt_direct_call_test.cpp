@@ -31,7 +31,7 @@ namespace YR {
 namespace test {
 class FakeCallee {
 public:
-    FakeCallee(int port) : port(port)
+    FakeCallee()
     {
         handlers_.call = std::bind(&FakeCallee::EmptyCallHandler, this, _1);
         handlers_.init = [](const std::shared_ptr<CallMessageSpec> &){ return CallResponse(); };
@@ -46,7 +46,6 @@ public:
     void Start(const std::shared_ptr<FakeFunctionProxyServer> &functionProxy)
     {
         Config::Instance().POD_IP() = Config::Instance().HOST_IP();
-        Config::Instance().DERICT_RUNTIME_SERVER_PORT() = port;
         fsClient_ = std::make_shared<FSIntfImpl>(Config::Instance().HOST_IP(), functionProxy->GetPort(), handlers_,
                                                  false, security_, clientsMgr, true);
         auto err = fsClient_->Start("12345678", "callee", "callee");
@@ -56,6 +55,11 @@ public:
             fsClient_->ReceiveRequestLoop();
         });
         fsClient_->SetInitialized();
+    }
+
+    int GetPort()
+    {
+        return fsClient_->selfPort;
     }
 
     void Stop()
@@ -78,16 +82,16 @@ public:
             CallResult res;
             res.set_requestid(req->Immutable().requestid());
             res.set_instanceid(req->Immutable().senderid());
-            auto result = std::make_shared<CallResultMessageSpec>();
-            result->Mutable() = std::move(res);
-            fsClient_->ReturnCallResult(result, false, [this](const CallResultAck &resp) {
-                if (resp.code() != common::ERR_NONE) {
-                    YRLOG_WARN("failed to send CallResult, code: {}, message: {}", static_cast<int>(resp.code()),
-                               resp.message());
-                }
-                return;
-            });
-        }, "");
+                auto result = std::make_shared<CallResultMessageSpec>();
+                result->Mutable() = std::move(res);
+                fsClient_->ReturnCallResult(result, false, [this](const CallResultAck &resp) {
+                    if (resp.code() != common::ERR_NONE) {
+                        YRLOG_WARN("failed to send CallResult, code: {}, message: {}", fmt::underlying(resp.code()),
+                                   resp.message());
+                    }
+                    return;
+                });
+            }, "");
         return resp;
     }
 
@@ -96,7 +100,7 @@ public:
     std::shared_ptr<FSIntfImpl> fsClient_;
     std::shared_ptr<ClientsManager> clientsMgr;
     std::thread t;
-    std::shared_ptr<YR::Libruntime::Security> security_ = std::make_shared<YR::test::MockSecurity>();
+    std::shared_ptr<YR::Libruntime::Security> security_ = std::make_shared<YR::test::MockSecurity>();;
     int port;
 };
 
@@ -124,7 +128,6 @@ public:
             .modelName = "test",
             .maxSize = 100,
             .maxFiles = 1,
-            .retentionDays = DEFAULT_RETENTION_DAYS,
             .logFileWithTime = false,
             .logBufSecs = 30,
             .maxAsyncQueueSize = 1048510,
@@ -135,9 +138,10 @@ public:
         Config::Instance().RUNTIME_DIRECT_CONNECTION_ENABLE() = true;
         clientsMgr = std::make_shared<ClientsManager>();
         functionProxy = std::make_shared<FakeFunctionProxyServer>(Config::Instance().HOST_IP());
-        fakeCallee = std::make_shared<FakeCallee>(calleePort);
+        fakeCallee = std::make_shared<FakeCallee>();
         functionProxy->Start();
         fakeCallee->Start(functionProxy);
+        calleePort = fakeCallee->GetPort();
     }
 
     void TearDown() override
@@ -213,7 +217,7 @@ public:
                 auto err = notified.WaitForNotification();
                 EXPECT_TRUE(err.OK());
             }
-            auto [channel, err] = clientsMgr->GetFsConn(Config::Instance().HOST_IP(), calleePort);
+            auto [channel, err] = clientsMgr->GetFsConn(Config::Instance().HOST_IP(), calleePort, "callee");
             EXPECT_TRUE(channel != nullptr);
             EXPECT_TRUE(err.OK());
         }
@@ -273,7 +277,7 @@ TEST_F(RTDirectCallTest, FunctionProxyDisconnectedTest)
             auto err = notified.WaitForNotification();
             EXPECT_TRUE(err.OK());
         }
-        auto [channel, err] = clientsMgr->GetFsConn(Config::Instance().HOST_IP(), calleePort);
+        auto [channel, err] = clientsMgr->GetFsConn(Config::Instance().HOST_IP(), calleePort, "callee");
         EXPECT_TRUE(channel != nullptr);
         EXPECT_TRUE(err.OK());
     }

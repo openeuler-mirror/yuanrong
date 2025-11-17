@@ -54,4 +54,74 @@ public class TestResourceAffinity {
 
         Assert.assertFalse(resourceAffinity10.equals(resourceAffinity11));
     }
+
+    @Test
+    public void testInitResourceAffinityPreferredAffinity() {
+        ResourceAffinity resourceAffinity = new ResourceAffinity(AffinityType.PREFERRED, new Selector());
+
+        Assert.assertNotNull(resourceAffinity.getPreferredAffinity());
+
+        Assert.assertNull(resourceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAntiAffinity());
+    }
+
+    @Test
+    public void testInitResourceAffinityPreferredAntiAffinity() {
+        ResourceAffinity resourceAffinity = new ResourceAffinity(AffinityType.PREFERRED_ANTI, new Selector());
+
+        Assert.assertNotNull(resourceAffinity.getPreferredAntiAffinity());
+
+        Assert.assertNull(resourceAffinity.getPreferredAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAntiAffinity());
+    }
+
+    @Test
+    public void testInitResourceAffinityRequiredAffinity() {
+        ResourceAffinity resourceAffinity = new ResourceAffinity(AffinityType.REQUIRED, new Selector());
+
+        Assert.assertNotNull(resourceAffinity.getRequiredAffinity());
+
+        Assert.assertNull(resourceAffinity.getPreferredAffinity());
+        Assert.assertNull(resourceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAntiAffinity());
+    }
+
+    @Test
+    public void testInitResourceAffinityRequiredAntiAffinity() {
+        ResourceAffinity resourceAffinity = new ResourceAffinity(AffinityType.REQUIRED_ANTI, new Selector());
+
+        Assert.assertNotNull(resourceAffinity.getRequiredAntiAffinity());
+
+        Assert.assertNull(resourceAffinity.getPreferredAffinity());
+        Assert.assertNull(resourceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAffinity());
+    }
+
+    @Test
+    public void testInitResourceAffinitySelector() {
+        Selector pa = new Selector();
+        ResourceAffinity resourceAffinity = new ResourceAffinity(pa);
+
+        Assert.assertEquals(pa, resourceAffinity.getPreferredAffinity());
+
+        Assert.assertNull(resourceAffinity.getPreferredAntiAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAffinity());
+        Assert.assertNull(resourceAffinity.getRequiredAntiAffinity());
+    }
+
+    @Test
+    public void testInitResourceAffinitySelectors() {
+        Selector pa = new Selector();
+        Selector paa = new Selector();
+        Selector ra = new Selector();
+        Selector raa = new Selector();
+        ResourceAffinity resourceAffinity = new ResourceAffinity(pa, paa, ra, raa);
+
+        Assert.assertEquals(pa, resourceAffinity.getPreferredAffinity());
+        Assert.assertEquals(paa, resourceAffinity.getPreferredAntiAffinity());
+        Assert.assertEquals(ra, resourceAffinity.getRequiredAffinity());
+        Assert.assertEquals(raa, resourceAffinity.getRequiredAntiAffinity());
+    }
 }

@@ -18,8 +18,8 @@
 
 #include <algorithm>
 
+#include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
-
 namespace YR {
 namespace Libruntime {
 FSIntf::FSIntf(const FSIntfHandlers &handlers) : handlers(handlers)
@@ -35,8 +35,7 @@ FSIntf::FSIntf(const FSIntfHandlers &handlers) : handlers(handlers)
         this->handlers.heartbeat = std::bind(&FSIntf::HandleHeartbeat, this, std::placeholders::_1);
     }
 
-    this->noitfyExecutor.Init(NOTIFY_THREAD_POOL_SIZE, "fs.notify");
-    this->checkpointRecoverExecutor.Init(CKPT_RCVR_THREAD_POOL_SIZE, "fs.ckpt_rcvr");
+    this->noitfyExecutor.Init(YR::Libruntime::Config::Instance().YR_NOTIFY_THREAD_POOL_SIZE(), "fs.notify");
     this->shutdownExecutor.Init(SHUTDOWN_THREAD_POOL_SIZE, "fs.shutdown");
     this->signalExecutor.Init(SIGNAL_THREAD_POOL_SIZE, "fs.signal");
     if (!this->syncHeartbeat) {
@@ -69,6 +68,7 @@ void FSIntf::Clear()
 
 void FSIntf::ReceiveRequestLoop(void)
 {
+    this->checkpointRecoverExecutor.Init(CKPT_RCVR_THREAD_POOL_SIZE, "fs.ckpt_rcvr");
     this->callReceiver.InitAndRun();
 }
 
@@ -138,13 +138,13 @@ void FSIntf::HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, Call
                     resp.set_code(code);
                     resp.set_message(msg);
                     YRLOG_DEBUG("send init call response, request ID: {}, code {}, message {}",
-                                req->Immutable().requestid(), resp.code(), resp.message());
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
                     callback(resp);
                 } else {
                     callback(resp);
                     this->handlers.init(req);
                     YRLOG_DEBUG("send init call response , request ID: {}, code {}, message {}",
-                                req->Immutable().requestid(), resp.code(), resp.message());
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
                 }
             } else {
                 if (!status.WaitInitialized()) {
@@ -152,13 +152,13 @@ void FSIntf::HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, Call
                     resp.set_code(code);
                     resp.set_message(msg);
                     YRLOG_DEBUG("after wait initialized, send call response, request ID: {}, code {}, message {}",
-                                req->Immutable().requestid(), resp.code(), resp.message());
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
                     callback(resp);
                 } else {
                     callback(resp);
                     this->handlers.call(req);
                     YRLOG_DEBUG("send call response , request ID: {}, code {}, message {}",
-                                req->Immutable().requestid(), resp.code(), resp.message());
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
                 }
             }
             if (resp.code() != common::ERR_NONE) {
@@ -249,7 +249,7 @@ void FSIntf::HandleSignalRequest(const SignalRequest &req, SignalCallBack callba
 {
     this->signalExecutor.Handle(
         [this, req, callback]() {
-            YRLOG_DEBUG("recieve signal req, signal is {}, payload is {}", req.signal(), req.payload());
+            YRLOG_DEBUG("receive signal req, signal is {}, payload is {}", req.signal(), req.payload());
             auto resp = this->handlers.signal(req);
             callback(resp);
         },

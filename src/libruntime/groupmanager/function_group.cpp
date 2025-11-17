@@ -76,7 +76,8 @@ void FunctionGroup::CreateRespHandler(const CreateResponses &resps)
             auto errorInfo = memStore_->DecreGlobalReference(ids);
             if (!errorInfo.OK()) {
                 YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}",
-                           createSpecs[0]->requestId, errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                           createSpecs[0]->requestId, fmt::underlying(errorInfo.Code()),
+                           fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
             }
         }
     }
@@ -92,7 +93,7 @@ void FunctionGroup::CreateNotifyHandler(const NotifyRequest &req)
         auto errorInfo = memStore_->DecreGlobalReference(ids);
         if (!errorInfo.OK()) {
             YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", createSpecs[0]->requestId,
-                       errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                       fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
         }
     }
 }
@@ -169,7 +170,7 @@ void FunctionGroup::InvokeByInstanceIds(const std::shared_ptr<InvokeSpec> &spec,
                 auto errorInfo = memStore_->DecreGlobalReference(ids);
                 if (!errorInfo.OK()) {
                     YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", req.requestid(),
-                               errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                               fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
                 }
                 this->Terminate();
             });
@@ -214,10 +215,12 @@ ErrorInfo FunctionGroup::Accelerate(const AccelerateMsgQueueHandle &handle, Hand
         auto killPromise = std::make_shared<std::promise<KillResponse>>();
         killFutures.emplace_back(killPromise->get_future());
         KillRequest killReq;
+        killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
         killReq.set_instanceid(instanceIdList[i]);
         killReq.set_payload(payload);
         killReq.set_signal(libruntime::Signal::Accelerate);
-        fsClient->KillAsync(killReq, [killPromise](KillResponse rsp, ErrorInfo err) { killPromise->set_value(rsp); });
+        fsClient->KillAsync(killReq,
+                            [killPromise](KillResponse rsp, const ErrorInfo &err) { killPromise->set_value(rsp); });
     }
     std::vector<AccelerateMsgQueueHandle> handles;
     std::vector<std::string> objIds;

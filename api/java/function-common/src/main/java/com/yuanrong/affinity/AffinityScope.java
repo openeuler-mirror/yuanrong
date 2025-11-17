@@ -22,8 +22,8 @@ package com.yuanrong.affinity;
  * @since 2024-09-11
  */
 public enum AffinityScope {
-    NODE(1),
-    POD(2);
+    POD(1),
+    NODE(2);
 
     private int scope;
 

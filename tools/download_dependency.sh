@@ -127,6 +127,9 @@ function compile_all(){
     chmod -R 700 "${THIRD_PARTY_DIR}/openssl/"
     ./config enable-ssl3 enable-ssl3-method --prefix="${THIRD_PARTY_DIR}/openssl/install"
     make -j build_libs install_dev
+    if [[ -d ${THIRD_PARTY_DIR}/openssl/install/lib64 && ! -d ${THIRD_PARTY_DIR}/openssl/install/lib ]];then
+      cp -fr ${THIRD_PARTY_DIR}/openssl/install/lib64 ${THIRD_PARTY_DIR}/openssl/install/lib
+    fi
     popd
   fi
 }

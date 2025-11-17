@@ -31,6 +31,18 @@ import java.util.HashMap;
 
 public class TestUtils {
     @Test
+    public void testSplitEntryWithSeparators() {
+        String udfEntry = "{\"userInitEntry\":\"com.yuanrong.executor.UserTestHandler.timeoutInitializer\","
+            + "\"userCallEntry\":\"com.yuanrong.executor.UserTestHandler-handler\"}";
+        String[] entry = null;
+        try {
+            entry = Utils.splitEntryWithSeparators(udfEntry, new String[] {"-"});
+        } catch (NoSuchMethodException e) {
+            Assert.assertEquals(null, entry);
+        }
+    }
+
+    @Test
     public void testInitUtils() throws NoSuchMethodException {
         Utils utils = new Utils();
         Utils.isEmptyStr("test");
@@ -90,6 +102,24 @@ public class TestUtils {
         }
         String stringWithLen = stringBuilder.toString();
         Utils.getProcessedExceptionMsg(new Throwable(stringWithLen));
+        Utils.put("test", null, new ArrayList<>(), null, 1L, 1L);
+
+        isException = false;
+        try {
+            Utils.get(new ArrayList<>(), 1, 1);
+        } catch (Exception e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
         Utils.sleepSeconds(10);
+
+
+        isException = false;
+        try {
+            Utils.splitUserClassAndMethod(null,true);
+        } catch (Exception e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
     }
 }

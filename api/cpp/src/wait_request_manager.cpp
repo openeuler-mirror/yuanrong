@@ -75,7 +75,8 @@ void WaitRequest::SetException(const std::exception_ptr &exception)
 WaitRequestManager::WaitRequestManager()
 {
     this->ioc = std::make_shared<boost::asio::io_context>();
-    this->work = std::make_unique<boost::asio::io_context::work>(*ioc);
+    this->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+        boost::asio::make_work_guard(*ioc));
     this->asyncRunner = std::make_unique<std::thread>([&] { this->ioc->run(); });
     pthread_setname_np(this->asyncRunner->native_handle(), "wait_request_handler");
 }
@@ -154,7 +155,7 @@ void WaitRequestManager::WaitTimer(boost::asio::steady_timer &timer, int timeout
                                    const std::shared_ptr<WaitRequest> &waitRequest)
 {
     if (timeout != NO_TIMEOUT) {
-        timer.expires_from_now(std::chrono::seconds(timeout));
+        timer.expires_after(std::chrono::seconds(timeout));
         timer.async_wait([this, waitRequest](const boost::system::error_code &ec) {
             if (ec) {
                 return;

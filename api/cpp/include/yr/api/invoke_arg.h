@@ -25,6 +25,7 @@ struct InvokeArg {
     {
         if (&rhs != this) {
             buf = std::move(rhs.buf);
+            yrBuf = std::move(rhs.yrBuf);
             isRef = rhs.isRef;
             objId = std::move(rhs.objId);
             nestedObjects = std::move(rhs.nestedObjects);
@@ -35,6 +36,7 @@ struct InvokeArg {
     {
         if (&rhs != this) {
             buf = std::move(rhs.buf);
+            yrBuf = std::move(rhs.yrBuf);
             isRef = rhs.isRef;
             objId = std::move(rhs.objId);
             nestedObjects = std::move(rhs.nestedObjects);
@@ -46,6 +48,7 @@ struct InvokeArg {
     InvokeArg &operator=(InvokeArg const &) = delete;
 
     msgpack::sbuffer buf;
+    Buffer yrBuf;
     bool isRef = false;
     std::string objId;                              // objId records objs for dependency resolver
     std::unordered_set<std::string> nestedObjects;  // nestedObjects records objs for ref count

@@ -41,7 +41,7 @@ nlohmann::json GetValidConfig()
     "backends": [
         {
             "immediatelyExport": {
-                "name": "Alarm",
+                "name": "CAAS_Alarm",
                 "enable": true,
                 "custom": {
                     "labels": {
@@ -55,14 +55,59 @@ nlohmann::json GetValidConfig()
                     {
                         "fileExporter": {
                             "enable": true,
+                            "fileDir": "/home/sn/metrics/",
+                            "rolling": {
+                                "enable": true,
+                                "maxFiles": 3,
+                                "maxSize": 10000
+                            },
+                            "contentType": "LABELS"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "immediatelyExport": {
+                "name": "LingYun",
+                "enable": true,
+                "exporters": [
+                    {
+                        "prometheusPushExporter": {
+                            "enable": true,
+                            "enable": true,
+                            "batchSize": 2,
+                            "batchIntervalSec": 10,
+                            "failureQueueMaxSize": 2,
+                            "failureDataDir": "/home/sn/metrics/failure",
+                            "failureDataFileMaxCapacity": 1,
                             "initConfig": {
-                                "fileDir": "./metrics",
-                                "rolling": {
-                                    "enable": true,
-                                    "maxFiles": 3,
-                                    "maxSize": 10000
-                                },
-                                "contentType": "STANDARD"
+                                "ip": "127.0.0.1",
+                                "port": 31061
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "immediatelyExport": {
+                "name": "LakeHouse",
+                "enable": true,
+                "exporters": [
+                    {
+                        "aomAlarmExporter": {
+                            "enable": true,
+                            "enable": true,
+                            "batchSize": 2,
+                            "batchIntervalSec": 10,
+                            "failureQueueMaxSize": 2,
+                            "failureDataDir": "/home/sn/metrics/failure",
+                            "failureDataFileMaxCapacity": 1,
+                            "enabledInstruments": ["name"],
+                            "initConfig": {
+                                "ip": "127.0.0.1",
+                                "port": 31061
                             }
                         }
                     }
@@ -81,7 +126,7 @@ nlohmann::json GetUnsupportedConfig()
 {
     "backends": [
         {
-            "batchExport": {"name": "Alarm"}
+            "batchExport": {"name": "CAAS_Alarm"}
         }
     ]
 }
@@ -106,7 +151,7 @@ nlohmann::json GetImmedExportNotEnableConfig()
     "backends": [
         {
             "immediatelyExport": {
-                "name": "Alarm",
+                "name": "LingYun",
                 "enable": false,
                 "exporters": [
                     {
@@ -123,6 +168,46 @@ nlohmann::json GetImmedExportNotEnableConfig()
 }
     )";
     return nlohmann::json::parse(str);
+}
+
+nlohmann::json GetPromExportNotEnableConfig()
+{
+    const std::string str = R"(
+{
+    "backends": [
+        {
+            "immediatelyExport": {
+                "name": "LingYun",
+                "enable": true,
+                "exporters": [
+                    {
+                        "prometheusPushExporter": {
+                            "enable": false,
+                            "ip": "127.0.0.1",
+                            "port": 9091
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}
+    )";
+    return nlohmann::json::parse(str);
+}
+
+nlohmann::json GetPrometheusPushExporterConfig()
+{
+    std::string jsonStr = R"(
+{
+    "enable": true,
+    "initConfig": {
+        "ip": "x",
+        "port": 0
+    }
+}
+    )";
+    return nlohmann::json::parse(jsonStr);
 }
 
 nlohmann::json GetExportConfigs()
@@ -189,8 +274,9 @@ TEST_F(MetricsAdaptorTest, InitSuccessullyTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     setenv("YR_SSL_ENABLE", "true", 1);
+    setenv("YR_SSL_PASSPHRASE", "YR_SSL_PASSPHRASE", 1);
     Config::c = Config();
     auto nullMeterProvider = MetricsApi::Provider::GetMeterProvider();
     auto jsonStr = GetValidConfig();
@@ -199,8 +285,9 @@ TEST_F(MetricsAdaptorTest, InitSuccessullyTest)
     EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
     unsetenv("YR_SSL_ENABLE");
+    unsetenv("YR_SSL_PASSPHRASE");
 }
 
 TEST_F(MetricsAdaptorTest, UnsupportedInitTest)
@@ -209,7 +296,7 @@ TEST_F(MetricsAdaptorTest, UnsupportedInitTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto nullMeterProvider = MetricsApi::Provider::GetMeterProvider();
     auto jsonStr = GetUnsupportedConfig();
@@ -218,7 +305,7 @@ TEST_F(MetricsAdaptorTest, UnsupportedInitTest)
     EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, InvalidInitTest)
@@ -227,14 +314,14 @@ TEST_F(MetricsAdaptorTest, InvalidInitTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetInvalidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
     metricsAdaptor->Init(jsonStr, true);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, InitNotEnableTest)
@@ -243,7 +330,7 @@ TEST_F(MetricsAdaptorTest, InitNotEnableTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto nullMeterProvider = MetricsApi::Provider::GetMeterProvider();
     auto jsonStr = GetImmedExportNotEnableConfig();
@@ -252,7 +339,14 @@ TEST_F(MetricsAdaptorTest, InitNotEnableTest)
     EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+
+    auto jsonStr2 = GetPromExportNotEnableConfig();
+    auto metricsAdaptor2 = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor2->Init(jsonStr2, true);
+    EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
+    metricsAdaptor2->CleanMetrics();
+    EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
@@ -261,7 +355,7 @@ TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -277,7 +371,7 @@ TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, SetAlarmTest)
@@ -286,7 +380,7 @@ TEST_F(MetricsAdaptorTest, SetAlarmTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -301,7 +395,7 @@ TEST_F(MetricsAdaptorTest, SetAlarmTest)
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, DoubleCounterTest)
@@ -310,7 +404,7 @@ TEST_F(MetricsAdaptorTest, DoubleCounterTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -334,7 +428,7 @@ TEST_F(MetricsAdaptorTest, DoubleCounterTest)
     EXPECT_EQ(res.second, 0);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, UInt64CounterTest)
@@ -343,7 +437,7 @@ TEST_F(MetricsAdaptorTest, UInt64CounterTest)
     if (path == "") {
         ASSERT_EQ(1, 2);
     }
-    setenv("SNLIB_PATH", path.c_str(), 1);
+    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -367,7 +461,7 @@ TEST_F(MetricsAdaptorTest, UInt64CounterTest)
     EXPECT_EQ(res.second, 0);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNLIB_PATH");
+    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, MetricsFailedTest)
@@ -415,6 +509,26 @@ TEST_F(MetricsAdaptorTest, contextTest)
     attr = "test_attr_key";
     result = metricsContext.GetAttr(attr);
     ASSERT_EQ(result, "");
+}
+
+TEST_F(MetricsAdaptorTest, InitHttpExporterWithTLS)
+{
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+
+    setenv("YR_SSL_ENABLE", "true", 1);
+    setenv("YR_SSL_ROOT_FILE", "root", 1);
+    setenv("YR_SSL_CERT_FILE", "cert", 1);
+    setenv("YR_SSL_KEY_FILE", "key", 1);
+    setenv("YR_SSL_PASSPHRASE", "123", 1);
+
+    YR::Libruntime::Config::c = YR::Libruntime::Config();
+
+    auto config = GetPrometheusPushExporterConfig();
+    auto ret = metricsAdaptor->InitHttpExporter("prometheusPushExporter", "key", "name", config);
+    ASSERT_TRUE(ret == nullptr);
+    auto value = std::getenv("YR_SSL_PASSPHRASE");
+    ASSERT_TRUE(value != nullptr);
+    ASSERT_EQ(std::string(value), "");
 }
 
 TEST_F(MetricsAdaptorTest, BuildExportConfigsTest)

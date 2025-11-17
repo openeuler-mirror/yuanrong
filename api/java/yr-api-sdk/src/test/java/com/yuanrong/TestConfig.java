@@ -17,9 +17,13 @@
 package com.yuanrong;
 
 import com.yuanrong.exception.YRException;
+import com.yuanrong.runtime.util.Constants;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 
 public class TestConfig {
     @Test
@@ -29,6 +33,7 @@ public class TestConfig {
             "127.0.0.0",
             "127.0.0.0",
             "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            true,
             false);
         Config testConf2 = new Config(
             "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
@@ -36,28 +41,77 @@ public class TestConfig {
             1,
             "127.0.0.0",
             1,
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            true);
         Config testConf3 = new Config(
             "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
             "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
-            true);
-        Config testConf4 = new Config.Builder()
+            "test-go-urn",
+            true,
+            false);
+        Config testConf4 = new Config(
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
+            "127.0.0.0",
+            1,
+            "127.0.0.0",
+            1,
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            false);
+        Config testConf5 = new Config.Builder().iamAuthToken("test-token")
             .cppFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest")
+            .goFunctionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest")
             .isDriver(true)
             .ns("test-ns")
             .logDir("/tmp")
             .logLevel("test-level")
             .enableDisConvCallStack(false)
             .rpcTimeout(1)
+            .codePath(new ArrayList<>())
             .build();
+        Config testConf6 = new Config();
 
         testConf1.setMaxLogSizeMb(10);
         testConf2.setMaxLogFileNum(10);
-        testConf4.toString();
-        Assert.assertNotEquals(testConf3, testConf2);
-        Assert.assertNotEquals(testConf1, testConf2);
+        testConf5.toString();
+        testConf4.hashCode();
+        Assert.assertFalse(testConf3.equals(testConf4));
+        Assert.assertFalse(testConf1.equals(testConf2));
+
+        Assert.assertTrue(testConf6.isInCluster());
+        Assert.assertTrue(testConf6.isDriver());
+        Assert.assertTrue(testConf6.isEnableMetrics());
+        Assert.assertFalse(testConf6.isEnableMTLS());
+        Assert.assertFalse(testConf6.isEnableDsAuth());
+        Assert.assertTrue(testConf6.isEnableDisConvCallStack());
+        Assert.assertFalse(testConf6.isThreadLocal());
+        Assert.assertFalse(testConf6.isEnableSetContext());
+        Assert.assertEquals("", testConf6.getServerAddress());
+        Assert.assertEquals("", testConf6.getDataSystemAddress());
+        Assert.assertEquals("", testConf6.getNs());
+        Assert.assertEquals("", testConf6.getLogLevel());
+        Assert.assertEquals("", testConf6.getIamAuthToken());
+        Assert.assertEquals("", testConf6.getTenantId());
+        Assert.assertEquals("sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-cpp:$latest",
+            testConf6.getCppFunctionURN());
+        Assert.assertEquals("sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-go:$latest",
+            testConf6.getGoFunctionURN());
+        Assert.assertEquals(30 * 60, testConf6.getRpcTimeout());
+        Assert.assertEquals(31222, testConf6.getServerAddressPort());
+        Assert.assertEquals(31222, testConf6.getDataSystemAddressPort());
+        Assert.assertEquals(0, testConf6.getThreadPoolSize());
+        Assert.assertEquals(10, testConf6.getRecycleTime());
+        Assert.assertEquals(System.getProperty("user.dir"), testConf6.getLogDir());
+        Assert.assertEquals(0, testConf6.getMaxLogSizeMb());
+        Assert.assertEquals(0, testConf6.getMaxLogFileNum());
+        Assert.assertEquals(-1, testConf6.getMaxTaskInstanceNum());
+        Assert.assertEquals(100, testConf6.getMaxConcurrencyCreateNum());
+        Assert.assertEquals(Constants.DEFAULT_HTTP_IO_THREAD_CNT, testConf6.getHttpIocThreadsNum());
+        Assert.assertEquals(Constants.DEFAULT_HTTP_IDLE_TIME, testConf6.getHttpIdleTime());
+        Assert.assertEquals(new ArrayList<>(), testConf6.getLoadPaths());
+        Assert.assertEquals(new HashMap<>(), testConf6.getCustomEnvs());
     }
 
     @Test
@@ -67,6 +121,8 @@ public class TestConfig {
             "127.0.0.0",
             "127.0.0.0",
             "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            "test-go-urn",
+            true,
             true);
         boolean isException = false;
 
@@ -76,6 +132,18 @@ public class TestConfig {
         } catch (YRException e) {
             Assert.assertTrue(e.getMessage().contains("cppFunctionURN is invalid"));
             testConf.setCppFunctionURN(
+                "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest");
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+
+        isException = false;
+        testConf.setGoFunctionURN("test-goFunction");
+        try {
+            testConf.checkParameter();
+        } catch (YRException e) {
+            Assert.assertTrue(e.getMessage().contains("goFunctionURN is invalid"));
+            testConf.setGoFunctionURN(
                 "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest");
             isException = true;
         }

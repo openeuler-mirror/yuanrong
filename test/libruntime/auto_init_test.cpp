@@ -73,6 +73,22 @@ static void MakeMasterInfoFile(const std::string &filepath, const std::string &c
     ofs.close();
 }
 
+static void RemoveMasterInfoFile(const std::string &filepath)
+{
+    std::remove(filepath.c_str());
+}
+
+TEST_F(AutoInitTest, AutoCreateYuanRongClusterFailed)
+{
+    RemoveMasterInfoFile(YR::Libruntime::kDefaultDeployPathCurrMasterInfo);
+    YR::Libruntime::ClusterAccessInfo info;
+    auto info2 = YR::Libruntime::AutoGetClusterAccessInfo(info);
+
+    ASSERT_EQ(info2.serverAddr, "");
+    ASSERT_EQ(info2.dsAddr, "");
+    ASSERT_EQ(info2.inCluster, false);
+}
+
 TEST_F(AutoInitTest, AutoInitWithClusterAccessInfo)
 {
     MakeMasterInfoFile(YR::Libruntime::kDefaultDeployPathCurrMasterInfo, masterInfoString);

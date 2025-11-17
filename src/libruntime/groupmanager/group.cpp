@@ -110,11 +110,13 @@ void Group::Terminate()
     runFlag = false;
     YRLOG_DEBUG("start terminate group ins, group name is {}, group id is {}", groupName, groupId);
     KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(groupId);
     killReq.set_payload("");
     killReq.set_signal(libruntime::Signal::KillGroupInstance);
-    this->fsClient->KillAsync(killReq, [](KillResponse resp, ErrorInfo err) -> void {
-        YRLOG_ERROR("get termiate group ins response, resp code is {}, resp msg is {}", resp.code(), resp.message());
+    this->fsClient->KillAsync(killReq, [](KillResponse resp, const ErrorInfo &err) -> void {
+        YRLOG_ERROR("get termiate group ins response, resp code is {}, resp msg is {}", fmt::underlying(resp.code()),
+                    resp.message());
     });
     SetTerminateError();
 }

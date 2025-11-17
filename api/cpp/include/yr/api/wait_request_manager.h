@@ -85,7 +85,7 @@ private:
     std::unordered_map<std::string, std::vector<std::shared_ptr<WaitRequest>>> requestStore;
 
     std::shared_ptr<boost::asio::io_context> ioc;
-    std::unique_ptr<boost::asio::io_context::work> work;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     std::unique_ptr<std::thread> asyncRunner;
 };
 

@@ -81,7 +81,7 @@ obs:
     # iamHostName, identityProvider, projectId, regionId at least.
     # In addition, obsEndpoint and obsBucket need to be specified.
     enable: false
-    # Domain name of the IAM token to be obtained. Example: iam.cn-north-7.myhuaweicloud.com.
+    # Domain name of the IAM token to be obtained.
     iamHostName: ""
     # Provider that provides permissions for the ds-worker. Example: csms-datasystem.
     identityProvider: ""

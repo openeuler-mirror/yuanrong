@@ -90,7 +90,7 @@ TEST_F(ResourceGroupTest, ResourceGroupManagerTest)
     ASSERT_TRUE(!isExist);
 }
 
-TEST_F(ResourceGroupTest, DISABLED_ResourceGroupTest)
+TEST_F(ResourceGroupTest, ResourceGroupTest)
 {
     std::vector<std::unordered_map<std::string, double>> bundles = {
         {{"CPU", 500.0}, {"Memory", 200.0}}, {{"CPU", 300.0}}, {}};

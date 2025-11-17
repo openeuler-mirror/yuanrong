@@ -29,6 +29,7 @@
 namespace YR {
 namespace Libruntime {
 typedef std::pair<std::vector<std::string>, ErrorInfo> MultipleDelResult;
+typedef std::pair<std::vector<bool>, ErrorInfo> MultipleExistResult;
 typedef std::pair<std::shared_ptr<Buffer>, ErrorInfo> SingleReadResult;
 typedef std::pair<std::vector<std::shared_ptr<Buffer>>, ErrorInfo> MultipleReadResult;
 
@@ -102,7 +103,9 @@ public:
      */
     virtual ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
                            const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                           const std::string &dsPublicKey, std::int32_t connectTimeout) = 0;
+                           const std::string &dsPublicKey, const datasystem::SensitiveValue &token,
+                           const std::string &ak, const datasystem::SensitiveValue &sk,
+                           std::int32_t connectTimeout) = 0;
 
     virtual ErrorInfo Init(const DsConnectOptions &options) = 0;
 
@@ -153,6 +156,14 @@ public:
     virtual MultipleReadResult Read(const std::vector<std::string> &keys, int timeoutMS, bool allowPartial) = 0;
 
     /**
+     * @brief Query the value sizes of all the given keys by datasystem StateClient.
+     * @param[in] keys The vector of the keys.
+     * @param[in] outSizes A vector of value sizes that query from datasystem
+     * @return return ErrorInfo
+     */
+    virtual ErrorInfo QuerySize(const std::vector<std::string> &keys, std::vector<uint64_t> &outSizes) = 0;
+
+    /**
      * @brief Delete a key by datasystem StateClient.
      * @param[in] key The key to delete.
      * @return The count of success delete key.
@@ -167,13 +178,31 @@ public:
     virtual MultipleDelResult Del(const std::vector<std::string> &keys) = 0;
 
     /**
+     * @brief Query all the given keys by datasystem StateClient.
+     * @param[in] keys The vector of the keys.
+     * @return MultipleExistResult The exists result and ErrorInfo.
+     */
+    virtual MultipleExistResult Exist(const std::vector<std::string> &keys) = 0;
+
+    /**
      * @brief Shutdown notify datasystem to release resource.
      */
     virtual void Shutdown() = 0;
 
+    /**
+     * @brief update token
+     */
+    virtual ErrorInfo UpdateToken(datasystem::SensitiveValue token) = 0;
+
     virtual ErrorInfo GenerateKey(std::string &returnKey) = 0;
 
+    virtual ErrorInfo StartHealthCheck() = 0;
+
+    virtual ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) = 0;
+
     virtual ErrorInfo Write(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey) = 0;
+
+    virtual ErrorInfo HealthCheck() = 0;
 };
 
 }  // namespace Libruntime

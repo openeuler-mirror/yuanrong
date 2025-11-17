@@ -24,6 +24,7 @@ import com.yuanrong.runtime.util.ExtClasspathLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 
@@ -39,7 +40,7 @@ public class CodeLoader {
         LOG.info("CodeLoader is running");
         try {
             ExtClasspathLoader.loadClasspath(codePaths);
-        } catch (InvocationTargetException | IllegalAccessException e) {
+        } catch (InvocationTargetException | IllegalAccessException | IOException e) {
             String errorMsg = "failed to load code in specified path (" + codePaths + ") due to exception (" + e + ")";
             LOG.error(errorMsg);
             return new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, errorMsg);

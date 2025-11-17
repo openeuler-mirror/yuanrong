@@ -82,11 +82,16 @@ TEST_F(InvokeSpecTest, BuildRequestPbOptions)
     spec->opts.customExtensions["DELEGATE_DIRECTORY_QUOTA"] = "/tmp1";
     spec->opts.customExtensions["DELEGATE_DIRECTORY_INFO"] = "1024";
     spec->opts.recoverRetryTimes = 3;
+    spec->opts.debug.enable = true;
     spec->invokeType = libruntime::InvokeType::CreateInstanceStateless;
     spec->BuildRequestPbOptions(spec->opts, conf, req);
     ASSERT_EQ(req.createoptions().at("DELEGATE_DIRECTORY_QUOTA"), "/tmp1");
     ASSERT_EQ(req.createoptions().at("DELEGATE_DIRECTORY_INFO"), "1024");
     ASSERT_EQ(req.createoptions().at(RECOVER_RETRY_TIMES), "3");
+    nlohmann::json debugJson = nlohmann::json::parse(req.createoptions().at("debug_config"));
+    auto debugMap = debugJson.get<std::unordered_map<std::string, std::string>>();
+    ASSERT_EQ(debugMap["enable"], "true");
+
     const auto &jsonString = req.createoptions().at(DELEGATE_ENV_VAR);
     nlohmann::json jsonObj = nlohmann::json::parse(jsonString);
     auto envsMap = jsonObj.get<std::unordered_map<std::string, std::string>>();
@@ -127,6 +132,40 @@ TEST_F(InvokeSpecTest, BuildRequestPbArgsStringBuffer)
     spec->BuildRequestPbArgs(config, req, true);
 
     EXPECT_TRUE(buf->GetSize() == 0);  // use move semantic
+}
+
+TEST_F(InvokeSpecTest, GetSchedulerInstanceIds)
+{
+    spec->opts.schedulerInstanceIds.push_back("00");
+    auto vec = spec->GetSchedulerInstanceIds();
+    EXPECT_TRUE(vec.size() == 1);
+    EXPECT_TRUE(vec[0] == "00");
+    spec->opts.schedulerInstanceIds.push_back("11");
+    EXPECT_TRUE(vec.size() == 1);
+    EXPECT_TRUE(vec[0] == "00");
+    auto vecNew = spec->GetSchedulerInstanceIds();
+    EXPECT_TRUE(vecNew.size() == 2);
+    EXPECT_TRUE(vecNew[1] == "11");
+}
+
+TEST_F(InvokeSpecTest, GetSchedulerInstanceId)
+{
+    std::string schedulerId = spec->GetSchedulerInstanceId();
+    EXPECT_TRUE(schedulerId.empty());
+    spec->opts.schedulerInstanceIds.push_back("00");
+    schedulerId = spec->GetSchedulerInstanceId();
+    EXPECT_TRUE(schedulerId == "00");
+}
+
+TEST_F(InvokeSpecTest, SetSchedulerInstanceId)
+{
+    spec->SetSchedulerInstanceId("00");
+    std::string schedulerId = spec->GetSchedulerInstanceId();
+    EXPECT_TRUE(schedulerId == "00");
+
+    spec->SetSchedulerInstanceId("11");
+    schedulerId = spec->GetSchedulerInstanceId();
+    EXPECT_TRUE(schedulerId == "11");
 }
 
 TEST_F(InvokeSpecTest, BuildInvokeRequestPbOptionsTest)
@@ -171,6 +210,23 @@ TEST_F(InvokeSpecTest, RequestResourceEqualTest)
     r5.opts.invokeLabels = invokelabels2;
     ASSERT_EQ(r4 == r5, false);
     ASSERT_EQ(r4 == r6, false);
+
+    RequestResource r7;
+    RequestResource r8;
+    r7.opts.debug.enable = true;
+    ASSERT_EQ(r7 == r8, false);
+
+    RequestResource r9;
+    RequestResource r10;
+    r9.functionMeta.languageType = libruntime::LanguageType::Cpp;
+    r10.functionMeta.languageType = libruntime::LanguageType::Cpp;
+    r9.opts.instanceSession =
+        std::make_shared<InstanceSession>(InstanceSession{.sessionID = "sessionID", .sessionTTL = 1, .concurrency = 1});
+    r10.opts.instanceSession =
+        std::make_shared<InstanceSession>(InstanceSession{.sessionID = "sessionID", .sessionTTL = 1, .concurrency = 1});
+
+    ASSERT_EQ(r9 == r10, true);
+    ASSERT_EQ(r9.opts.instanceSession == r10.opts.instanceSession, false);
 }
 
 TEST_F(InvokeSpecTest, GetInstanceIdTest)

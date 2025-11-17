@@ -61,8 +61,13 @@ jobject JNIErrorInfo::FromCc(JNIEnv *env, const YR::Libruntime::ErrorInfo &error
     }
 
     jobject jstackTraceInfos = JNIStackTraceInfo::ListFromCc(env, errorInfo.GetStackTraceInfos());
+    jobject jerrorInfo = (jobject)env->NewObject(clz_, init_, jerrorCode, jmoduleCode, jmsg, jstackTraceInfos);
 
-    return (jobject)env->NewObject(clz_, init_, jerrorCode, jmoduleCode, jmsg, jstackTraceInfos);
+    env->DeleteLocalRef(jmsg);
+    env->DeleteLocalRef(jerrorCode);
+    env->DeleteLocalRef(jmoduleCode);
+    env->DeleteLocalRef(jstackTraceInfos);
+    return jerrorInfo;
 }
 
 YR::Libruntime::ErrorInfo JNIErrorInfo::FromJava(JNIEnv *env, jobject o)
@@ -71,8 +76,13 @@ YR::Libruntime::ErrorInfo JNIErrorInfo::FromJava(JNIEnv *env, jobject o)
     std::string cmsg = JNIString::FromJava(env, jstr);
     env->DeleteLocalRef(jstr);
 
-    YR::Libruntime::ErrorCode errorCode = JNIErrorCode::FromJava(env, env->CallObjectMethod(o, getCode_));
-    YR::Libruntime::ModuleCode moduleCode = JNIModuleCode::FromJava(env, env->CallObjectMethod(o, getMCode_));
+    jobject errorCodeObj = env->CallObjectMethod(o, getCode_);
+    YR::Libruntime::ErrorCode errorCode = JNIErrorCode::FromJava(env, errorCodeObj);
+    env->DeleteLocalRef(errorCodeObj);
+
+    jobject moduleCodeObj = env->CallObjectMethod(o, getMCode_);
+    YR::Libruntime::ModuleCode moduleCode = JNIModuleCode::FromJava(env, moduleCodeObj);
+    env->DeleteLocalRef(moduleCodeObj);
 
     jobject objList = env->CallObjectMethod(o, getStackTraceInfos_);
     std::vector<YR::Libruntime::StackTraceInfo> stackTraceInfos = JNIStackTraceInfo::ListFromJava(env, objList);

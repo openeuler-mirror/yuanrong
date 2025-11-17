@@ -19,6 +19,7 @@ package com.yuanrong.codemanager;
 import com.yuanrong.errorcode.ErrorInfo;
 import com.yuanrong.errorcode.Pair;
 import com.yuanrong.executor.FunctionHandler;
+import com.yuanrong.executor.FaaSHandler;
 import com.yuanrong.executor.HandlerIntf;
 import com.yuanrong.executor.PosixHandler;
 import com.yuanrong.executor.ReturnType;
@@ -43,7 +44,9 @@ public class CodeExecutor {
     private static final String INIT_HANDLER = "INIT_HANDLER";
 
     private static final String FUNCTION_HANDLER
-        = "com.yuanrong.handler.InitHandler";
+            = "com.yuanrong.handler.InitHandler";
+
+    private static final String FAAS_HANDLER = "com.services.handler.FaaSExecutor.faasInitHandler";
 
     private static final Logger LOG = LoggerFactory.getLogger(CodeExecutor.class);
 
@@ -56,6 +59,8 @@ public class CodeExecutor {
         String handler = System.getenv(INIT_HANDLER);
         if (FUNCTION_HANDLER.equals(handler)) {
             handlerIntf = new FunctionHandler();
+        } else if (FAAS_HANDLER.equals(handler)) {
+            handlerIntf = new FaaSHandler();
         } else {
             handlerIntf = new PosixHandler();
         }

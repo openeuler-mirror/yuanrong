@@ -79,14 +79,14 @@ std::unordered_map<std::string, float> ProcessResources(
             }
             result[resource.first] = value;
         } else {
-            YRLOG_DEBUG("unknow type {}: of {}", resource.second.type(), resource.first);
+            YRLOG_DEBUG("unknow type {}: of {}", fmt::underlying(resource.second.type()), resource.first);
             continue;
         }
     }
     return result;
 }
 
-ErrorInfo ParseQueryResponseToRgUnit(const std::string &result, ResourceGroupUnit &rgUnit)
+ErrorInfo ParseQueryResponseToRgUnit(const std::string &result, std::shared_ptr<ResourceGroupUnit> rgUnit)
 {
     QueryResourceGroupResponse resp;
     auto success = resp.ParseFromString(result);
@@ -144,9 +144,21 @@ ErrorInfo ParseQueryResponseToRgUnit(const std::string &result, ResourceGroupUni
             }
             rgInfo.bundles.push_back(std::move(bdInfo));
         }
-        rgUnit.resourceGroups[rgInfo.name] = std::move(rgInfo);
+        rgUnit->resourceGroups[rgInfo.name] = std::move(rgInfo);
     }
     return ErrorInfo();
+}
+
+std::unordered_map<std::string, std::vector<std::string>> ProcessNodeLabels(
+    const ::google::protobuf::Map<std::string, ::resources::Value::Counter> &nodeLabels)
+{
+    std::unordered_map<std::string, std::vector<std::string>> result;
+    for (auto &counter : nodeLabels) {
+        for (auto &labels : counter.second.items()) {
+            result[counter.first].push_back(labels.first);
+        }
+    }
+    return result;
 }
 
 ErrorInfo ParseQueryResponse(const std::string &result, std::vector<ResourceUnit> &res)
@@ -162,6 +174,7 @@ ErrorInfo ParseQueryResponse(const std::string &result, std::vector<ResourceUnit
         unit.status = resPair.second.status();
         unit.capacity = ProcessResources(resPair.second.capacity().resources());
         unit.allocatable = ProcessResources(resPair.second.allocatable().resources());
+        unit.nodeLabels = ProcessNodeLabels(resPair.second.nodelabels());
         res.push_back(unit);
     }
     return ErrorInfo();
@@ -178,12 +191,16 @@ std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTableByHttpClient(std::s
     headers[std::string("Type")] = std::string("protobuf");
     std::string body;
     req.SerializeToString(&body);
+    auto isExit = std::make_shared<bool>(false);
     auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
-    ResourceGroupUnit res{};
+    auto res = std::make_shared<ResourceGroupUnit>();
     c->SubmitInvokeRequest(
         POST, GLOBAL_QUERY_RESOURCE_GROUP_TABLE, headers, body, reqId,
-        [&res, reqId, asyncNotify](const std::string &result, const boost::beast::error_code &errorCode,
+        [res, reqId, asyncNotify, isExit](const std::string &result, const boost::beast::error_code &errorCode,
                                    const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
             auto err = CheckResponseCode(errorCode, statusCode, result, *reqId);
             if (err.OK()) {
                 err = ParseQueryResponseToRgUnit(result, res);
@@ -194,15 +211,13 @@ std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTableByHttpClient(std::s
     ss << "get request timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
     auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
         absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
-    if (notifyErr.Code() == ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT) {
-        c->Cancel();
-    }
-    return std::make_pair(notifyErr, res);
+    *isExit = true;
+    return std::make_pair(notifyErr, *res);
 }
 
-ErrorInfo ParseQueryNamedInstancesResponse(const std::string &result, QueryNamedInsResponse &resp)
+ErrorInfo ParseQueryNamedInstancesResponse(const std::string &result, std::shared_ptr<QueryNamedInsResponse> resp)
 {
-    if (!resp.ParseFromString(result)) {
+    if (!resp->ParseFromString(result)) {
         YRLOG_WARN("Failed to parse QueryNamedInstances response: {}", result);
         return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to parse QueryNamedInstances response");
     }
@@ -216,16 +231,19 @@ std::pair<ErrorInfo, QueryNamedInsResponse> GetNamedInstancesByHttpClient(std::s
     req.set_requestid(*reqId);
     std::string body;
     req.SerializeToString(&body);
-
+    auto isExit = std::make_shared<bool>(false);
     std::unordered_map<std::string, std::string> headers = {{"Content-Type", "application/protobuf"}};
 
-    QueryNamedInsResponse resp;
+    auto resp = std::make_shared<QueryNamedInsResponse>();
     auto asyncNotify = std::make_shared<YR::utility::NotificationUtility>();
 
     c->SubmitInvokeRequest(
         GET, INSTANCE_MANAGER_QUERY_NAMED_INSTANCES, headers, body, reqId,
-        [&resp, asyncNotify, reqId](const std::string &result, const boost::beast::error_code &errorCode,
+        [resp, asyncNotify, reqId, isExit](const std::string &result, const boost::beast::error_code &errorCode,
                                     const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
             auto err = CheckResponseCode(errorCode, statusCode, result, *reqId);
             if (err.OK()) {
                 err = ParseQueryNamedInstancesResponse(result, resp);
@@ -235,13 +253,10 @@ std::pair<ErrorInfo, QueryNamedInsResponse> GetNamedInstancesByHttpClient(std::s
 
     std::stringstream ss;
     ss << "get named instances request timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *reqId;
-
     auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
         absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
-    if (notifyErr.Code() == ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT) {
-        c->Cancel();
-    }
-    return {notifyErr, resp};
+    *isExit = true;
+    return {notifyErr, *resp};
 }
 
 std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::shared_ptr<HttpClient> c)
@@ -249,6 +264,7 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::sh
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
     auto req = BuildGetResourcesReq(*requestId);
     auto headers = BuildGetResourcesHeaders();
+    auto isExit = std::make_shared<bool>(false);
     std::string body;
     req.SerializeToString(&body);
     std::vector<ResourceUnit> res;
@@ -256,8 +272,11 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::sh
     YRLOG_DEBUG("start to get resources by http client, request id: {}.", *requestId);
     c->SubmitInvokeRequest(
         GET, GLOBAL_SCHEDULER_QUERY_RESOURCES, headers, body, requestId,
-        [&res, requestId, asyncNotify](const std::string &result, const boost::beast::error_code &errorCode,
-                                       const uint statusCode) {
+        [&res, requestId, asyncNotify, isExit](const std::string &result, const boost::beast::error_code &errorCode,
+                                               const uint statusCode) {
+            if (*isExit) {
+                return;
+            }
             auto err = CheckResponseCode(errorCode, statusCode, result, *requestId);
             if (err.OK()) {
                 err = ParseQueryResponse(result, res);
@@ -268,9 +287,7 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResourcesByHttpClient(std::sh
     ss << "get request timeout: " << HTTP_REQUEST_TIMEOUT << ", requestId: " << *requestId;
     auto notifyErr = asyncNotify->WaitForNotificationWithTimeout(
         absl::Seconds(HTTP_REQUEST_TIMEOUT), ErrorInfo(ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT, ss.str()));
-    if (notifyErr.Code() == ErrorCode::ERR_FUNCTION_MASTER_TIMEOUT) {
-        c->Cancel();
-    }
+    *isExit = true;
     return std::make_pair(notifyErr, res);
 }
 
@@ -302,7 +319,7 @@ void FMClient::Stop()
     if (stopped) {
         return;
     }
-    work_.reset();
+    work_->reset();
     ioc_->stop();
     if (iocThread_) {
         if (iocThread_->joinable()) {
@@ -325,7 +342,7 @@ ErrorInfo FMClient::ActivateMasterClientIfNeed()
     }
     if (activeMasterHttpClient_ == nullptr || !activeMasterHttpClient_->Available() ||
         !activeMasterHttpClient_->IsConnActive()) {
-        activeMasterHttpClient_ = std::make_shared<AsyncHttpClient>(ioc_);
+        activeMasterHttpClient_ = InitCtxAndHttpClient();
         std::vector<std::string> result;
         YR::utility::Split(activeMasterAddr_, result, ':');
         if (result.size() != IP_ADDR_SIZE) {
@@ -404,83 +421,6 @@ std::pair<ErrorInfo, std::vector<ResourceUnit>> FMClient::GetResources()
     return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION,
                                     "failed to get resources, err: connect to function master timeout"),
                           std::vector<ResourceUnit>());
-}
-
-std::shared_ptr<HttpClient> FMClient::GetCurrentHttpClient()
-{
-    InitHttpClientIfNeeded();
-
-    if (httpClients_.empty()) {
-        YRLOG_DEBUG("no http client available");
-        return nullptr;
-    }
-
-    if (!currentMaster_.empty() && httpClients_.find(currentMaster_) != httpClients_.end()) {
-        return httpClients_[currentMaster_];
-    }
-
-    auto it = httpClients_.begin();
-    currentMaster_ = it->first;
-    return it->second;
-}
-
-std::shared_ptr<HttpClient> FMClient::GetNextHttpClient()
-{
-    if (currentMaster_.empty()) {
-        return GetCurrentHttpClient();
-    }
-
-    auto it = httpClients_.find(currentMaster_);
-    if (it == httpClients_.end()) {
-        return GetCurrentHttpClient();
-    }
-
-    ++it;
-    if (it == httpClients_.end()) {
-        it = httpClients_.begin();
-    }
-
-    currentMaster_ = it->first;
-    it->second->ReInit();  // for http client fault tolerance
-    return it->second;
-}
-
-void FMClient::InitHttpClientIfNeeded(void)
-{
-    if (libConfig_->functionMasters.empty()) {
-        YRLOG_DEBUG("functiom masters addresses are not configured");
-        return;
-    }
-
-    if (libConfig_->functionMasters.size() == httpClients_.size()) {
-        YRLOG_DEBUG("all functiom masters cliets are already initialized, size: {}",
-                    libConfig_->functionMasters.size());
-        return;
-    }
-
-    if (!iocThread_) {
-        iocThread_ = std::make_unique<std::thread>([&] { ioc_->run(); });
-    }
-
-    for (const auto &m : libConfig_->functionMasters) {
-        if (httpClients_.find(m) != httpClients_.end()) {
-            YRLOG_DEBUG("function master {} is already initialized", m);
-            continue;
-        }
-
-        auto c = InitCtxAndHttpClient();
-        std::vector<std::string> result;
-        YR::utility::Split(m, result, ':');
-        if (result.size() != IP_ADDR_SIZE) {
-            YRLOG_ERROR("Invalid ip addr {}", m);
-            continue;
-        }
-        ConnectionParam param;
-        param.ip = result[0];
-        param.port = result[1];
-        c->Init(param);
-        httpClients_[m] = c;
-    }
 }
 
 std::shared_ptr<HttpClient> FMClient::InitCtxAndHttpClient(void)

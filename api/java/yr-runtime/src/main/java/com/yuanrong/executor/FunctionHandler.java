@@ -24,6 +24,7 @@ import com.yuanrong.exception.YRException;
 import com.yuanrong.exception.handler.filter.FilterFactory;
 import com.yuanrong.exception.handler.traceback.StackTraceInfo;
 import com.yuanrong.libruntime.generated.Libruntime;
+import com.yuanrong.libruntime.generated.Libruntime.ApiType;
 import com.yuanrong.libruntime.generated.Libruntime.FunctionMeta;
 import com.yuanrong.runtime.config.RuntimeContext;
 import com.yuanrong.runtime.util.Utils;
@@ -263,6 +264,9 @@ public class FunctionHandler implements HandlerIntf {
         LOG.info("Creating for udf methods, clz({}), func({}), sig({})", clzName, funcName, signature);
         try {
             constructObject(clzName, funcName, signature, args);
+            if (ApiType.Faas.equals(meta.getApiType()) && !CONSTRUCTOR_FUNC_NAME.equals(funcName)) {
+                return invoke(meta, args);
+            }
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | IllegalArgumentException
                  | InvocationTargetException | IOException e) {
             LOG.error("failed to execute udf methods, clz({}), func({}), sig({}), reason: {}", clzName, funcName,

@@ -46,5 +46,17 @@ struct InstanceResponse {
     std::string errorMessage; //`json:"errorMessage"`
     float schedulerTime; // `json:"schedulerTime"`
 };
+
+struct InstanceAllocationFailedRsp {
+    int errorCode;  //`json:"errorCode"`
+    std::string errorMessage; //`json:"errorMessage"`
+};
+
+struct BatchInstanceResponse {
+    std::unordered_map<std::string, InstanceAllocation> instanceAllocSucceed;
+    std::unordered_map<std::string, InstanceAllocationFailedRsp> instanceAllocFailed;
+    int tLeaseInterval;
+    float schedulerTime;  // `json:"schedulerTime"`
+};
 }  // namespace Libruntime
 }  // namespace YR

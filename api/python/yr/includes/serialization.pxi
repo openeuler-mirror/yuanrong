@@ -31,6 +31,11 @@ DEF METADATA_HEADER_OFFSET = 8
 cdef extern from "src/utility/memory.h" namespace "YR::utility" nogil:
     void CopyInParallel(uint8_t *dst, const uint8_t *src, int64_t totalBytes, size_t blockSize)
 
+cdef extern from "google/protobuf/repeated_field.h" nogil:
+    cdef cppclass RepeatedField[Element]:
+        const Element* data() const
+
+
 cdef int64_t padded_length(int64_t offsets, int64_t alignment):
     return ((offsets + alignment - 1) // alignment) * alignment
 

@@ -19,6 +19,7 @@
 
 JavaVM *jvm;
 
+/// Load and cache frequently-used Java classes and methods
 jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
     JNIEnv *env;
@@ -44,10 +45,12 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved)
     YR::jni::JNIList::Init(env);
     YR::jni::JNIArrayList::Init(env);
     YR::jni::JNIByteBuffer::Init(env);
+    YR::jni::JNIFloat::Init(env);
     YR::jni::JNIIterator::Init(env);
     YR::jni::JNIMapEntry::Init(env);
     YR::jni::JNISet::Init(env);
     YR::jni::JNIMap::Init(env);
+    YR::jni::JNIHashMap::Init(env);
     YR::jni::JNIApiType::Init(env);
     YR::jni::JNILanguageType::Init(env);
     YR::jni::JNIInvokeType::Init(env);
@@ -79,6 +82,8 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved)
     YR::jni::JNIStackTraceElement::Init(env);
     YR::jni::JNIYRAutoInitInfo::Init(env);
     YR::jni::JNIFunctionLog::Init(env);
+    YR::jni::JNIProducerConfig::Init(env);
+    YR::jni::JNINode::Init(env);
     if (isOnCloud) {
         YR::jni::JNIReturnType::Init(env);
         YR::jni::JNICodeLoader::Init(env);
@@ -90,6 +95,7 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved)
     return CURRENT_JNI_VERSION;
 }
 
+/// Load and cache frequently-used Java classes and methods
 void JNI_OnUnload(JavaVM *vm, void *reserved)
 {
     JNIEnv *env;
@@ -98,12 +104,14 @@ void JNI_OnUnload(JavaVM *vm, void *reserved)
     YR::jni::JNIString::Recycle(env);
     YR::jni::JNIApacheCommonsExceptionUtils::Recycle(env);
     YR::jni::JNIList::Recycle(env);
+    YR::jni::JNIFloat::Recycle(env);
     YR::jni::JNIArrayList::Recycle(env);
     YR::jni::JNIByteBuffer::Recycle(env);
     YR::jni::JNIIterator::Recycle(env);
     YR::jni::JNIMapEntry::Recycle(env);
     YR::jni::JNISet::Recycle(env);
     YR::jni::JNIMap::Recycle(env);
+    YR::jni::JNIHashMap::Recycle(env);
     YR::jni::JNIInvokeType::Recycle(env);
     YR::jni::JNIApiType::Recycle(env);
     YR::jni::JNILanguageType::Recycle(env);
@@ -137,4 +145,6 @@ void JNI_OnUnload(JavaVM *vm, void *reserved)
     YR::jni::JNIStackTraceElement::Recycle(env);
     YR::jni::JNIYRAutoInitInfo::Recycle(env);
     YR::jni::JNIFunctionLog::Recycle(env);
+    YR::jni::JNIProducerConfig::Recycle(env);
+    YR::jni::JNINode::Recycle(env);
 }

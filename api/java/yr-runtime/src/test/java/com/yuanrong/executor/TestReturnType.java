@@ -28,6 +28,7 @@ import java.util.ArrayList;
 public class TestReturnType {
     @Test
     public void testInitReturnType() {
+        ReturnType returnType = new ReturnType(ErrorCode.ERR_JOB_USER_CODE_EXCEPTION);
         ReturnType returnType1 = new ReturnType(ErrorCode.ERR_USER_CODE_LOAD, ByteBuffer.allocate(10));
         ReturnType returnType2 = new ReturnType(ErrorCode.ERR_OK, ModuleCode.CORE, "test2");
         ReturnType returnType3 = new ReturnType(ErrorCode.ERR_CREATE_RETURN_BUFFER, new byte[] {});
@@ -38,7 +39,7 @@ public class TestReturnType {
             new ArrayList<>());
         returnType6.getBytes();
         Assert.assertNotEquals(returnType1, returnType2);
-        Assert.assertNotEquals(returnType1, returnType3);
+        Assert.assertNotEquals(returnType, returnType3);
         Assert.assertNotEquals(returnType4, returnType5);
     }
 }

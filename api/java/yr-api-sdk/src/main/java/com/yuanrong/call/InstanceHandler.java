@@ -52,6 +52,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -152,8 +153,8 @@ public class InstanceHandler {
      * The constructor of the InstanceHandler.
      *
      * @param instanceId Java function instance ID.
-     * @param apiType The enumeration class has two values: Function and Posix.
-     *                It is used internally by Yuanrong to distinguish function types. The default is Function.
+     * @param apiType The enumeration class has three values: Function, Faas, and Posix.
+     *                It is used internally by Yuanrong to distinguish function types. The default is Actor.
      */
     public InstanceHandler(String instanceId, ApiType apiType) {
         this.instanceId = instanceId;
@@ -338,7 +339,7 @@ public class InstanceHandler {
     /**
      * set need order.
      *
-     * @param needOrder indicates wheather need order.
+     * @param needOrder indicates whether need order.
      *
      */
     void setNeedOrder(boolean needOrder) {
@@ -395,6 +396,15 @@ public class InstanceHandler {
     public void clearHandlerInfo() {
         this.instanceId = "";
         this.apiType = null;
+    }
+
+    /**
+     * Release InstanceHandler, decrease reference.
+     *
+     * @throws YRException Unified exception types thrown.
+     */
+    public void release() throws YRException {
+        YR.getRuntime().decreaseReference(Collections.singletonList(instanceId));
     }
 
     /**

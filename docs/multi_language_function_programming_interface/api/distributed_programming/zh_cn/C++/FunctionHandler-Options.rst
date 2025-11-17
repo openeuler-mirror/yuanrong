@@ -43,7 +43,7 @@ FunctionHandler::Options
            auto r1 = YR::Function(AddOne).Options(opts).Invoke(5);
            YR::Get(r1);
 
-           opts.retryTime = 1;
+           opts.retryTimes = 1;
            opts.retryChecker = RetryChecker;
            auto r2 = YR::Function(ThrowRuntimeError).Options(opts).Invoke();
            YR::Get(r2);

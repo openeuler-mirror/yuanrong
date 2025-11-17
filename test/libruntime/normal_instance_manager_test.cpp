@@ -92,6 +92,7 @@ public:
     }
     void TearDown() override
     {
+        insManager->Stop();
         spec.reset();
         mockFsIntf.reset();
         insManager.reset();
@@ -196,7 +197,7 @@ TEST_F(NormalInsManagerTest, ScaleCancelAll)
     insManager->ScaleCancel(resource, newQueue->Size(), true);
     std::dynamic_pointer_cast<MockFsIntf>(mockFsIntf)->killCallbackFuture.get();
 
-    ASSERT_TRUE(insManager->requestResourceInfoMap[resource]->creatingIns.size() == 0);
+    ASSERT_TRUE(insManager->requestResourceInfoMap.find(resource) == insManager->requestResourceInfoMap.end());
 }
 
 TEST_F(NormalInsManagerTest, When_StartNormalInsScaleDownTimer_Twice_Should_Be_Ok)

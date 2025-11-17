@@ -18,8 +18,8 @@
 
 #include <future>
 #include <json.hpp>
-#include "src/libruntime/fsclient/fs_intf.h"
 #include "src/dto/accelerate.h"
+#include "src/libruntime/fsclient/fs_intf.h"
 #include "src/utility/logger/logger.h"
 #include "gmock/gmock.h"
 
@@ -84,6 +84,7 @@ public:
         return ErrorInfo();
     };
     void Stop(void) override{};
+    bool IsHealth(void) override { return true; };
     void InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeout) override
     {
         NotifyRequest notifyReq;
@@ -105,6 +106,13 @@ public:
             instanceResp["schedulerTime"] = 1.0;
             auto smallObject = notifyReq.add_smallobjects();
             smallObject->set_value(META_PREFIX + instanceResp.dump());
+        } else if (isBatchRenew) {
+            auto smallObject = notifyReq.add_smallobjects();
+            if (isReqNormal) {
+                smallObject->set_value(META_PREFIX + "{\"errorCode\": 6030,\"instanceAllocSucceed\": {},\"instanceAllocFailed\": {\"leaseId\": {\"errorCode\": 111111,\"errorMessage\": \"sssss\"}},\"leaseInterval\": 1000,\"schedulerTime\": 0.000123337}");
+            } else {
+                smallObject->set_value("");
+            }
         } else {
             if (isReqNormal) {
                 notifyReq.set_code(::common::ErrorCode::ERR_NONE);
@@ -151,13 +159,21 @@ public:
         } else {
             resp.set_code(::common::ErrorCode::ERR_SCHEDULE_PLUGIN_CONFIG);
         }
-        AccelerateMsgQueueHandle handler{.name = "name"};
-        resp.set_message(handler.ToJson());
+        if (isGetInstance) {
+            std::string serializedMeta;
+            libruntime::FunctionMeta meta;
+            meta.set_classname("classname");
+            meta.SerializeToString(&serializedMeta);
+            resp.set_message(serializedMeta);
+        } else {
+            AccelerateMsgQueueHandle handler{.name = "name"};
+            resp.set_message(handler.ToJson());
+        }
         callback(resp, ErrorInfo());
         try {
             killCallbackPromise.set_value(1);
-        } catch (const std::exception &e) {
-            std::cout << "Promise already satisfied" << std::endl;
+        } catch (const std::future_error &e) {
+            YRLOG_DEBUG("killCallbackPromise has already set value");
         }
     };
     void ExitAsync(const ExitRequest &req, ExitCallBack callback) override{};
@@ -165,13 +181,15 @@ public:
     void StateLoadAsync(const StateLoadRequest &req, StateLoadCallBack callback) override{};
     void CreateRGroupAsync(const CreateResourceGroupRequest &req, CreateResourceGroupCallBack callback,
                              int timeout) override{};
-
+    
     MOCK_METHOD(void, ReturnCallResult,
                 (const std::shared_ptr<CallResultMessageSpec> result, bool isCreate, CallResultCallBack callback),
                 (override));
 
     bool isReqNormal = true;
+    bool isGetInstance = false;
     bool isAcquireResponse = false;
+    bool isBatchRenew = false;
     bool needCheckArgs = false;
     std::promise<int> callbackPromise = std::promise<int>();
     std::promise<int> killCallbackPromise = std::promise<int>();

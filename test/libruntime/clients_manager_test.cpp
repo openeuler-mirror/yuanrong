@@ -68,15 +68,16 @@ TEST_F(ClientsManagerTest, DISABLED_DsClientsTest)
 {
     auto clientsMgr = std::make_shared<ClientsManager>();
     datasystem::SensitiveValue runtimePrivateKey;
+    datasystem::SensitiveValue token;
     auto librtCfg = std::make_shared<LibruntimeConfig>();
     librtCfg->dataSystemIpAddr = "127.0.0.1";
     librtCfg->dataSystemPort = 22222;
     librtCfg->runtimePrivateKey = runtimePrivateKey;
 
-    auto res = clientsMgr->GetOrNewDsClient(librtCfg, 30);
+    auto res = clientsMgr->GetOrNewDsClient(librtCfg, "", datasystem::SensitiveValue{}, 30);
     EXPECT_EQ(res.second.Code(), ErrorCode::ERR_OK);
     EXPECT_EQ(clientsMgr->dsClientsReferCounter["127.0.0.1:22222"], 1);
-    res = clientsMgr->GetOrNewDsClient(librtCfg, 30);
+    res = clientsMgr->GetOrNewDsClient(librtCfg, "", datasystem::SensitiveValue{}, 30);
     EXPECT_EQ(res.second.Code(), ErrorCode::ERR_OK);
     EXPECT_EQ(clientsMgr->dsClientsReferCounter["127.0.0.1:22222"], 2);
     auto err = clientsMgr->ReleaseDsClient("127.0.0.1", 22222);
@@ -110,7 +111,7 @@ TEST_F(ClientsManagerTest, HttpClientsTest)
 TEST_F(ClientsManagerTest, GetFsConnTest)
 {
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto res = clientsMgr->GetFsConn("127.0.0.1", 8080);
+    auto res = clientsMgr->GetFsConn("127.0.0.1", 8080, "");
     ASSERT_TRUE(res.first == nullptr);
     ASSERT_TRUE(res.second.OK());
 }
@@ -121,6 +122,7 @@ TEST_F(ClientsManagerTest, ReleaseDsClientTest)
     clientsMgr->dsClientsReferCounter["127.0.0.1:80"] = 1;
     DatasystemClients dsClients{.dsObjectStore = std::make_shared<MockObjectStore>(),
                                 .dsStateStore = std::make_shared<MockStateStore>(),
+                                .dsStreamStore = std::make_shared<MockStreamStore>(),
                                 .dsHeteroStore = std::make_shared<MockHeretoStore>()};
     clientsMgr->dsClients["127.0.0.1:80"] = dsClients;
     ASSERT_EQ(clientsMgr->ReleaseDsClient("127.0.0.1", 80).OK(), true);

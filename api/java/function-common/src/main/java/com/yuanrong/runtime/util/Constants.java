@@ -16,6 +16,8 @@
 
 package com.yuanrong.runtime.util;
 
+import java.util.regex.Pattern;
+
 /**
  * Description: Constants
  *
@@ -88,6 +90,11 @@ public final class Constants {
     public static final int DEFAULT_HTTP_IO_THREAD_CNT = 100;
 
     /**
+     * idle time for http client
+     */
+    public static final int DEFAULT_HTTP_IDLE_TIME = 120;
+
+    /**
      * The key to python packages, which are going to be installed in remote runtime.
      */
     public static final String POST_START_EXEC = "POST_START_EXEC";
@@ -152,6 +159,10 @@ public final class Constants {
      */
     public static final String CONCURRENCY = "Concurrency";
 
+    /**
+     * PATTERN_FAAS_ENTRY
+     */
+    public static final Pattern PATTERN_FAAS_ENTRY = Pattern.compile("^[^/]*.[^/]*$");
 
     /**
      * The constant KEY_USER_INIT_ENTRY.

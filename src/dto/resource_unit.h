@@ -24,6 +24,7 @@ struct ResourceUnit {
     std::string id;
     std::unordered_map<std::string, float> capacity;
     std::unordered_map<std::string, float> allocatable;
+    std::unordered_map<std::string, std::vector<std::string>> nodeLabels;
     uint32_t status;
 };
 

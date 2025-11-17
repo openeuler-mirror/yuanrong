@@ -77,21 +77,22 @@ void DatasystemHeteroStore::Shutdown()
     datasystem::Status status = dsHeteroClient->ShutDown();
     std::string msg = "shutdown hetero client failed, errMsg:" + status.ToString();
     if (!status.IsOk()) {
-        YRLOG_WARN("hetero object client Shutdown fail. Status code: {}, Msg: {}", status.GetCode(), status.ToString());
+        YRLOG_WARN("hetero object client Shutdown fail. Status code: {}, Msg: {}", fmt::underlying(status.GetCode()),
+                   status.ToString());
     }
 }
 
-ErrorInfo DatasystemHeteroStore::Delete(const std::vector<std::string> &objectIds,
+ErrorInfo DatasystemHeteroStore::DevDelete(const std::vector<std::string> &objectIds,
                                         std::vector<std::string> &failedObjectIds)
 {
     HETERO_STORE_INIT_ONCE();
-    datasystem::Status status = dsHeteroClient->Delete(objectIds, failedObjectIds);
+    datasystem::Status status = dsHeteroClient->DevDelete(objectIds, failedObjectIds);
     std::string msg = "delete hetero object failed, errMsg:" + status.ToString();
     RETURN_ERR_NOT_OK(status.IsOk(), status.GetCode(), YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED, msg);
     return ErrorInfo();
 }
 
-ErrorInfo DatasystemHeteroStore::LocalDelete(const std::vector<std::string> &objectIds,
+ErrorInfo DatasystemHeteroStore::DevLocalDelete(const std::vector<std::string> &objectIds,
                                              std::vector<std::string> &failedObjectIds)
 {
     HETERO_STORE_INIT_ONCE();

@@ -95,8 +95,8 @@ public class TestRuntimeLogger {
         Assert.assertTrue(isException);
 
         Mockito.verify(mockLogger, Mockito.times(1)).info("runtime ID {}", runtimeID);
-        Mockito.verify(mockLogger, Mockito.times(1)).debug("current log path = {}",
-                String.format("%s%s%s", logDir, File.separator, runtimeID));
+        Mockito.verify(mockLogger, Mockito.times(2)).debug("current log path = {}",
+                String.format("%s", logDir));
         Mockito.verify(mockLogger, Mockito.times(2)).debug("current log level = {}", logLevel);
 
         Assert.assertNotNull(System.getProperty(ENV_LOG_LEVEL));

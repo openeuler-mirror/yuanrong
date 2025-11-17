@@ -60,7 +60,9 @@ public class TestFunctionHandler {
             "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "");
+            "",
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            true);
         PowerMockito.mockStatic(LibRuntime.class);
         when(LibRuntime.IsInitialized()).thenReturn(true);
         when(LibRuntime.Init(any())).thenReturn(new ErrorInfo());
@@ -73,7 +75,7 @@ public class TestFunctionHandler {
     }
 
     @Test
-    public void testFunctionHandler() throws IOException, YRException {
+    public void testFunctionHandler() throws Exception {
         Pair<ErrorInfo, String> mockResult = new Pair<ErrorInfo, String>(new ErrorInfo(), "objID");
         when(LibRuntime.InvokeInstance(any(), anyString(), anyList(), any())).thenReturn(mockResult);
         InvokeOptions options= new InvokeOptions();

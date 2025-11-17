@@ -33,6 +33,7 @@
 #include "metrics/sdk/metric_processor.h"
 #include "src/dto/invoke_options.h"
 #include "src/libruntime/err_type.h"
+#include "src/utility/singleton.h"
 
 namespace YR {
 namespace Libruntime {
@@ -44,7 +45,13 @@ namespace MetricsPlugin = observability::plugin::metrics;
 class MetricsAdaptor {
 public:
     MetricsAdaptor();
-
+    MetricsAdaptor(const MetricsAdaptor&) = delete;
+    MetricsAdaptor& operator=(const MetricsAdaptor&) = delete;
+    static std::shared_ptr<MetricsAdaptor> GetInstance()
+    {
+        std::call_once(initFlag, []() { instance = std::make_shared<MetricsAdaptor>(); });
+        return instance;
+    }
     void Init(const nlohmann::json &json, bool userEnable);
     void SetContextAttr(const std::string &attr, const std::string &value);
     std::string GetContextValue(const std::string &attr) const;
@@ -110,6 +117,8 @@ private:
     std::mutex alarm_mutex_{};
     std::mutex uint64_counter_mutex_{};
     std::mutex double_counter_mutex_{};
+    static std::shared_ptr<MetricsAdaptor> instance;
+    static std::once_flag initFlag;
 };
 }  // namespace Libruntime
 }  // namespace YR

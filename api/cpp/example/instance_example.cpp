@@ -61,6 +61,7 @@ YR_INVOKE(Counter::FactoryCreate, &Counter::Add, &Counter::Get);
 int main(void)
 {
     YR::Config conf;
+    conf.inCluster = true;
     YR::Init(conf);
 
     {
@@ -79,6 +80,16 @@ int main(void)
         std::cout << "counter is " << *YR::Get(c) << std::endl;
         counter.Terminate(true);
         //! [terminate instance sync]
+    }
+
+    {
+        //! [terminate instance async]
+        auto counter = YR::Instance(Counter::FactoryCreate).Invoke(1);
+        auto c = counter.Function(&Counter::Add).Invoke(1);
+        std::cout << "counter is " << *YR::Get(c) << std::endl;
+        auto f = counter.AsyncTerminate(true);
+        f.get();
+        //! [terminate instance async]
     }
 
     {

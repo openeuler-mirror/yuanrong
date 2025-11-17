@@ -24,10 +24,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.yuanrong.CreateParam;
 import com.yuanrong.GetParam;
 import com.yuanrong.GetParams;
 import com.yuanrong.GroupOptions;
 import com.yuanrong.InvokeOptions;
+import com.yuanrong.MSetParam;
 import com.yuanrong.SetParam;
 import com.yuanrong.api.InvokeArg;
 import com.yuanrong.errorcode.ErrorCode;
@@ -37,6 +39,7 @@ import com.yuanrong.errorcode.Pair;
 import com.yuanrong.exception.YRException;
 import com.yuanrong.exception.LibRuntimeException;
 import com.yuanrong.call.CppInstanceHandler;
+import com.yuanrong.call.GoInstanceHandler;
 import com.yuanrong.call.InstanceHandler;
 import com.yuanrong.call.JavaInstanceHandler;
 import com.yuanrong.jni.LibRuntime;
@@ -45,6 +48,8 @@ import com.yuanrong.libruntime.generated.Libruntime.FunctionMeta;
 import com.yuanrong.libruntime.generated.Libruntime.LanguageType;
 import com.yuanrong.runtime.client.ObjectRef;
 import com.yuanrong.storage.InternalWaitResult;
+import com.yuanrong.stream.ProducerConfig;
+import com.yuanrong.stream.SubscriptionConfig;
 import com.yuanrong.utils.SdkUtils;
 
 import org.junit.Assert;
@@ -60,6 +65,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,9 +87,9 @@ public class TestClusterModeRuntime {
     public static void SetUp() {}
 
     @Test
-    public void testIsOnCloud() {
+    public void testIsDriver() {
         Runtime runtime = new ClusterModeRuntime();
-        Assert.assertFalse(runtime.isOnCloud());
+        Assert.assertTrue(runtime.isDriver());
     }
 
     @Test
@@ -93,7 +99,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testSaveAndGetRealInstanceId() throws YRException {
+    public void testSaveAndGetRealInstanceId() throws Exception {
         PowerMockito.mockStatic(LibRuntime.class);
         Runtime runtime = new ClusterModeRuntime();
         when(LibRuntime.GetRealInstanceId(anyString())).thenReturn("instanceID");
@@ -108,13 +114,15 @@ public class TestClusterModeRuntime {
         JavaInstanceHandler jHander = new JavaInstanceHandler("jInstanceId", "jFunctionId", "jClassName");
         CppInstanceHandler cHandler = new CppInstanceHandler("cInstanceId", "cFunctionId", "cClassName");
         InstanceHandler handler = new InstanceHandler("instance", ApiType.Function);
-        runtime.collectInstanceHandlerInfo(jHander);
-        runtime.collectInstanceHandlerInfo(cHandler);
-        runtime.collectInstanceHandlerInfo(handler);
-        Assert.assertNotNull(runtime.getInstanceHandlerInfo("instance"));
-        runtime.Finalize("ctx", 0);
-        runtime.Finalize();
-        runtime.exit();
+        boolean isException = false;
+        try {
+            runtime.Finalize("ctx", 0);
+            runtime.Finalize();
+            runtime.exit();
+        } catch (Exception e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
     }
 
     @Test
@@ -128,7 +136,6 @@ public class TestClusterModeRuntime {
             for (int i = 0; i < numberOfThreads; i++) {
                 executor.submit(() -> {
                     InstanceHandler handler = new InstanceHandler("instance", ApiType.Function);
-                    runtime.collectInstanceHandlerInfo(handler);
                 });
             }
         } catch (Exception e) {
@@ -136,12 +143,14 @@ public class TestClusterModeRuntime {
         }
         Assert.assertFalse(isException);
         executor.shutdown();
+        runtime.decreaseReference(Collections.singletonList("instanceID"));
+        runtime.Finalize("ctx", 0);
         runtime.Finalize();
         runtime.exit();
     }
 
     @Test
-    public void testKVWrite() throws YRException {
+    public void testKVWrite() throws Exception {
         String key = "key1";
         byte[] value = "value1".getBytes();
         PowerMockito.mockStatic(LibRuntime.class);
@@ -174,7 +183,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testKVRead() throws YRException {
+    public void testKVRead() throws Exception {
         String key = "key1";
         PowerMockito.mockStatic(LibRuntime.class);
         byte[] failedKey = ("key1").getBytes();
@@ -202,7 +211,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testKVReadList() throws YRException {
+    public void testKVReadList() throws Exception {
         List<String> keys = new ArrayList<String>();
         keys.add("key1");
         PowerMockito.mockStatic(LibRuntime.class);
@@ -233,7 +242,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testKVGetWithParam() throws YRException {
+    public void testKVGetWithParam() throws Exception {
         List<String> keys = new ArrayList<String>(){{add("key1");}};
         PowerMockito.mockStatic(LibRuntime.class);
         List<byte[]> vals = new ArrayList<byte[]>();
@@ -266,7 +275,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testKVdel() throws YRException {
+    public void testKVdel() throws Exception {
         String key = "key1";
         PowerMockito.mockStatic(LibRuntime.class);
         ErrorInfo errorInfo = new ErrorInfo(ErrorCode.ERR_DATASYSTEM_FAILED, ModuleCode.DATASYSTEM, "");
@@ -291,7 +300,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testKVdelList() throws YRException {
+    public void testKVdelList() throws Exception {
         List<String> keys = new ArrayList<String>();
         keys.add("key1");
 
@@ -310,7 +319,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testLoadState() throws YRException {
+    public void testLoadState() throws Exception {
         PowerMockito.mockStatic(LibRuntime.class);
         ErrorInfo errorInfo = new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "");
         when(LibRuntime.LoadState(anyInt())).thenReturn(errorInfo);
@@ -334,7 +343,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testSaveState() throws YRException {
+    public void testSaveState() throws Exception {
         PowerMockito.mockStatic(LibRuntime.class);
         ErrorInfo errorInfo = new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "");
         when(LibRuntime.SaveState(anyInt())).thenReturn(errorInfo);
@@ -447,6 +456,31 @@ public class TestClusterModeRuntime {
             isException = true;
         }
         Assert.assertFalse(isException);
+
+        when(LibRuntime.PutWithParam(any(), anyList(), any())).thenReturn(mockRes);
+        try {
+            runtime.put(obj, 10L, 20L, new CreateParam());
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+
+        when(LibRuntime.Put(any(), anyList())).thenThrow(new LibRuntimeException("error occurred"));
+        try {
+            runtime.put(obj, 10L, 20L);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+
+        when(LibRuntime.PutWithParam(any(), anyList(), any())).thenThrow(new LibRuntimeException("error occurred"));
+        isException = false;
+        try {
+            runtime.put(obj, 10L, 20L, new CreateParam());
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
     }
 
     @Test
@@ -498,7 +532,7 @@ public class TestClusterModeRuntime {
 
         List<String> readyIds = Arrays.asList("2", "1");
         List<String> unreadyIds = new ArrayList<String>();
-        Map<String, ErrorInfo> exceptionIds = new HashMap<String, ErrorInfo>(){
+        Map<String, ErrorInfo> exceptionIds = new HashMap<String, ErrorInfo>() {
             {
                 put("err", new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, ""));
             }
@@ -518,6 +552,22 @@ public class TestClusterModeRuntime {
         when(LibRuntime.Wait(anyList(), anyInt(), anyInt())).thenReturn(waitResult);
         InternalWaitResult res = runtime.wait(normalObjIds, 2, 10);
         Assert.assertNotNull(res);
+
+        exceptionIds = new HashMap<String, ErrorInfo>() {
+            {
+                put("err", null);
+            }
+        };
+        waitResult = new InternalWaitResult(readyIds, unreadyIds, exceptionIds);
+        when(LibRuntime.Wait(anyList(), anyInt(), anyInt())).thenReturn(waitResult);
+        isException = false;
+        try {
+            runtime.wait(normalObjIds, 2, 10);
+        } catch (YRException e) {
+            isException = true;
+            Assert.assertTrue(e.getMessage().contains("errorInfo is null"));
+        }
+        Assert.assertTrue(isException);
     }
 
     @Test
@@ -532,20 +582,41 @@ public class TestClusterModeRuntime {
         Pair<ErrorInfo, String> mockRes = new Pair<ErrorInfo, String>(new ErrorInfo(), "objID");
         when(LibRuntime.CreateInstance(any(), anyList(), any())).thenReturn(mockRes);
         String instanceID = runtime.createInstance(meta, args, opts);
-        Assert.assertTrue(instanceID.equals("objID"));
+        Assert.assertEquals("objID", instanceID);
+
+        when(LibRuntime.CreateInstance(any(), anyList(), any())).thenThrow(
+            new LibRuntimeException("error occurred"));
+        boolean isException = false;
+        try {
+            runtime.createInstance(meta, args, opts);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
 
         when(LibRuntime.InvokeInstance(any(), anyString(), anyList(), any())).thenReturn(mockRes);
         String objID = runtime.invokeInstance(meta, instanceID, args, opts);
-        Assert.assertTrue(objID.equals("objID"));
+        Assert.assertEquals("objID", objID);
+
+        when(LibRuntime.InvokeInstance(any(), anyString(), anyList(), any())).thenThrow(
+            new LibRuntimeException("error occurred"));
+        isException = false;
+        try {
+            runtime.invokeInstance(meta, instanceID, args, opts);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
 
         when(LibRuntime.Kill(anyString())).thenReturn(new ErrorInfo());
-        boolean isException = false;
+        isException = false;
         try {
             runtime.terminateInstance(instanceID);
         } catch (YRException e) {
             isException = true;
         }
         Assert.assertFalse(isException);
+
         when(LibRuntime.KillSync(anyString())).thenReturn(new ErrorInfo());
         isException = false;
         try {
@@ -557,7 +628,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testGroupCreate() throws YRException {
+    public void testGroupCreate() throws Exception {
         Runtime runtime = new ClusterModeRuntime();
         GroupOptions opt = new GroupOptions();
         opt.setTimeout(-2);
@@ -594,7 +665,7 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testGroupWait() throws YRException {
+    public void testGroupWait() throws Exception {
         Runtime runtime = new ClusterModeRuntime();
         PowerMockito.mockStatic(LibRuntime.class);
         ErrorInfo errorInfo = new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "");
@@ -614,5 +685,210 @@ public class TestClusterModeRuntime {
             isException = true;
         }
         Assert.assertFalse(isException);
+    }
+
+    @Test
+    public void testGroupTerminate() throws YRException {
+        Runtime runtime = new ClusterModeRuntime();
+        PowerMockito.mockStatic(LibRuntime.class);
+        runtime.groupTerminate("group1");
+    }
+
+    @Test
+    public void testCreateStreamProducer() throws Exception {
+        ProducerConfig cfg = new ProducerConfig();
+        Runtime runtime = new ClusterModeRuntime();
+        PowerMockito.mockStatic(LibRuntime.class);
+        when(LibRuntime.CreateStreamProducerWithConfig(anyString(), any())).thenReturn(10086L);
+        boolean isException = false;
+        try {
+            runtime.createStreamProducer("stream", cfg);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+        when(LibRuntime.CreateStreamProducerWithConfig(anyString(), any())).thenThrow(new LibRuntimeException("err"));
+        isException = false;
+        try {
+            runtime.createStreamProducer("stream", cfg);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+    }
+
+    @Test
+    public void testCreateStreamProducerFailed() throws Exception {
+        Runtime runtime = new ClusterModeRuntime();
+        boolean isException = false;
+        try {
+            ProducerConfig cfg = new ProducerConfig();
+            cfg.setMaxStreamSize(-1L);
+            runtime.createStreamProducer("aaaaaaaa", cfg);
+        } catch (YRException e) {
+            Assert.assertTrue(e.getErrorCode().toString().equals("1001"));
+            Assert.assertTrue(e.getErrorMessage().contains("is invalid, expect >= 0"));
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+        isException = false;
+        try {
+            ProducerConfig cfg = new ProducerConfig();
+            cfg.setRetainForNumConsumers(-1L);
+            runtime.createStreamProducer("aaaaaaaa", cfg);
+        } catch (YRException e) {
+            Assert.assertTrue(e.getErrorCode().toString().equals("1001"));
+            Assert.assertTrue(e.getErrorMessage().contains("is invalid, expect >= 0"));
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+        isException = false;
+        try {
+            ProducerConfig cfg = new ProducerConfig();
+            cfg.setReserveSize(-1L);
+            runtime.createStreamProducer("aaaaaaaa", cfg);
+        } catch (YRException e) {
+            Assert.assertTrue(e.getErrorCode().toString().equals("1001"));
+            Assert.assertTrue(e.getErrorMessage().contains("is invalid, expect >= 0"));
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+    }
+
+    @Test
+    public void testCreateStreamConsumer() throws Exception {
+        SubscriptionConfig cfg = new SubscriptionConfig();
+        Runtime runtime = new ClusterModeRuntime();
+        PowerMockito.mockStatic(LibRuntime.class);
+        when(LibRuntime.CreateStreamConsumer(anyString(), anyString(), any(), anyBoolean())).thenReturn(10086L);
+        boolean isException = false;
+        try {
+            runtime.createStreamConsumer("stream", cfg, false);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+        when(LibRuntime.CreateStreamConsumer(anyString(), anyString(), any(), anyBoolean()))
+                .thenThrow(new LibRuntimeException("err"));
+        isException = false;
+        try {
+            runtime.createStreamConsumer("stream", cfg, false);
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+    }
+
+    @Test
+    public void testDeleteStream() throws Exception {
+        Runtime runtime = new ClusterModeRuntime();
+        PowerMockito.mockStatic(LibRuntime.class);
+        ErrorInfo errorInfo = new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "");
+        when(LibRuntime.DeleteStream(anyString())).thenReturn(errorInfo);
+        boolean isException = false;
+        try {
+            runtime.deleteStream("stream");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+        when(LibRuntime.DeleteStream(anyString())).thenReturn(new ErrorInfo());
+        isException = false;
+        try {
+            runtime.deleteStream("stream");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+    }
+
+    @Test
+    public void testQueryGlobalConsumersNum() throws Exception {
+        Runtime runtime = new ClusterModeRuntime();
+        PowerMockito.mockStatic(LibRuntime.class);
+        when(LibRuntime.QueryGlobalConsumersNum(anyString())).thenReturn(10086L);
+        boolean isException = false;
+        try {
+            runtime.queryGlobalConsumersNum("stream");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+        when(LibRuntime.QueryGlobalConsumersNum(anyString())).thenThrow(new LibRuntimeException("err"));
+        isException = false;
+        try {
+            runtime.queryGlobalConsumersNum("stream");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+    }
+
+    @Test
+    public void testQueryGlobalProducersNum() throws Exception {
+        Runtime runtime = new ClusterModeRuntime();
+        PowerMockito.mockStatic(LibRuntime.class);
+        when(LibRuntime.QueryGlobalProducersNum(anyString())).thenReturn(10086L);
+        boolean isException = false;
+        try {
+            runtime.queryGlobalProducersNum("stream");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+        when(LibRuntime.QueryGlobalProducersNum(anyString())).thenThrow(new LibRuntimeException("err"));
+        isException = false;
+        try {
+            runtime.queryGlobalProducersNum("stream");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+    }
+
+    @Test
+    public void testKVMSetTx() throws Exception {
+        PowerMockito.mockStatic(LibRuntime.class);
+        ClusterModeRuntime runtime = new ClusterModeRuntime();
+        ErrorInfo mockRes = new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "");
+        when(LibRuntime.KVMSetTx(anyList(), anyList(), any())).thenReturn(mockRes);
+        boolean isException = false;
+        try {
+            runtime.KVMSetTx(new ArrayList<>(), new ArrayList<>(), new MSetParam());
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+
+        when(LibRuntime.KVMSetTx(anyList(), anyList(), any())).thenThrow(new LibRuntimeException("error occurred"));
+        isException = false;
+        try {
+            runtime.KVMSetTx(new ArrayList<>(), new ArrayList<>(), new MSetParam());
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
+    }
+
+    @Test
+    public void testGetInstanceRoute() throws Exception {
+        PowerMockito.mockStatic(LibRuntime.class);
+        ClusterModeRuntime runtime = new ClusterModeRuntime();
+        when(LibRuntime.GetInstanceRoute(anyString())).thenReturn("getInstanceRoute");
+        boolean isException = false;
+        try {
+            runtime.getInstanceRoute("objId");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
+
+        when(LibRuntime.GetInstanceRoute(anyString())).thenThrow(new LibRuntimeException("error occurred"));
+        try {
+            runtime.getInstanceRoute("objId");
+        } catch (YRException e) {
+            isException = true;
+        }
+        Assert.assertTrue(isException);
     }
 }

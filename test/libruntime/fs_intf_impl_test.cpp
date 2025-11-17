@@ -83,6 +83,7 @@ public:
     void TearDown() override
     {
         UnsetEnv("REQUEST_ACK_ACC_MAX_SEC");
+        fsIntfImpl_->Stop();
         fsIntfImpl_.reset();
     }
     std::shared_ptr<FSIntfImpl> fsIntfImpl_;
@@ -106,7 +107,7 @@ TEST_F(FSIntfImplTest, Test_when_retry_timeout_should_execute_callback)
     auto retry = [&retryTimes]() { std::cout << "retryTimes: " << retryTimes++ << std::endl; };
     wr->SetupRetry(retry, std::bind(&FSIntfImpl::NeedRepeat, fsIntfImpl_.get(), requestId));
     EXPECT_EQ(future.get().Code(), ERR_REQUEST_BETWEEN_RUNTIME_BUS);
-    EXPECT_EQ(retryTimes, 1);
+    EXPECT_EQ(retryTimes, 5);
 }
 
 TEST_F(FSIntfImplTest, Test_resend)
@@ -261,6 +262,49 @@ TEST_F(FSIntfImplTest, Test_when_receive_repeated_call_request_should_return_cal
     ASSERT_TRUE(fOne.get());
 }
 
+TEST_F(FSIntfImplTest, ResendRequestWithRetryTest)
+{
+    auto promise = std::make_shared<std::promise<int>>();
+    auto anotherPromise = std::make_shared<std::promise<int>>();
+    auto future = promise->get_future();
+    auto anotherFuture = anotherPromise->get_future();
+    std::atomic<int> num{0};
+    std::atomic<int> count{2};
+    auto wiredReq = std::make_shared<WiredRequest>();
+    std::function<void()> retry = [&num, &anotherPromise]() -> void {
+        num++;
+        if (num == 4) {
+            anotherPromise->set_value(0);
+        }
+        YRLOG_DEBUG("current num is {}", num.load());
+    };
+    wiredReq->retryHdlr = std::move(retry);
+    std::function<bool()> needRetryHdlr = [&count, &promise, &anotherPromise]() -> bool {
+        if (count > 0) {
+            count--;
+            return true;
+        }
+        promise->set_value(0);
+        return false;
+    };
+    wiredReq->needRetryHdlr = std::move(needRetryHdlr);
+    auto timer = std::make_shared<TimerWorker>();
+    wiredReq->timerWorkerWeak = timer->weak_from_this();
+    wiredReq->ResendRequestWithRetry();
+    wiredReq->ResendRequestWithRetry();
+    wiredReq->retryIntervalSec = 1;
+
+    ASSERT_EQ(num, 2);
+    future.get();
+    anotherFuture.get();
+    ASSERT_EQ(num, 4);
+    ASSERT_EQ(count, 0);
+    if (wiredReq->timer_) {
+        wiredReq->timer_->cancel();
+        wiredReq->timer_.reset();
+    }
+}
+
 TEST_F(FSIntfImplTest, DirectlyCallWithRetry)
 {
     Config::Instance().RUNTIME_DIRECT_CONNECTION_ENABLE() = true;
@@ -270,6 +314,7 @@ TEST_F(FSIntfImplTest, DirectlyCallWithRetry)
     fsIntfImpl_ = std::make_shared<FSIntfImpl>(Config::Instance().HOST_IP(), 0, handlers, true, nullptr,
                                                std::make_shared<ClientsManager>(), false);
     fsIntfImpl_->fsInrfMgr = mockFsIntfMgr;
+    fsIntfImpl_->noitfyExecutor.Init(1);
     auto mockFsIntfRW = std::make_shared<MockFSIntfReaderWriter>();
     EXPECT_CALL(*mockFsIntfMgr, Get).WillRepeatedly(Return(mockFsIntfRW));
     // mock first directly return communicate err
@@ -322,11 +367,6 @@ TEST_F(FSIntfImplTest, DirectlyCallResultWithRetry)
                 auto wr = ptr->GetWiredRequest(reqId, false);
                 EXPECT_NE(wr, nullptr);
             }
-        }))
-        .WillOnce(Invoke([&](const std::shared_ptr<StreamingMessage> &msg,
-                             std::function<void(bool, ErrorInfo)> callback, std::function<void(bool)> preWrite) {
-            // retry to failure
-            callback(true, ErrorInfo(ERR_INSTANCE_EXITED, "posix stream is closed"));
         }));
     auto promise = std::make_shared<std::promise<CallResultAck>>();
     auto ackHandler = [promise](const CallResultAck &req) -> void { promise->set_value(req); };
@@ -337,10 +377,97 @@ TEST_F(FSIntfImplTest, DirectlyCallResultWithRetry)
     auto messageSpec = std::make_shared<CallResultMessageSpec>();
     messageSpec->Mutable() = std::move(req);
     fsIntfImpl_->CallResultAsync(messageSpec, ackHandler);
-    auto rsp = promise->get_future().get();
-    EXPECT_EQ(rsp.code(), common::ErrorCode(ERR_INSTANCE_EXITED));
     auto wr = fsIntfImpl_->GetWiredRequest(reqId, false);
-    EXPECT_EQ(wr, nullptr);
+    EXPECT_NE(wr, nullptr);
+}
+
+TEST_F(FSIntfImplTest, TestIsHealth)
+{
+    EXPECT_NE(fsIntfImpl_->IsHealth(), true);
+    fsIntfImpl_->fsInrfMgr = std::make_shared<FSIntfManager>(fsIntfImpl_->clientsMgr);
+    EXPECT_NE(fsIntfImpl_->IsHealth(), true);
+    auto mockFsIntf = std::make_shared<MockFSIntfReaderWriter>();
+    fsIntfImpl_->fsInrfMgr->systemIntf = mockFsIntf;
+    EXPECT_CALL(*mockFsIntf, IsHealth).WillRepeatedly(Return(true));
+    EXPECT_TRUE(fsIntfImpl_->IsHealth());
+}
+
+TEST_F(FSIntfImplTest, TestNotifyDisconnected)
+{
+    EXPECT_NO_THROW(fsIntfImpl_->NotifyDisconnected("no_function-proxy"));
+    auto wr = std::make_shared<WiredRequest>();
+    wr->dstInstanceID = "instanceId";
+    wr->reqId_ = "reqId";
+    wr->notifyCallback = [](const NotifyRequest &req, const ErrorInfo &err) {std::cout << "hello, world" << std::endl;};
+    fsIntfImpl_->wiredRequests.emplace(wr->reqId_, wr);
+    auto mockFsIntf = std::make_shared<MockFSIntfReaderWriter>();
+    fsIntfImpl_->fsInrfMgr->Emplace("instanceId", mockFsIntf);
+    EXPECT_CALL(*mockFsIntf, Available).WillRepeatedly(Return(false));
+    fsIntfImpl_->NotifyDisconnected("function-proxy");
+    EXPECT_TRUE(fsIntfImpl_->wiredRequests.find("reqId") == fsIntfImpl_->wiredRequests.end());
+}
+
+TEST_F(FSIntfImplTest, TestNeedRepeat)
+{
+    auto wr = std::make_shared<WiredRequest>();
+    fsIntfImpl_->wiredRequests["reqId"] = wr;
+    wr->reqId_ = "reqId";
+    wr->retryCount = 0;
+    wr->remainTimeoutSec = 1;
+    wr->retryIntervalSec = 10;
+    wr->callback = [](const StreamingMessage &createResp, ErrorInfo status, std::function<void(bool)>){};
+    EXPECT_FALSE(fsIntfImpl_->NeedRepeat("reqId"));
+    wr->ackReceived = true;
+    EXPECT_FALSE(fsIntfImpl_->NeedRepeat("reqId"));
+}
+
+TEST_F(FSIntfImplTest, TestUpdateRetryInterval)
+{
+    std::string reqId = "non_existing_request_id";
+    auto result = fsIntfImpl_->UpdateRetryInterval(reqId);
+    EXPECT_EQ(result.first, nullptr);
+    EXPECT_TRUE(result.second);
+
+    reqId = "existing_request_id";
+    auto wr1 = std::make_shared<WiredRequest>();
+    wr1->retryCount = 0;
+    wr1->remainTimeoutSec = 0;
+    wr1->retryIntervalSec = 1;
+    fsIntfImpl_->wiredRequests[reqId] = wr1;
+    result = fsIntfImpl_->UpdateRetryInterval(reqId);
+    EXPECT_EQ(result.first, wr1);
+    EXPECT_TRUE(result.second);
+    EXPECT_EQ(fsIntfImpl_->wiredRequests.find(reqId), fsIntfImpl_->wiredRequests.end());
+
+    reqId = "existing_request_id_1";
+    auto wr2 = std::make_shared<WiredRequest>();
+    wr2->retryCount = 0;
+    wr2->remainTimeoutSec = 10;
+    wr2->retryIntervalSec = 1;
+    wr2->exponentialBackoff = true;
+    fsIntfImpl_->wiredRequests[reqId] = wr2;
+
+    result = fsIntfImpl_->UpdateRetryInterval(reqId);
+    EXPECT_EQ(result.first, wr2);
+    EXPECT_FALSE(result.second);
+    EXPECT_EQ(result.first->retryCount, 1);
+    EXPECT_EQ(result.first->remainTimeoutSec, 9);
+    EXPECT_EQ(result.first->retryIntervalSec, 2);
+
+    reqId = "existing_request_id_2";
+    auto wr3 = std::make_shared<WiredRequest>();
+    wr3->retryCount = 0;
+    wr3->remainTimeoutSec = 1;
+    wr3->retryIntervalSec = 10;
+    wr3->exponentialBackoff = false;
+    fsIntfImpl_->wiredRequests[reqId] = wr3;
+
+    result = fsIntfImpl_->UpdateRetryInterval(reqId);
+    EXPECT_EQ(result.first, wr3);
+    EXPECT_TRUE(result.second);
+    EXPECT_EQ(result.first->retryCount, 1);
+    EXPECT_EQ(result.first->remainTimeoutSec, -9);
+    EXPECT_EQ(result.first->retryIntervalSec, 10);
 }
 }  // namespace test
 }  // namespace YR

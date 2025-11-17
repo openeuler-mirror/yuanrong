@@ -20,6 +20,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
@@ -33,6 +35,8 @@ import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ErrorInfo;
+import com.yuanrong.errorcode.ModuleCode;
+import com.yuanrong.exception.YRException;
 import com.yuanrong.libruntime.generated.Libruntime;
 import com.yuanrong.libruntime.generated.Libruntime.FunctionMeta;
 import com.yuanrong.serialization.Serializer;
@@ -56,13 +60,27 @@ public class TestFunctionHandler {
      * @throws Exception
      */
     @Test
-    public void testCreateExeceptionWithCause() throws Exception {
+    public void testCreateExceptionWithCause() throws Exception {
         FunctionMeta meta = FunctionMeta.newBuilder().setClassName("MockClassName").setSignature("MockSignature")
                 .setFunctionName("MockMethodName").build();
         HandlerIntf handler = new FunctionHandler();
         ReturnType returnType = handler.execute(meta, Libruntime.InvokeType.CreateInstanceStateless, null);
         assertEquals(returnType.getCode(), ErrorCode.ERR_USER_FUNCTION_EXCEPTION);
         assertTrue(returnType.getErrorInfo().getErrorMessage().contains("failed to create instance due to the cause:"));
+    }
+
+    @Test
+    public void testCreateWithFailedtoFindMethod() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        handler.classCache.put("MockClass", MockClass.class);
+
+        FunctionMeta meta = FunctionMeta.newBuilder()
+            .setClassName("MockClass")
+            .setFunctionName("mockMethod")
+            .setSignature("invalidSignature")
+            .build();
+        ReturnType returnType = handler.execute(meta, Libruntime.InvokeType.CreateInstanceStateless, new ArrayList<>());
+        assertEquals(returnType.getErrorInfo().getErrorCode(), ErrorCode.ERR_USER_FUNCTION_EXCEPTION);
     }
 
     /**
@@ -147,6 +165,21 @@ public class TestFunctionHandler {
     }
 
     @Test
+    public void testReturnTypeInvalidInvoke() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        handler.classCache.put("MockClass", MockClass.class);
+        MemberModifier.field(FunctionHandler.class, "instance").set(FunctionHandler.class, new MockClass());
+        FunctionMeta meta = FunctionMeta.newBuilder()
+            .setClassName("MockClass")
+            .setFunctionName("mockMethod")
+            .setSignature("()V")
+            .build();
+        ArrayList<ByteBuffer> args = new ArrayList<ByteBuffer>();
+        ReturnType returnType = handler.execute(meta, Libruntime.InvokeType.GetNamedInstanceMeta, args);
+        assertEquals(ErrorCode.ERR_INCORRECT_INVOKE_USAGE, returnType.getErrorInfo().getErrorCode());
+    }
+
+    @Test
     public void loadInstanceMismatchedInputException() throws ClassNotFoundException, IOException {
         String clzName = "MockClass";
         FunctionHandler.classCache.put(clzName, MockClass.class);
@@ -202,6 +235,27 @@ public class TestFunctionHandler {
     }
 
     @Test
+    public void testShutdownNoSuchMethod() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        handler.classCache.put("MockNoneClass", MockNoneClass.class);
+        MemberModifier.field(FunctionHandler.class, "instance").set(FunctionHandler.class, new MockNoneClass());
+        MemberModifier.field(FunctionHandler.class, "instanceClassName").set(FunctionHandler.class, "MockNoneClass");
+        ErrorInfo err = handler.shutdown(10);
+        assertEquals(err.getErrorCode(), ErrorCode.ERR_OK);
+    }
+
+    @Test
+    public void testShutdownFailedMethod() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        handler.classCache.put("MockFailedClass", MockFailedClass.class);
+        MemberModifier.field(FunctionHandler.class, "instance").set(FunctionHandler.class, new MockFailedClass());
+        MemberModifier.field(FunctionHandler.class, "instanceClassName")
+            .set(FunctionHandler.class, "MockFailedClass");
+        ErrorInfo err = handler.shutdown(10);
+        assertEquals(err.getErrorCode(), ErrorCode.ERR_INNER_SYSTEM_ERROR);
+    }
+
+    @Test
     public void testRecover() throws Exception {
         boolean isException = false;
         FunctionHandler handler = new FunctionHandler();
@@ -222,5 +276,46 @@ public class TestFunctionHandler {
         MemberModifier.field(FunctionHandler.class, "instance").set(FunctionHandler.class, null);
         ErrorInfo err = handler.recover();
         assertTrue(err.getErrorMessage().contains("Failed to invoke instance function"));
+    }
+
+    @Test
+    public void testRecoverNoSuchMethod() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        handler.classCache.put("MockNoneClass", MockNoneClass.class);
+        MemberModifier.field(FunctionHandler.class, "instance").set(FunctionHandler.class, new MockNoneClass());
+        MemberModifier.field(FunctionHandler.class, "instanceClassName").set(FunctionHandler.class, "MockNoneClass");
+        ErrorInfo err = handler.recover();
+        assertEquals(err.getErrorCode(), ErrorCode.ERR_OK);
+    }
+
+    @Test
+    public void testRecoverFailedMethod() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        handler.classCache.put("MockFailedClass", MockFailedClass.class);
+        MemberModifier.field(FunctionHandler.class, "instance").set(FunctionHandler.class, new MockFailedClass());
+        MemberModifier.field(FunctionHandler.class, "instanceClassName")
+            .set(FunctionHandler.class, "MockFailedClass");
+        ErrorInfo err = handler.recover();
+        assertEquals(err.getErrorCode(), ErrorCode.ERR_INNER_SYSTEM_ERROR);
+    }
+
+    @Test
+    public void testProcessException() throws Exception {
+        FunctionHandler handler = new FunctionHandler();
+        Method method = FunctionHandler.class.getDeclaredMethod("processException", Exception.class, String.class,
+            String.class);
+        method.setAccessible(true);
+        NoSuchMethodException noSuchMethodException = new NoSuchMethodException("testException");
+        ReturnType ret1 = (ReturnType) method.invoke(handler, noSuchMethodException, "MockClass", "MockMethod");
+        assertEquals(ErrorCode.ERR_INNER_SYSTEM_ERROR, ret1.getCode());
+
+        ReturnType ret2 = (ReturnType) method.invoke(handler, new InvocationTargetException(noSuchMethodException),
+            "MockClass", "MockMethod");
+        assertEquals(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ret2.getCode());
+
+        InvocationTargetException invocationException = new InvocationTargetException(
+            new YRException(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME, "testException"));
+        ReturnType ret3 = (ReturnType) method.invoke(handler, invocationException, "MockClass", "MockMethod");
+        assertEquals(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ret3.getCode());
     }
 }

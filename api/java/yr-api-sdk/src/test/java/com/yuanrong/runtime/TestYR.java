@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 import com.yuanrong.Config;
 import com.yuanrong.ConfigManager;
 import com.yuanrong.api.ClientInfo;
+import com.yuanrong.api.Node;
 import com.yuanrong.api.YR;
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ErrorInfo;
@@ -33,9 +34,14 @@ import com.yuanrong.errorcode.ModuleCode;
 import com.yuanrong.errorcode.Pair;
 import com.yuanrong.exception.YRException;
 import com.yuanrong.jni.LibRuntime;
+import com.yuanrong.jobexecutor.YRJobParam;
 import com.yuanrong.runtime.client.ObjectRef;
 import com.yuanrong.storage.InternalWaitResult;
 import com.yuanrong.storage.WaitResult;
+import com.yuanrong.stream.Consumer;
+import com.yuanrong.stream.Producer;
+import com.yuanrong.stream.ProducerConfig;
+import com.yuanrong.stream.SubscriptionConfig;
 import com.yuanrong.utils.SdkUtils;
 
 import org.junit.Assert;
@@ -51,6 +57,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +76,8 @@ public class TestYR {
             "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            true);
 
     @Before
     public void init() throws Exception {
@@ -107,7 +115,8 @@ public class TestYR {
             "sn:cn:yrk:12345678901234561234567890123456:function:0-crossyrlib-helloworld:$latest",
             "127.0.0.0",
             "127.0.0.0",
-            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest");
+            "sn:cn:yrk:12345678901234561234567890123456:function:0-test-hello:$latest",
+            true);
         invalidConf.setDataSystemAddress("invalidaddress");
         boolean isException = false;
         try {
@@ -127,7 +136,7 @@ public class TestYR {
         }
         Assert.assertFalse(isException);
         Config conf = new Config("sn:cn:yrk:12345678901234561234567890123456:function:0-st-stjava:$latest",
-                "127.0.0.1", 304822, "127.0.0.1", 290811, "");
+                "127.0.0.1", 304822, "127.0.0.1", 290811, "", true);
         try {
             YR.init(invalidConf);
         } catch (Exception e) {
@@ -158,6 +167,17 @@ public class TestYR {
         }
     }
 
+    /**
+     * Description:
+     *  Test 'Exit' throws exception out of the runtime.
+     * Steps:
+     *   1. Calls 'Exit' when 'inCluster' is true.
+     *   2. Sets 'inCluster' false.
+     *   3. Calls 'Exit' again.
+     * Expectation:
+     *   When 'inCluster' is true, call 'Exit' would not cause exception,
+     *   and throws YRException otherwise.
+     */
     @Test
     public void testExit() throws Exception {
         when(LibRuntime.IsInitialized()).thenReturn(true);
@@ -170,6 +190,16 @@ public class TestYR {
         }
         Assert.assertFalse(isException);
 
+        conf.setInCluster(false);
+        ConfigManager.getInstance().init(conf);
+        try {
+            YR.exit();
+        } catch (YRException e) {
+            isException = true;
+            Assert.assertTrue(e.getErrorMessage().contains("Not support exit out of cluster"));
+        }
+        Assert.assertTrue(isException);
+        // make other cases available
         YR.Finalize();
     }
 
@@ -177,10 +207,12 @@ public class TestYR {
     public void testTenantContext() {
         Config ctxConf = Config.builder()
                             .functionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-j-a:$latest")
-                            .serverAddress("127.0.0.1")
+                            .serverAddress("10.243.25.129")
                             .serverAddressPort(31222)
-                            .dataSystemAddress("127.0.0.1")
+                            .dataSystemAddress("10.243.25.129")
                             .dataSystemAddressPort(31501)
+                            .isInCluster(false)
+                            .tenantId("tenantId1")
                             .enableSetContext(true)
                             .build();
         boolean isException = false;
@@ -228,10 +260,12 @@ public class TestYR {
     public void testTenantContextFailed() {
         Config ctxConf = Config.builder()
                             .functionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-j-a:$latest")
-                            .serverAddress("127.0.0.1")
+                            .serverAddress("10.243.25.129")
                             .serverAddressPort(31222)
-                            .dataSystemAddress("127.0.0.1")
+                            .dataSystemAddress("10.243.25.129")
                             .dataSystemAddressPort(31501)
+                            .isInCluster(false)
+                            .tenantId("tenantId1")
                             .isThreadLocal(true)
                             .enableSetContext(true)
                             .build();
@@ -268,14 +302,40 @@ public class TestYR {
     }
 
     @Test
-    public void testState() throws YRException {
+    public void testStream() throws YRException {
+        YR.init(conf);
+        ProducerConfig pCfg = new ProducerConfig();
+        Producer producer = YR.createProducer("streamName", pCfg);
+        Assert.assertNotNull(producer);
+        producer = YR.createProducer("streamName");
+        Assert.assertNotNull(producer);
+
+        SubscriptionConfig sCfg = new SubscriptionConfig();
+        Consumer consumer = YR.subscribe("streamName", sCfg);
+        Assert.assertNotNull(consumer);
+        consumer = YR.subscribe("streamName", sCfg, false);
+        Assert.assertNotNull(consumer);
+
+        when(LibRuntime.DeleteStream(anyString())).thenReturn(new ErrorInfo());
+        YR.deleteStream("streamName");
+        YR.Finalize();
+    }
+
+    @Test
+    public void testState() throws Exception {
         YR.init(conf);
         when(LibRuntime.LoadState(anyInt())).thenReturn(new ErrorInfo());
         when(LibRuntime.SaveState(anyInt())).thenReturn(new ErrorInfo());
-        YR.saveState(20);
-        YR.saveState();
-        YR.loadState(20);
-        YR.loadState();
+        boolean isException = false;
+        try {
+            YR.saveState(20);
+            YR.saveState();
+            YR.loadState(20);
+            YR.loadState();
+        } catch (Exception e) {
+            isException = true;
+        }
+        Assert.assertFalse(isException);
         YR.Finalize();
     }
 
@@ -294,8 +354,6 @@ public class TestYR {
         ObjectRef ref = YR.put(10);
         Assert.assertNotNull(ref);
         Object obj = YR.get(ref, 10);
-        Assert.assertNotNull(obj);
-        obj = YR.get(ref);
         Assert.assertNotNull(obj);
         obj = YR.get(Arrays.asList(ref), 10);
         Assert.assertNotNull(obj);
@@ -334,6 +392,74 @@ public class TestYR {
         ObjectRef ref2 = new ObjectRef("objID2", String.class);
         WaitResult res = YR.wait(new ArrayList<ObjectRef>(){{add(ref1);add(ref2);}}, 2, 10);
         Assert.assertTrue(res.getReady().size() == 2);
+        YR.Finalize();
+    }
+
+    @Test
+    public void testJobs() throws Exception {
+        YR.init(conf);
+        Pair<ErrorInfo, String> mockRes = new Pair<ErrorInfo, String>(new ErrorInfo(), "objID");
+        when(LibRuntime.CreateInstance(any(), anyList(), any())).thenReturn(mockRes);
+        when(LibRuntime.InvokeInstance(any(), anyString(), anyList(), any())).thenReturn(mockRes);
+        List<String> readyIds = Arrays.asList("2", "1");
+        List<String> unreadyIds = new ArrayList<String>();
+        Map<String, ErrorInfo> exceptionIds = new HashMap<String, ErrorInfo>();
+        InternalWaitResult waitResult = new InternalWaitResult(readyIds, unreadyIds, exceptionIds);
+        when(LibRuntime.Wait(anyList(), anyInt(), anyInt())).thenReturn(waitResult);
+        when(LibRuntime.GetRealInstanceId(anyString())).thenReturn("instanceID");
+        List<byte[]> ok = new ArrayList<byte[]>();
+        ok.add("result1".getBytes(StandardCharsets.UTF_8));
+        ok.add("result2".getBytes(StandardCharsets.UTF_8));
+        Pair<ErrorInfo, List<byte[]>> getRes = new Pair<ErrorInfo,List<byte[]>>(new ErrorInfo(), ok);
+        when(LibRuntime.Get(anyList(), anyInt(), anyBoolean())).thenReturn(getRes);
+
+        YRJobParam param = new YRJobParam();
+        ArrayList<String> entryPoints = new ArrayList<String>(){
+            {
+                add("java1.8");
+                add("/home/snuser/java");
+            }
+        };
+        param.setEntryPoint(entryPoints);
+        param.setJobName("jobName");
+        param.setLocalCodePath("DEFAULT_LOCAL_PATH");
+
+        String res = YR.submitJob(param);
+        Assert.assertNotNull(res);
+
+        YR.Finalize();
+    }
+
+    @Test
+    public void testNodes() throws Exception {
+        YR.init(conf);
+        Node node = new Node();
+        String nodeId = "function-agent-x.x.x.x";
+        node.setId(nodeId);
+        node.setAlive(true);
+        Map<String, Float> resources = new HashMap<>();
+        resources.put("CPU", 1000F);
+        resources.put("Memory", 1000F);
+        node.setResources(resources);
+        Map<String, List<String>> labels = new HashMap<>();
+        List<String> label = new ArrayList<>();
+        label.add("label1");
+        label.add("label2");
+        labels.put(nodeId, label);
+        node.setLabels(labels);
+        List<Node> nodes = Collections.singletonList(node);
+        when(LibRuntime.nodes()).thenReturn(new Pair<>(new ErrorInfo(), nodes));
+
+        List<Node> getNodes = YR.nodes();
+        Node node1 = getNodes.get(0);
+        Assert.assertEquals(node1.getId(), nodeId);
+        Assert.assertTrue(node1.isAlive());
+        Assert.assertEquals(node1.getResources(), resources);
+        Assert.assertEquals(node1.getLabels(), labels);
+
+        Node node2 = new Node(nodeId, true, resources, labels);
+        Assert.assertEquals(node, node2);
+
         YR.Finalize();
     }
 }

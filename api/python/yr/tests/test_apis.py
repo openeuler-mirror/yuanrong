@@ -54,6 +54,7 @@ class TestApi(unittest.TestCase):
         conf = yr.Config()
         conf.function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-test-config-init:$latest"
         conf.server_address = "127.0.0.1:11111"
+        conf.in_cluster = False
         with self.assertRaises(ValueError):
             yr.init(conf)
 
@@ -91,6 +92,7 @@ class TestApi(unittest.TestCase):
     def test_yr_init_failed_when_input_invaild_function_id(self):
         conf = yr.Config()
         conf.function_id = "111"
+        conf.in_cluster = False
         with pytest.raises(ValueError):
             yr.init(conf)
 
@@ -107,6 +109,10 @@ class TestApi(unittest.TestCase):
         assert affinity_kind == affinity.affinity_kind
         assert affinity_type == affinity.affinity_type
         assert label_operators == affinity.label_operators
+
+        affinity_scope = yr.AffinityScope.NODE
+        affinity2 = yr.Affinity(affinity_kind, affinity_type, label_operators, affinity_scope)
+        assert affinity_scope == affinity2.affinity_scope
 
     @patch("yr.apis.is_initialized")
     def test_cancel_with_invalid_value(self, is_initialized):
@@ -294,11 +300,25 @@ class TestApi(unittest.TestCase):
     @patch("yr.apis.is_initialized")
     def test_stream(self, is_initialized, get_runtime):
         mock_runtime = Mock()
+        mock_runtime.create_stream_producer.return_value = "producer"
+        mock_runtime.create_stream_consumer.return_value = "consummer"
+        mock_runtime.query_global_producers_num.return_value = 10
+        mock_runtime.query_global_consumers_num.return_value = 10
+        mock_runtime.delete_stream.side_effect = RuntimeError("mock exception")
         mock_runtime.kv_write.side_effect = RuntimeError("mock exception")
         mock_runtime.kv_read.return_value = ["value"]
         mock_runtime.kv_del.side_effect = RuntimeError("mock exception")
         get_runtime.return_value = mock_runtime
         is_initialized.return_value = True
+
+        self.assertEqual(yr.create_stream_producer("", None), "producer")
+
+        self.assertEqual(yr.create_stream_consumer("", None), "consummer")
+        self.assertEqual(yr.query_global_producers_num(""), 10)
+        self.assertEqual(yr.query_global_consumers_num(""), 10)
+
+        with self.assertRaises(RuntimeError):
+            yr.delete_stream("")
 
         with self.assertRaises(RuntimeError):
             yr.kv_write("key", b"abc")
@@ -483,6 +503,11 @@ class TestException(unittest.TestCase):
         self.assertEqual(err.code, 1001)
         self.assertEqual(err.message, "some exception")
         self.assertTrue("request1" in str(err))
+
+    def test_generator_finished(self):
+        e = exception.GeneratorFinished(RuntimeError("some exception"))
+        with self.assertRaises(Exception):
+            raise e
 
     def test_deal_with_yr_error(self):
         origin_err = exception.YRInvokeError("origin_err", "some origin exception")

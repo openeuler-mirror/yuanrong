@@ -82,6 +82,13 @@ jobject JNIFunctionMeta::FromCc(JNIEnv *env, const YR::Libruntime::FunctionMeta 
     jobject japiType = JNIApiType::FromCc(env, meta.apiType);
     jobject obj = env->CallStaticObjectMethod(factoryClz_, init_, jappName, jmoduleName, jfuncName, jclassName,
                                               jlanguage, japiType, jsignature);
+    env->DeleteLocalRef(jappName);
+    env->DeleteLocalRef(jmoduleName);
+    env->DeleteLocalRef(jfuncName);
+    env->DeleteLocalRef(jclassName);
+    env->DeleteLocalRef(jlanguage);
+    env->DeleteLocalRef(jsignature);
+    env->DeleteLocalRef(japiType);
     return obj;
 }
 

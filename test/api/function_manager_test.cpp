@@ -17,8 +17,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "yr/api/function_manager.h"
 #include "yr/yr.h"
+#include "yr/api/function_manager.h"
 
 namespace YR {
 namespace test {
@@ -27,7 +27,8 @@ class FunctionManagerTest : public testing::Test {
 public:
     FunctionManagerTest(){};
     ~FunctionManagerTest(){};
-    void SetUp() override {}
+    void SetUp() override
+    {}
 };
 
 class Counter {
@@ -38,18 +39,7 @@ public:
         count = init;
     }
 
-    int A(int x)
-    {
-        return x;
-    }
-
-    int B(int x)
-    {
-        return x;
-    }
-
-    void Shutdown(uint64_t gracePeriodSecond)
-    {
+    void Shutdown(uint64_t gracePeriodSecond) {
         return;
     }
 
@@ -58,20 +48,14 @@ public:
     YR_STATE(key, count);
 };
 
-int C(int x)
-{
-    return x;
-}
 
-TEST_F(FunctionManagerTest, RegisterShutdownFunctionsTest)
-{
+TEST_F(FunctionManagerTest, RegisterShutdownFunctionsTest) {
     YR_SHUTDOWN(&Counter::Shutdown);
     auto func = internal::FunctionManager::Singleton().GetShutdownFunction("Counter");
     EXPECT_TRUE(func.has_value());
 }
 
-TEST_F(FunctionManagerTest, CheckpointRecoverTest)
-{
+TEST_F(FunctionManagerTest, CheckpointRecoverTest) {
     auto clsPtr = new Counter();
     clsPtr->key = "1234";
     auto instancePtr = YR::internal::Serialize((uint64_t)clsPtr);

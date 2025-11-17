@@ -118,6 +118,21 @@ class TestApi(TestCase):
         lr.finalize()
 
         with self.assertRaises(RuntimeError):
+            lr.create_stream_producer("stream", None)
+
+        with self.assertRaises(RuntimeError):
+            lr.create_stream_consumer("stream", None)
+
+        with self.assertRaises(RuntimeError):
+            lr.delete_stream("stream")
+
+        with self.assertRaises(RuntimeError):
+            lr.query_global_producers_num("stream")
+
+        with self.assertRaises(RuntimeError):
+            lr.query_global_consumers_num("stream")
+
+        with self.assertRaises(RuntimeError):
             lr.save_state(1)
 
         with self.assertRaises(RuntimeError):

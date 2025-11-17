@@ -152,12 +152,14 @@ RetryInfo ObjectStoreGetImplWithoutRetry(const std::vector<std::string> &ids, in
 
 ErrorInfo DSCacheObjectStore::Init(const std::string &addr, int port, std::int32_t connectTimeout)
 {
-    return DSCacheObjectStore::Init(addr, port, false, false, "", SensitiveValue{}, "", connectTimeout);
+    return DSCacheObjectStore::Init(addr, port, false, false, "", SensitiveValue{}, "", "", "", SensitiveValue{},
+                                    connectTimeout);
 }
 
 ErrorInfo DSCacheObjectStore::Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
                                    const std::string &runtimePublicKey, const SensitiveValue &runtimePrivateKey,
-                                   const std::string &dsPublicKey, const std::int32_t connectTimeout)
+                                   const std::string &dsPublicKey, const SensitiveValue &token, const std::string &ak,
+                                   const SensitiveValue &sk, const std::int32_t connectTimeout)
 {
     ErrorInfo err;
     YRLOG_DEBUG("Datasystem object store init, ip = {}, port = {}, connectTimeout is {}", ip, port, connectTimeout);
@@ -168,6 +170,9 @@ ErrorInfo DSCacheObjectStore::Init(const std::string &ip, int port, bool enableD
         connectOpts.clientPublicKey = runtimePublicKey;
         connectOpts.clientPrivateKey = runtimePrivateKey;
         connectOpts.serverPublicKey = dsPublicKey;
+    }
+    if (enableDsAuth) {
+        GetAuthConnectOpts(connectOpts, ak, sk, token);
     }
     return err;
 }
@@ -214,6 +219,7 @@ ErrorInfo DSCacheObjectStore::CreateBuffer(const std::string &objectId, size_t d
     ds::CreateParam param;
     param.writeMode = static_cast<datasystem::WriteMode>(createParam.writeMode);
     param.consistencyType = static_cast<datasystem::ConsistencyType>(createParam.consistencyType);
+    param.cacheType = static_cast<datasystem::CacheType>(createParam.cacheType);
     ds::Status status = dsClient->Create(objectId, dataSize, param, dataBuffer);
     if (!status.IsOk()) {
         if (status.GetCode() != ds::StatusCode::K_OC_ALREADY_SEALED) {
@@ -268,6 +274,7 @@ ErrorInfo DSCacheObjectStore::Put(std::shared_ptr<Buffer> data, const std::strin
     ds::CreateParam param;
     param.writeMode = static_cast<datasystem::WriteMode>(createParam.writeMode);
     param.consistencyType = static_cast<datasystem::ConsistencyType>(createParam.consistencyType);
+    param.cacheType = static_cast<datasystem::CacheType>(createParam.cacheType);
     ds::Status status = dsClient->Create(objId, static_cast<uint64_t>(data->GetSize()), param, dataBuffer);
     if (!status.IsOk()) {
         if (status.GetCode() != ds::StatusCode::K_OC_ALREADY_SEALED) {
@@ -292,6 +299,19 @@ ErrorInfo DSCacheObjectStore::Put(std::shared_ptr<Buffer> data, const std::strin
     status = dataBuffer->UnWLatch();
     msg = "failed to UnWLatch buffer, objId: " + objId + ", errMsg:" + status.ToString();
     RETURN_ERR_NOT_OK(status.IsOk(), status.GetCode(), YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED, msg);
+    return ErrorInfo();
+}
+
+ErrorInfo DSCacheObjectStore::UpdateToken(datasystem::SensitiveValue token)
+{
+    if (!isInit) {
+        return ErrorInfo();
+    }
+    return ErrorInfo();
+}
+
+ErrorInfo DSCacheObjectStore::UpdateAkSk(std::string ak, datasystem::SensitiveValue sk)
+{
     return ErrorInfo();
 }
 
@@ -393,6 +413,16 @@ std::vector<int> DSCacheObjectStore::QueryGlobalReference(const std::vector<std:
     return counting;
 }
 
+ErrorInfo DSCacheObjectStore::ReleaseGRefs(const std::string &remoteId)
+{
+    OBJ_STORE_INIT_ONCE();
+    ds::Status status = dsClient->ReleaseGRefs(YR::utility::ParseRealJobId(remoteId));
+    auto code =
+        YR::Libruntime::ConvertDatasystemErrorToCore(status.GetCode(), static_cast<ErrorCode>(status.GetCode()));
+    auto msg = status.GetMsg();
+    return ErrorInfo(code, ModuleCode::DATASYSTEM, msg);
+}
+
 ErrorInfo DSCacheObjectStore::GenerateKey(std::string &key, const std::string &prefix, bool isPut)
 {
     // if DS-client is not initialized, do not init here, because it may cause memory occupation
@@ -403,8 +433,18 @@ ErrorInfo DSCacheObjectStore::GenerateKey(std::string &key, const std::string &p
         return ErrorInfo();
     }
     std::string msg;
-    ds::Status status = dsClient->GenerateObjectKey(prefix, key);
+    ds::Status status = dsClient->GenerateKey(prefix, key);
     msg = "failed to GenerateKey, errMsg:" + status.ToString();
+    RETURN_ERR_NOT_OK(status.IsOk(), status.GetCode(), YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED, msg);
+    return ErrorInfo();
+}
+
+ErrorInfo DSCacheObjectStore::GetPrefix(const std::string &key, std::string &prefix)
+{
+    OBJ_STORE_INIT_ONCE();
+    std::string msg;
+    ds::Status status = dsClient->GetPrefix(key, prefix);
+    msg = "failed to GetPrefix, errMsg:" + status.ToString();
     RETURN_ERR_NOT_OK(status.IsOk(), status.GetCode(), YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED, msg);
     return ErrorInfo();
 }
@@ -434,7 +474,8 @@ void DSCacheObjectStore::Shutdown()
     }
     ds::Status status = dsClient->ShutDown();
     if (!status.IsOk()) {
-        YRLOG_WARN("DSCacheObjectStore Shutdown fail. Status code: {}, Msg: {}", status.GetCode(), status.ToString());
+        YRLOG_WARN("DSCacheObjectStore Shutdown fail. Status code: {}, Msg: {}", fmt::underlying(status.GetCode()),
+                   status.ToString());
     }
     isInit = false;
 }

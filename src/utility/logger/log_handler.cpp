@@ -98,8 +98,8 @@ void DoLogFileCompress(const LogParam &logParam)
 
         // e.g: xxx-function_agent.1.log -> xxx-function_agent.{TIME}.log -> xxx-function_agent.{TIME}.log.gz
         std::string basename, ext, idx;
-        std::tie(basename, ext) = spdlog::details::file_helper::split_by_extension(file);
-        std::tie(basename, idx) = spdlog::details::file_helper::split_by_extension(basename);
+        std::tie(basename, ext) = yr_spdlog::details::file_helper::split_by_extension(file);
+        std::tie(basename, idx) = yr_spdlog::details::file_helper::split_by_extension(basename);
         std::string targetFile = basename + "." + std::to_string(timestamp) + ext;
         if (!RenameFile(file, targetFile)) {
             YRLOG_WARN("failed to rename {} to {}", file, targetFile);

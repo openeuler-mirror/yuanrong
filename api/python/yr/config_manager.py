@@ -26,6 +26,7 @@ _DEFAULT_CLUSTER_PORT = "31222"
 _DEFAULT_IN_CLUSTER_CLUSTER_PORT = "21003"
 _DEFAULT_DS_PORT = "31501"
 _DEFAULT_DS_PORT_OUTER = "31222"
+_DEFAULT_HTTP_IOC_THREADS_NUM = 200
 _DEFAULT_RPC_TIMOUT = 30 * 60
 _URN_LENGTH = 7
 
@@ -58,7 +59,7 @@ class ConfigManager:
         self.__ds_address = ""
         self.__connection_nums = None
         self.__log_level = logging.WARNING
-        self.__in_cluster = True
+        self.__in_cluster = False
         self.__deployment_config = DeploymentConfig()
         self.tls_config = None
         self.meta_config = None
@@ -79,9 +80,11 @@ class ConfigManager:
         self.private_key_path = ""
         self.certificate_file_path = ""
         self.verify_file_path = ""
+        self.private_key_paaswd = ""
+        self.http_ioc_threads_num = _DEFAULT_HTTP_IOC_THREADS_NUM
         self.server_name = ""
         self.ns = ""
-        self.enable_metrics = False
+        self.enable_metrics = True
         self.master_add_list = []
         self.working_dir = ""
         self.runtime_public_key_path = ""
@@ -91,6 +94,8 @@ class ConfigManager:
         self._num_cpus = 0
         self.runtime_env = ""
         self.namespace = ""
+        self.log_to_driver = False
+        self.dedup_logs = False
 
     @property
     def deployment_config(self) -> DeploymentConfig:
@@ -273,10 +278,14 @@ class ConfigManager:
         self.load_paths = conf.load_paths
         self.custom_envs = conf.custom_envs
         self.rpc_timeout = conf.rpc_timeout
+        self.tenant_id = conf.tenant_id
         self.enable_mtls = conf.enable_mtls
         self.private_key_path = conf.private_key_path
+        self.private_key_paaswd = conf.private_key_paaswd
+        conf.private_key_paaswd = ""
         self.certificate_file_path = conf.certificate_file_path
         self.verify_file_path = conf.verify_file_path
+        self.http_ioc_threads_num = conf.http_ioc_threads_num
         self.server_name = conf.server_name
         self.ns = conf.ns
         self.working_dir = conf.working_dir
@@ -286,6 +295,8 @@ class ConfigManager:
         self.runtime_private_key_path = conf.runtime_private_key_path
         self.num_cpus = conf.num_cpus
         self.runtime_env = conf.runtime_env
+        self.log_to_driver = conf.log_to_driver
+        self.dedup_logs = conf.dedup_logs
 
     def get_function_id_by_language(self, language):
         """

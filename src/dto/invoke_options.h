@@ -18,8 +18,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 #include "src/dto/affinity.h"
+#include "src/dto/debug_config.h"
 #include "src/dto/device.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/stacktrace/stack_trace_info.h"
@@ -28,6 +28,8 @@
 
 namespace YR {
 namespace Libruntime {
+const size_t FAAS_DEFALUT_INVOKE_TIMEOUT = 900;   // second
+const size_t FAAS_DEFALUT_ACQUIRE_TIMEOUT = 120;  // second
 
 enum class BundleAffinity : int {
     COMPACT,
@@ -65,6 +67,30 @@ struct InstanceSession {
     int concurrency;
 };
 
+struct FaasInvokeData {
+    FaasInvokeData() = default;
+    FaasInvokeData(const std::string &teId, const std::string &funcName, const std::string &inputAliAs,
+                   const std::string &inputTraceId, const long long inputSubmitTime)
+        : tenantId(teId),
+          functionName(funcName),
+          aliAs(inputAliAs),
+          traceId(inputTraceId),
+          submitTime(inputSubmitTime){};
+    std::string businessId;
+    std::string tenantId;
+    std::string srcAppId;
+    std::string functionName;
+    std::string aliAs;
+    std::string version;
+    std::string traceId;
+    std::string code;
+    std::string innerCode;
+    std::string describeMsg;
+    long long submitTime = 0;
+    long long sendTime = 0;
+    long long endTime = 0;
+};
+
 struct InvokeOptions {
     int cpu = 500;
 
@@ -85,6 +111,8 @@ struct InvokeOptions {
     std::list<std::shared_ptr<Affinity>> scheduleAffinities;
 
     size_t retryTimes = 0;
+
+    int maxRetryTime = -1;
 
     std::function<bool(const ErrorInfo &errInfo)> retryChecker = nullptr;
 
@@ -111,6 +139,8 @@ struct InvokeOptions {
     int groupTimeout = -1;
 
     std::string groupName;
+
+    bool isDataAffinity = false;
 
     bool needOrder = false;
 
@@ -142,6 +172,8 @@ struct InvokeOptions {
 
     std::shared_ptr<InstanceSession> instanceSession;
 
+    DebugConfig debug;
+
     std::string workingDir;
 };
 
@@ -156,12 +188,16 @@ struct FunctionMeta {
     std::string poolLabel;
     libruntime::ApiType apiType;
     std::string functionId;
-    std::optional<std::string> name;
-    std::optional<std::string> ns;
+    std::string name;
+    std::string ns;
     std::string initializerCodeId;
     bool isAsync = false;
     bool isGenerator = false;
     bool needOrder = false;
+    bool IsServiceApiType()
+    {
+        return (apiType == libruntime::ApiType::Faas or apiType == libruntime::ApiType::Serve);
+    }
 };
 
 struct GroupOpts {
@@ -201,6 +237,7 @@ struct GaugeData {
 enum class AlarmSeverity { OFF, INFO, MINOR, MAJOR, CRITICAL };
 
 struct AlarmInfo {
+    std::string id;
     std::string alarmName;
     AlarmSeverity alarmSeverity = AlarmSeverity::OFF;
     std::string locationInfo;
@@ -209,6 +246,12 @@ struct AlarmInfo {
     long endsAt = DEFAULT_ALARM_TIMESTAMP;
     long timeout = DEFAULT_ALARM_TIMEOUT;
     std::unordered_map<std::string, std::string> customOptions;
+};
+
+struct Credential {
+    std::string ak;
+    std::string sk;
+    std::string dk;
 };
 }  // namespace Libruntime
 }  // namespace YR

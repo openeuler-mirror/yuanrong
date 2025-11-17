@@ -20,7 +20,7 @@
 
 namespace YR {
 namespace test {
-class MockFSIntfClient : public YR::Libruntime::FSIntf {
+class MockGwClient : public YR::Libruntime::FSIntf {
 public:
     MOCK_METHOD4(CreateAsync, void(const YR::Libruntime::CreateRequest &, YR::Libruntime::CreateRespCallback,
                                    YR::Libruntime::CreateCallBack, int));
@@ -29,6 +29,7 @@ public:
     MOCK_METHOD5(Start, YR::Libruntime::ErrorInfo(const std::string &, const std::string &, const std::string &,
                                                   const std::string &, const YR::Libruntime::SubscribeFunc &));
     MOCK_METHOD0(Stop, void(void));
+    MOCK_METHOD0(IsHealth, bool(void));
     MOCK_METHOD3(InvokeAsync,
                  void(const std::shared_ptr<YR::Libruntime::InvokeMessageSpec> &, YR::Libruntime::InvokeCallBack, int));
     MOCK_METHOD2(CallResultAsync, void(const std::shared_ptr<YR::Libruntime::CallResultMessageSpec>,

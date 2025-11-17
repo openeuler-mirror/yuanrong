@@ -40,6 +40,7 @@ struct TestParam {
     std::string dssPubKey;
     bool fsEnable;
     std::string rootCACert;
+    std::string token;
     bool fsServerMode;
     std::string serverNameOverride;
 };
@@ -54,6 +55,7 @@ TestParam BuildOneCommonTestParam()
         .dssPubKey = "ds-ser-pub-key",
         .fsEnable = true,
         .rootCACert = "root-ca-cert",
+        .token = "token0",
         .fsServerMode = true,
         .serverNameOverride = "server-name-override",
     };
@@ -68,6 +70,7 @@ std::string BuildOneCommonTlsConfigStr(TestParam tp)
     tlsConfig.set_dsserverpublickey(tp.dssPubKey);
     tlsConfig.set_serverauthenable(tp.fsEnable);
     tlsConfig.set_rootcertdata(tp.rootCACert);
+    tlsConfig.set_token(tp.token);
     tlsConfig.set_enableservermode(tp.fsServerMode);
     tlsConfig.set_servernameoverride(tp.serverNameOverride);
     auto m = tlsConfig.SerializeAsString();
@@ -115,6 +118,7 @@ TEST_F(SecurityTest, ParseNormalConfigTest)
         std::string dssPubKey;
         bool fsEnable;
         std::string rootCACert;
+        std::string token;
         bool fsServerMode;
         std::string serverNameOverride;
     } tps[] = {
@@ -130,6 +134,7 @@ TEST_F(SecurityTest, ParseNormalConfigTest)
             .dssPubKey = "ds-ser-pub-key",
             .fsEnable = true,
             .rootCACert = "root-ca-cert",
+            .token = "token0",
             .fsServerMode = true,
             .serverNameOverride = "server-name-override",
         },
@@ -140,6 +145,7 @@ TEST_F(SecurityTest, ParseNormalConfigTest)
             .dssPubKey = "ds-ser-pub-keyx",
             .fsEnable = false,
             .rootCACert = "root-ca-certx",
+            .token = "tokenx",
             .fsServerMode = true,
             .serverNameOverride = "server-name-overridex",
         },
@@ -159,6 +165,7 @@ TEST_F(SecurityTest, ParseNormalConfigTest)
         tlsConfig.set_dsserverpublickey(tp.dssPubKey);
         tlsConfig.set_serverauthenable(tp.fsEnable);
         tlsConfig.set_rootcertdata(tp.rootCACert);
+        tlsConfig.set_token(tp.token);
         tlsConfig.set_enableservermode(tp.fsServerMode);
         tlsConfig.set_servernameoverride(tp.serverNameOverride);
         auto m = tlsConfig.SerializeAsString();
@@ -177,6 +184,8 @@ TEST_F(SecurityTest, ParseNormalConfigTest)
         std::string certChainData;
         std::string privateKey;
         bool fsEnable = s.GetFunctionSystemConfig(rootCACert, certChainData, privateKey);
+        SensitiveValue token;
+        s.GetToken(token);
         std::string sernameOverride;
         bool connMode = s.GetFunctionSystemConnectionMode(sernameOverride);
         ASSERT_EQ(dsEnable, tp.dsEnable);
@@ -184,6 +193,8 @@ TEST_F(SecurityTest, ParseNormalConfigTest)
         ASSERT_EQ(dscPriKey, tp.dscPriKey);
         ASSERT_EQ(dssPubKey, tp.dssPubKey);
         ASSERT_EQ(fsEnable, tp.fsEnable);
+        ASSERT_EQ(rootCACert, tp.rootCACert);
+        ASSERT_EQ(token, tp.token);
         ASSERT_EQ(connMode, tp.fsServerMode);
         ASSERT_EQ(sernameOverride, tp.serverNameOverride);
     }
@@ -207,10 +218,132 @@ TEST_F(SecurityTest, UpdateHandlerSizeTest)
         ssize_t nbytes = write(fildes[1], m.data(), m.size());
         ASSERT_EQ(nbytes, m.size());
     }
+    auto s = Security();
+    auto err = s.Init();
+    s.WhenTokenUpdated([](const SensitiveValue &token) {});
+    ASSERT_EQ(s.GetUpdateHandersSize(), 0);
     close(fildes[0]);
     close(fildes[1]);
 }
 
+TEST_F(SecurityTest, UpdateTokenTest)
+{
+    struct TestParam {
+        bool dsEnable;
+        std::string dscPubKey;
+        std::string dscPriKey;
+        std::string dssPubKey;
+        bool fsEnable;
+        std::string rootCACert;
+        std::string token;
+        bool fsServerMode;
+        std::string serverNameOverride;
+    } tps[] = {
+        {
+            .dsEnable = true,
+            .dscPubKey = "ds-cli-pub-key2",
+            .dscPriKey = "ds-cli-pri-key2",
+            .dssPubKey = "ds-ser-pub-key2",
+            .fsEnable = true,
+            .rootCACert = "root-ca-cert2",
+            .token = "token2",
+            .fsServerMode = true,
+            .serverNameOverride = "server-name-override2",
+        },
+        {
+            .dsEnable = true,
+            .dscPubKey = "ds-cli-pub-key3",
+            .dscPriKey = "ds-cli-pri-key3",
+            .dssPubKey = "ds-ser-pub-key3",
+            .fsEnable = true,
+            .rootCACert = "root-ca-cert3",
+            .token = "token3",
+            .fsServerMode = true,
+            .serverNameOverride = "server-name-override3",
+        },
+    };
+
+    int fildes[2];
+    int status = pipe(fildes);
+    ASSERT_NE(status, -1);
+    status = dup2(fildes[0], STDIN_FILENO);
+    ASSERT_NE(status, -1);
+
+    auto s = Security();
+
+    auto &tp = tps[0];
+
+    TLSConfig tlsConfig;
+    tlsConfig.set_dsauthenable(tp.dsEnable);
+    tlsConfig.set_dsclientpublickey(tp.dscPubKey);
+    tlsConfig.set_dsclientprivatekey(tp.dscPriKey);
+    tlsConfig.set_dsserverpublickey(tp.dssPubKey);
+    tlsConfig.set_serverauthenable(tp.fsEnable);
+    tlsConfig.set_rootcertdata(tp.rootCACert);
+    tlsConfig.set_token(tp.token);
+    tlsConfig.set_enableservermode(tp.fsServerMode);
+    tlsConfig.set_servernameoverride(tp.serverNameOverride);
+    auto m = tlsConfig.SerializeAsString();
+    YRLOG_ERROR("1 message size: {}", m.size());
+    if (m.size()) {
+        ssize_t nbytes = write(fildes[1], m.data(), m.size());
+        ASSERT_EQ(nbytes, m.size());
+    }
+    auto err = s.Init();
+    ASSERT_TRUE(err.OK());
+    std::string dscPubKey, dssPubKey;
+    SensitiveValue dscPriKey;
+    auto [dsEnable, encryptEnable] = s.GetDataSystemConfig(dscPubKey, dscPriKey, dssPubKey);
+    std::string rootCACert;
+    std::string certChainData;
+    std::string privateKey;
+    bool fsEnable = s.GetFunctionSystemConfig(rootCACert, certChainData, privateKey);
+    SensitiveValue token;
+    s.GetToken(token);
+    std::string sernameOverride;
+    bool connMode = s.GetFunctionSystemConnectionMode(sernameOverride);
+    ASSERT_EQ(dsEnable, tp.dsEnable);
+    ASSERT_EQ(dscPubKey, tp.dscPubKey);
+    ASSERT_EQ(dscPriKey, tp.dscPriKey);
+    ASSERT_EQ(dssPubKey, tp.dssPubKey);
+    ASSERT_EQ(fsEnable, tp.fsEnable);
+    ASSERT_EQ(rootCACert, tp.rootCACert);
+    ASSERT_EQ(token, tp.token);
+    ASSERT_EQ(connMode, tp.fsServerMode);
+    ASSERT_EQ(sernameOverride, tp.serverNameOverride);
+
+    SensitiveValue tokenTest;
+    YR::utility::NotificationUtility n;
+    s.WhenTokenUpdated([&tokenTest, &n](const SensitiveValue &token) {
+        tokenTest = token;
+        n.Notify();
+    });
+
+    tp = tps[1];
+
+    tlsConfig.set_dsauthenable(tp.dsEnable);
+    tlsConfig.set_dsclientpublickey(tp.dscPubKey);
+    tlsConfig.set_dsclientprivatekey(tp.dscPriKey);
+    tlsConfig.set_dsserverpublickey(tp.dssPubKey);
+    tlsConfig.set_serverauthenable(tp.fsEnable);
+    tlsConfig.set_rootcertdata(tp.rootCACert);
+    tlsConfig.set_token(tp.token);
+    tlsConfig.set_enableservermode(tp.fsServerMode);
+    tlsConfig.set_servernameoverride(tp.serverNameOverride);
+    m = tlsConfig.SerializeAsString();
+    YRLOG_ERROR("2 message size: {}", m.size());
+    if (m.size()) {
+        ssize_t nbytes = write(fildes[1], m.data(), m.size());
+        ASSERT_EQ(nbytes, m.size());
+    }
+    n.WaitForNotification();
+    s.GetToken(token);
+    ASSERT_EQ(token, tp.token);
+    close(fildes[0]);
+    close(fildes[1]);
+}
+
+// DTS2024071820905
 // ENABLE_DS_AUTH stdin Delay Write
 // there may be a problem if the file descriptor (fd) hasn't been created after start runtime.
 TEST_F(SecurityTest, DelayStdinShouldSuccessTest)
@@ -235,10 +368,12 @@ TEST_F(SecurityTest, DelayStdinShouldSuccessTest)
     });
     auto s = Security(STDIN_FILENO, 1000);
     auto err = s.Init();
-    YRLOG_INFO("security init: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
     promise->set_value(true);
     t.join();
     ASSERT_TRUE(err.OK());
+    SensitiveValue token;
+    s.GetToken(token);
+    ASSERT_EQ(token, tp.token);
     unsetenv("ENABLE_DS_AUTH");
     Libruntime::Config::Instance() = Libruntime::Config();
     close(fds[0]);
@@ -254,7 +389,6 @@ TEST_F(SecurityTest, NoStdinShouldTimeoutFailedTest)
     auto m = BuildOneCommonTlsConfigStr(tp);
     auto s = Security(STDIN_FILENO, 1000);
     auto err = s.Init();
-    YRLOG_INFO("security init: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
     ASSERT_FALSE(err.OK());
     unsetenv("ENABLE_DS_AUTH");
     Libruntime::Config::Instance() = Libruntime::Config();

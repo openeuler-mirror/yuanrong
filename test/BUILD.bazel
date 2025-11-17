@@ -10,6 +10,7 @@ cc_test(
     "utility/thread_pool_test.cpp",
     "utility/string_utility_test.cpp",
     "utility/memory_test.cpp",
+    "utility/file_watcher_test.cpp",
   ],
   deps = [
     "@gtest//:gtest_main",
@@ -34,6 +35,92 @@ cc_test(
   linkstatic = True,
 )
 
+
+cc_test(
+  name = "traceadaptor_test",
+  srcs = [
+    "libruntime/trace_adapter_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//:runtime_lib",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "gwclient_test",
+  srcs = [
+    "libruntime/gw_client_test.cpp",
+    "libruntime/clients_manager_test.cpp",
+    "libruntime/httpserver/common_server.h",
+    "libruntime/httpserver/common_server.cpp",
+    "libruntime/httpserver/async_http_server.h",
+    "libruntime/httpserver/async_https_server.h",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//test/libruntime/mock:mock_datasystem",
+    "//:runtime_lib",
+  ],
+  copts = [
+          "-fno-access-control",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "fsintf_test",
+  srcs = [
+    "libruntime/fs_intf_impl_test.cpp",
+    "libruntime/fs_intf_manager_test.cpp",
+    "libruntime/fs_intf_grpc_rw_test.cpp",
+    "libruntime/connect_test.cpp",
+    "libruntime/grpc_utils_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//test/libruntime/mock:mock_datasystem",
+    "//:runtime_lib",
+  ],
+  copts = [
+          "-fno-access-control",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "memorystore_test",
+  srcs = [
+    "libruntime/waiting_object_manager_test.cpp",
+    "libruntime/memory_store_test.cpp",
+    "libruntime/kv_state_store_test.cpp",
+    "libruntime/stream_store_test.cpp",
+    "libruntime/hetero_future_test.cpp",
+    "libruntime/buffer_test.cpp",
+    "libruntime/async_decre_ref_test.cpp",
+    "libruntime/object_store_test.cpp",
+    "libruntime/hetero_store_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//test/libruntime/mock:mock_datasystem",
+    "//:runtime_lib",
+  ],
+  copts = [
+          "-fno-access-control",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  linkstatic = True,
+)
+
 cc_test(
   name = "libruntime_test",
   srcs = [
@@ -41,33 +128,20 @@ cc_test(
     "libruntime/libruntime_manager_test.cpp",
     "libruntime/libruntime_test.cpp",
     "libruntime/fm_client_test.cpp",
-    "libruntime/fs_intf_impl_test.cpp",
-    "libruntime/waiting_object_manager_test.cpp",
-    "libruntime/memory_store_test.cpp",
-    "libruntime/kv_state_store_test.cpp",
-    "libruntime/hetero_future_test.cpp",
-    "libruntime/buffer_test.cpp",
     "libruntime/utils_test.cpp",
+    "libruntime/hash_util_test.cpp",
     "libruntime/certs_utils_test.cpp",
+    "libruntime/scheduler_instance_info_test.cpp",
     "libruntime/security_test.cpp",
     "libruntime/instance_manager_test.cpp",
     "libruntime/invoke_spec_test.cpp",
     "libruntime/execution_manager_test.cpp",
-    "libruntime/clients_manager_test.cpp",
-    "libruntime/httpserver/common_server.h",
-    "libruntime/httpserver/common_server.cpp",
-    "libruntime/httpserver/async_http_server.h",
-    "libruntime/httpserver/async_https_server.h",
-    "libruntime/async_decre_ref_test.cpp",
     "libruntime/auto_init_test.cpp",
     "libruntime/fiber_test.cpp",
-    "libruntime/fs_intf_manager_test.cpp",
-    "libruntime/fs_intf_grpc_rw_test.cpp",
-    "libruntime/connect_test.cpp",
     "libruntime/libruntime_config_test.cpp",
     "libruntime/resource_group_test.cpp",
-    "libruntime/object_store_test.cpp",
-    "libruntime/hetero_store_test.cpp",
+    "libruntime/request_queue_test.cpp",
+    "libruntime/http_utils_test.cpp",
   ],
   deps = [
     "@gtest//:gtest_main",
@@ -123,6 +197,7 @@ cc_test(
     "libruntime/httpserver/async_http_server.h",
     "libruntime/httpserver/async_https_server.h",
     "libruntime/http_client_test.cpp",
+    "libruntime/https_client_test.cpp",
   ],
   deps = [
     "@gtest//:gtest_main",
@@ -130,6 +205,13 @@ cc_test(
     "//:runtime_lib",
   ],
   dynamic_deps = ["//:grpc_dynamic"],
+  data = [
+    "data/cert/ca.crt",
+    "data/cert/client.crt",
+    "data/cert/client.key",
+    "data/cert/server.crt",
+    "data/cert/server.key"
+  ],
   linkstatic = True,
 )
 
@@ -137,6 +219,7 @@ cc_test(
   name = "ins_manager_test",
   size = "small",
   srcs = [
+    "libruntime/faas_instance_manager_test.cpp",
     "libruntime/normal_instance_manager_test.cpp",
   ],
   dynamic_deps = ["//:grpc_dynamic"],
@@ -146,6 +229,37 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "alias_routing_test",
+  size = "small",
+  srcs = [
+    "libruntime/alias_routing_test.cpp",
+    "libruntime/limiter_consistant_hash_test.cpp",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//:runtime_lib",
+  ],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "load_balancer_test",
+  size = "small",
+  srcs = [
+    "libruntime/load_balancer_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//:runtime_lib",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
   linkstatic = True,
 )
 
@@ -188,6 +302,7 @@ cc_test(
     "libruntime/rt_direct_call_test.cpp"
   ],
   dynamic_deps = ["//:grpc_dynamic"],
+  copts = ["-fno-access-control"],
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -227,7 +342,10 @@ cc_test(
     "api/config_manager_test.cpp",
     "api/exception_test.cpp",
     "api/invoke_options_test.cpp",
+    "api/stream_pub_sub_test.cpp",
     "api/code_manager_test.cpp",
+    "api/runtime_env_test.cpp",
+    "api/runtime_env_parse_test.cpp",
     "common/common.h",
     "common/mock_libruntime.h",
   ],
@@ -238,6 +356,24 @@ cc_test(
     "//src/utility:yr_utils",
     "//:runtime_lib",
     "//api/cpp:yr_api_lib",
+  ],
+  linkopts = ["-lstdc++fs", "-ldl"],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "faas_test",
+  size = "small",
+  srcs = [
+    "faas/faas_executor_test.cpp",
+    "faas/function_test.cpp",
+    "common/mock_libruntime.h",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  includes = ["."],
+  deps = [
+    "@gtest//:gtest_main",
+    "//api/cpp:functionsdk_lib",
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
   linkstatic = True,
@@ -257,5 +393,69 @@ cc_test(
     "//api/cpp:yr_api_lib",
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "clibruntime_test",
+  size = "small",
+  srcs = [
+    "clibruntime/clibruntime_test.cpp",
+    "common/mock_libruntime.h",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  includes = ["."],
+  deps = [
+    "@gtest//:gtest_main",
+    "//api/go/libruntime/cpplibruntime:cpplibruntime_lib",
+  ],
+  linkstatic = True,
+  tags = ["cgo"],
+)
+
+cc_test(
+  name = "generator_test",
+  size = "small",
+  srcs = [
+    "libruntime/generator_test.cpp",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//test/libruntime/mock:mock_datasystem",
+    "//:runtime_lib",
+  ],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "driverlog_test",
+  size = "small",
+  srcs = [
+    "libruntime/driverlog_test.cpp",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//test/libruntime/mock:mock_datasystem",
+    "//:runtime_lib",
+  ],
+  linkstatic = True,
+)
+
+cc_test(
+  name = "scene_test",
+  srcs = [
+    "scene/downgrade_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//test/libruntime/mock:mock_datasystem",
+    "//:runtime_lib",
+  ],
+  dynamic_deps = ["//:grpc_dynamic"],
   linkstatic = True,
 )

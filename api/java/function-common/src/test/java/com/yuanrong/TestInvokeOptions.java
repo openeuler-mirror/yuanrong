@@ -18,6 +18,7 @@ package com.yuanrong;
 
 import com.yuanrong.affinity.Affinity;
 import com.yuanrong.affinity.AffinityKind;
+import com.yuanrong.affinity.AffinityScope;
 import com.yuanrong.affinity.AffinityType;
 import com.yuanrong.affinity.LabelOperator;
 import com.yuanrong.affinity.OperatorType;
@@ -100,6 +101,24 @@ public class TestInvokeOptions {
     }
 
     @Test
+    public void testGroupName() {
+        String inputGroupName = "testGroupName";
+        InvokeOptions options = new InvokeOptions.Builder()
+            .groupName(inputGroupName)
+            .build();
+        Assert.assertEquals(inputGroupName, options.getGroupName());
+    }
+
+    @Test
+    public void testTraceId() {
+        String inputTraceId = "testTraceId";
+        InvokeOptions options = new InvokeOptions.Builder()
+            .traceId(inputTraceId)
+            .build();
+        Assert.assertEquals(inputTraceId, options.getTraceId());
+    }
+
+    @Test
     public void testPreemptedAllowed() {
         boolean expectedValue = true;
         InvokeOptions options = new InvokeOptions.Builder()
@@ -139,8 +158,8 @@ public class TestInvokeOptions {
         testCustomExtensions.put(expectedMapKey, expectedMapValue);
         testCustomExtensions.put(Constants.POST_START_EXEC, "false");
         InvokeOptions options = new InvokeOptions.Builder().customExtensions(testCustomExtensions)
-            .addCustomExtensions(expectedMapKey, expectedMapValue)
-            .addCustomExtensions(Constants.POST_START_EXEC, "true")
+            .addCustomExtension(expectedMapKey, expectedMapValue)
+            .addCustomExtension(Constants.POST_START_EXEC, "true")
             .build();
         options.setCustomExtensions(testCustomExtensions);
         options.addCustomExtensions(expectedMapKey, expectedMapValue);
@@ -207,12 +226,13 @@ public class TestInvokeOptions {
         testAffinityList.add(affinity);
         InvokeOptions options = new InvokeOptions.Builder().scheduleAffinity(testAffinityList)
             .addInstanceAffinity(AffinityType.PREFERRED, testOperatorsList)
+            .addInstanceAffinity(AffinityType.PREFERRED, testOperatorsList, AffinityScope.NODE)
             .addResourceAffinity(AffinityType.PREFERRED, testOperatorsList)
             .addScheduleAffinity(affinity)
             .build();
         options.parserAffinityMsgFromJsonStr("");
         options.parserAffinityMsgFromJsonStr(options.affinityMsgToJsonStr());
-        Assert.assertEquals(4, options.getScheduleAffinities().size());
+        Assert.assertEquals(5, options.getScheduleAffinities().size());
 
         InvokeOptions newOptions = new InvokeOptions(options);
         List<Affinity> newList = newOptions.getScheduleAffinities();

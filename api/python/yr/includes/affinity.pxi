@@ -23,6 +23,7 @@ from yr.affinity import (
     AffinityType,
     LabelOperator,
     OperatorType,
+    AffinityScope,
 )
 from yr.includes.affinity cimport (
     CAffinity,
@@ -107,6 +108,11 @@ cdef shared_ptr[CAffinity] affinity_from_py_to_cpp(affinity: Affinity, bool pref
         if c_operator == nullptr:
             raise ValueError("Failed to convert LabelOperator to cpp LabelOperator.")
         c_operators.push_back(c_operator)
+
+    if affinity.affinity_scope == AffinityScope.POD:
+        c_affinity.get().SetAffinityScope(AffinityScope.POD.name.encode())
+    elif affinity.affinity_scope == AffinityScope.NODE:
+        c_affinity.get().SetAffinityScope(AffinityScope.NODE.name.encode())
 
     c_affinity.get().SetLabelOperators(c_operators);
     c_affinity.get().SetPreferredPriority(preferredPriority);

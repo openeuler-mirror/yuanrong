@@ -23,13 +23,19 @@
 
 #include "datasystem/kv_client.h"
 #include "src/dto/buffer.h"
+#include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/statestore/state_store.h"
 #include "src/libruntime/utils/constants.h"
 #include "src/libruntime/utils/datasystem_utils.h"
 #include "src/utility/logger/logger.h"
+#include "src/utility/timer_worker.h"
 
 namespace YR {
 namespace Libruntime {
+
+const int DS_HEALTHCHECK_INTERVAL = 3000;  // 1s
+const int DS_HEALTHCHECK_TIMES = -1;            // unlimited retry
+const int DS_HEALTHCHECK_FAILED_LIMIT = 10;
 
 class DataSystemReadOnlyBuffer : public ReadOnlySharedBuffer {
 public:
@@ -92,7 +98,8 @@ public:
 
     ErrorInfo Init(const std::string &ip, int port, bool enableDsAuth, bool encryptEnable,
                    const std::string &runtimePublicKey, const datasystem::SensitiveValue &runtimePrivateKey,
-                   const std::string &dsPublicKey, std::int32_t connectTimeout) override;
+                   const std::string &dsPublicKey, const datasystem::SensitiveValue &token, const std::string &ak,
+                   const datasystem::SensitiveValue &sk, std::int32_t connectTimeout) override;
     ErrorInfo Init(datasystem::ConnectOptions &inputConnOpt) override;
     void InitOnce(void);
 
@@ -108,6 +115,8 @@ public:
 
     MultipleDelResult Del(const std::vector<std::string> &keys) override;
 
+    MultipleExistResult Exist(const std::vector<std::string> &keys) override;
+
     SingleReadResult Read(const std::string &key, int timeoutMS) override;
 
     MultipleReadResult Read(const std::vector<std::string> &keys, int timeoutMS, bool allowPartial) override;
@@ -115,11 +124,23 @@ public:
     MultipleReadResult GetWithParam(const std::vector<std::string> &keys, const GetParams &params,
                                     int timeoutMs) override;
 
+    ErrorInfo QuerySize(const std::vector<std::string> &keys, std::vector<uint64_t> &outSizes) override;
+
     void Shutdown() override;
+
+    ErrorInfo UpdateToken(datasystem::SensitiveValue token) override;
+
+    ErrorInfo UpdateAkSk(std::string ak, datasystem::SensitiveValue sk) override;
 
     ErrorInfo GenerateKey(std::string &returnKey) override;
 
     ErrorInfo Write(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey) override;
+
+    ErrorInfo StartHealthCheck() override;
+
+    ErrorInfo DoHealthCheck();
+
+    ErrorInfo HealthCheck() override;
 
 private:
     ErrorInfo DoInitOnce(void);
@@ -233,6 +254,9 @@ private:
     ErrorInfo initErr;
     datasystem::SensitiveValue tokenUpdated;
     datasystem::ConnectOptions connectOpts;
+    std::shared_ptr<YR::utility::TimerWorker> timerWorker_;
+    std::shared_ptr<YR::utility::Timer> timer_;
+    int lostHealthTimes_ = 0;
 };
 
 #define STATE_STORE_INIT_ONCE() \

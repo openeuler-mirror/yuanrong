@@ -176,6 +176,23 @@ public:
     void Terminate(bool isSync);
 
     /**
+     * @brief Supports synchronous or asynchronous termination. For an instance handle, this indicates deleting an
+     * already created function instance. When synchronous termination is not enabled, the default timeout for the
+     * current kill request is 30 seconds. In scenarios such as high disk load or etcd failures, the kill request
+     * processing time may exceed 30 seconds, causing the interface to throw a timeout exception. Since the kill request
+     * has a retry mechanism, users can choose to ignore the timeout exception or retry after capturing it. When
+     * synchronous termination is enabled, this interface will block until the instance completely exits.
+     * @param isSync Whether to enable synchronous termination. If `true`, it sends a kill request with the signal
+     * `killInstanceSync` to the function-proxy, and the kernel synchronously kills the instance. If `false`, it sends a
+     * kill request with the signal `killInstance` to the function-proxy, and the kernel asynchronously kills the
+     * instance.
+     * @return A future for the kill result.
+     *
+     * @snippet{trimleft} instance_example.cpp terminate instance sync
+     */
+    std::shared_future<void> AsyncTerminate(bool isSync);
+
+    /**
      * @brief Specifies the timeout in seconds for waiting until a set of instances in Range scheduling are scheduled
      * and their instance IDs are returned, generating a list of `NamedInstance` objects. This parameter is optional. If
      * provided, it uses the specified timeout; otherwise, it uses `-1` to indicate an infinite wait.
@@ -453,6 +470,23 @@ void NamedInstance<InstanceType>::Terminate(bool isSync)
         YR::internal::GetRuntime()->TerminateInstance(instanceId);
     }
 }
+
+template <typename InstanceType>
+std::shared_future<void> NamedInstance<InstanceType>::AsyncTerminate(bool isSync)
+{
+    CheckInitialized();
+    if (internal::IsLocalMode() || this->alwaysLocalMode) {
+        YR::internal::LocalInstanceManager<InstanceType>::Singleton().DelLocalInstance(instanceId);
+        auto promise = std::make_shared<std::promise<void>>();
+        promise->set_value();
+        return promise->get_future().share();
+    }
+    if (!groupName.empty()) {
+        throw Exception::IncorrectFunctionUsageException("range instance does not support async terminate");
+    }
+    return YR::internal::GetRuntime()->TerminateInstanceAsync(instanceId, isSync);
+}
+
 }  // namespace YR
 
 namespace msgpack {

@@ -25,22 +25,40 @@
 #include "api/cpp/include/yr/api/hetero_exception.h"
 #include "api/cpp/include/yr/api/object_store.h"
 #include "api/cpp/src/cluster_mode_runtime.h"
+
 #include "api/cpp/src/code_manager.h"
 #include "api/cpp/src/executor/executor_holder.h"
 #include "api/cpp/src/hetero_future.h"
 #include "api/cpp/src/read_only_buffer.h"
-#include "api/cpp/src/state_loader.h"
+#include "api/cpp/src/runtime_env_parse.h"
+#include "api/cpp/src/stream_pubsub.h"
 #include "api/cpp/src/utils/utils.h"
+#include "datasystem_buffer.h"
 #include "src/dto/data_object.h"
 #include "src/dto/internal_wait_result.h"
+#include "src/dto/stream_conf.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_manager.h"
+#include "src/libruntime/streamstore/stream_producer_consumer.h"
 #include "src/proto/libruntime.pb.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/string_utility.h"
+#include "yr/api/mutable_buffer.h"
 
 namespace YR {
 using YR::Libruntime::DataObject;
+
+constexpr uint8_t BYTES = 3;
+constexpr uint32_t NORMAL_STATUS = 0;
+
+std::shared_ptr<Libruntime::Libruntime> GetLibRuntime()
+{
+    auto librt = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime();
+    if (!librt) {
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_FINALIZED, "already finalized");
+    }
+    return librt;
+}
 
 internal::FuncMeta convertToInternalFuncMeta(YR::Libruntime::FunctionMeta &libFuncMeta)
 {
@@ -139,6 +157,10 @@ std::list<std::shared_ptr<YR::Libruntime::Affinity>> BuildScheduleAffinities(con
         libAffinity->SetPreferredPriority(preferredPriority);
         libAffinity->SetRequiredPriority(requiredPriority);
         libAffinity->SetPreferredAntiOtherLabels(preferredAntiOtherLabels);
+        std::string affinityScope = affinity.GetAffinityScope();
+        if (!affinityScope.empty()) {
+            libAffinity->SetAffinityScope(affinityScope);
+        }
         libAffinities.push_back(libAffinity);
     }
     return libAffinities;
@@ -208,6 +230,44 @@ YR::Libruntime::CreateParam BuildCreateParam(const YR::CreateParam &createParam)
     return dsCreateParam;
 }
 
+YR::Libruntime::ProducerConf BuildProducerConf(ProducerConf producerConf)
+{
+    YR::Libruntime::ProducerConf libProducerConf;
+    libProducerConf.delayFlushTime = producerConf.delayFlushTime;
+    libProducerConf.maxStreamSize = producerConf.maxStreamSize;
+    libProducerConf.pageSize = producerConf.pageSize;
+    libProducerConf.autoCleanup = producerConf.autoCleanup;
+    libProducerConf.encryptStream = producerConf.encryptStream;
+    libProducerConf.retainForNumConsumers = producerConf.retainForNumConsumers;
+    libProducerConf.reserveSize = producerConf.reserveSize;
+    libProducerConf.extendConfig = producerConf.extendConfig;
+    return libProducerConf;
+}
+
+static libruntime::SubscriptionType ConvertSubscriptionType(const SubscriptionType type)
+{
+    if (type == SubscriptionType::STREAM) {
+        return libruntime::SubscriptionType::STREAM;
+    } else if (type == SubscriptionType::ROUND_ROBIN) {
+        return libruntime::SubscriptionType::ROUND_ROBIN;
+    } else if (type == SubscriptionType::KEY_PARTITIONS) {
+        return libruntime::SubscriptionType::KEY_PARTITIONS;
+    } else {
+        return libruntime::SubscriptionType::UNKNOWN;
+    }
+    YRLOG_DEBUG("SubscriptionType not supported, lang: {}", fmt::underlying(type));
+    throw YR::Exception(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "SubscriptionType not supported");
+}
+
+YR::Libruntime::SubscriptionConfig BuildSubscriptionConfig(const SubscriptionConfig &config)
+{
+    YR::Libruntime::SubscriptionConfig subscriptionConfig;
+    subscriptionConfig.subscriptionName = config.subscriptionName;
+    subscriptionConfig.subscriptionType = ConvertSubscriptionType(config.subscriptionType);
+    subscriptionConfig.extendConfig = config.extendConfig;
+    return subscriptionConfig;
+}
+
 YR::Libruntime::FunctionMeta BuildFunctionMeta(const internal::FuncMeta &funcMeta)
 {
     YR::Libruntime::FunctionMeta libFunctionMeta;
@@ -219,10 +279,10 @@ YR::Libruntime::FunctionMeta BuildFunctionMeta(const internal::FuncMeta &funcMet
     if (!funcMeta.funcUrn.empty()) {
         libFunctionMeta.functionId = ConvertFunctionUrnToId(funcMeta.funcUrn);
     }
-    if (funcMeta.name) {
+    if (!funcMeta.name.empty()) {
         libFunctionMeta.name = funcMeta.name;
     }
-    if (funcMeta.ns) {
+    if (!funcMeta.ns.empty()) {
         libFunctionMeta.ns = funcMeta.ns;
     }
     libFunctionMeta.apiType = libruntime::ApiType::Function;
@@ -234,16 +294,30 @@ std::vector<YR::Libruntime::InvokeArg> BuildInvokeArgs(std::vector<YR::internal:
     std::vector<YR::Libruntime::InvokeArg> libArgs;
     for (auto &arg : args) {
         YR::Libruntime::InvokeArg libArg;
-        auto size = arg.buf.size();
-        libArg.dataObj = std::make_shared<Libruntime::DataObject>(0, size);
-        WriteDataObject(static_cast<void *>(arg.buf.data()), libArg.dataObj, size, {});
+        if (arg.yrBuf.ImmutableData() != nullptr) {
+            auto size = arg.yrBuf.GetSize();
+            libArg.dataObj = std::make_shared<Libruntime::DataObject>(0, size);
+            WriteDataObject(arg.yrBuf.ImmutableData(), libArg.dataObj, size, {});
+            libArg.dataObj->SetMetaDataType(BYTES);
+        } else {
+            auto size = arg.buf.size();
+            libArg.dataObj = std::make_shared<Libruntime::DataObject>(0, size);
+            WriteDataObject(static_cast<void *>(arg.buf.data()), libArg.dataObj, size, {});
+        }
         libArg.isRef = arg.isRef;
         libArg.objId = arg.objId;
         libArg.nestedObjects = std::move(arg.nestedObjects);
-        libArg.tenantId = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetTenantId();
+        libArg.tenantId = GetLibRuntime()->GetTenantId();
         libArgs.emplace_back(std::move(libArg));
     }
     return libArgs;
+}
+
+YR::Libruntime::DebugConfig BuildDebugConfig(const YR::DebugConfig &debug)
+{
+    YR::Libruntime::DebugConfig ret;
+    ret.enable = debug.enable;
+    return ret;
 }
 
 YR::Libruntime::InvokeOptions BuildOptions(const YR::InvokeOptions &opts)
@@ -251,6 +325,7 @@ YR::Libruntime::InvokeOptions BuildOptions(const YR::InvokeOptions &opts)
     YR::Libruntime::InvokeOptions libOpts;
     libOpts.affinity = opts.affinity;
     libOpts.retryTimes = opts.retryTimes;
+    libOpts.maxRetryTime = opts.maxRetryTime;
     if (opts.retryChecker) {
         libOpts.retryChecker = [checker = opts.retryChecker](const Libruntime::ErrorInfo &err) -> bool {
             YR::Exception e(err.Code(), err.MCode(), err.Msg());
@@ -274,7 +349,12 @@ YR::Libruntime::InvokeOptions BuildOptions(const YR::InvokeOptions &opts)
     libOpts.instanceRange = BuildInstanceRange(opts.instanceRange);
     libOpts.recoverRetryTimes = opts.recoverRetryTimes;
     libOpts.envVars = opts.envVars;
+    libOpts.debug = BuildDebugConfig(opts.debug);
     libOpts.timeout = opts.timeout;
+    libOpts.preemptedAllowed = opts.preemptedAllowed;
+    libOpts.instancePriority = opts.instancePriority;
+    libOpts.scheduleTimeoutMs = opts.scheduleTimeoutMs;
+    ParseRuntimeEnv(libOpts, opts.runtimeEnv);
     return libOpts;
 }
 
@@ -370,9 +450,15 @@ void ClusterModeRuntime::Init()
     libConfig.localThreadPoolSize = ConfigManager::Singleton().localThreadPoolSize;
     libConfig.loadPaths = ConfigManager::Singleton().loadPaths;
     libConfig.tenantId = ConfigManager::Singleton().tenantId;
+    libConfig.logToDriver = ConfigManager::Singleton().logToDriver;
+    libConfig.dedupLogs = ConfigManager::Singleton().dedupLogs;
 
     libConfig.libruntimeOptions.functionExecuteCallback = internal::ExecuteFunction;
-    libConfig.libruntimeOptions.loadFunctionCallback = internal::LoadFunctions;
+    if (ConfigManager::Singleton().launchUserBinary == true) {
+        libConfig.libruntimeOptions.loadFunctionCallback = internal::LoadNoneFunctions;
+    } else {
+        libConfig.libruntimeOptions.loadFunctionCallback = internal::LoadFunctions;
+    }
     libConfig.libruntimeOptions.shutdownCallback = internal::ExecuteShutdownFunction;
     libConfig.libruntimeOptions.checkpointCallback = internal::Checkpoint;
     libConfig.libruntimeOptions.recoverCallback = internal::Recover;
@@ -382,15 +468,23 @@ void ClusterModeRuntime::Init()
         libConfig.privateKeyPath = ConfigManager::Singleton().privateKeyPath;
         libConfig.certificateFilePath = ConfigManager::Singleton().certificateFilePath;
         libConfig.verifyFilePath = ConfigManager::Singleton().verifyFilePath;
+        int len = sizeof(ConfigManager::Singleton().privateKeyPaaswd);
+        memcpy_s(libConfig.privateKeyPaaswd, len, ConfigManager::Singleton().privateKeyPaaswd, len);
+        libConfig.encryptPrivateKeyPasswd = ConfigManager::Singleton().encryptPrivateKeyPasswd;
     }
     libConfig.primaryKeyStoreFile = ConfigManager::Singleton().primaryKeyStoreFile;
     libConfig.standbyKeyStoreFile = ConfigManager::Singleton().standbyKeyStoreFile;
     libConfig.encryptEnable = ConfigManager::Singleton().enableDsEncrypt;
     if (ConfigManager::Singleton().enableDsEncrypt) {
-        libConfig.runtimePublicKeyPath = ConfigManager::Singleton().runtimePublicKeyContextPath;
-        libConfig.runtimePrivateKeyPath = ConfigManager::Singleton().runtimePrivateKeyContextPath;
-        libConfig.dsPublicKeyPath = ConfigManager::Singleton().dsPublicKeyContextPath;
+        libConfig.runtimePublicKey = ConfigManager::Singleton().runtimePublicKeyContext;
+        libConfig.runtimePrivateKey = ConfigManager::Singleton().runtimePrivateKeyContext;
+        libConfig.dsPublicKey = ConfigManager::Singleton().dsPublicKeyContext;
+        libConfig.encryptRuntimePublicKeyContext = ConfigManager::Singleton().encryptRuntimePublicKeyContext;
+        libConfig.encryptRuntimePrivateKeyContext = ConfigManager::Singleton().encryptRuntimePrivateKeyContext;
+        libConfig.encryptDsPublicKeyContext = ConfigManager::Singleton().encryptDsPublicKeyContext;
     }
+    libConfig.tlsContext = ConfigManager::Singleton().tlsContext;
+    libConfig.httpIocThreadsNum = ConfigManager::Singleton().httpIocThreadsNum;
     libConfig.serverName = ConfigManager::Singleton().serverName;
     libConfig.ns = ConfigManager::Singleton().ns;
     libConfig.customEnvs = ConfigManager::Singleton().customEnvs;
@@ -409,7 +503,7 @@ void ClusterModeRuntime::Init()
 
 std::string ClusterModeRuntime::GetServerVersion()
 {
-    return YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetServerVersion();
+    return GetLibRuntime()->GetServerVersion();
 }
 
 std::string ClusterModeRuntime::CreateInstance(const internal::FuncMeta &funcMeta,
@@ -424,9 +518,8 @@ std::string ClusterModeRuntime::CreateInstance(const internal::FuncMeta &funcMet
     auto invokeOptions = BuildOptions(opts);
     YRLOG_DEBUG("create instance, function meta, name={}, language={}.", funcMeta.funcName,
                 static_cast<int>(funcMeta.language));
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto [err, instanceId] = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->CreateInstance(
-        functionMeta, invokeArgs, invokeOptions);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto [err, instanceId] = GetLibRuntime()->CreateInstance(functionMeta, invokeArgs, invokeOptions);
     if (err.Code() != Libruntime::ErrorCode::ERR_OK) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
@@ -446,9 +539,8 @@ std::string ClusterModeRuntime::InvokeInstance(const internal::FuncMeta &funcMet
     auto libFunctionMeta = BuildFunctionMeta(funcMeta);
     auto libArgs = BuildInvokeArgs(args);
     auto libOpts = BuildOptions(opts);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->InvokeByInstanceId(
-        libFunctionMeta, instanceId, libArgs, libOpts, returnObjs);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->InvokeByInstanceId(libFunctionMeta, instanceId, libArgs, libOpts, returnObjs);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
@@ -468,9 +560,8 @@ std::string ClusterModeRuntime::InvokeByName(const internal::FuncMeta &funcMeta,
     auto libArgs = BuildInvokeArgs(args);
     auto libOpts = BuildOptions(opts);
     std::vector<DataObject> returnObjs{{""}};
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->InvokeByFunctionName(
-        libFunctionMeta, libArgs, libOpts, returnObjs);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->InvokeByFunctionName(libFunctionMeta, libArgs, libOpts, returnObjs);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
@@ -479,11 +570,37 @@ std::string ClusterModeRuntime::InvokeByName(const internal::FuncMeta &funcMeta,
 
 void ClusterModeRuntime::TerminateInstance(const std::string &instanceId)
 {
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->Kill(instanceId);
+    auto errInfo = GetLibRuntime()->Kill(instanceId);
     if (!errInfo.OK()) {
         YR::Exception exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
         throw exception;
     }
+}
+
+std::string ClusterModeRuntime::Put(const void *data, uint64_t dataSize,
+                                    const std::unordered_set<std::string> &nestedId, const CreateParam &createParam)
+{
+    if (data == nullptr || dataSize == 0) {
+        throw Exception::InvalidParamException("Put val is nullptr");
+    }
+    auto param = BuildCreateParam(createParam);
+    auto dataObj = std::make_shared<YR::Libruntime::DataObject>();
+    std::vector<std::string> nestedIds(nestedId.begin(), nestedId.end());
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto [err, objId] = GetLibRuntime()->CreateDataObject(0, dataSize, dataObj, nestedIds, param);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_DEBUG("failed to Create DataObject {}", err.Msg());
+        YR::Exception e2(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+        throw e2;
+    }
+    // copy data to DataObject data
+    err = WriteDataObject(data, dataObj, dataSize, nestedId);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_DEBUG("failed to WriteDataObject {}", err.Msg());
+        YR::Exception e2(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+        throw e2;
+    }
+    return objId;
 }
 
 std::string ClusterModeRuntime::Put(std::shared_ptr<msgpack::sbuffer> data,
@@ -495,25 +612,18 @@ std::string ClusterModeRuntime::Put(std::shared_ptr<msgpack::sbuffer> data,
 std::string ClusterModeRuntime::Put(std::shared_ptr<msgpack::sbuffer> data,
                                     const std::unordered_set<std::string> &nestedId, const CreateParam &createParam)
 {
-    auto param = BuildCreateParam(createParam);
-    auto dataObj = std::make_shared<YR::Libruntime::DataObject>();
-    std::vector<std::string> nestedIds(nestedId.begin(), nestedId.end());
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto [err, objId] = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->CreateDataObject(
-        0, data->size(), dataObj, nestedIds, param);
-    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_DEBUG("failed to Create DataObject {}", err.Msg());
-        YR::Exception e2(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
-        throw e2;
-    }
-    // copy data to DataObject data
-    err = WriteDataObject(data->data(), dataObj, data->size(), nestedId);
-    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_DEBUG("failed to WriteDataObject {}", err.Msg());
-        YR::Exception e2(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
-        throw e2;
-    }
-    return objId;
+    return Put(data->data(), data->size(), nestedId, createParam);
+}
+
+std::string ClusterModeRuntime::Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId)
+{
+    return Put(data, nestedId, {});
+}
+
+std::string ClusterModeRuntime::Put(std::shared_ptr<Buffer> data, const std::unordered_set<std::string> &nestedId,
+                                    const CreateParam &createParam)
+{
+    return Put(data->ImmutableData(), data->GetSize(), nestedId, createParam);
 }
 
 void ClusterModeRuntime::Put(const std::string &objId, std::shared_ptr<msgpack::sbuffer> data,
@@ -521,9 +631,8 @@ void ClusterModeRuntime::Put(const std::string &objId, std::shared_ptr<msgpack::
 {
     auto dataObj = std::make_shared<YR::Libruntime::DataObject>();
     std::vector<std::string> nestedIds(nestedId.begin(), nestedId.end());
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->CreateDataObject(objId, 0, data->size(),
-                                                                                               dataObj, nestedIds);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->CreateDataObject(objId, 0, data->size(), dataObj, nestedIds);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
         YRLOG_DEBUG("failed to CreateDataObject {}", err.Msg());
         YR::Exception e2(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
@@ -542,9 +651,8 @@ std::pair<internal::RetryInfo, std::vector<std::shared_ptr<Buffer>>> ClusterMode
 {
     internal::RetryInfo returnRetryInfo;
     returnRetryInfo.needRetry = true;
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto [retryInfo, dataObjects] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetDataObjectsWithoutWait(ids, timeoutMS);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto [retryInfo, dataObjects] = GetLibRuntime()->GetDataObjectsWithoutWait(ids, timeoutMS);
     std::vector<std::shared_ptr<Buffer>> buffers;
     buffers.resize(dataObjects.size());
     std::vector<std::string> remainIds;
@@ -572,9 +680,8 @@ std::pair<internal::RetryInfo, std::vector<std::shared_ptr<Buffer>>> ClusterMode
 YR::internal::WaitResult ClusterModeRuntime::Wait(const std::vector<std::string> &objs, std::size_t waitNum,
                                                   int timeout)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    std::shared_ptr<InternalWaitResult> internalWaitResult =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->Wait(objs, waitNum, timeout);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    std::shared_ptr<InternalWaitResult> internalWaitResult = GetLibRuntime()->Wait(objs, waitNum, timeout);
     YR::internal::WaitResult waitResult;
     waitResult.readyIds = internalWaitResult->readyIds;
     waitResult.unreadyIds = internalWaitResult->unreadyIds;
@@ -591,8 +698,7 @@ YR::internal::WaitResult ClusterModeRuntime::Wait(const std::vector<std::string>
 
 int64_t ClusterModeRuntime::WaitBeforeGet(const std::vector<std::string> &ids, int timeoutMs, bool allowPartial)
 {
-    auto [err, remainedTimeoutMs] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->WaitBeforeGet(ids, timeoutMs, allowPartial);
+    auto [err, remainedTimeoutMs] = GetLibRuntime()->WaitBeforeGet(ids, timeoutMs, allowPartial);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
@@ -606,8 +712,7 @@ std::vector<std::string> ClusterModeRuntime::GetInstances(const std::string &obj
             "invalid GetInstances timeout, timeout: " + std::to_string(timeoutSec) + ", please set the timeout >= -1.";
         throw YR::Exception(Libruntime::ErrorCode::ERR_PARAM_INVALID, Libruntime::ModuleCode::RUNTIME, msg);
     }
-    auto [instanceIds, err] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetInstances(objId, timeoutSec);
+    auto [instanceIds, err] = GetLibRuntime()->GetInstances(objId, timeoutSec);
     if (!err.OK()) {
         throw YR::Exception(err.Code(), err.MCode(), err.Msg());
     }
@@ -616,15 +721,14 @@ std::vector<std::string> ClusterModeRuntime::GetInstances(const std::string &obj
 
 std::string ClusterModeRuntime::GenerateGroupName()
 {
-    return YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GenerateGroupName();
+    return GetLibRuntime()->GenerateGroupName();
 }
 
-void ClusterModeRuntime::IncreGlobalReference(const std::vector<std::string> &objids)
+void ClusterModeRuntime::IncreGlobalReference(const std::vector<std::string> &objids, bool toDatasystem)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
+    GetLibRuntime()->SetTenantIdWithPriority();
     // Here, LibRuntime return YR::Libruntime::ErrorInfo, should catch and cast type to YR::Exception.
-    YR::Libruntime::ErrorInfo err =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->IncreaseReference(objids);
+    YR::Libruntime::ErrorInfo err = GetLibRuntime()->IncreaseReference(objids, toDatasystem);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
         YR::Exception e2(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
         throw e2;
@@ -634,25 +738,26 @@ void ClusterModeRuntime::IncreGlobalReference(const std::vector<std::string> &ob
 void ClusterModeRuntime::DecreGlobalReference(const std::vector<std::string> &objids)
 {
     if (YR::Libruntime::LibruntimeManager::Instance().IsInitialized()) {
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->DecreaseReference(objids);
+        GetLibRuntime()->SetTenantIdWithPriority();
+        GetLibRuntime()->DecreaseReference(objids);
     }
 }
 
 void ClusterModeRuntime::KVWrite(const std::string &key, const char *value, YR::SetParam setParam)
 {
     auto dsSetParam = BuildSetParam(setParam);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTraceId(setParam.traceId);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(setParam.traceId);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
     auto nativeBuffer = std::make_shared<YR::Libruntime::NativeBuffer>(static_cast<void *>(const_cast<char *>(value)),
                                                                        std::strlen(value));
 
-    err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVWrite(key, nativeBuffer, dsSetParam);
+    err = GetLibRuntime()->KVWrite(key, nativeBuffer, dsSetParam);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVWrite err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVWrite err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
 }
@@ -660,15 +765,15 @@ void ClusterModeRuntime::KVWrite(const std::string &key, const char *value, YR::
 void ClusterModeRuntime::KVWrite(const std::string &key, std::shared_ptr<msgpack::sbuffer> value, YR::SetParam setParam)
 {
     auto dsSetParam = BuildSetParam(setParam);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTraceId(setParam.traceId);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(setParam.traceId);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
-    err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVWrite(
-        key, std::make_shared<YR::Libruntime::MsgpackBuffer>(value), dsSetParam);
+    err = GetLibRuntime()->KVWrite(key, std::make_shared<YR::Libruntime::MsgpackBuffer>(value), dsSetParam);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVWrite err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVWrite err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
 }
@@ -677,15 +782,15 @@ void ClusterModeRuntime::KVWrite(const std::string &key, std::shared_ptr<msgpack
                                  YR::SetParamV2 setParam)
 {
     auto dsSetParam = BuildSetParamV2(setParam);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTraceId(setParam.traceId);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(setParam.traceId);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
-    err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVWrite(
-        key, std::make_shared<YR::Libruntime::MsgpackBuffer>(value), dsSetParam);
+    err = GetLibRuntime()->KVWrite(key, std::make_shared<YR::Libruntime::MsgpackBuffer>(value), dsSetParam);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVWrite err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVWrite err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
 }
@@ -708,23 +813,23 @@ void ClusterModeRuntime::KVMSetTx(const std::vector<std::string> &keys,
     for (size_t i = 0; i < vals.size(); i++) {
         buffers[i] = std::make_shared<YR::Libruntime::MsgpackBuffer>(vals[i]);
     }
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    YR::Libruntime::ErrorInfo err =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVMSetTx(keys, buffers, dsMSetParam);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::ErrorInfo err = GetLibRuntime()->KVMSetTx(keys, buffers, dsMSetParam);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVMSetTx err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVMSetTx err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
 }
 
 std::shared_ptr<Buffer> ClusterModeRuntime::KVRead(const std::string &key, int timeoutMs)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    YR::Libruntime::SingleReadResult result =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVRead(key, timeoutMs);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::SingleReadResult result = GetLibRuntime()->KVRead(key, timeoutMs);
     YR::Libruntime::ErrorInfo &err = result.second;
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVRead err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVRead err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
     return std::make_shared<YR::ReadOnlyBuffer>(result.first);
@@ -733,12 +838,12 @@ std::shared_ptr<Buffer> ClusterModeRuntime::KVRead(const std::string &key, int t
 std::vector<std::shared_ptr<Buffer>> ClusterModeRuntime::KVRead(const std::vector<std::string> &keys, int timeoutMs,
                                                                 bool allowPartial)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    YR::Libruntime::MultipleReadResult result =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVRead(keys, timeoutMs, allowPartial);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::MultipleReadResult result = GetLibRuntime()->KVRead(keys, timeoutMs, allowPartial);
     YR::Libruntime::ErrorInfo &err = result.second;
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVRead err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVRead err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
     std::vector<std::shared_ptr<Buffer>> buffers;
@@ -756,63 +861,160 @@ std::vector<std::shared_ptr<Buffer>> ClusterModeRuntime::KVGetWithParam(const st
                                                                         const YR::GetParams &params, int timeoutMs)
 {
     auto dsParams = BuildGetParam(params);
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto res = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTraceId(params.traceId);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto res = GetLibRuntime()->SetTraceId(params.traceId);
     if (res.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("Set trace id err: Code:{}, MCode:{}, Msg:{}", res.Code(), res.MCode(), res.Msg());
+        YRLOG_ERROR("Set trace id err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(res.Code()),
+                    fmt::underlying(res.MCode()), res.Msg());
         throw YR::Exception(static_cast<int>(res.Code()), static_cast<int>(res.MCode()), res.Msg());
     }
-    YR::Libruntime::MultipleReadResult result =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVGetWithParam(keys, dsParams, timeoutMs);
+    YR::Libruntime::MultipleReadResult result = GetLibRuntime()->KVGetWithParam(keys, dsParams, timeoutMs);
     YR::Libruntime::ErrorInfo &err = result.second;
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVGetWithParam err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVGetWithParam err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
     std::vector<std::shared_ptr<Buffer>> buffers;
     buffers.resize(result.first.size());
     for (size_t i = 0; i < result.first.size(); i++) {
-        if (result.first[i] != nullptr) {
-            buffers[i] = std::make_shared<YR::ReadOnlyBuffer>(result.first[i]);
+        if (result.first[i] == nullptr) {
+            continue;
         }
+        buffers[i] = std::make_shared<YR::ReadOnlyBuffer>(result.first[i]);
     }
     return buffers;
 }
 
 void ClusterModeRuntime::KVDel(const std::string &key, const DelParam &delParam)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTraceId(delParam.traceId);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(delParam.traceId);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
-    err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVDel(key);
+    err = GetLibRuntime()->KVDel(key);
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVDel err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVDel err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
 }
 
 std::vector<std::string> ClusterModeRuntime::KVDel(const std::vector<std::string> &keys, const DelParam &delParam)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTenantIdWithPriority();
-    auto err = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SetTraceId(delParam.traceId);
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(delParam.traceId);
     if (!err.OK()) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
-    YR::Libruntime::MultipleDelResult result =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->KVDel(keys);
+    YR::Libruntime::MultipleDelResult result = GetLibRuntime()->KVDel(keys);
     err = result.second;
     if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
-        YRLOG_ERROR("KVDel err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("KVDel err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
     return result.first;
 }
 
+std::vector<bool> ClusterModeRuntime::KVExist(const std::vector<std::string> &keys)
+{
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::MultipleExistResult result = GetLibRuntime()->KVExist(keys);
+    auto err = result.second;
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_ERROR("KVExist err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+    return result.first;
+}
+
+std::shared_ptr<Producer> ClusterModeRuntime::CreateStreamProducer(const std::string &streamName,
+                                                                   ProducerConf producerConf)
+{
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(producerConf.traceId);
+    if (!err.OK()) {
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+    auto libProducerConf = BuildProducerConf(producerConf);
+    std::shared_ptr<YR::Libruntime::StreamProducer> streamProducer;
+    err = GetLibRuntime()->CreateStreamProducer(streamName, libProducerConf, streamProducer);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_ERROR("CreateStreamProducer err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+    std::shared_ptr<Producer> producer = std::make_shared<YR::StreamProducer>(streamProducer, producerConf.traceId);
+    return producer;
+}
+
+std::shared_ptr<Consumer> ClusterModeRuntime::CreateStreamConsumer(const std::string &streamName,
+                                                                   const SubscriptionConfig &config, bool autoAck)
+{
+    auto subscriptionConfig = BuildSubscriptionConfig(config);
+    std::shared_ptr<YR::Libruntime::StreamConsumer> streamConsumer;
+    GetLibRuntime()->SetTenantIdWithPriority();
+    auto err = GetLibRuntime()->SetTraceId(config.traceId);
+    if (!err.OK()) {
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+    err = GetLibRuntime()->CreateStreamConsumer(streamName, subscriptionConfig, streamConsumer, autoAck);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_ERROR("CreateStreamConsumer err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+    std::shared_ptr<Consumer> consumer = std::make_shared<YR::StreamConsumer>(streamConsumer, config.traceId);
+    return consumer;
+}
+
+void ClusterModeRuntime::DeleteStream(const std::string &streamName)
+{
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::ErrorInfo err = GetLibRuntime()->DeleteStream(streamName);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_ERROR("DeleteStream err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+}
+
+void ClusterModeRuntime::QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum)
+{
+    if (ConfigManager::Singleton().IsLocalMode()) {
+        throw YR::Exception(Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, Libruntime::ModuleCode::RUNTIME,
+                            "local mode does not support QueryGlobalProducersNum\n");
+    }
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::ErrorInfo err = GetLibRuntime()->QueryGlobalProducersNum(streamName, gProducerNum);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_ERROR("QueryGlobalProducersNum err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+}
+
+void ClusterModeRuntime::QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum)
+{
+    if (ConfigManager::Singleton().IsLocalMode()) {
+        throw YR::Exception(Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, Libruntime::ModuleCode::RUNTIME,
+                            "local mode does not support QueryGlobalConsumersNum\n");
+    }
+    GetLibRuntime()->SetTenantIdWithPriority();
+    YR::Libruntime::ErrorInfo err = GetLibRuntime()->QueryGlobalConsumersNum(streamName, gConsumerNum);
+    if (err.Code() != YR::Libruntime::ErrorCode::ERR_OK) {
+        YRLOG_ERROR("QueryGlobalConsumersNum err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
+        throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
+    }
+}
+
 std::string ClusterModeRuntime::GetRealInstanceId(const std::string &objectId)
 {
-    return YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetRealInstanceId(objectId);
+    return GetLibRuntime()->GetRealInstanceId(objectId);
 }
 
 void ClusterModeRuntime::SaveRealInstanceId(const std::string &objectId, const std::string &instanceId,
@@ -820,12 +1022,12 @@ void ClusterModeRuntime::SaveRealInstanceId(const std::string &objectId, const s
 {
     YR::Libruntime::InstanceOptions instOpts;
     instOpts.needOrder = opts.needOrder;
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SaveRealInstanceId(objectId, instanceId, instOpts);
+    GetLibRuntime()->SaveRealInstanceId(objectId, instanceId, instOpts);
 }
 
 std::string ClusterModeRuntime::GetGroupInstanceIds(const std::string &objectId)
 {
-    return YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetGroupInstanceIds(objectId, NO_TIMEOUT);
+    return GetLibRuntime()->GetGroupInstanceIds(objectId, NO_TIMEOUT);
 }
 
 void ClusterModeRuntime::SaveGroupInstanceIds(const std::string &objectId, const std::string &groupInsIds,
@@ -833,23 +1035,22 @@ void ClusterModeRuntime::SaveGroupInstanceIds(const std::string &objectId, const
 {
     YR::Libruntime::InstanceOptions instOpts;
     instOpts.needOrder = opts.needOrder;
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SaveGroupInstanceIds(objectId, groupInsIds,
-                                                                                        instOpts);
+    GetLibRuntime()->SaveGroupInstanceIds(objectId, groupInsIds, instOpts);
 }
 
 void ClusterModeRuntime::Cancel(const std::vector<std::string> &objs, bool isForce, bool isRecursive)
 {
-    YR::Libruntime::ErrorInfo err =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->Cancel(objs, isForce, isRecursive);
+    YR::Libruntime::ErrorInfo err = GetLibRuntime()->Cancel(objs, isForce, isRecursive);
     if (!err.OK()) {
-        YRLOG_DEBUG("Cancel err: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_DEBUG("Cancel err: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()), fmt::underlying(err.MCode()),
+                    err.Msg());
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg());
     }
 }
 
 void ClusterModeRuntime::Exit(void)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->Exit();
+    GetLibRuntime()->Exit();
 }
 
 void ClusterModeRuntime::StopRuntime(void)
@@ -872,7 +1073,7 @@ void ClusterModeRuntime::GroupCreate(const std::string &name, GroupOptions &opts
     libOpts.timeout = opts.timeout;
     libOpts.groupName = name;
     libOpts.sameLifecycle = opts.sameLifecycle;
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GroupCreate(name, libOpts);
+    auto errInfo = GetLibRuntime()->GroupCreate(name, libOpts);
     if (!errInfo.OK()) {
         throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -880,12 +1081,12 @@ void ClusterModeRuntime::GroupCreate(const std::string &name, GroupOptions &opts
 
 void ClusterModeRuntime::GroupTerminate(const std::string &name)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GroupTerminate(name);
+    GetLibRuntime()->GroupTerminate(name);
 }
 
 void ClusterModeRuntime::GroupWait(const std::string &name)
 {
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GroupWait(name);
+    auto errInfo = GetLibRuntime()->GroupWait(name);
     if (!errInfo.OK()) {
         throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -899,7 +1100,7 @@ void ClusterModeRuntime::SaveState(const int &timeout)
         throw YR::Exception(static_cast<int>(dumpErr.Code()), static_cast<int>(dumpErr.MCode()), dumpErr.Msg());
     }
     int timeoutMS = timeout != NO_TIMEOUT ? timeout * S_TO_MS : NO_TIMEOUT;
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SaveState(data, timeoutMS);
+    auto errInfo = GetLibRuntime()->SaveState(data, timeoutMS);
     if (!errInfo.OK()) {
         throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -909,7 +1110,7 @@ void ClusterModeRuntime::LoadState(const int &timeout)
 {
     std::shared_ptr<YR::Libruntime::Buffer> data;
     int timeoutMS = timeout != NO_TIMEOUT ? timeout * S_TO_MS : NO_TIMEOUT;
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->LoadState(data, timeoutMS);
+    auto errInfo = GetLibRuntime()->LoadState(data, timeoutMS);
     if (!errInfo.OK()) {
         throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -919,20 +1120,19 @@ void ClusterModeRuntime::LoadState(const int &timeout)
     }
 }
 
-void ClusterModeRuntime::Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+void ClusterModeRuntime::DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
 {
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->Delete(objectIds, failedObjectIds);
+    auto errInfo = GetLibRuntime()->DevDelete(objectIds, failedObjectIds);
     if (!errInfo.OK()) {
         throw YR::HeteroException(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg(),
                                   failedObjectIds);
     }
 }
 
-void ClusterModeRuntime::LocalDelete(const std::vector<std::string> &objectIds,
-                                     std::vector<std::string> &failedObjectIds)
+void ClusterModeRuntime::DevLocalDelete(const std::vector<std::string> &objectIds,
+                                        std::vector<std::string> &failedObjectIds)
 {
-    auto errInfo =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->LocalDelete(objectIds, failedObjectIds);
+    auto errInfo = GetLibRuntime()->DevLocalDelete(objectIds, failedObjectIds);
     if (!errInfo.OK()) {
         throw YR::HeteroException(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg(),
                                   failedObjectIds);
@@ -945,8 +1145,7 @@ void ClusterModeRuntime::DevSubscribe(const std::vector<std::string> &keys,
 {
     auto libDevBlobList = BuildLibDeviceBlobList(blob2dList);
     std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> libHeteroFutureVec;
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->DevSubscribe(keys, libDevBlobList,
-                                                                                               libHeteroFutureVec);
+    auto errInfo = GetLibRuntime()->DevSubscribe(keys, libDevBlobList, libHeteroFutureVec);
     if (!errInfo.OK()) {
         throw YR::HeteroException(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -960,8 +1159,7 @@ void ClusterModeRuntime::DevPublish(const std::vector<std::string> &keys, const 
 {
     auto libDevBlobList = BuildLibDeviceBlobList(blob2dList);
     std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> libHeteroFutureVec;
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->DevPublish(keys, libDevBlobList,
-                                                                                             libHeteroFutureVec);
+    auto errInfo = GetLibRuntime()->DevPublish(keys, libDevBlobList, libHeteroFutureVec);
     if (!errInfo.OK()) {
         throw YR::HeteroException(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -974,8 +1172,7 @@ void ClusterModeRuntime::DevMSet(const std::vector<std::string> &keys, const std
                                  std::vector<std::string> &failedKeys)
 {
     auto libDevBlobList = BuildLibDeviceBlobList(blob2dList);
-    auto errInfo =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->DevMSet(keys, libDevBlobList, failedKeys);
+    auto errInfo = GetLibRuntime()->DevMSet(keys, libDevBlobList, failedKeys);
     if (!errInfo.OK()) {
         throw YR::HeteroException(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg(),
                                   failedKeys);
@@ -986,8 +1183,7 @@ void ClusterModeRuntime::DevMGet(const std::vector<std::string> &keys, const std
                                  std::vector<std::string> &failedKeys, int32_t timeoutSec)
 {
     auto libDevBlobList = BuildLibDeviceBlobList(blob2dList);
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->DevMGet(keys, libDevBlobList,
-                                                                                          failedKeys, timeoutSec);
+    auto errInfo = GetLibRuntime()->DevMGet(keys, libDevBlobList, failedKeys, timeoutSec);
     if (!errInfo.OK()) {
         throw YR::HeteroException(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg(),
                                   failedKeys);
@@ -997,8 +1193,7 @@ void ClusterModeRuntime::DevMGet(const std::vector<std::string> &keys, const std
 internal::FuncMeta ClusterModeRuntime::GetInstance(const std::string &name, const std::string &nameSpace,
                                                    int timeoutSec)
 {
-    auto [funcMeta, errInfo] =
-        YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetInstance(name, nameSpace, timeoutSec);
+    auto [funcMeta, errInfo] = GetLibRuntime()->GetInstance(name, nameSpace, timeoutSec);
     if (!errInfo.OK()) {
         throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
@@ -1007,21 +1202,88 @@ internal::FuncMeta ClusterModeRuntime::GetInstance(const std::string &name, cons
 
 std::string ClusterModeRuntime::GetInstanceRoute(const std::string &objectId)
 {
-    return YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GetInstanceRoute(objectId);
+    return GetLibRuntime()->GetInstanceRoute(objectId);
 }
 
 void ClusterModeRuntime::SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute)
 {
-    YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->SaveInstanceRoute(objectId, instanceRoute);
+    GetLibRuntime()->SaveInstanceRoute(objectId, instanceRoute);
 }
 
 void ClusterModeRuntime::TerminateInstanceSync(const std::string &instanceId)
 {
-    auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->Kill(
-        instanceId, libruntime::Signal::killInstanceSync);
+    auto errInfo = GetLibRuntime()->Kill(instanceId, libruntime::Signal::killInstanceSync);
     if (!errInfo.OK()) {
-        YR::Exception exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
-        throw exception;
+        throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
     }
 }
+
+std::vector<Node> ClusterModeRuntime::Nodes()
+{
+    auto [errInfo, resourceUnitVector] = GetLibRuntime()->GetResources();
+    if (!errInfo.OK()) {
+        throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());
+    }
+    std::vector<Node> nodes;
+    for (const auto &resourceUnit : resourceUnitVector) {
+        Node node{
+            .id = resourceUnit.id,
+            .alive = (resourceUnit.status == NORMAL_STATUS),
+            .resources = resourceUnit.capacity,
+            .labels = resourceUnit.nodeLabels,
+        };
+        nodes.push_back(node);
+    }
+    return nodes;
+}
+
+std::shared_ptr<MutableBuffer> ClusterModeRuntime::CreateMutableBuffer(uint64_t size)
+{
+    std::shared_ptr<YR::Libruntime::Buffer> buf;
+    auto res = GetLibRuntime()->CreateBuffer(size, buf);
+    if (!res.first.OK()) {
+        throw YR::Exception(static_cast<int>(res.first.Code()), static_cast<int>(res.first.MCode()), res.first.Msg());
+    }
+    return std::make_shared<YR::DataSystemBuffer>(res.second, buf);
+}
+
+std::vector<std::shared_ptr<MutableBuffer>> ClusterModeRuntime::GetMutableBuffer(const std::vector<std::string> &ids,
+                                                                                 int timeoutSec)
+{
+    auto timeoutMs = timeoutSec * S_TO_MS;
+    auto res = GetLibRuntime()->GetBuffers(ids, timeoutMs, false);
+    if (!res.first.OK() || ids.size() != res.second.size()) {
+        throw YR::Exception(static_cast<int>(res.first.Code()), static_cast<int>(res.first.MCode()), res.first.Msg());
+    }
+    std::vector<std::shared_ptr<MutableBuffer>> buffers;
+    buffers.resize(res.second.size());
+    for (size_t i = 0; i < res.second.size(); i++) {
+        if (!res.second[i]) {
+            continue;
+        }
+        buffers[i] = std::make_shared<DataSystemBuffer>(ids[i], res.second[i]);
+    }
+    return buffers;
+}
+
+std::shared_future<void> ClusterModeRuntime::TerminateInstanceAsync(const std::string &instanceId, bool isSync)
+{
+    int sigNo = libruntime::Signal::KillInstance;
+    if (isSync) {
+        sigNo = libruntime::Signal::killInstanceSync;
+    }
+    auto promise = std::make_shared<std::promise<void>>();
+    auto f = promise->get_future().share();
+    auto cb = [promise](const YR::Libruntime::ErrorInfo &err) {
+        if (err.OK()) {
+            promise->set_value();
+        } else {
+            promise->set_exception(std::make_exception_ptr(
+                YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), err.Msg())));
+        }
+    };
+    GetLibRuntime()->KillAsync(instanceId, sigNo, cb);
+    return f;
+}
+
 }  // namespace YR

@@ -84,6 +84,7 @@ def configure():
         config.log_dir = log_dir
     else:
         config.log_dir = DEFAULT_LOG_DIR
+    config.in_cluster = True
     return config
 
 
@@ -102,9 +103,9 @@ def insert_sys_path():
 def main():
     """main"""
     # If args are invalid, the script automatically exits when calling 'parser.parse_args()'.
+    insert_sys_path()
     init(configure())
     try_install_uvloop()
-    insert_sys_path()
     receive_request_loop()
 
 

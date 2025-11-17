@@ -23,7 +23,7 @@
 
 namespace YR {
 namespace Libruntime {
-const size_t REQUEST_ACK_TIMEOUT_SEC = 10;
+const size_t REQUEST_ACK_TIMEOUT_SEC = 2;
 const char *const TRUE_STR = "true";
 const char *const FALSE_STR = "false";
 const char *const TRUE_NUM = "1";
@@ -99,7 +99,7 @@ public:                                                \
 
     CONFIG_DECLARE_VALID(size_t, REQUEST_ACK_ACC_MAX_SEC, 1800,
                          [](const size_t &val) -> bool { return val >= REQUEST_ACK_TIMEOUT_SEC; });
-    CONFIG_DECLARE_VALID(size_t, DS_CONNECT_TIMEOUT_SEC, 1800,
+    CONFIG_DECLARE_VALID(size_t, DS_CONNECT_TIMEOUT_SEC, 60,
                          [](const size_t &val) -> bool { return val >= REQUEST_ACK_TIMEOUT_SEC; });
     CONFIG_DECLARE(bool, AUTH_ENABLE, false);
     CONFIG_DECLARE(std::string, GRPC_SERVER_ADDRESS, "0.0.0.0:0");
@@ -109,7 +109,8 @@ public:                                                \
     CONFIG_DECLARE(std::string, FUNCTION_NAME, "");
     CONFIG_DECLARE(std::string, FUNCTION_LIB_PATH, "/dcache/layer/func");
     CONFIG_DECLARE(std::string, GLOG_log_dir, "/home/snuser/log");
-    CONFIG_DECLARE(std::string, SNLIB_PATH, "/home/snuser/snlib");
+    CONFIG_DECLARE(std::string, YR_LOG_PREFIX, "");
+    CONFIG_DECLARE(std::string, SNUSER_LIB_PATH, "/home/snuser/snlib");
     CONFIG_DECLARE(std::string, YR_LOG_LEVEL, "INFO");
     CONFIG_DECLARE(std::string, YRFUNCID, "");
     CONFIG_DECLARE(std::string, YR_PYTHON_FUNCID, "");
@@ -118,8 +119,8 @@ public:                                                \
     CONFIG_DECLARE(std::string, YR_SERVER_ADDRESS, "");
     CONFIG_DECLARE(std::string, POSIX_LISTEN_ADDR, "");
     CONFIG_DECLARE(std::string, YR_LOG_PATH, "./");
-    CONFIG_DECLARE(uint32_t, YR_MAX_LOG_SIZE_MB, 40);
-    CONFIG_DECLARE(uint32_t, YR_MAX_LOG_FILE_NUM, 20);
+    CONFIG_DECLARE(uint32_t, YR_MAX_LOG_SIZE_MB, 500);
+    CONFIG_DECLARE(uint32_t, YR_MAX_LOG_FILE_NUM, 10);
     CONFIG_DECLARE(uint32_t, YR_HTTP_CONNECTION_NUM, 10);
     CONFIG_DECLARE(bool, YR_LOG_COMPRESS, true);
     CONFIG_DECLARE(std::string, HOST_IP, "");
@@ -129,6 +130,8 @@ public:                                                \
     CONFIG_DECLARE(bool, ENABLE_METRICS, false);
     CONFIG_DECLARE(std::string, METRICS_CONFIG, "");
     CONFIG_DECLARE(std::string, METRICS_CONFIG_FILE, "");
+    CONFIG_DECLARE(bool, ENABLE_TRACE, false);
+    CONFIG_DECLARE(std::string, RUNTIME_TRACE_CONFIG, "");
     CONFIG_DECLARE(bool, ENABLE_DS_AUTH, false);
     CONFIG_DECLARE(bool, ENABLE_SERVER_AUTH, false);
     CONFIG_DECLARE(bool, ENABLE_SERVER_MODE, true);
@@ -151,8 +154,16 @@ public:                                                \
     CONFIG_DECLARE(size_t, MEM_STORE_SIZE_THRESHOLD, 100 * 1024);
     CONFIG_DECLARE(size_t, FASS_SCHEDULE_TIMEOUT, 120);  // 120 seconds
     CONFIG_DECLARE(int, YR_ASYNCIO_MAX_CONCURRENCY, 1000); // 1k
+    CONFIG_DECLARE(bool, ENABLE_CLEAN_STREAM_PRODUCER, true);
+    CONFIG_DECLARE(bool, ENABLE_PRIORITY, false);
+    CONFIG_DECLARE(bool, ENABLE_DS_HEALTH_CHECK, false);
+    CONFIG_DECLARE(int, MAX_HTTP_RETRY_TIME, 1);
+    CONFIG_DECLARE(int, MAX_HTTP_TIMEOUT_SEC, -1);
+    CONFIG_DECLARE(int, INITIAL_HTTP_CONNECT_SEC, -1);
+    CONFIG_DECLARE(int, YR_HTTP_IDLE_TIME, 30);
+    CONFIG_DECLARE(int, YR_NOTIFY_THREAD_POOL_SIZE, 5);
     CONFIG_DECLARE_VALID(std::string, RUN_MODE, "integrated",  // integrated or standalone
-        [](const std::string &val) -> bool { return (val == INTEGRATED || val == STANDALONE); });
+                         [](const std::string &val) -> bool { return (val == INTEGRATED || val == STANDALONE); });
     CONFIG_DECLARE(bool, ENABLE_FUNCTION_SCHEDULER, false);  // whether start an in-memory scheduler
     CONFIG_DECLARE(int, FUNCTION_SCHEDULER_GRPC_PORT, 23770); // allow scheduler to interact with runtime
     CONFIG_DECLARE(int, FUNCTION_SCHEDULER_HTTP_PORT, 23771);  // allow http access to function scheduler

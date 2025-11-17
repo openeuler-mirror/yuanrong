@@ -34,6 +34,7 @@ from yr.config import InvokeOptions
 from yr.libruntime_pb2 import FunctionMeta, LanguageType
 from yr.object_ref import ObjectRef
 from yr.runtime_holder import global_runtime
+from yr.generator import ObjectRefGenerator
 
 _logger = logging.getLogger(__name__)
 
@@ -264,6 +265,9 @@ class FunctionProxy:
         objref_list = []
         for i in obj_list:
             objref_list.append(ObjectRef(i, need_incre=False))
+
+        if self._is_generator:
+            return ObjectRefGenerator(objref_list[0])
 
         return objref_list[0] if return_nums == 1 else objref_list
 

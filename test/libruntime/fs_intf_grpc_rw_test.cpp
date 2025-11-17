@@ -18,6 +18,7 @@
 #include <future>
 #include <unordered_map>
 #include "mock/mock_security.h"
+#include "src/libruntime/utils/grpc_utils.h"
 #include "src/libruntime/clientsmanager/clients_manager.h"
 #include "src/libruntime/fsclient/grpc/fs_intf_grpc_client_reader_writer.h"
 #include "src/utility/logger/logger.h"
@@ -143,6 +144,35 @@ protected:
         return clientRw;
     }
 };
+
+TEST_F(FSIntfGrpcRWTest, TestSignRequest)
+{
+    std::string ak = "ak";
+    SensitiveValue sk = std::string("sk");
+    this->security_->SetAKSKAndCredential(ak, sk);
+    StartService();
+    auto clientRw = StartClient("client");
+    auto recvPromise = std::make_shared<std::promise<StreamingMessage>>();
+    std::string msgID = "invokereq";
+    RegisterMessagePromise(msgID, recvPromise);
+    auto msg = StreamingMessage();
+    msg.set_messageid(msgID);
+    auto rsp = msg.mutable_invokereq();
+    rsp->set_requestid("request");
+    rsp->set_function("function");
+    rsp->set_traceid("traceid");
+    rsp->set_instanceid("server");
+    (*rsp->mutable_invokeoptions()->mutable_customtag())["custom"] = "value";
+    auto arg = rsp->add_args();
+    arg->set_value("args_value");
+    YR::Libruntime::SignStreamingMessage(ak, sk, msg);
+    std::promise<ErrorInfo> writecb;
+    auto ptr = std::make_shared<StreamingMessage>(std::move(msg));
+    clientRw->Write(ptr, [&](bool, ErrorInfo err) { writecb.set_value(err); });
+    auto err = writecb.get_future().get();
+    ASSERT_EQ(err.OK(), true);
+    StopService();
+}
 
 TEST_F(FSIntfGrpcRWTest, SendInvokeMsg)
 {

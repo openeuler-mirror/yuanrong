@@ -14,17 +14,19 @@
  * limitations under the License.
  */
 
+#include "src/libruntime/libruntime.h"
 #include <iostream>
-#include "re2/re2.h"
 #include "invoke_order_manager.h"
+#include "re2/re2.h"
 #include "src/dto/config.h"
 #include "src/dto/data_object.h"
 #include "src/dto/status.h"
 #include "src/libruntime/err_type.h"
-#include "src/libruntime/fmclient/fm_client.h"
 #include "src/libruntime/fsclient/fs_client.h"
+#include "src/libruntime/generator/stream_generator_notifier.h"
+#include "src/libruntime/generator/stream_generator_receiver.h"
+#include "src/libruntime/gwclient/gw_client.h"
 #include "src/libruntime/invokeadaptor/request_manager.h"
-#include "src/libruntime/libruntime.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/utils/serializer.h"
@@ -38,6 +40,7 @@ const int MAX_INS_ID_LENGTH = 64;
 const std::string DELEGATE_DIRECTORY_QUOTA = "DELEGATE_DIRECTORY_QUOTA";
 const std::string DELEGATE_DIRECTORY_INFO = "DELEGATE_DIRECTORY_INFO";
 const std::string DEFALUT_DELEGATE_DIRECTORY_INFO = "/tmp";
+const std::string FAAS_INSTANCE_TYPE = "faas";
 const std::string ACTOR_INSTANCE_TYPE = "actor";
 const char *DEFAULT_DELEGATE_DIRECTORY_QUOTA = "512";  // 512MB
 const int MAX_DELEGATE_DIRECTORY_QUOTA = 1024 * 1024;  // 1TB
@@ -46,6 +49,7 @@ const re2::RE2 POD_LABELS_KEY_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])
 const re2::RE2 POD_LABELS_VALUE_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9])?$|^$");
 const std::string DISPATCHER = "dis";
 const size_t NUM_DISPATCHER = 2;
+thread_local std::string threadLocalTraceId;
 
 Libruntime::Libruntime(std::shared_ptr<LibruntimeConfig> librtCfg, std::shared_ptr<ClientsManager> clientsMgr,
                        std::shared_ptr<MetricsAdaptor> metricsAdaptor, std::shared_ptr<Security> security,
@@ -67,6 +71,7 @@ ErrorInfo Libruntime::Init(std::shared_ptr<FSClient> fsClient, YR::Libruntime::D
     this->dispatcherThread_ = std::make_shared<ThreadPool>();
     this->dispatcherThread_->Init(NUM_DISPATCHER, config->jobId + "." + DISPATCHER);
     this->dsClients.dsObjectStore = datasystemClients.dsObjectStore;
+    this->dsClients.dsStreamStore = datasystemClients.dsStreamStore;
     this->dsClients.dsStateStore = datasystemClients.dsStateStore;
     this->dsClients.dsHeteroStore = datasystemClients.dsHeteroStore;
     this->waitingObjectManager = std::make_shared<WaitingObjectManager>(config->checkSignals_);
@@ -75,18 +80,32 @@ ErrorInfo Libruntime::Init(std::shared_ptr<FSClient> fsClient, YR::Libruntime::D
     this->waitingObjectManager->SetMemoryStore(this->memStore);
     this->dependencyResolver = std::make_shared<DependencyResolver>(memStore);
     this->objectIdPool = std::make_shared<ObjectIdPool>(memStore);
+    auto mapper = std::make_shared<GeneratorIdMap>();
+    this->generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(datasystemClients.dsStreamStore, mapper);
+    this->generatorReceiver_ =
+        std::make_shared<StreamGeneratorReceiver>(config, datasystemClients.dsStreamStore, this->memStore);
     this->rGroupManager_ = std::make_shared<ResourceGroupManager>();
-    this->invokeAdaptor =
-        std::make_shared<InvokeAdaptor>(config, dependencyResolver, fsClient, memStore, runtimeContext, cb,
-                                        waitingObjectManager, invokeOrderMgr, clientsMgr, metricsAdaptor);
+    auto functionId = config->functionIds[config->selfLanguage];
+    if (functionId.empty()) {
+        functionId = config->functionName;
+    }
+    this->downgrade_ = std::make_shared<YR::scene::DowngradeController>(functionId, clientsMgr, security_);
+    this->invokeAdaptor = std::make_shared<InvokeAdaptor>(
+        config, dependencyResolver, fsClient, memStore, runtimeContext, cb, waitingObjectManager, invokeOrderMgr,
+        clientsMgr, metricsAdaptor, mapper, generatorReceiver_, generatorNotifier_, downgrade_);
     invokeAdaptor->SetRGroupManager(rGroupManager_);
     auto setTenantIdCb = [this]() { this->SetTenantIdWithPriority(); };
     invokeAdaptor->SetCallbackOfSetTenantId(setTenantIdCb);
     auto [serverVersion, err] = invokeAdaptor->Init(*runtimeContext, security_);
-    if (err.OK()) {
-        this->config->serverVersion = serverVersion;
+    if (!err.OK()) {
+        return err;
     }
-    return err;
+    this->config->serverVersion = serverVersion;
+    if (config->logToDriver) {
+        this->driverLogReceiver_ = std::make_shared<DriverLogReceiver>();
+        this->driverLogReceiver_->Init(datasystemClients.dsStreamStore, config->jobId, config->dedupLogs);
+    }
+    return ErrorInfo();
 }
 
 void Libruntime::FinalizeHandler()
@@ -267,7 +286,7 @@ ErrorInfo Libruntime::PreProcessArgs(const std::shared_ptr<InvokeSpec> &spec)
         if (tmpTotalSize > uint64_t(Config::Instance().MAX_ARGS_IN_MSG_BYTES())) {
             auto [err, objId] = Put(arg.dataObj, arg.nestedObjects);
             if (err.Code() != ErrorCode::ERR_OK) {
-                YRLOG_ERROR("Put arg, error code: {}, error message: {}", err.Code(), err.Msg());
+                YRLOG_ERROR("Put arg, code: {}, message: {}", fmt::underlying(err.Code()), err.Msg());
                 return err;
             }
             YRLOG_DEBUG("Put arg, object ID: {}", objId);
@@ -282,6 +301,7 @@ ErrorInfo Libruntime::PreProcessArgs(const std::shared_ptr<InvokeSpec> &spec)
     }
     objIds.assign(objIdSet.begin(), objIdSet.end());
     if (!objIds.empty()) {
+        SetTraceId();
         err = memStore->IncreaseObjRef(objIds);
         if (!err.OK()) {
             YRLOG_ERROR("increase ids[{}, ....] failed", objIds[0]);
@@ -319,8 +339,8 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateInstance(const YR::Libruntim
     std::vector<DataObject> returnObjs{DataObject("")};
     auto err = GenerateReturnObjectIds(requestId, returnObjs);
     if (err.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("generate return obj id failed, req id: {}, error code: {}, error message: {}", requestId,
-                    err.Code(), err.Msg());
+        YRLOG_ERROR("generate return obj id failed, req id: {}, code: {}, message: {}", requestId,
+                    fmt::underlying(err.Code()), err.Msg());
         return std::make_pair(err, "");
     }
     std::string traceId = ConstructTraceId(opts);
@@ -329,14 +349,14 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateInstance(const YR::Libruntim
                                              std::move(traceId), std::move(requestId), "", opts);
     err = this->CheckSpec(spec);
     if (err.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("check invoke spec failed, req id: {}, error code: {}, error message: {}", requestId, err.Code(),
-                    err.Msg());
+        YRLOG_ERROR("check invoke spec failed, req id: {}, code: {}, message: {}", requestId,
+                    fmt::underlying(err.Code()), err.Msg());
         return std::make_pair(err, "");
     }
     err = PreProcessArgs(spec);
     if (err.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("pre process args failed, req id: {}, error code: {}, error message: {}", requestId, err.Code(),
-                    err.Msg());
+        YRLOG_ERROR("pre process args failed, req id: {}, code: {}, message: {}", requestId,
+                    fmt::underlying(err.Code()), err.Msg());
         return std::make_pair(err, "");
     }
 
@@ -348,8 +368,12 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateInstance(const YR::Libruntim
     memStore->AddReturnObject(spec->returnIds);
     dependencyResolver->ResolveDependencies(spec, [this, spec, returnObjs](const ErrorInfo &err) {
         if (err.OK()) {
+            AddGeneratorReceiver(spec);
             if (PutRefArgToDs(spec)) {
-                spec->opts.labels.push_back(ACTOR_INSTANCE_TYPE);
+                if (std::find(spec->opts.labels.begin(), spec->opts.labels.end(), FAAS_INSTANCE_TYPE) ==
+                    spec->opts.labels.end()) {
+                    spec->opts.labels.push_back(ACTOR_INSTANCE_TYPE);
+                }
                 spec->BuildInstanceCreateRequest(*config);
                 this->invokeAdaptor->CreateInstance(spec);
             }
@@ -362,10 +386,11 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateInstance(const YR::Libruntim
         ProcessErr(spec, dependencyErr);
 
         auto ids = memStore->UnbindObjRefInReq(spec->requestId);
+        SetTraceId();
         auto errorInfo = memStore->DecreGlobalReference(ids);
         if (!errorInfo.OK()) {
             YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", spec->requestId,
-                       errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                       fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
         }
         invokeOrderMgr->RemoveInstance(spec);
     });
@@ -379,6 +404,7 @@ bool Libruntime::PutRefArgToDs(std::shared_ptr<InvokeSpec> spec)
         auto &arg = spec->invokeArgs[i];
         if (arg.isRef) {
             this->SetTenantId(arg.tenantId);
+            SetTraceId();
             errInfo = this->memStore->AlsoPutToDS(arg.objId);
             if (!errInfo.OK()) {
                 break;
@@ -386,6 +412,7 @@ bool Libruntime::PutRefArgToDs(std::shared_ptr<InvokeSpec> spec)
         }
         if (!arg.nestedObjects.empty()) {
             this->SetTenantId(arg.tenantId);
+            SetTraceId();
             errInfo = this->memStore->AlsoPutToDS(arg.nestedObjects);
             if (!errInfo.OK()) {
                 break;
@@ -394,7 +421,7 @@ bool Libruntime::PutRefArgToDs(std::shared_ptr<InvokeSpec> spec)
     }
     if (!errInfo.OK()) {
         YRLOG_ERROR("put ref arg to ds failed, reqid is {}, err code is {}, err msg is {}", spec->requestId,
-                    errInfo.Code(), errInfo.Msg());
+                    fmt::underlying(errInfo.Code()), errInfo.Msg());
         ProcessErr(spec, errInfo);
         return false;
     }
@@ -409,7 +436,7 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
     auto err = GenerateReturnObjectIds(requestId, returnObjs);
     if (err.Code() != ErrorCode::ERR_OK) {
         YRLOG_ERROR("generate return obj id failed, req id: {}, error code: {}, error message: {}", requestId,
-                    err.Code(), err.Msg());
+                    fmt::underlying(err.Code()), err.Msg());
         return err;
     }
     std::string traceId = ConstructTraceId(opts);
@@ -418,10 +445,16 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
     auto spec = std::make_shared<InvokeSpec>(runtimeContext->GetJobId(), funcMeta, returnObjs, std::move(invokeArgs),
                                              libruntime::InvokeType::InvokeFunction, std::move(traceId),
                                              std::move(requestId), instanceId, opts);
+    if (spec->opts.isGetInstance) {
+        YRLOG_DEBUG("this is not normal member function invoke, redefine invoke type, name is {}, ns is {}",
+                    funcMeta.name, funcMeta.ns);
+        spec->invokeType = libruntime::InvokeType::GetNamedInstanceMeta;
+        spec->invokeInstanceId = instanceId;
+    }
     err = PreProcessArgs(spec);
     if (err.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("pre process args failed, req id: {}, code: {}, message: {}", spec->requestId, err.Code(),
-                    err.Msg());
+        YRLOG_ERROR("pre process failed, req id: {}, code: {}, message: {}", spec->requestId,
+                    fmt::underlying(err.Code()), err.Msg());
         return err;
     }
 
@@ -433,18 +466,18 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
                 objIds.push_back(obj.id);
             }
         }
-        YRLOG_DEBUG("start increase ds global reference, req id is {} , obj ids: [{}, ...]", spec->requestId,
-                    objIds[0]);
+        YRLOG_DEBUG("start increase ds global reference, req id is {}, obj ids: [{}, ...]", spec->requestId, objIds[0]);
         auto errInfo = memStore->IncreDSGlobalReference(objIds);
         if (!errInfo.OK()) {
             YRLOG_ERROR("failed to increase ds global reference, req id is {}, error code is {}, error msg is {}",
-                        spec->requestId, errInfo.Code(), errInfo.Msg());
+                        spec->requestId, fmt::underlying(errInfo.Code()), errInfo.Msg());
         }
     }
     invokeOrderMgr->Invoke(spec);
     auto func = [this, spec, returnObjs](const ErrorInfo &err) {
         if (err.OK()) {
             invokeOrderMgr->UpdateUnfinishedSeq(spec);
+            AddGeneratorReceiver(spec);
             if (PutRefArgToDs(spec)) {
                 auto namedId = spec->GetNamedInstanceId();
                 if (namedId.empty()) {
@@ -477,7 +510,7 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
         auto errorInfo = memStore->DecreGlobalReference(ids);
         if (!errorInfo.OK()) {
             YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", spec->requestId,
-                       errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                       fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
         }
     };
     dependencyResolver->ResolveDependencies(spec, [func, dispatcherThread(dispatcherThread_)](const ErrorInfo &err) {
@@ -515,7 +548,8 @@ std::string Libruntime::GetGroupInstanceIds(const std::string &objectId, int tim
 {
     auto [instanceIds, err] = memStore->GetInstanceIds(objectId, timeout);
     if (!err.OK()) {
-        YRLOG_WARN("get group instance ids failed, error code: {}, error message: {}", err.Code(), err.Msg());
+        YRLOG_WARN("get group instance ids failed, error code: {}, error message: {}", fmt::underlying(err.Code()),
+                   err.Msg());
         return "";
     }
     return YR::utility::Join(instanceIds, ";");
@@ -578,6 +612,7 @@ ErrorInfo Libruntime::InvokeByFunctionName(const YR::Libruntime::FunctionMeta &f
     this->invokeAdaptor->PushInvokeSpec(spec);
     auto func = [this, spec](const ErrorInfo &err) {
         if (err.OK()) {
+            AddGeneratorReceiver(spec);
             if (PutRefArgToDs(spec)) {
                 spec->BuildInstanceInvokeRequest(*config);
                 this->invokeAdaptor->SubmitFunction(spec);
@@ -593,7 +628,7 @@ ErrorInfo Libruntime::InvokeByFunctionName(const YR::Libruntime::FunctionMeta &f
         auto errorInfo = memStore->DecreGlobalReference(ids);
         if (!errorInfo.OK()) {
             YRLOG_WARN("failed to decrease by requestid {}. Code: {}, MCode: {}, Msg: {}", spec->requestId,
-                       errorInfo.Code(), errorInfo.MCode(), errorInfo.Msg());
+                       fmt::underlying(errorInfo.Code()), fmt::underlying(errorInfo.MCode()), errorInfo.Msg());
         }
     };
     dependencyResolver->ResolveDependencies(spec, [func, dispatcherThread(dispatcherThread_)](const ErrorInfo &err) {
@@ -606,7 +641,18 @@ ErrorInfo Libruntime::InvokeByFunctionName(const YR::Libruntime::FunctionMeta &f
 
 void Libruntime::ProcessErr(const std::shared_ptr<InvokeSpec> &spec, const ErrorInfo &errInfo)
 {
+    if (spec->functionMeta.isGenerator && generatorReceiver_) {
+        generatorReceiver_->MarkEndOfStream(spec->returnIds[0].id, errInfo);
+    }
     memStore->SetError(spec->returnIds, errInfo);
+}
+
+void Libruntime::AddGeneratorReceiver(std::shared_ptr<InvokeSpec> spec)
+{
+    if (spec->functionMeta.isGenerator && generatorReceiver_) {
+        generatorReceiver_->Initialize();
+        generatorReceiver_->AddRecord(spec->returnIds[0].id);
+    }
 }
 
 void Libruntime::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
@@ -634,6 +680,7 @@ std::pair<ErrorInfo, std::string> Libruntime::Put(std::shared_ptr<DataObject> da
     if (!err.OK()) {
         return std::make_pair(err, objId);
     }
+    SetTraceId();
     err = memStore->Put(dataobj->buffer, objId, nestedIds, createParam);
     return std::make_pair(err, objId);
 }
@@ -641,6 +688,7 @@ std::pair<ErrorInfo, std::string> Libruntime::Put(std::shared_ptr<DataObject> da
 ErrorInfo Libruntime::Put(const std::string &objId, std::shared_ptr<DataObject> dataObj,
                           const std::unordered_set<std::string> &nestedId, const CreateParam &createParam)
 {
+    SetTraceId();
     return memStore->Put(dataObj->buffer, objId, nestedId, createParam);
 }
 
@@ -648,6 +696,7 @@ ErrorInfo Libruntime::Put(std::shared_ptr<Buffer> data, const std::string &objID
                           const std::unordered_set<std::string> &nestedID, bool toDataSystem,
                           const CreateParam &createParam)
 {
+    SetTraceId();
     auto err = memStore->Put(data, objID, nestedID, toDataSystem, createParam);
     if (!err.OK()) {
         return err;
@@ -662,17 +711,20 @@ ErrorInfo Libruntime::PutRaw(const std::string &objId, std::shared_ptr<Buffer> d
     if (!dsClients.dsObjectStore) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "PutRaw dsClients.dsObjectStore is nullptr!");
     }
+    SetTraceId();
     return dsClients.dsObjectStore->Put(data, objId, nestedId, createParam);
 }
 
-ErrorInfo Libruntime::IncreaseReference(const std::vector<std::string> &objIds)
+ErrorInfo Libruntime::IncreaseReference(const std::vector<std::string> &objIds, bool toDatasystem)
 {
-    return memStore->IncreGlobalReference(objIds);
+    SetTraceId();
+    return memStore->IncreGlobalReference(objIds, toDatasystem);
 }
 
 std::pair<ErrorInfo, std::vector<std::string>> Libruntime::IncreaseReference(const std::vector<std::string> &objIds,
                                                                              const std::string &remoteId)
 {
+    SetTraceId();
     return memStore->IncreGlobalReference(objIds, remoteId);
 }
 
@@ -684,6 +736,7 @@ ErrorInfo Libruntime::IncreaseReferenceRaw(const std::vector<std::string> &objId
     if (!dsClients.dsObjectStore) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "IncreaseReferenceRaw dsObjectStore is nullptr!");
     }
+    SetTraceId();
     return dsClients.dsObjectStore->IncreGlobalReference(objIds);
 }
 
@@ -698,6 +751,7 @@ std::pair<ErrorInfo, std::vector<std::string>> Libruntime::IncreaseReferenceRaw(
             ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "IncreaseReferenceRaw dsObjectStore is nullptr!"),
             std::vector<std::string>());
     }
+    SetTraceId();
     return dsClients.dsObjectStore->IncreGlobalReference(objIds, remoteId);
 }
 
@@ -707,9 +761,11 @@ void Libruntime::DecreaseReference(const std::vector<std::string> &objIds)
         std::cerr << "Libruntime::DecreaseReference memStore is nullptr." << std::endl;
         return;
     }
+    SetTraceId();
     ErrorInfo err = memStore->DecreGlobalReference(objIds);
     if (err.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("ErrCode: {}, ModuleCode: {}, ErrMsg: {}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("ErrCode: {}, ModuleCode: {}, ErrMsg: {}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
     }
     return;
 }
@@ -717,6 +773,7 @@ void Libruntime::DecreaseReference(const std::vector<std::string> &objIds)
 std::pair<ErrorInfo, std::vector<std::string>> Libruntime::DecreaseReference(const std::vector<std::string> &objIds,
                                                                              const std::string &remoteId)
 {
+    SetTraceId();
     return memStore->DecreGlobalReference(objIds, remoteId);
 }
 
@@ -729,9 +786,11 @@ void Libruntime::DecreaseReferenceRaw(const std::vector<std::string> &objIds)
         YRLOG_ERROR("DecreaseReferenceRaw dsObjectStore is nullptr!");
         return;
     }
+    SetTraceId();
     ErrorInfo err = dsClients.dsObjectStore->DecreGlobalReference(objIds);
     if (err.Code() != ErrorCode::ERR_OK) {
-        YRLOG_ERROR("ErrCode: {}, ModuleCode: {}, ErrMsg: {}", err.Code(), err.MCode(), err.Msg());
+        YRLOG_ERROR("ErrCode: {}, ModuleCode: {}, ErrMsg: {}", fmt::underlying(err.Code()),
+                    fmt::underlying(err.MCode()), err.Msg());
     }
     return;
 }
@@ -747,7 +806,14 @@ std::pair<ErrorInfo, std::vector<std::string>> Libruntime::DecreaseReferenceRaw(
             ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DecreaseReferenceRaw dsObjectStore is nullptr!"),
             std::vector<std::string>());
     }
+    SetTraceId();
     return dsClients.dsObjectStore->DecreGlobalReference(objIds, remoteId);
+}
+
+ErrorInfo Libruntime::ReleaseGRefs(const std::string &remoteId)
+{
+    SetTraceId();
+    return memStore->ReleaseGRefs(remoteId);
 }
 
 // timeout < 0 : wait without timeout
@@ -842,7 +908,7 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<DataObject>>> Libruntime::Get(c
     if (!err.OK()) {
         return std::make_pair(err, std::vector<std::shared_ptr<DataObject>>{});
     }
-
+    SetTraceId();
     MultipleResult res = memStore->Get(ids, remainingTimePeriod);
     res = MakeGetResult(res, ids, timeoutMs, allowPartial);
     std::vector<std::shared_ptr<DataObject>> result(ids.size());
@@ -862,6 +928,7 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> Libruntime::GetRaw(co
         return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "GetRaw dsObjectStore is nullptr!"),
                               std::vector<std::shared_ptr<Buffer>>());
     }
+    SetTraceId();
     MultipleResult res = dsClients.dsObjectStore->Get(ids, timeoutMs);
     return MakeGetResult(res, ids, timeoutMs, allowPartial);
 }
@@ -886,6 +953,7 @@ ErrorInfo Libruntime::AllocReturnObject(DataObject *returnObj, size_t metaSize, 
         totalNativeBufferSize += bufferSize;
         dataBuf = std::make_shared<NativeBuffer>(bufferSize);
     } else {
+        SetTraceId();
         auto err = memStore->IncreGlobalReference({returnObj->id}, true);
         if (!err.OK()) {
             return err;
@@ -897,9 +965,8 @@ ErrorInfo Libruntime::AllocReturnObject(DataObject *returnObj, size_t metaSize, 
         }
         err = CreateBuffer(returnObj->id, bufferSize, dataBuf);
         if (!err.OK()) {
-            YRLOG_ERROR(
-                "Failed to create return value, object Id: {}, data size: {}, error code: {}, error message: {}.",
-                returnObj->id, dataSize, err.Code(), err.Msg());
+            YRLOG_ERROR("Failed to create return value, object Id: {}, data size: {}, ec : {}, err message: {}.",
+                        returnObj->id, dataSize, fmt::underlying(err.Code()), err.Msg());
             return err;
         }
     }
@@ -915,6 +982,7 @@ ErrorInfo Libruntime::AllocReturnObject(DataObject *returnObj, size_t metaSize, 
 
 ErrorInfo Libruntime::CreateBuffer(const std::string &objectId, size_t dataSize, std::shared_ptr<Buffer> &dataBuf)
 {
+    SetTraceId();
     return memStore->CreateBuffer(objectId, dataSize, dataBuf);
 }
 
@@ -922,6 +990,7 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateBuffer(size_t dataSize, std:
 {
     // small data -> MemoryStore
     // Get an id from pool
+    SetTraceId();
     auto [err, objectId] = objectIdPool->Pop();
     if (!err.OK()) {
         return std::make_pair(err, objectId);
@@ -935,11 +1004,12 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> Libruntime::GetBuffer
 {
     auto [errWait, remainingTimePeriod] = WaitBeforeGet(ids, timeoutMs, allowPartial);
     if (!errWait.OK()) {
-        YRLOG_ERROR("Failed to WaitBeforeGet, ids: {}, error code: {}, error message: {}",
-                    YR::utility::Join(std::vector<std::string>{ids[0]}, "..."), errWait.Code(), errWait.Msg());
+        YRLOG_DEBUG("Failed to WaitBeforeGet, ids: {}, code: {}, message: {}",
+                    YR::utility::Join(std::vector<std::string>{ids[0]}, "..."), fmt::underlying(errWait.Code()),
+                    errWait.Msg());
         return std::make_pair(errWait, std::vector<std::shared_ptr<Buffer>>{});
     }
-
+    SetTraceId();
     auto [err, results] = memStore->GetBuffers(ids, remainingTimePeriod);
     if (err.Code() == YR::Libruntime::ErrorCode::ERR_OK) {
         YRLOG_DEBUG("Succeeded to GetBuffers, ids:{}, ids size: {}, results size: {}",
@@ -953,8 +1023,8 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> Libruntime::GetBuffer
                                  YR::Libruntime::ModuleCode::RUNTIME, checkObjPartialResult.second);
         }
     } else {
-        YRLOG_ERROR("Failed to GetBuffers, ids: {}, error code: {}, error message: {}",
-                    YR::utility::Join(std::vector<std::string>{ids[0]}, "..."), err.Code(), err.Msg());
+        YRLOG_ERROR("Failed to GetBuffers, ids: {}, code: {}, message: {}",
+                    YR::utility::Join(std::vector<std::string>{ids[0]}, "..."), fmt::underlying(err.Code()), err.Msg());
     }
 
     return std::make_pair(err, results);
@@ -977,6 +1047,7 @@ std::pair<RetryInfo, std::vector<std::shared_ptr<DataObject>>> Libruntime::GetDa
 std::pair<RetryInfo, std::vector<std::shared_ptr<Buffer>>> Libruntime::GetBuffersWithoutWait(
     const std::vector<std::string> &ids, int timeoutMS)
 {
+    SetTraceId();
     return memStore->GetBuffersWithoutRetry(ids, timeoutMS);
 }
 
@@ -985,6 +1056,7 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateDataObject(size_t metaSize, 
                                                                const std::vector<std::string> &nestedObjIds,
                                                                const CreateParam &createParam)
 {
+    SetTraceId();
     auto [err, objId] = objectIdPool->Pop();
     if (!err.OK()) {
         return std::make_pair(err, objId);
@@ -1002,12 +1074,13 @@ ErrorInfo Libruntime::CreateDataObject(const std::string &objId, size_t metaSize
             return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "check circular references detected, obj id: " + objId);
         }
     }
-
-    auto ret = Wait(nestedObjIds, nestedObjIds.size(), DEFAULT_TIMEOUT_SEC);
-    if (!ret->unreadyIds.empty() || !ret->exceptionIds.empty()) {
-        return ErrorInfo(ErrorCode::ERR_USER_FUNCTION_EXCEPTION, "wait nested objects timeout or exception");
+    if (nestedObjIds.size() != 0) {
+        auto ret = Wait(nestedObjIds, nestedObjIds.size(), DEFAULT_TIMEOUT_SEC);
+        if (!ret->unreadyIds.empty() || !ret->exceptionIds.empty()) {
+            return ErrorInfo(ErrorCode::ERR_USER_FUNCTION_EXCEPTION, "wait nested objects timeout or exception");
+        }
     }
-
+    SetTraceId();
     ErrorInfo dsErr = memStore->AlsoPutToDS(nestedObjIds, createParam);
     if (dsErr.Code() != ErrorCode::ERR_OK) {
         YRLOG_ERROR("put nested obj to datasystem error");
@@ -1024,8 +1097,8 @@ ErrorInfo Libruntime::CreateDataObject(const std::string &objId, size_t metaSize
     }
     auto err = memStore->CreateBuffer(objId, metaSize + dataSize, buf, createParam);
     if (!err.OK()) {
-        YRLOG_ERROR("Failed to create dataObject, object Id: {}, data size: {}, error code: {}, error message: {}.",
-                    dataObj->id, dataSize, err.Code(), err.Msg());
+        YRLOG_ERROR("Failed to create dataObject, object Id: {}, data size: {}, code: {}, message: {}.", dataObj->id,
+                    dataSize, fmt::underlying(err.Code()), err.Msg());
         return err;
     }
     if (buf) {
@@ -1040,10 +1113,11 @@ ErrorInfo Libruntime::CreateDataObject(const std::string &objId, size_t metaSize
 std::pair<ErrorInfo, std::vector<std::shared_ptr<DataObject>>> Libruntime::GetDataObjects(
     const std::vector<std::string> &ids, int timeoutMs, bool allowPartial)
 {
+    SetTraceId();
     auto [err, buffers] = GetBuffers(ids, timeoutMs, allowPartial);
     if (!err.OK()) {
-        YRLOG_ERROR("Failed to GetDataObjects, ids: {}, error code: {}, error message: {}",
-                    YR::utility::Join(std::vector<std::string>{ids[0]}, "..."), err.Code(), err.Msg());
+        YRLOG_DEBUG("Failed to GetDataObjects, ids: {}, code: {}, message: {}",
+                    YR::utility::Join(std::vector<std::string>{ids[0]}, "..."), fmt::underlying(err.Code()), err.Msg());
         return std::make_pair(err, std::vector<std::shared_ptr<DataObject>>{});
     }
     std::vector<std::shared_ptr<DataObject>> result(ids.size());
@@ -1058,73 +1132,146 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<DataObject>>> Libruntime::GetDa
 
 ErrorInfo Libruntime::KVWrite(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam)
 {
+    SetTraceId();
     return dsClients.dsStateStore->Write(key, value, setParam);
 }
 
 ErrorInfo Libruntime::KVMSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<Buffer>> &vals,
                                const MSetParam &mSetParam)
 {
+    SetTraceId();
     return dsClients.dsStateStore->MSetTx(keys, vals, mSetParam);
 }
 
 SingleReadResult Libruntime::KVRead(const std::string &key, int timeoutMS)
 {
+    SetTraceId();
     return dsClients.dsStateStore->Read(key, timeoutMS);
 }
 
 MultipleReadResult Libruntime::KVRead(const std::vector<std::string> &keys, int timeoutMS, bool allowPartial)
 {
+    SetTraceId();
     return dsClients.dsStateStore->Read(keys, timeoutMS, allowPartial);
 }
 
 MultipleReadResult Libruntime::KVGetWithParam(const std::vector<std::string> &keys, const GetParams &params,
                                               int timeoutMs)
 {
+    SetTraceId();
     return dsClients.dsStateStore->GetWithParam(keys, params, timeoutMs);
 }
 
 ErrorInfo Libruntime::KVDel(const std::string &key)
 {
+    SetTraceId();
     return dsClients.dsStateStore->Del(key);
 }
 
 MultipleDelResult Libruntime::KVDel(const std::vector<std::string> &keys)
 {
+    SetTraceId();
     return dsClients.dsStateStore->Del(keys);
 }
 
-ErrorInfo Libruntime::Delete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+MultipleExistResult Libruntime::KVExist(const std::vector<std::string> &keys)
 {
-    return dsClients.dsHeteroStore->Delete(objectIds, failedObjectIds);
+    return dsClients.dsStateStore->Exist(keys);
 }
 
-ErrorInfo Libruntime::LocalDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+ErrorInfo Libruntime::DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
 {
-    return dsClients.dsHeteroStore->LocalDelete(objectIds, failedObjectIds);
+    SetTraceId();
+    return dsClients.dsHeteroStore->DevDelete(objectIds, failedObjectIds);
+}
+
+ErrorInfo Libruntime::DevLocalDelete(const std::vector<std::string> &objectIds,
+                                     std::vector<std::string> &failedObjectIds)
+{
+    SetTraceId();
+    return dsClients.dsHeteroStore->DevLocalDelete(objectIds, failedObjectIds);
 }
 
 ErrorInfo Libruntime::DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                                    std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec)
 {
+    SetTraceId();
     return dsClients.dsHeteroStore->DevSubscribe(keys, blob2dList, futureVec);
 }
 
 ErrorInfo Libruntime::DevPublish(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                                  std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec)
 {
+    SetTraceId();
     return dsClients.dsHeteroStore->DevPublish(keys, blob2dList, futureVec);
 }
 
 ErrorInfo Libruntime::DevMSet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                               std::vector<std::string> &failedKeys)
 {
+    SetTraceId();
     return dsClients.dsHeteroStore->DevMSet(keys, blob2dList, failedKeys);
 }
 
 ErrorInfo Libruntime::DevMGet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                               std::vector<std::string> &failedKeys, int32_t timeoutSec)
 {
-    return dsClients.dsHeteroStore->DevMGet(keys, blob2dList, failedKeys, ToMs(timeoutSec));
+    SetTraceId();
+    return dsClients.dsHeteroStore->DevMGet(keys, blob2dList, failedKeys, timeoutSec * S_TO_MS);
+}
+
+ErrorInfo Libruntime::CreateStreamProducer(const std::string &streamName, ProducerConf producerConf,
+                                           std::shared_ptr<StreamProducer> &producer)
+{
+    producer = std::make_shared<StreamProducer>();
+    if (dsClients.dsStreamStore == nullptr) {
+        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                         "the datasystem stream store is empty, outcluster operations are not supported by now");
+    }
+    SetTraceId(producerConf.traceId);
+    return dsClients.dsStreamStore->CreateStreamProducer(streamName, producer, producerConf);
+}
+
+ErrorInfo Libruntime::CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
+                                           std::shared_ptr<StreamConsumer> &consumer, bool autoAck)
+{
+    consumer = std::make_shared<StreamConsumer>();
+    if (dsClients.dsStreamStore == nullptr) {
+        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                         "the datasystem stream store is empty, outcluster operations are not supported by now");
+    }
+    SetTraceId(config.traceId);
+    return dsClients.dsStreamStore->CreateStreamConsumer(streamName, config, consumer, autoAck);
+}
+
+ErrorInfo Libruntime::DeleteStream(const std::string &streamName)
+{
+    if (dsClients.dsStreamStore == nullptr) {
+        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                         "the datasystem stream store is empty, outcluster operations are not supported by now");
+    }
+    SetTraceId();
+    return dsClients.dsStreamStore->DeleteStream(streamName);
+}
+
+ErrorInfo Libruntime::QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum)
+{
+    if (dsClients.dsStreamStore == nullptr) {
+        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                         "the datasystem stream store is empty, outcluster operations are not supported by now");
+    }
+    SetTraceId();
+    return dsClients.dsStreamStore->QueryGlobalProducersNum(streamName, gProducerNum);
+}
+
+ErrorInfo Libruntime::QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum)
+{
+    if (dsClients.dsStreamStore == nullptr) {
+        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                         "the datasystem stream store is empty, outcluster operations are not supported by now");
+    }
+    SetTraceId();
+    return dsClients.dsStreamStore->QueryGlobalConsumersNum(streamName, gConsumerNum);
 }
 
 std::string Libruntime::GetInvokingRequestId(void)
@@ -1140,12 +1287,19 @@ ErrorInfo Libruntime::Cancel(const std::vector<std::string> &objids, bool isForc
 void Libruntime::Exit(void)
 {
     // exit data system
-    invokeAdaptor->Exit();
+    invokeAdaptor->Exit(0, "");
+}
+
+void Libruntime::Exit(const int code, const std::string &message)
+{
+    // exit data system
+    invokeAdaptor->Exit(code, message);
 }
 
 ErrorInfo Libruntime::Kill(const std::string &instanceId, int sigNo)
 {
     auto realInsId = memStore->GetInstanceId(instanceId);
+    invokeAdaptor->EraseFsIntf(realInsId);
     return invokeAdaptor->Kill(realInsId, "", sigNo);
 }
 
@@ -1158,6 +1312,16 @@ ErrorInfo Libruntime::Kill(const std::string &instanceId, int sigNo, std::shared
 
 void Libruntime::Finalize(bool isDriver)
 {
+    if (generatorNotifier_ != nullptr) {
+        generatorNotifier_.reset();
+    }
+    if (generatorReceiver_ != nullptr) {
+        generatorReceiver_->Stop();
+        generatorReceiver_.reset();
+    }
+    if (driverLogReceiver_ != nullptr) {
+        driverLogReceiver_.reset();
+    }
     if (memStore) {
         memStore->Clear();
     }
@@ -1166,6 +1330,9 @@ void Libruntime::Finalize(bool isDriver)
     }
     if (dsClients.dsStateStore != nullptr) {
         dsClients.dsStateStore.reset();
+    }
+    if (dsClients.dsStreamStore != nullptr) {
+        dsClients.dsStreamStore.reset();
     }
     if (!config->inCluster) {
         auto err = clientsMgr->ReleaseHttpClient(config->functionSystemIpAddr, config->functionSystemPort);
@@ -1269,7 +1436,12 @@ ErrorInfo Libruntime::CreateStateStore(const DsConnectOptions &opts, std::shared
 
 ErrorInfo Libruntime::SetTraceId(const std::string &traceId)
 {
-    datasystem::Status rc = datasystem::Context::SetTraceId(traceId);
+    datasystem::Status rc;
+    if (!traceId.empty()) {
+        rc = datasystem::Context::SetTraceId(traceId);
+    } else if (!threadLocalTraceId.empty()) {
+        rc = datasystem::Context::SetTraceId(threadLocalTraceId);
+    }
     if (rc.IsError()) {
         return ErrorInfo(ConvertDatasystemErrorToCore(rc.GetCode()), YR::Libruntime::ModuleCode::DATASYSTEM,
                          rc.ToString());
@@ -1294,7 +1466,7 @@ ErrorInfo Libruntime::SetTenantId(const std::string &tenantId, bool isReturnErrW
     }
     this->dsClients.dsObjectStore->SetTenantId(tenantId);
     this->config->tenantId = tenantId;
-    YRLOG_DEBUG("succeed to set tenant id");
+    YRLOG_DEBUG("succeed to set tenant id, tenant id is {}", tenantId);
     return ErrorInfo();
 }
 
@@ -1316,12 +1488,14 @@ std::string Libruntime::GetTenantId()
 
 ErrorInfo Libruntime::GenerateKeyByStateStore(std::shared_ptr<StateStore> stateStore, std::string &returnKey)
 {
+    SetTraceId();
     return stateStore->GenerateKey(returnKey);
 }
 
 ErrorInfo Libruntime::SetByStateStore(std::shared_ptr<StateStore> stateStore, const std::string &key,
                                       std::shared_ptr<ReadOnlyNativeBuffer> nativeBuffer, SetParam setParam)
 {
+    SetTraceId();
     return stateStore->Write(key, nativeBuffer, setParam);
 }
 
@@ -1329,12 +1503,14 @@ ErrorInfo Libruntime::SetValueByStateStore(std::shared_ptr<StateStore> stateStor
                                            std::shared_ptr<ReadOnlyNativeBuffer> nativeBuffer, SetParam setParam,
                                            std::string &returnKey)
 {
+    SetTraceId();
     return stateStore->Write(nativeBuffer, setParam, returnKey);
 }
 
 SingleReadResult Libruntime::GetByStateStore(std::shared_ptr<StateStore> stateStore, const std::string &key,
                                              int timeoutMs)
 {
+    SetTraceId();
     return stateStore->Read(key, timeoutMs);
 }
 
@@ -1342,17 +1518,27 @@ MultipleReadResult Libruntime::GetArrayByStateStore(std::shared_ptr<StateStore> 
                                                     const std::vector<std::string> &keys, int timeoutMs,
                                                     bool allowPartial)
 {
+    SetTraceId();
     return stateStore->Read(keys, timeoutMs, allowPartial);
+}
+
+ErrorInfo Libruntime::QuerySizeByStateStore(std::shared_ptr<StateStore> stateStore,
+                                            const std::vector<std::string> &keys, std::vector<uint64_t> &outSizes)
+{
+    SetTraceId();
+    return stateStore->QuerySize(keys, outSizes);
 }
 
 ErrorInfo Libruntime::DelByStateStore(std::shared_ptr<StateStore> stateStore, const std::string &key)
 {
+    SetTraceId();
     return stateStore->Del(key);
 }
 
 MultipleDelResult Libruntime::DelArrayByStateStore(std::shared_ptr<StateStore> stateStore,
                                                    const std::vector<std::string> &keys)
 {
+    SetTraceId();
     return stateStore->Del(keys);
 }
 
@@ -1419,6 +1605,19 @@ ErrorInfo Libruntime::SetAlarm(const std::string &name, const std::string &descr
     return err;
 }
 
+std::pair<InstanceAllocation, ErrorInfo> Libruntime::AcquireInstance(const std::string &stateId,
+                                                                     const FunctionMeta &functionMeta,
+                                                                     InvokeOptions &opts)
+{
+    return invokeAdaptor->AcquireInstance(stateId, functionMeta, opts);
+}
+
+ErrorInfo Libruntime::ReleaseInstance(const std::string &leaseId, const std::string &stateId, bool abnormal,
+                                      InvokeOptions &opts)
+{
+    return invokeAdaptor->ReleaseInstance(leaseId, stateId, abnormal, opts);
+}
+
 ErrorInfo Libruntime::ProcessLog(FunctionLog &functionLog)
 {
     functionLog.set_instanceid(Config::Instance().INSTANCE_ID());
@@ -1437,6 +1636,22 @@ void Libruntime::WaitEvent(FiberEventNotify &event)
 void Libruntime::NotifyEvent(FiberEventNotify &event)
 {
     event.Notify();
+}
+
+std::pair<ErrorInfo, std::string> Libruntime::PeekObjectRefStream(const std::string &generatorId, bool blocking)
+{
+    return memStore->GetOutput(generatorId, blocking);
+}
+
+ErrorInfo Libruntime::NotifyGeneratorResult(const std::string &generatorId, int index,
+                                            std::shared_ptr<DataObject> resultObj, const ErrorInfo &resultErr)
+{
+    return generatorNotifier_->NotifyResult(generatorId, index, resultObj, resultErr);
+}
+
+ErrorInfo Libruntime::NotifyGeneratorFinished(const std::string &generatorId, int numResults)
+{
+    return generatorNotifier_->NotifyFinished(generatorId, numResults);
 }
 
 FunctionGroupRunningInfo Libruntime::GetFunctionGroupRunningInfo()
@@ -1466,6 +1681,14 @@ std::pair<ErrorInfo, QueryNamedInsResponse> Libruntime::QueryNamedInstances()
 {
     auto ret = invokeAdaptor->QueryNamedInstances();
     return ret;
+}
+
+Credential Libruntime::GetCredential()
+{
+    if (!this->security_) {
+        return Credential{};
+    }
+    return this->security_->GetCredential();
 }
 
 ErrorInfo Libruntime::CheckRGroupName(const std::string &rGroupName)
@@ -1512,7 +1735,8 @@ ErrorInfo Libruntime::CreateResourceGroup(const ResourceGroupSpec &resourceGroup
         YRLOG_ERROR(
             "check resource group create options failed, name: {}, bundles size: {}, request id: {}, error code: {}, "
             "error message: {}.",
-            resourceGroupSpec.name, resourceGroupSpec.bundles.size(), requestId, err.Code(), err.Msg());
+            resourceGroupSpec.name, resourceGroupSpec.bundles.size(), requestId, fmt::underlying(err.Code()),
+            err.Msg());
         return err;
     }
 
@@ -1550,9 +1774,9 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> Libruntime::GetInstance(const
                                                                            const std::string &nameSpace, int timeoutSec)
 {
     auto [meta, err] = this->invokeAdaptor->GetInstance(name, nameSpace, timeoutSec);
-    if (err.OK() && meta.needOrder) {
-        this->invokeOrderMgr->RegisterInstance(
-                nameSpace.empty() ? this->config->ns + "-" + name : nameSpace + "-" + name);
+    if (!err.OK() || !meta.needOrder) {
+        this->invokeOrderMgr->ClearInsOrderMsg(nameSpace.empty() ? name : nameSpace + "-" + name,
+                                               libruntime::Signal::KillInstance);
     }
     return std::make_pair<>(meta, err);
 }
@@ -1571,7 +1795,7 @@ bool Libruntime::IsLocalInstances(const std::vector<std::string> &instanceIds)
             }
             auto killErr = this->invokeAdaptor->Kill(instanceId, "", libruntime::Signal::QueryDsAddress);
             if (!killErr.OK()) {
-                YRLOG_WARN("kill QueryDsAddress code: {}, msg: {}", err.Code(), err.Msg());
+                YRLOG_WARN("kill QueryDsAddress code: {}, msg: {}", fmt::underlying(err.Code()), err.Msg());
                 promise->set_value(false);
                 return;
             }
@@ -1613,6 +1837,14 @@ bool Libruntime::SetError(const std::string &objId, const ErrorInfo &err)
     return this->memStore->SetError(objId, err);
 }
 
+void Libruntime::UpdateSchdulerInfo(const std::string &schedulerName, const std::string &schedulerId,
+                                    const std::string &option)
+{
+    YRLOG_DEBUG("start update scheduler info, scheduler name is {}, scheduler id is {}, options is {}", schedulerName,
+                schedulerId, option);
+    return invokeAdaptor->UpdateSchdulerInfo(schedulerName, schedulerId, option);
+}
+
 std::string Libruntime::GetInstanceRoute(const std::string &objectId)
 {
     return memStore->GetInstanceRoute(objectId);
@@ -1621,6 +1853,33 @@ std::string Libruntime::GetInstanceRoute(const std::string &objectId)
 void Libruntime::SaveInstanceRoute(const std::string &objectId, const std::string &instanceRoute)
 {
     memStore->SetInstanceRoute(objectId, instanceRoute);
+}
+
+bool Libruntime::IsHealth()
+{
+    if (!invokeAdaptor) {
+        return false;
+    }
+    return invokeAdaptor->IsHealth();
+}
+
+bool Libruntime::IsDsHealth()
+{
+    if (!dsClients.dsStreamStore && !dsClients.dsStateStore) {
+        return true;
+    }
+    auto err = dsClients.dsStateStore->HealthCheck();
+    if (err.OK()) {
+        return true;
+    }
+    return false;
+}
+
+void Libruntime::KillAsync(const std::string &instanceId, int sigNo, std::function<void(const ErrorInfo &err)> cb)
+{
+    auto realInsId = memStore->GetInstanceId(instanceId);
+    invokeAdaptor->EraseFsIntf(realInsId);
+    this->invokeAdaptor->KillAsyncCB(realInsId, "", sigNo, cb);
 }
 
 std::pair<ErrorInfo, std::string> Libruntime::GetNodeId()
@@ -1636,5 +1895,6 @@ std::string Libruntime::GetNameSpace()
 {
     return this->config->ns;
 }
+
 }  // namespace Libruntime
 }  // namespace YR

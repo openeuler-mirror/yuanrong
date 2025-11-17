@@ -83,7 +83,8 @@ public class LabelOperator {
      * @param values the values
      */
     public LabelOperator(OperatorType operatorType, List<String> values) {
-        this(operatorType, "", values);
+        this.operatorType = operatorType;
+        this.values = values;
     }
 
     /**

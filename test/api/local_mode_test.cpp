@@ -18,6 +18,7 @@
 #include "yr/api/err_type.h"
 #include "yr/parallel/parallel_for.h"
 #include "yr/yr.h"
+#include "api/cpp/src/config_manager.h"
 namespace YR {
 namespace test {
 using testing::HasSubstr;
@@ -350,6 +351,23 @@ TEST_F(LocalTest, MSetTxTest)
     // case 5
     std::vector<std::string> keys2, vals2;
     EXPECT_THROW(YR::KV().MSetTx(keys2, vals2, YR::ExistenceOpt::NX), Exception);
+
+    // case 6
+    std::vector<std::string> keys3, vals3;
+    int exceedNum = 10;
+    for (int i = 0; i < exceedNum; i++) {
+        std::string key = "Key" + std::to_string(i);
+        std::string value = "Value" + std::to_string(i);
+        keys3.emplace_back(key);
+        vals3.emplace_back(value);
+    }
+    EXPECT_THROW(YR::KV().MSetTx(keys3, vals3, YR::ExistenceOpt::NX), Exception);
+
+    // case 7
+    std::vector<std::string> keys4, vals4;
+    keys4.emplace_back("");
+    vals4.emplace_back("emptyKey");
+    EXPECT_THROW(YR::KV().MSetTx(keys4, vals4, YR::ExistenceOpt::NX), Exception);
 }
 
 TEST_F(LocalTest, Test_When_Actor_Currency_Call_ParallelFor_Should_Not_Be_Stuck)
@@ -404,6 +422,33 @@ TEST_F(LocalTest, cpp_local_kv_read_error_keys_allowpatital_true)
     }
     EXPECT_EQ(returnVal.size(), 13) << "KV Read failed";
     YR::KV().Del(keys);
+}
+
+TEST_F(LocalTest, cpp_local_kv_exist)
+{
+    std::string key;
+    std::string value;
+    std::vector<std::string> keys;
+    for (int i = 0; i < 8; ++i) {
+        if (i % 2 == 0) {
+            key = "cpp_local_kv_exist" + std::to_string(i);
+            value = "value" + std::to_string(i);
+            YR::KV().Set(key, value);
+            keys.push_back(key);
+        } else {
+            keys.push_back("noValueKey" + std::to_string(i));
+        }
+
+    }
+    auto exists = YR::KV().Exist(keys);
+    for (int i = 0; i < 8; ++i) {
+        std::cout << keys[i] << "-> kv exist is: " << exists[i] << std::endl;
+        if (i % 2 == 0) {
+            EXPECT_EQ(exists[i], true);
+        } else {
+            EXPECT_EQ(exists[i], false);
+        }
+    }
 }
 
 int func_throw()
@@ -529,6 +574,18 @@ TEST_F(LocalTest, StopLocalModeRuntime)
     YR::internal::LocalModeRuntime runtime;
     runtime.Init();
     ASSERT_NO_THROW(runtime.Stop());
+}
+
+TEST_F(LocalTest, LocalModeThreadPoolSize)
+{
+    YR::Finalize();
+    YR::Config conf;
+    conf.mode = YR::Config::Mode::LOCAL_MODE;
+    conf.logLevel = "DEBUG";
+    conf.logDir = "/tmp/log";
+    conf.localThreadPoolSize = 65;
+    YR::Init(conf);
+    ASSERT_EQ(ConfigManager::Singleton().localThreadPoolSize, conf.localThreadPoolSize);
 }
 }  // namespace test
 }  // namespace YR

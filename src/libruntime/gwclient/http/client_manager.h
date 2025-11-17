@@ -32,25 +32,30 @@ public:
     ClientManager(const std::shared_ptr<LibruntimeConfig> &librtCfg);
     ~ClientManager() override;
 
-    ErrorInfo Init(const ConnectionParam &param) override;
-    void SubmitInvokeRequest(const http::verb &method, const std::string &target,
-                             const std::unordered_map<std::string, std::string> &headers, const std::string &body,
-                             const std::shared_ptr<std::string> requestId,
-                             const HttpCallbackFunction &receiver) override;
+    virtual ErrorInfo Init(const ConnectionParam &param) override;
+    virtual void SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                     const std::unordered_map<std::string, std::string> &headers,
+                                     const std::string &body, const std::shared_ptr<std::string> requestId,
+                                     const HttpCallbackFunction &receiver) override;
 
 private:
+    bool SubmitRequest(const http::verb &method, const std::string &target,
+                       const std::unordered_map<std::string, std::string> &headers, const std::string &body,
+                       const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver);
     ErrorInfo InitCtxAndIocThread();
     std::shared_ptr<asio::io_context> ioc;
-    std::unique_ptr<asio::io_context::work> work;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     std::vector<std::unique_ptr<std::thread>> asyncRunners;
 
     ConnectionParam connParam;
     std::vector<std::shared_ptr<HttpClient>> clients;
-    uint32_t connectedClientsCnt;
+    uint32_t connectedClientsCnt_ ABSL_GUARDED_BY(connCntMu);
+    mutable absl::Mutex connCntMu_;
     std::shared_ptr<LibruntimeConfig> librtCfg;
-    std::mutex connMtx;
     uint32_t maxIocThread;
     bool enableMTLS;
+    bool enableTLS_{false};
+    uint32_t maxConnSize_;
 };
 }  // namespace Libruntime
 }  // namespace YR

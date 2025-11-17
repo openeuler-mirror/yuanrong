@@ -46,8 +46,38 @@ public class TestSubCondition {
     }
 
     @Test
-    public void testInitSubCondition2() {
+    public void testInitSubConditionOperator() {
+        String labelKey = "key";
+        LabelOperator operator = new LabelOperator();
+        SubCondition subCondition = new SubCondition(labelKey, operator);
+        LabelExpression ex = subCondition.getExpressions().get(0);
+        Assert.assertEquals(labelKey, ex.getKey());
+        Assert.assertEquals(operator, ex.getOperator());
+        Assert.assertEquals(0, subCondition.getWeight());
+    }
 
+    @Test
+    public void testInitSubConditionExpression() {
+        LabelExpression ex = new LabelExpression();
+        SubCondition subCondition = new SubCondition(ex);
+        Assert.assertEquals(ex, subCondition.getExpressions().get(0));
+        Assert.assertEquals(0, subCondition.getWeight());
+    }
+
+    @Test
+    public void testInitSubConditionExpressions() {
+        LabelExpression ex1 = new LabelExpression();
+        LabelExpression ex2 = new LabelExpression();
+        List<LabelExpression> expressions = new ArrayList<>();
+        expressions.add(ex1);
+        expressions.add(ex2);
+        SubCondition subCondition = new SubCondition(expressions);
+        Assert.assertEquals(expressions, subCondition.getExpressions());
+        Assert.assertEquals(0, subCondition.getWeight());
+    }
+
+    @Test
+    public void testInitSubConditionExpressionWeight() {
         String labelKey = "key";
         List<String> values = new ArrayList<>();
         values.add("value1");
@@ -60,6 +90,22 @@ public class TestSubCondition {
         Assert.assertEquals(labelKey, expression.getKey());
         LabelOperator operator = expression.getOperator();
         Assert.assertEquals(values, operator.getValues());
+        Assert.assertEquals(weight, subCondition.getWeight());
+    }
+
+    @Test
+    public void testInitSubConditionExpressionsWeight() {
+        LabelExpression ex1 = new LabelExpression();
+        LabelExpression ex2 = new LabelExpression();
+        List<LabelExpression> expressions = new ArrayList<>();
+        expressions.add(ex1);
+        expressions.add(ex2);
+
+        int weight = 10;
+
+        SubCondition subCondition = new SubCondition(expressions, weight);
+
+        Assert.assertEquals(expressions, subCondition.getExpressions());
         Assert.assertEquals(weight, subCondition.getWeight());
     }
 

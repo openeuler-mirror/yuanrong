@@ -35,11 +35,11 @@ void ThrowExceptionBasedOnStatus(const GetStatus status, const ErrorInfo &err,
     } else {
         oss << " partial";
     }
-    if (!remainIds.empty()) {
-        oss << " failed: " << "(" << remainIds.size() << "). ";
-        oss << "Failed objects: [ ";
-        oss << remainIds[0] << " ... " << "]";
-    }
+    oss << " failed: "
+        << "(" << remainIds.size() << "). ";
+    oss << "Failed objects: [ ";
+    oss << remainIds[0] << " ... "
+        << "]";
     if (status == GetStatus::ALL_FAILED || status == GetStatus::ALL_FAILED_AND_TIMEOUT) {
         throw YR::Exception(static_cast<int>(err.Code()), static_cast<int>(err.MCode()), oss.str());
     }

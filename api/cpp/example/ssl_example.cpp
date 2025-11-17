@@ -31,6 +31,7 @@ int main()
     conf.certificateFilePath = tls_file_path +  "/module.crt";
     conf.verifyFilePath = tls_file_path + "/ca.crt";
     conf.privateKeyPath = tls_file_path + "/module.key";
+    std::strcpy(conf.privateKeyPaaswd, "paaswd");
     conf.serverName = "serverName";
     YR::Init(conf);
 

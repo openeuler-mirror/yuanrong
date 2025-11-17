@@ -25,7 +25,6 @@
 #include "src/utility/notification_utility.h"
 
 namespace {
-const uint32_t MAX_CONN_SIZE = 10000;
 const int RETRY_TIME = 3;
 const int INTERVAL_TIME = 2;
 }  // namespace
@@ -37,20 +36,25 @@ using YR::utility::NotificationUtility;
 ClientManager::ClientManager(const std::shared_ptr<LibruntimeConfig> &libruntimeConfig) : librtCfg(libruntimeConfig)
 {
     this->ioc = std::make_shared<boost::asio::io_context>();
-    this->work = std::make_unique<asio::io_context::work>(*ioc);
+    this->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
+        boost::asio::make_work_guard(*ioc));
     this->maxIocThread = libruntimeConfig->httpIocThreadsNum;
     this->enableMTLS = libruntimeConfig->enableMTLS;
+    this->maxConnSize_ = libruntimeConfig->maxConnSize;
+    this->enableTLS_ = libruntimeConfig->enableTLS;
 }
 
 ClientManager::~ClientManager()
 {
-    this->work.reset();
+    this->work->reset();
     ioc->stop();
     for (auto client : clients) {
         client->Stop();
     }
     for (uint32_t i = 0; i < asyncRunners.size(); i++) {
-        this->asyncRunners[i]->join();
+        if (this->asyncRunners[i]->get_id() != std::this_thread::get_id()) {
+            this->asyncRunners[i]->join();
+        }
     }
 }
 
@@ -65,8 +69,11 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
             ctx->set_verify_mode(ssl::verify_peer);
             ctx->load_verify_file(librtCfg->verifyFilePath);
             ctx->use_certificate_chain_file(librtCfg->certificateFilePath);
+            ctx->set_password_callback([&](std::size_t max_length, ssl::context_base::password_purpose purpose) {
+                return std::string(librtCfg->privateKeyPaaswd);
+            });
             ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);
-            for (uint32_t i = 0; i < MAX_CONN_SIZE; i++) {
+            for (uint32_t i = 0; i < maxConnSize_; i++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx, librtCfg->serverName));
             }
         } catch (const std::exception &e) {
@@ -79,8 +86,21 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                                  "caught unknown exception when init context");
             return err;
         }
+    } else if (enableTLS_) {
+        auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
+        ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
+                         ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+        if (librtCfg->verifyFilePath.empty()) {
+            ctx->set_default_verify_paths();
+        } else {
+            ctx->load_verify_file(librtCfg->verifyFilePath);
+        }
+        ctx->set_verify_mode(ssl::verify_peer);
+        for (uint32_t i = 0; i < maxConnSize_; i++) {
+            this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx, librtCfg->serverName));
+        }
     } else {
-        for (uint32_t i = 0; i < MAX_CONN_SIZE; i++) {
+        for (uint32_t i = 0; i < maxConnSize_; i++) {
             this->clients.emplace_back(std::make_shared<AsyncHttpClient>(this->ioc));
         }
     }
@@ -100,15 +120,12 @@ ErrorInfo ClientManager::Init(const ConnectionParam &param)
         return error;
     }
     this->connParam = param;
-    connectedClientsCnt = YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM();
-    YRLOG_INFO("http initial connection num {}", connectedClientsCnt);
-    if (connectedClientsCnt > MAX_CONN_SIZE) {
-        YRLOG_WARN("Requested connections exceed maximum allowed ({}). Clamping to maximum.", MAX_CONN_SIZE);
-        connectedClientsCnt = MAX_CONN_SIZE;
-    }
-    for (uint32_t i = 0; i < connectedClientsCnt; i++) {
+    connectedClientsCnt_ = YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM();
+    YRLOG_INFO("http initial connection num {}", connectedClientsCnt_);
+    for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
         for (int j = 0; j < RETRY_TIME; j++) {
             error = clients[i]->Init(param);
+            clients[i]->SetAvailable();
             if (error.OK()) {
                 break;
             }
@@ -126,48 +143,57 @@ void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::str
                                         const std::string &body, const std::shared_ptr<std::string> requestId,
                                         const HttpCallbackFunction &receiver)
 {
-    std::unique_lock<std::mutex> lk(connMtx);
-    if (clients.empty()) {
-        YRLOG_ERROR("Clients are not initialized.");
-        receiver(HTTP_CONNECTION_ERROR_MSG, boost::asio::error::make_error_code(boost::asio::error::connection_reset),
-                 HTTP_CONNECTION_ERROR_CODE);
-        return;
-    }
     for (;;) {
-        for (uint32_t i = 0; i < connectedClientsCnt; i++) {
-            if (!this->clients[i]->Available()) {
-                continue;
-            }
-            YRLOG_DEBUG("httpclient {} is available, will use this client", i);
-            // while the connection idletime exceed setup timeout, the server may close the connection
-            // in this situation, client should try to reconnect
-            if (!this->clients[i]->IsActive()) {
-                YRLOG_DEBUG("httpclient {} is not active, reinit now", i);
-                auto err = this->clients[i]->ReInit();
-                if (!err.OK()) {
-                    YRLOG_DEBUG("httpclient {} is reInit failed, err: {}", i, err.CodeAndMsg());
-                    receiver(HTTP_CONNECTION_ERROR_MSG,
-                             boost::asio::error::make_error_code(boost::asio::error::connection_reset),
-                             HTTP_CONNECTION_ERROR_CODE);
-                    return;
-                }
-            }
-            this->clients[i]->SetUnavailable();
-            lk.unlock();
-            this->clients[i]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
-            return;
-        }
-
-        if (connectedClientsCnt < MAX_CONN_SIZE) {
-            connectedClientsCnt++;
-            this->clients[connectedClientsCnt - 1]->Init(this->connParam);
-            this->clients[connectedClientsCnt - 1]->SetUnavailable();
-            this->clients[connectedClientsCnt - 1]->SubmitInvokeRequest(method, target, headers, body, requestId,
-                                                                        receiver);
-            return;
+        if (SubmitRequest(method, target, headers, body, requestId, receiver)) {
+            break;
         }
         std::this_thread::yield();
     }
+}
+
+bool ClientManager::SubmitRequest(const http::verb &method, const std::string &target,
+                                  const std::unordered_map<std::string, std::string> &headers, const std::string &body,
+                                  const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver)
+{
+    for (uint32_t i = 0;; i++) {
+        {
+            absl::ReaderMutexLock l(&connCntMu_);
+            if (i >= connectedClientsCnt_) {
+                break;
+            }
+        }
+        if (!this->clients[i]->SetUnavailable()) {
+            continue;
+        }
+        YRLOG_DEBUG("httpclient {} is available, will use this client", i);
+        // while the connection idletime exceed setup timeout, the server may close the connection
+        // in this situation, client should try to reconnect
+        if (!this->clients[i]->IsConnActive()) {
+            YRLOG_DEBUG("httpclient {} is not active, reinit now", i);
+            auto err = this->clients[i]->ReInit();
+            if (!err.OK()) {
+                YRLOG_DEBUG("httpclient {} is reInit failed, err: {}", i, err.CodeAndMsg());
+                receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
+                         HTTP_CONNECTION_ERROR_CODE);
+                this->clients[i]->SetAvailable();
+                return true;
+            }
+        }
+        this->clients[i]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+        return true;
+    }
+    uint32_t newClientIdx = 0;
+    {
+        absl::WriterMutexLock l(&connCntMu_);
+        if (connectedClientsCnt_ >= maxConnSize_) {
+            return false;
+        }
+        newClientIdx = connectedClientsCnt_++;
+    }
+    YRLOG_DEBUG("init httpclient {}", newClientIdx);
+    this->clients[newClientIdx]->Init(this->connParam);
+    this->clients[newClientIdx]->SubmitInvokeRequest(method, target, headers, body, requestId, receiver);
+    return true;
 }
 }  // namespace Libruntime
 }  // namespace YR

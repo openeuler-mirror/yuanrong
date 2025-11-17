@@ -27,7 +27,7 @@ AsyncHttpsClient::AsyncHttpsClient(const std::shared_ptr<asio::io_context> &ioc,
 
 AsyncHttpsClient::~AsyncHttpsClient()
 {
-    if (isConnectionAlive_) {
+    if (IsConnActive()) {
         GracefulExit();
     }
 }
@@ -60,20 +60,29 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
     // Set SNI Hostname (hosts need this to handshake successfully)
     YRLOG_INFO("Https init, serverAddr = {}:{}", param.ip, param.port);
     connParam_ = param;
+    idleTime_ = connParam_.idleTime;
     std::string msg;
-    if (!SSL_set_tlsext_host_name(stream_->native_handle(), serverName_.c_str())) {
-        YRLOG_ERROR("failed to set servername: {}", serverName_);
-        msg = "failed to set servername during initing invoke client, serverName:" + serverName_;
-        return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
+    if (!serverName_.empty()) {
+        if (!SSL_set_tlsext_host_name(stream_->native_handle(), serverName_.c_str())) {
+            YRLOG_ERROR("failed to set servername: {}", serverName_);
+            msg = "failed to set servername during initing invoke client, serverName:" + serverName_;
+            return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
+        }
     }
-
     try {
         // sync connect
         auto const results = resolver_.resolve(param.ip, param.port);
-        (void)beast::get_lowest_layer(*stream_).connect(results);
+        auto &lowgest = beast::get_lowest_layer(*stream_);
+        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
+            lowgest.expires_after(std::chrono::seconds(param.timeoutSec));
+        }
+        (void)lowgest.connect(results);
+        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
+            lowgest.expires_never();
+        }
     } catch (const std::exception &e) {
         std::stringstream ss;
-        ss << "failed to connect to all addresses, target: " << param.ip << ":" << param.port;
+        ss << "failed to connect to cluster, target: " << param.ip << ":" << param.port;
         ss << ", exception: " << e.what();
         YRLOG_DEBUG(ss.str());
         return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, ss.str());
@@ -86,9 +95,7 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
         msg = "failed to handshake error during initing invoke client, err:" + serverName_;
         return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
     }
-    lastActiveTime_ = std::chrono::high_resolution_clock::now();
-    isConnectionAlive_ = true;
-    isUsed_ = false;
+    ResetConnActive();
     return ErrorInfo();
 }
 
@@ -115,9 +122,8 @@ void AsyncHttpsClient::OnWrite(const std::shared_ptr<std::string> requestId, con
     if (callback_) {
         callback_(HTTP_CONNECTION_ERROR_MSG, ec, HTTP_CONNECTION_ERROR_CODE);
     }
-    isConnectionAlive_ = false;
-    isUsed_ = false;
-    return;
+    SetConnInActive();
+    SetAvailable();
 }
 
 void AsyncHttpsClient::OnRead(const std::shared_ptr<std::string> requestId, const beast::error_code &ec,
@@ -127,35 +133,37 @@ void AsyncHttpsClient::OnRead(const std::shared_ptr<std::string> requestId, cons
     if (ec) {
         YRLOG_ERROR("requestId {} failed to read response , err message: {}, this client disconnect", *requestId,
                     ec.message().c_str());
-        this->isConnectionAlive_ = false;
+        SetConnInActive();
     }
 
     if (callback_) {
         callback_(resParser_->get().body(), ec, resParser_->get().result_int());
     }
-    resParser_.reset();
-    buf_.clear();
-    req_.clear();
-    isUsed_ = false;
-    lastActiveTime_ = std::chrono::high_resolution_clock::now();
+    CheckResponseHeaderAndReset();
 }
 
 void AsyncHttpsClient::GracefulExit() noexcept
 {
+    SetConnInActive();
     boost::system::error_code ec = {};
     if (stream_) {
         stream_->shutdown(ec);
+        if (ec) {
+            YRLOG_WARN("SSL shutdown failed: {}", ec.message().c_str());
+            return;
+        }
+        auto &sock = stream_->next_layer().socket();
+        sock.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+        if (ec) {
+            YRLOG_WARN("Socket shutdown failed: {}", ec.message().c_str());
+            return;
+        }
+        sock.close(ec);
+        if (ec) {
+            YRLOG_WARN("Socket close failed: {}", ec.message().c_str());
+            return;
+        }
     }
-    if (ec) {
-        YRLOG_WARN("shutdown fail {}", ec.message().c_str());
-    }
-    isConnectionAlive_ = false;
-}
-
-ErrorInfo AsyncHttpsClient::ReInit()
-{
-    GracefulExit();
-    return Init(connParam_);
 }
 
 void AsyncHttpsClient::Stop()

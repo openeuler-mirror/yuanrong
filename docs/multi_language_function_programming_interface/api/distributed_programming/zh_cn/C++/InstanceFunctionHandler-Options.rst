@@ -16,7 +16,7 @@ InstanceFunctionHandler::Options
            YR::Init(conf);
 
            YR::InvokeOptions opts;
-           opts.retryTime = 5;
+           opts.retryTimes = 5;
            auto ins = YR::Instance(SimpleCaculator::Constructor).Invoke();
            auto r3 = ins.Function(&SimpleCaculator::Plus).Options(opts).Invoke(1, 1);
 

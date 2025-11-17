@@ -32,7 +32,7 @@ public:
     bool ScaleUp(std::shared_ptr<InvokeSpec> spec, size_t reqNum) override;
     void ScaleDown(const std::shared_ptr<InvokeSpec> spec, bool isInstanceNormal = false) override;
     void ScaleCancel(const RequestResource &resource, size_t reqNum, bool cleanAll = false) override;
-    void StartRenewTimer(const RequestResource &resource, const std::string &insId) override;
+    void StartBatchRenewTimer() override;
     void StartNormalInsScaleDownTimer(const RequestResource &resource, const std::string &id);
     void HandleCreateResponse(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp,
                               std::shared_ptr<CreatingInsInfo> insInfo);

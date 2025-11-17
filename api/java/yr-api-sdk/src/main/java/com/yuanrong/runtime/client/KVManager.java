@@ -104,8 +104,19 @@ public class KVManager {
      *                            writing to the key-value store
      */
     public void set(String key, byte[] value, Integer length, ExistenceOpt existence) throws YRException {
+        byte[] newValue;
+        try {
+            newValue = Arrays.copyOfRange(value, 0, length);
+        } catch (ArrayIndexOutOfBoundsException e) {
+            LOGGER.error("Length of value({}) is smaller than then parameter 'length'({}), key: {}", value.length,
+                length, key);
+            throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, e);
+        } catch (NullPointerException e) {
+            throw new YRException(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME,
+                    "Cannot set a null value to key: " + key);
+        }
         SetParam setParam = new SetParam.Builder().existence(existence).build();
-        set(key, value, length, setParam);
+        YR.getRuntime().KVWrite(key, newValue, setParam);
     }
 
     /**
@@ -527,11 +538,10 @@ public class KVManager {
         List<Object> objects = new ArrayList<Object>(keys.size());
         for (int i = 0; i < keys.size(); i++) {
             try {
-                byte[] value = serializedValue.get(i);
-                objects.add(value == null ? null : Serializer.deserialize(value, types.get(i)));
+                objects.add(Serializer.deserialize(serializedValue.get(i), types.get(i)));
             } catch (IOException e) {
                 throw new YRException(ErrorCode.ERR_DESERIALIZATION_FAILED, ModuleCode.RUNTIME,
-                    "Failed to deserialize the value associated with the key: " + keys.get(i));
+                        "Failed to deserialize the value associated with the key: " + keys.get(i));
             }
         }
         return objects;

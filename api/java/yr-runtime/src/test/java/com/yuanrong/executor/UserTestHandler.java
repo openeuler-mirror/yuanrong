@@ -56,6 +56,26 @@ public class UserTestHandler {
         System.out.println("initialize success");
     }
 
+    public void illegalArgumentInitializer(Context context) {
+        throw new IllegalArgumentException("initialize failed");
+    }
+
+    public void failedInitializer(Context context) {
+        throw new RuntimeException("initialize failed");
+    }
+
+    public void preStop(Context context) {
+        System.out.println("preStop success");
+    }
+
+    public void failedPreStop(Context context) {
+        throw new RuntimeException("preStop failed");
+    }
+
+    public void timeoutPreStop(Context context) throws InterruptedException {
+        Thread.sleep(2000);
+    }
+
     public void timeoutInitializer(Context context) {
         try {
             Thread.sleep(3 * 1000 + 500);

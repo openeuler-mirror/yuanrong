@@ -46,6 +46,9 @@ public class TestAffinity {
         affinity3.setInstanceAffinity(new InstanceAffinity());
         Assert.assertFalse(affinity.equals(affinity1));
         Assert.assertTrue(affinity.equals(affinity));
+
+        Affinity affinity5 = new Affinity(AffinityKind.INSTANCE, AffinityType.PREFERRED, new ArrayList<>(), AffinityScope.POD);
+        Assert.assertEquals(affinity5.getAffinityScope(), AffinityScope.POD);
     }
 
     @Test
@@ -87,5 +90,15 @@ public class TestAffinity {
 
         Affinity affinity1 = new Affinity(null, null, new ArrayList<>());
         Assert.assertEquals(0, affinity1.getAffinityValue());
+    }
+
+    @Test
+    public void testGetAffinityScopeValue() {
+        Affinity affinity = new Affinity(AffinityKind.RESOURCE, AffinityType.PREFERRED, new ArrayList<>());
+        Assert.assertEquals(0, affinity.getAffinityScopeValue());
+
+        Affinity affinity1 = new Affinity(AffinityKind.INSTANCE, AffinityType.PREFERRED_ANTI, new ArrayList<>(),
+            AffinityScope.NODE);
+        Assert.assertEquals(2, affinity1.getAffinityScopeValue());
     }
 }

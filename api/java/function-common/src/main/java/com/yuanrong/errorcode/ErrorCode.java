@@ -211,6 +211,23 @@ public class ErrorCode {
      * ERR_CREATE_RETURN_BUFFER
      */
     public static final ErrorCode ERR_CREATE_RETURN_BUFFER = new ErrorCode(9001);
+    // ErrorCode provided for the jobExecutor interface:
+
+    /**
+     * ERR_JOB_USER_CODE_EXCEPTION
+     */
+    public static final ErrorCode ERR_JOB_USER_CODE_EXCEPTION = new ErrorCode(50001);
+
+    /**
+     * ERR_JOB_RUNTIME_EXCEPTION
+     */
+    public static final ErrorCode ERR_JOB_RUNTIME_EXCEPTION = new ErrorCode(50002);
+
+    /**
+     * ERR_JOB_INNER_SYSTEM_EXCEPTION
+     */
+    public static final ErrorCode ERR_JOB_INNER_SYSTEM_EXCEPTION = new ErrorCode(50003);
+
 
     private int code;
 

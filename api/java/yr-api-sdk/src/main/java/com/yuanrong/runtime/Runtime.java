@@ -24,15 +24,17 @@ import com.yuanrong.InvokeOptions;
 import com.yuanrong.MSetParam;
 import com.yuanrong.SetParam;
 import com.yuanrong.api.InvokeArg;
-import com.yuanrong.call.CppInstanceHandler;
-import com.yuanrong.call.InstanceHandler;
-import com.yuanrong.call.JavaInstanceHandler;
+import com.yuanrong.api.Node;
 import com.yuanrong.exception.YRException;
 import com.yuanrong.jni.LibRuntimeConfig;
 import com.yuanrong.libruntime.generated.Libruntime.FunctionMeta;
 import com.yuanrong.runtime.client.KVManager;
 import com.yuanrong.runtime.client.ObjectRef;
 import com.yuanrong.storage.InternalWaitResult;
+import com.yuanrong.stream.Consumer;
+import com.yuanrong.stream.Producer;
+import com.yuanrong.stream.ProducerConfig;
+import com.yuanrong.stream.SubscriptionConfig;
 
 import java.util.List;
 
@@ -173,19 +175,27 @@ public interface Runtime {
     void terminateInstance(String instanceId) throws YRException;
 
     /**
+     * Decrease reference.
+     *
+     * @param ids the ids.
+     */
+    void decreaseReference(List<String> ids);
+
+    /**
      * Is on cloud boolean.
      *
      * @return the boolean
      */
-    boolean isOnCloud();
+    boolean isDriver();
 
     /**
      * Get real instance id.
      *
      * @param objectId the object id
      * @return the string representing the real instance id
+     * @throws YRException the actor task exception.
      */
-    String getRealInstanceId(String objectId);
+    String getRealInstanceId(String objectId) throws YRException;
 
     /**
      * Save real instance id.
@@ -193,38 +203,9 @@ public interface Runtime {
      * @param objectId the object id
      * @param instanceId the instance id
      * @param opts the invoke options
+     * @throws YRException the YR exception.
      */
-    void saveRealInstanceId(String objectId, String instanceId, InvokeOptions opts);
-
-    /**
-     * Collect instance handler info.
-     *
-     * @param instanceHandler the instance handler
-     */
-    void collectInstanceHandlerInfo(InstanceHandler instanceHandler);
-
-    /**
-     * Collect instance handler info.
-     *
-     * @param javaInstanceHandler the java instance handler
-     */
-    void collectInstanceHandlerInfo(JavaInstanceHandler javaInstanceHandler);
-
-    /**
-     * Collect instance handler info.
-     *
-     * @param cppInstanceHandler the cpp instance handler
-     */
-    void collectInstanceHandlerInfo(CppInstanceHandler cppInstanceHandler);
-
-    /**
-     * Returns an InstanceHandler object that contains the Java instance handler
-     * which is NOT terminated and associated with the specified instanceID.
-     *
-     * @param instanceID The instanceID that identifies the Java instance handler
-     * @return An InstanceHandler object associated with the specified instanceID
-     */
-    InstanceHandler getInstanceHandlerInfo(String instanceID);
+    void saveRealInstanceId(String objectId, String instanceId, InvokeOptions opts) throws YRException;
 
     /**
      * Finalizes all actors and tasks and release any resources associated with
@@ -336,8 +317,9 @@ public interface Runtime {
      *
      * @param keys A list of keys of the pairs to be deleted
      * @return A list of keys that were failed to be deleted
+     * @throws YRException the YR exception.
      */
-    List<String> KVDel(List<String> keys);
+    List<String> KVDel(List<String> keys) throws YRException;
 
     /**
      * loadState
@@ -380,20 +362,70 @@ public interface Runtime {
     void groupWait(String groupName) throws YRException;
 
     /**
+     * createStreamProducer
+     *
+     * @param streamName the stream name
+     * @param producerConf the producer conf
+     * @return Producer the stream producer
+     * @throws YRException if there is an exception during creating stream producer
+     */
+    Producer createStreamProducer(String streamName, ProducerConfig producerConf) throws YRException;
+
+    /**
+     * createStreamConsumer
+     *
+     * @param streamName the stream name
+     * @param config the subscription conf
+     * @param autoAck if consumer auto ack
+     * @return Consumer the stream consumer
+     * @throws YRException if there is an exception during creating stream consumer
+     */
+    Consumer createStreamConsumer(String streamName, SubscriptionConfig config,
+            boolean autoAck) throws YRException;
+
+    /**
+     * deleteStream
+     *
+     * @param streamName the stream name
+     * @throws YRException if there is an exception when delete stream
+     */
+    void deleteStream(String streamName) throws YRException;
+
+    /**
+     * queryGlobalProducersNum
+     *
+     * @param streamName the stream name
+     * @return long the producers num
+     * @throws YRException if there is an exception during quering global producersNum
+     */
+    long queryGlobalProducersNum(String streamName) throws YRException;
+
+    /**
+     * queryGlobalConsumersNum
+     *
+     * @param streamName the stream name
+     * @return long the consumers num
+     * @throws YRException if there is an exception during quering global consumersNum
+     */
+    long queryGlobalConsumersNum(String streamName) throws YRException;
+
+    /**
      * Get instance route.
      *
      * @param objectId the object id
      * @return the string representing the instance route
+     * @throws YRException the YR exception.
      */
-    String getInstanceRoute(String objectId);
+    String getInstanceRoute(String objectId) throws YRException;
 
     /**
      * Save instance route.
      *
      * @param objectId the object id
      * @param instanceRoute the instance route
+     * @throws YRException the YR exception.
      */
-    void saveInstanceRoute(String objectId, String instanceRoute);
+    void saveInstanceRoute(String objectId, String instanceRoute) throws YRException;
 
     /**
      * Sync terminate instance.
@@ -402,4 +434,12 @@ public interface Runtime {
      * @throws YRException the YR exception.
      */
     void terminateInstanceSync(String instanceId) throws YRException;
+
+    /**
+     * Get node information in the cluster.
+     *
+     * @return List<Node>: node information
+     * @throws YRException the YR exception.
+     */
+    List<Node> nodes() throws YRException;
 }

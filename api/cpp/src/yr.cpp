@@ -24,6 +24,7 @@
 #include "src/libruntime/libruntime_manager.h"
 #include "yr/api/runtime.h"
 #include "yr/api/runtime_manager.h"
+#include "yr/api/serdes.h"
 thread_local std::unordered_set<std::string> localNestedObjList;
 
 namespace YR {
@@ -89,7 +90,8 @@ ClientInfo Init(const Config &conf, int argc, char **argv)
         if (!ConfigManager::Singleton().isDriver) {
             auto err = internal::CodeManager::LoadFunctions(ConfigManager::Singleton().loadPaths);
             if (!err.OK()) {
-                YRLOG_INFO("load function error: Code:{}, MCode:{}, Msg:{}", err.Code(), err.MCode(), err.Msg());
+                YRLOG_INFO("load function error: Code:{}, MCode:{}, Msg:{}", fmt::underlying(err.Code()),
+                           fmt::underlying(err.MCode()), err.Msg());
             }
         }
         SetInitialized();
@@ -111,6 +113,15 @@ ClientInfo Init(int argc, char **argv)
 {
     Config conf;
     return Init(conf, argc, argv);
+}
+
+void Run(int argc, char *argv[])
+{
+    Config conf;
+    conf.isDriver = false;
+    conf.launchUserBinary = true;
+    Init(conf, argc, argv);
+    ReceiveRequestLoop();
 }
 
 void Finalize(void)
@@ -155,6 +166,38 @@ bool IsLocalMode()
     return ConfigManager::Singleton().IsLocalMode();
 }
 
+std::shared_ptr<Producer> CreateProducer(const std::string &streamName, ProducerConf producerConf)
+{
+    CheckInitialized();
+    if (ConfigManager::Singleton().IsLocalMode()) {  // local mode
+        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
+                        "local mode does not support CreateProducer\n");
+    }
+    std::shared_ptr<Producer> producer = YR::internal::GetRuntime()->CreateStreamProducer(streamName, producerConf);
+    return producer;
+}
+
+std::shared_ptr<Consumer> Subscribe(const std::string &streamName, const SubscriptionConfig &config, bool autoAck)
+{
+    CheckInitialized();
+    if (ConfigManager::Singleton().IsLocalMode()) {  // local mode
+        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
+                        "local mode does not support Subscribe\n");
+    }
+    std::shared_ptr<Consumer> consumer = YR::internal::GetRuntime()->CreateStreamConsumer(streamName, config, autoAck);
+    return consumer;
+}
+
+void DeleteStream(const std::string &streamName)
+{
+    CheckInitialized();
+    if (ConfigManager::Singleton().IsLocalMode()) {  // local mode
+        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::Libruntime::ModuleCode::RUNTIME,
+                        "local mode does not support DeleteStream\n");
+    }
+    YR::internal::GetRuntime()->DeleteStream(streamName);
+}
+
 void SaveState(const int &timeout)
 {
     CheckInitialized();
@@ -184,6 +227,54 @@ void LoadState(const int &timeout)
                         "LoadState is not supported in local mode");
     }
     YR::internal::GetRuntime()->LoadState(timeout);
+}
+
+std::vector<Node> Nodes()
+{
+    CheckInitialized();
+    std::vector<Node> nodes = YR::internal::GetRuntime()->Nodes();
+    return nodes;
+}
+
+std::shared_ptr<MutableBuffer> CreateBuffer(uint64_t size)
+{
+    CheckInitialized();
+    if (ConfigManager::Singleton().IsLocalMode()) {
+        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::ModuleCode::RUNTIME_,
+                        "local mode does not support CreateBuffer\n");
+    } else {
+        return YR::internal::GetRuntime()->CreateMutableBuffer(size);
+    }
+}
+
+std::vector<std::shared_ptr<MutableBuffer>> Get(const std::vector<ObjectRef<MutableBuffer>> &objs, int timeoutSec)
+{
+    CheckInitialized();
+    if (ConfigManager::Singleton().IsLocalMode()) {
+        throw Exception(YR::Libruntime::ErrorCode::ERR_INCORRECT_FUNCTION_USAGE, YR::ModuleCode::RUNTIME_,
+                        "local mode does not support Get\n");
+    } else {
+        std::vector<std::string> ids;
+        for (size_t i = 0; i < objs.size(); i++) {
+            ids.push_back(objs[i].ID());
+        }
+        return YR::internal::GetRuntime()->GetMutableBuffer(ids, timeoutSec);
+    }
+}
+
+std::string Serialize(ObjectRef<MutableBuffer> &obj)
+{
+    msgpack::sbuffer buffer = YR::internal::Serialize(std::move(obj));
+    std::string str(buffer.data(), buffer.size());
+    return str;
+}
+
+ObjectRef<MutableBuffer> Deserialize(const void *value, int size)
+{
+    msgpack::sbuffer buffer;
+    const char *valueChar = static_cast<const char *>(value);
+    buffer.write(valueChar, size);
+    return YR::internal::Deserialize<ObjectRef<MutableBuffer>>(buffer);
 }
 
 }  // namespace YR

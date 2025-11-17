@@ -83,7 +83,7 @@ using SubscriptionPayload = ::core_service::SubscriptionPayload;
 using NotificationPayload = ::core_service::NotificationPayload;
 using InstanceTermination = ::core_service::InstanceTermination;
 using FunctionMasterObserve = ::core_service::FunctionMasterObserve;
-using KillCallBack = std::function<void(const KillResponse &, const ErrorInfo &)>;
+using KillCallBack = std::function<void(const KillResponse &, const ErrorInfo &err)>;
 
 using ExitRequest = ::core_service::ExitRequest;
 using ExitResponse = ::core_service::ExitResponse;
@@ -123,7 +123,6 @@ using HeartbeatResponse = ::runtime_service::HeartbeatResponse;
 using Arg = common::Arg;
 using Arg_ArgType = common::Arg_ArgType;
 
-const int NOTIFY_THREAD_POOL_SIZE = 2;
 const int CKPT_RCVR_THREAD_POOL_SIZE = 1;
 const int SHUTDOWN_THREAD_POOL_SIZE = 1;
 const int SIGNAL_THREAD_POOL_SIZE = 10;
@@ -283,6 +282,7 @@ public:
     void HandleHeartbeatRequest(const HeartbeatRequest &req, HeartbeatCallBack callback);
     int WaitRequestEmpty(uint64_t gracePeriodSec);
     void SetInitialized();
+    virtual bool IsHealth() = 0;
 
 protected:
     void Clear();
@@ -369,6 +369,9 @@ private:
         bool SetShuttingDown()
         {
             absl::MutexLock lock(&this->mu);
+            if (err.first == common::ErrorCode::ERR_NONE) {
+                err = std::make_pair(common::ErrorCode::ERR_INSTANCE_EXITED, "instance has already exited");
+            }
             if (state != SHUTDOWN) {
                 state = SHUTTING_DOWN;
             }

@@ -17,18 +17,22 @@
 """executor"""
 
 import threading
-from typing import List
+from typing import List, Tuple
 
+from yr import log
 from yr.common.utils import get_environment_variable
-from yr.err_type import ErrorInfo
+from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 from yr.executor.function_handler import FunctionHandler
+from yr.executor.faas_executor import faas_call_handler, faas_init_handler
+from yr.executor.faas_handler import FaasHandler
 from yr.executor.posix_handler import PosixHandler
+from yr.libruntime_pb2 import ApiType, InvokeType
 
 HANDLER = None
 _LOCK = threading.Lock()
 INIT_HANDLER = "INIT_HANDLER"
 ACTOR_HANDLER_MODULE_NAME = "yrlib_handler"
-SERVE_HANDLER_MODULE_NAME = "serve_executor"
+FAAS_HANDLER_MODULE_NAME = "faas_executor"
 
 
 class Executor:
@@ -69,6 +73,8 @@ class Executor:
 
         if module_name == ACTOR_HANDLER_MODULE_NAME:
             handler = FunctionHandler()
+        elif module_name == FAAS_HANDLER_MODULE_NAME:
+            handler = FaasHandler()
         else:
             handler = PosixHandler()
 
@@ -81,6 +87,8 @@ class Executor:
         execute user code
         :return:
         """
+        if self.func_meta.apiType == ApiType.Faas:
+            return self.__execute_faas()
         return HANDLER.execute_function(self.func_meta, self.args,
                                         self.invoke_type, self.return_num,
                                         self.is_actor_async)
@@ -93,3 +101,20 @@ class Executor:
         return await HANDLER.execute_function(self.func_meta, self.args,
                                               self.invoke_type, self.return_num,
                                               self.is_actor_async)
+
+    def __execute_faas(self) -> Tuple[List[str], ErrorInfo]:
+        result_list = []
+        error_info = ErrorInfo()
+        try:
+            if self.invoke_type in (InvokeType.CreateInstanceStateless, InvokeType.CreateInstance):
+                result_list = [faas_init_handler(self.args)]
+            elif self.invoke_type in (InvokeType.InvokeFunctionStateless, InvokeType.InvokeFunction):
+                result_list = [faas_call_handler(self.args)]
+            else:
+                msg = f"invalid invoke type {self.invoke_type}"
+                log.get_logger().warning(msg)
+                error_info = ErrorInfo(ErrorCode.ERR_EXTENSION_META_ERROR, ModuleCode.RUNTIME, msg)
+        except RuntimeError as err:
+            error_info = ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME, f"{err}")
+
+        return result_list, error_info

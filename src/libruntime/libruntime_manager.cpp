@@ -21,6 +21,7 @@
 #include "src/libruntime/utils/constants.h"
 #include "src/utility/logger/log_handler.h"
 #include "src/utility/timer_worker.h"
+#include "src/libruntime/traceadaptor/trace_adapter.h"
 namespace YR {
 namespace Libruntime {
 using YR::utility::CloseGlobalTimer;
@@ -86,12 +87,13 @@ ErrorInfo LibruntimeManager::HandleInitialized(const LibruntimeConfig &config, c
             return ErrorInfo();
         }
     }
-    YRLOG_INFO("merge config, selfLanguage: {} {}", config.selfLanguage, librtConfig->selfLanguage);
+    YRLOG_INFO("merge config, selfLanguage: {} {}", fmt::underlying(config.selfLanguage),
+               fmt::underlying(librtConfig->selfLanguage));
     for (auto it = config.functionIds.begin(); it != config.functionIds.end(); it++) {
-        YRLOG_INFO("merge config, functionId {} : {}", it->first, it->second);
+        YRLOG_INFO("merge config, functionId {} : {}", fmt::underlying(it->first), it->second);
     }
     for (auto it = librtConfig->functionIds.begin(); it != librtConfig->functionIds.end(); it++) {
-        YRLOG_INFO("merge config, functionId {} : {}", it->first, it->second);
+        YRLOG_INFO("merge config, functionId {} : {}", fmt::underlying(it->first), it->second);
     }
     return librtConfig->MergeConfig(config);
 }
@@ -99,7 +101,7 @@ ErrorInfo LibruntimeManager::HandleInitialized(const LibruntimeConfig &config, c
 LibruntimeManager::LibruntimeManager()
 {
     clientsMgr = std::make_shared<ClientsManager>();
-    metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor = MetricsAdaptor::GetInstance();
     socketClient_ = std::make_shared<DomainSocketClient>(std::string(DEFAULT_SOCKET_PATH));
     logManager_ = std::make_shared<LogManager>();
 }
@@ -108,8 +110,8 @@ ErrorInfo LibruntimeManager::Init(const LibruntimeConfig &config, const std::str
 {
     auto err = config.Check();
     if (!err.OK()) {
-        YRLOG_ERROR("config check failed, job id is {}, err code is {}, err msg is {}", config.jobId, err.Code(),
-                    err.Msg());
+        YRLOG_ERROR("config check failed, job id is {}, err code is {}, err msg is {}", config.jobId,
+                    fmt::underlying(err.Code()), err.Msg());
         return err;
     }
 
@@ -143,20 +145,24 @@ ErrorInfo LibruntimeManager::Init(const LibruntimeConfig &config, const std::str
     logParam.logBufSecs = config.logFlushInterval;
     auto result = GetValidMaxLogSizeMb(config.logFileSizeMax);
     if (!result.second.OK()) {
-        YRLOG_ERROR("invalid log file size max: {}, err code is {}, err msg is {}", result.first, result.second.Code(),
-                    result.second.Msg());
+        YRLOG_ERROR("invalid log file size max: {}, err code is {}, err msg is {}", result.first,
+                    fmt::underlying(result.second.Code()), result.second.Msg());
         return result.second;
     }
     logParam.maxSize = result.first;
     result = GetValidMaxLogFileNum(config.logFileNumMax);
     if (!result.second.OK()) {
-        YRLOG_ERROR("invalid log file num: {}, err code is {}, err msg is {}", result.first, result.second.Code(),
-                    result.second.Msg());
+        YRLOG_ERROR("invalid log file num: {}, err code is {}, err msg is {}", result.first,
+                    fmt::underlying(result.second.Code()), result.second.Msg());
         return result.second;
     }
     logParam.maxFiles = result.first;
     logParam.nodeName = config.jobId;
     logParam.modelName = config.runtimeId;
+    logParam.loggerId = YR::Libruntime::Config::Instance().YR_LOG_PREFIX();
+    if (!logParam.loggerId.empty()) {
+        logParam.withLogPrefix = true;
+    }
     logParam.isLogMerge = config.isLogMerge;
     this->isLogMerge = config.isLogMerge;
     InitLog(logParam);
@@ -176,7 +182,9 @@ ErrorInfo LibruntimeManager::Init(const LibruntimeConfig &config, const std::str
     SetGetLoggerNameFunc(getLoggerNameFunc);
     YRLOG_INFO("Job ID: {}, runtime ID: {}, log dir: {}, log level is {}, is Driver {}", config.jobId, config.runtimeId,
                config.logDir, config.logLevel, config.isDriver);
-
+    auto traceServiceName = config.runtimeId == "driver" ? config.jobId : Config::Instance().INSTANCE_ID();
+    TraceAdapter::GetInstance().InitTrace(traceServiceName, Config::Instance().ENABLE_TRACE(),
+                                          Config::Instance().RUNTIME_TRACE_CONFIG());
     if (config.enableSigaction) {
         InstallSigtermHandler();
     }
@@ -203,11 +211,11 @@ ErrorInfo LibruntimeManager::Init(const LibruntimeConfig &config, const std::str
     std::shared_ptr<Libruntime> librt;
     auto initErr = this->CreateLibruntime(librtConfig, librt);
     if (initErr.OK()) {
-        YRLOG_INFO("succeed to init libruntime, job ID: {}", config.jobId);
+        YRLOG_INFO("succeed to init libruntime, job ID: {}, tenant ID: {}", config.jobId, librt->GetTenantId());
         librts[rtCtx] = librt;
     } else {
-        YRLOG_ERROR("failed to init libruntime, job Id: {}, code: {}, msg: {}", config.jobId, initErr.Code(),
-                    initErr.Msg());
+        YRLOG_ERROR("failed to init libruntime, job Id: {}, tenant ID: {}, code: {}, msg: {}", config.jobId,
+                    librt->GetTenantId(), fmt::underlying(initErr.Code()), initErr.Msg());
         std::lock_guard<std::mutex> rtCfgLK(rtCfgMtx);
         librtConfigs.erase(rtCtx);
     }
@@ -230,8 +238,8 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
     if (librtConfig->inCluster) {
         auto err = !librtConfig->isDriver ? security->Init() : security->InitWithDriver(librtConfig);
         if (!err.OK()) {
-            YRLOG_ERROR("init security failed, is driver: {}, code is {}, msg is {}", librtConfig->isDriver, err.Code(),
-                        err.Msg());
+            YRLOG_ERROR("init security failed, is driver: {}, code is {}, msg is {}", librtConfig->isDriver,
+                        fmt::underlying(err.Code()), err.Msg());
             return err;
         }
     }
@@ -239,19 +247,63 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
         librtConfig->runtimePublicKey, librtConfig->runtimePrivateKey, librtConfig->dsPublicKey);
     librtConfig->enableAuth = enableDsAuth;
     librtConfig->encryptEnable = encryptEnable;
+    security->GetToken(librtConfig->token);
+    std::string ak = "";
+    SensitiveValue sk = "";
+    security->GetAKSK(ak, sk);
     auto finalizeHandler = [this, rtCtx(librtConfig->rtCtx)]() { this->Finalize(rtCtx); };
     librt = std::make_shared<Libruntime>(librtConfig, clientsMgr, metricsAdaptor, security, socketClient_);
     if (librtConfig->inCluster) {
         auto [datasystemClients, err] =
-            clientsMgr->GetOrNewDsClient(librtConfig, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
+            clientsMgr->GetOrNewDsClient(librtConfig, ak, sk, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
         if (!err.OK()) {
-            YRLOG_ERROR("get or new ds client failed, code is {}, msg is {}", err.Code(), err.Msg());
+            YRLOG_ERROR("get or new ds client failed, code is {}, msg is {}", fmt::underlying(err.Code()), err.Msg());
             return err;
         }
+        security->WhenTokenUpdated([datasystemClients](const datasystem::SensitiveValue &token) -> void {
+            auto errInfo = datasystemClients.dsObjectStore->UpdateToken(token);
+            if (!errInfo.OK()) {
+                YRLOG_ERROR("update token failed, code is {}", fmt::underlying(errInfo.Code()));
+            }
+            errInfo = datasystemClients.dsStateStore->UpdateToken(token);
+            if (!errInfo.OK()) {
+                YRLOG_ERROR("update token failed, code is {}", fmt::underlying(errInfo.Code()));
+            }
+            errInfo = datasystemClients.dsStreamStore->UpdateToken(token);
+            if (!errInfo.OK()) {
+                YRLOG_ERROR("update token failed, code is {}", fmt::underlying(errInfo.Code()));
+            }
+        });
+        security->WhenAkSkUpdated(
+            [datasystemClients](const std::string &ak, const datasystem::SensitiveValue &sk) -> void {
+                auto errInfo = datasystemClients.dsObjectStore->UpdateAkSk(ak, sk);
+                if (!errInfo.OK()) {
+                    YRLOG_ERROR("update aksk failed, code is {}", fmt::underlying(errInfo.Code()));
+                }
+                errInfo = datasystemClients.dsStateStore->UpdateAkSk(ak, sk);
+                if (!errInfo.OK()) {
+                    YRLOG_ERROR("update aksk failed, code is {}", fmt::underlying(errInfo.Code()));
+                }
+                errInfo = datasystemClients.dsStreamStore->UpdateAkSk(ak, sk);
+                if (!errInfo.OK()) {
+                    YRLOG_ERROR("update aksk failed, code is {}", fmt::underlying(errInfo.Code()));
+                }
+            });
         auto fsClient = std::make_shared<FSClient>();
         return librt->Init(fsClient, datasystemClients, finalizeHandler);
     } else {
-        return ErrorInfo();
+        FSIntfHandlers handlers;
+        auto [httpClient, err] = clientsMgr->GetOrNewHttpClient(librtConfig->functionSystemIpAddr,
+                                                                librtConfig->functionSystemPort, librtConfig);
+        if (!err.OK()) {
+            YRLOG_ERROR("get or new http client failed, code is {}, msg is {}", fmt::underlying(err.Code()), err.Msg());
+            return err;
+        }
+        auto gwClient = std::make_shared<GwClient>(librtConfig->functionIds[librtConfig->selfLanguage], handlers);
+        gwClient->Init(httpClient, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
+        auto fsClient = std::make_shared<FSClient>(gwClient);
+        DatasystemClients dsClients{gwClient, gwClient, gwClient, gwClient};
+        return librt->Init(fsClient, dsClients);
     }
 }
 
@@ -285,6 +337,7 @@ void LibruntimeManager::Finalize(const std::string &rtCtx)
         librtConfigs.erase(rtCtx);
     }
     librt->Finalize(librtConfig->isDriver);
+    TraceAdapter::GetInstance().ShutDown();
     librt.reset();
     librtConfig.reset();
     {
@@ -295,6 +348,7 @@ void LibruntimeManager::Finalize(const std::string &rtCtx)
         }
     }
     YRLOG_INFO("finish to finalize libruntime with context: {}", rtCtx);
+    YR::utility::SpdLogger::GetInstance().Flush();
 }
 
 std::shared_ptr<Libruntime> LibruntimeManager::GetLibRuntime(const std::string &rtCtx)
@@ -345,6 +399,10 @@ void LibruntimeManager::InstallSigtermHandler()
         YRLOG_ERROR("Failed Install SIGTERM handler");
         return;
     }
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        YRLOG_ERROR("Failed Install SIGINT handler");
+        return;
+    }
     YRLOG_INFO("Succeeded to Install SIGTERM handler");
     return;
 }
@@ -366,7 +424,7 @@ void LibruntimeManager::ExecShutdownCallbackAsync(int signum)
 void LibruntimeManager::ExecShutdownCallback(int signum, bool needExit)
 {
     uint64_t gracePeriodSec = Config::Instance().GRACEFUL_SHUTDOWN_TIME();
-    YRLOG_DEBUG("Start to execute SigtermHandler, graceful shutdown time: {}", gracePeriodSec);
+    YRLOG_INFO("Start to execute SigtermHandler, graceful shutdown time: {}", gracePeriodSec);
     std::unordered_map<std::string, std::shared_ptr<Libruntime>> librtsCopied;
     {
         /* The user code executed in the 'ExecShutdownCallback' may invoke the Libruntime
@@ -386,9 +444,9 @@ void LibruntimeManager::ExecShutdownCallback(int signum, bool needExit)
                         errInfo.Msg());
             continue;
         }
-        YRLOG_DEBUG("Succeeded to call ExecShutdownCallback for libruntime with context: {}", iter->first);
+        YRLOG_INFO("Succeeded to call ExecShutdownCallback for libruntime with context: {}", iter->first);
     }
-    YRLOG_DEBUG("End to call SigtermHandler, signum: {}", signum);
+    YRLOG_INFO("End to call SigtermHandler, signum: {}", signum);
     if (needExit) {
         exit(signum);
     }

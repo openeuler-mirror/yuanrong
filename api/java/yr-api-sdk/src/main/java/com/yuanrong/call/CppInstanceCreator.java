@@ -106,14 +106,15 @@ public class CppInstanceCreator {
         CppInstanceHandler cppInstanceHandler = new CppInstanceHandler(instanceId, functionID,
             this.cppInstanceClass.className);
         cppInstanceHandler.setNeedOrder(options.isNeedOrder());
-        runtime.collectInstanceHandlerInfo(cppInstanceHandler);
         return cppInstanceHandler;
     }
 
     /**
      * When Java calls a stateful function in C++, set the functionUrn for the function.
      *
-     * @param urn functionUrn, can be obtained after the function is deployed.
+     * @param urn functionUrn, can be obtained after the function is deployed. The tenant ID in the function urn must be
+     *            consistent with the tenant ID configured in the config. For information about tenant ID configuration,
+     *            see "About tenant ID" in Config.
      * @return CppInstanceCreator, with built-in invoke method, can create instances of this cpp function class.
      *
      * @snippet{trimleft} SetUrnExample.java set urn of java invoke cpp stateful function

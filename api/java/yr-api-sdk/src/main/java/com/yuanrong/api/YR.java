@@ -26,6 +26,9 @@ import com.yuanrong.exception.YRException;
 import com.yuanrong.jni.LibRuntime;
 import com.yuanrong.jni.LibRuntimeConfig;
 import com.yuanrong.jni.YRAutoInitInfo;
+import com.yuanrong.jobexecutor.YRJobInfo;
+import com.yuanrong.jobexecutor.YRJobParam;
+import com.yuanrong.jobexecutor.YRJobStatus;
 import com.yuanrong.runtime.ClusterModeRuntime;
 import com.yuanrong.runtime.Runtime;
 import com.yuanrong.runtime.client.KVManager;
@@ -34,6 +37,10 @@ import com.yuanrong.runtime.config.RuntimeContext;
 import com.yuanrong.runtime.util.Constants;
 import com.yuanrong.storage.InternalWaitResult;
 import com.yuanrong.storage.WaitResult;
+import com.yuanrong.stream.Consumer;
+import com.yuanrong.stream.Producer;
+import com.yuanrong.stream.ProducerConfig;
+import com.yuanrong.stream.SubscriptionConfig;
 import com.yuanrong.utils.SdkUtils;
 
 import org.slf4j.Logger;
@@ -96,6 +103,9 @@ public class YR extends YRCall {
     /**
      * The Yuanrong initialization interface is used to configure parameters.
      * For parameter descriptions, see the data structure Config.
+     *
+     * @note When the Yuanrong cluster is enabled for multiple tenants, users must configure the tenant ID.
+     *       For details about configuring the tenant ID, see the description of the tenant ID in [Config].
      *
      * @param conf Initialization parameter configuration of Yuanrong.
      * @return Information returned to the user after init ends. ClientInfo class description:
@@ -382,6 +392,89 @@ public class YR extends YRCall {
     }
 
     /**
+     * Submits a user job. The job would be executed in remote runtime.
+     *
+     * @param yrJobParam a YRJobParam object. All fields in this object are
+     *                   required, except runtimeEnv which is optional.
+     * @return a String representing the unique jobID of a submitted job.
+     * @throws YRException the actor task exception.
+     */
+    public static String submitJob(YRJobParam yrJobParam) throws YRException {
+        return JobExecutorCaller.submitJob(yrJobParam);
+    }
+
+    /**
+     * Stops a specified job and release resources of the related attached-runtime
+     * process.
+     *
+     * @param userJobID a String representing the job instanceID returned by
+     *                  submitJob.
+     * @throws YRException the actor task exception.
+     */
+    public static void stopJob(String userJobID) throws YRException {
+        JobExecutorCaller.stopJob(userJobID);
+    }
+
+    /**
+     * Gets the current status of a specified job. The Status can be
+     * RUNNING/SUCCEEDED/STOPPED or FAILED.
+     *
+     * @param userJobID a String representing the job instanceID returned by
+     *                  submitJob.
+     * @return YRJobStatus object, which contains an enum type.
+     * @throws YRException the actor task exception.
+     */
+    public static YRJobStatus getJobStatus(String userJobID) throws YRException {
+        return JobExecutorCaller.getJobStatus(userJobID);
+    }
+
+    /**
+     * Gets the current YRJobInfo of a specified job.
+     *
+     * @param userJobID a String representing the job instanceID returned by
+     *                  submitJob.
+     * @return YRJobInfo object, which contains YRJobInfo.
+     * @throws YRException the actor task exception.
+     */
+    public static YRJobInfo getJobInfo(String userJobID) throws YRException {
+        return JobExecutorCaller.getYrJobInfo(userJobID);
+    }
+
+    /**
+     * Obtains all jobs information in the current SDK domain.
+     * Jobs information is updated and synchronized with the reomte runtime.
+     *
+     * @return Map<String, YRJobInfo> map object.
+     * @throws YRException the actor task exception.
+     */
+    public static Map<String, YRJobInfo> listJobs() throws YRException {
+        return JobExecutorCaller.listJobs();
+    }
+
+    /**
+     * Obtains Specified jobs information given userJobIDs in the current SDK
+     * domain.
+     * Jobs information is updated and synchronized with the reomte runtime.
+     *
+     * @param userJobIDlist String[] or Strings of userJobIDs.
+     * @return Map<String, YRJobInfo> map
+     * @throws YRException the actor task exception.
+     */
+    public static Map<String, YRJobInfo> listJobs(String... userJobIDlist) throws YRException {
+        return JobExecutorCaller.listJobs(userJobIDlist);
+    }
+
+    /**
+     * Delete a specific user job given a userJobID.
+     *
+     * @param userJobID the job instanceID returned by submitJob.
+     * @throws YRException the actor task exception.
+     */
+    public static void deleteJob(String userJobID) throws YRException {
+        JobExecutorCaller.deleteJob(userJobID);
+    }
+
+    /**
      * Save the state of the runtime with a timeout.
      *
      * @param timeoutSec the timeout in seconds.
@@ -419,6 +512,75 @@ public class YR extends YRCall {
         YR.getRuntime().loadState(DEFAULT_SAVE_LOAD_STATE_TIMEOUT);
     }
 
+    /**
+     * Create a producer.
+     *
+     * @param streamName The name of the stream. The length must be less than 256 characters and contain only the
+     *                   following characters ``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``.
+     * @param producerConf Producer configuration information.
+     * @return Producer: Producer Interface.
+     * @throws YRException Unified exception types thrown.
+     */
+    public static Producer createProducer(String streamName,
+            ProducerConfig producerConf) throws YRException {
+        return YR.getRuntime().createStreamProducer(streamName, producerConf);
+    }
+
+    /**
+     * Create a producer.
+     *
+     * @param streamName The name of the stream. The length must be less than 256 characters and contain only the
+     *                   following characters ``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``.
+     * @return Producer: Producer Interface.
+     * @throws YRException Unified exception types thrown.
+     */
+    public static Producer createProducer(String streamName) throws YRException {
+        return YR.getRuntime().createStreamProducer(streamName, new ProducerConfig());
+    }
+
+    /**
+     * Create a consumer.
+     *
+     * @param streamName The name of the stream. The length must be less than 256 characters and contain only the
+     *                   following characters ``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``.
+     * @param config Consumer configuration information.
+     * @return Consumer: Consumer interface.
+     * @throws YRException Unified exception types thrown.
+     */
+    public static Consumer subscribe(String streamName,
+            SubscriptionConfig config) throws YRException {
+        return YR.getRuntime().createStreamConsumer(streamName, config, false);
+    }
+
+    /**
+     * Create a consumer.
+     *
+     * @param streamName The name of the stream. The length must be less than 256 characters and contain only the
+     *                   following characters ``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``.
+     * @param config Consumer configuration information.
+     * @param autoAck When autoAck = true, the consumer automatically sends an Ack to the data system for the previous
+     *                message when it receives a message.
+     * @return Consumer: Consumer interface.
+     * @throws YRException Unified exception types thrown.
+     */
+    public static Consumer subscribe(String streamName, SubscriptionConfig config,
+            boolean autoAck) throws YRException {
+        return YR.getRuntime().createStreamConsumer(streamName, config, autoAck);
+    }
+
+    /**
+     * Delete data stream. When the number of global producers and consumers is 0, this data stream is no longer used,
+     * and the metadata related to this data stream on each worker and master is cleaned up. This function can be called
+     * on any Host node.
+     *
+     * @param streamName The name of the stream. The length must be less than 256 characters and contain only the
+     *                   following characters ``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``.
+     * @throws YRException Unified exception types thrown.
+     */
+    public static void deleteStream(String streamName) throws YRException {
+        YR.getRuntime().deleteStream(streamName);
+    }
+
     private static ClientInfo initInternal(String runtimeCtx, Config conf) throws YRException {
         RuntimeContext.RUNTIME_CONTEXT.set(runtimeCtx);
         if (runtimeCache.get(runtimeCtx) != null) {
@@ -433,6 +595,7 @@ public class YR extends YRCall {
                 conf.setServerAddressPort(autoinfo.getFunctionSystemServerPort());
                 conf.setDataSystemAddress(autoinfo.getDataSystemIpAddr());
                 conf.setDataSystemAddressPort(autoinfo.getDataSystemPort());
+                conf.setInCluster(autoinfo.isInCluster());
             }
         }
 
@@ -467,5 +630,15 @@ public class YR extends YRCall {
         info.setContext(ctx);
         LOGGER.debug("Succeeded to init YR, jobID is {}, tenant context is {}", jobID, ctx);
         return info;
+    }
+
+    /**
+     * Get node information in the cluster.
+     *
+     * @return List<Node>: node information.
+     * @throws YRException the actor task exception.
+     */
+    public static List<Node> nodes() throws YRException {
+        return YR.getRuntime().nodes();
     }
 }

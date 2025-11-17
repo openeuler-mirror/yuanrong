@@ -47,6 +47,8 @@ public:
 
     std::vector<std::string> Del(const std::vector<std::string> &keys);
 
+    std::vector<bool> Exist(const std::vector<std::string> &keys);
+
     // clear all key-values in kv_map
     void Clear() noexcept;
 

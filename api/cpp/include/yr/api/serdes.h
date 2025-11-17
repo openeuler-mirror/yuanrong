@@ -31,12 +31,17 @@ static msgpack::sbuffer Serialize(const T &value)
     return buffer;
 }
 
+static bool referenceFunc(msgpack::type::object_type type, std::size_t length, void* user_data)
+{
+    return true;
+}
+
 template <typename T>
 static T Deserialize(const msgpack::sbuffer &data)
 {
     try {
-        msgpack::unpacked unpacked = msgpack::unpack(data.data(), data.size(), 0);
-        return unpacked.get().as<T>();
+        msgpack::object_handle oh = msgpack::unpack(data.data(), data.size(), referenceFunc);
+        return oh.get().as<T>();
     } catch (std::exception &e) {
         std::string msg = "failed to deserialize input argument whose type=" + std::string(typeid(T).name()) +
             " and len=" + std::to_string(data.size()) + ", original exception message: " + std::string(e.what());
@@ -48,9 +53,9 @@ template <typename T>
 static T Deserialize(const std::shared_ptr<Buffer> data)
 {
     try {
-        msgpack::unpacked unpacked =
-            msgpack::unpack(static_cast<const char *>(data->ImmutableData()), data->GetSize(), 0);
-        return unpacked.get().as<T>();
+        msgpack::object_handle oh =
+            msgpack::unpack(static_cast<const char *>(data->ImmutableData()), data->GetSize(), referenceFunc);
+        return oh.get().as<T>();
     } catch (std::exception &e) {
         std::string msg = "failed to deserialize input argument whose type=" + std::string(typeid(T).name()) +
                           " and len=" + std::to_string(data->GetSize()) +

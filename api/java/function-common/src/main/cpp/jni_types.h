@@ -38,7 +38,9 @@
 #include "src/dto/internal_wait_result.h"
 #include "src/dto/invoke_arg.h"
 #include "src/dto/invoke_options.h"
+#include "src/dto/resource_unit.h"
 #include "src/dto/status.h"
+#include "src/dto/stream_conf.h"
 #include "src/libruntime/auto_init.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_config.h"
@@ -119,6 +121,20 @@ using FunctionLog = ::libruntime::FunctionLog;
         }                                                                         \
     } while (false)
 
+#define CHECK_NULL_THROW_NEW_AND_RETURN(env, ptr, returnValue, msg)                                     \
+    if ((ptr) == nullptr) {                                                                             \
+        YR::jni::JNILibruntimeException::Throw(env, YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,  \
+        YR::Libruntime::ModuleCode::RUNTIME, std::string(msg));                                         \
+        return returnValue;                                                                                 \
+    }
+
+#define CHECK_NULL_THROW_NEW_AND_RETURN_VOID(env, ptr, msg)                                             \
+    if ((ptr) == nullptr) {                                                                             \
+        YR::jni::JNILibruntimeException::Throw(env, YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,  \
+        YR::Libruntime::ModuleCode::RUNTIME, std::string(msg));                                         \
+        return;                                                                                         \
+    }
+
 inline jclass LoadClass(JNIEnv *env, const std::string &className)
 {
     jclass tempLocalClassRef = env->FindClass(className.c_str());
@@ -188,6 +204,18 @@ private:
     inline static jclass clz_ = nullptr;
 };
 
+class JNIFloat {
+public:
+    static void Init(JNIEnv *env);
+    static void Recycle(JNIEnv *env);
+
+    static jobject FromCc(JNIEnv *env, const float &arg);
+
+private:
+    inline static jclass clz_ = nullptr;
+    inline static jmethodID jmInit_ = nullptr;
+};
+
 class JNIList {
 public:
     static void Init(JNIEnv *env);
@@ -252,6 +280,7 @@ public:
         for (const T &ele : vect) {
             auto eleTmp = converter(env, ele);
             JNIList::Add(env, jlst, eleTmp);
+            env->DeleteLocalRef(eleTmp);
         }
         return jlst;
     }
@@ -374,6 +403,20 @@ private:
     inline static jmethodID jmEntrySet_ = nullptr;
 };
 
+class JNIHashMap {
+public:
+    static void Init(JNIEnv *env);
+    static void Recycle(JNIEnv *env);
+    template <typename K, typename V>
+    static jobject FromCc(JNIEnv *env, const std::unordered_map<K, V> &map,
+        std::function<jobject(JNIEnv *, const K &)> converterK, std::function<jobject(JNIEnv *, const V &)> converterV);
+
+private:
+    inline static jclass clz_ = nullptr;
+    inline static jmethodID init_ = nullptr;
+    inline static jmethodID jmPut_ = nullptr;
+};
+
 class JNIInvokeType {
 public:
     static void Init(JNIEnv *env);
@@ -459,6 +502,7 @@ private:
     inline static jmethodID jmGetRuntimePublicKeyContextPath_ = nullptr;
     inline static jmethodID jmGetRuntimePrivateKeyContextPath_ = nullptr;
     inline static jmethodID jmGetVerifyFilePath_ = nullptr;
+    inline static jmethodID jmGetPrivateKeyPaaswd_ = nullptr;
     inline static jmethodID jmGetServerName_ = nullptr;
     inline static jmethodID jmGetFunctionSystemIpAddr_ = nullptr;
     inline static jmethodID jmGetFunctionSystemPort_ = nullptr;
@@ -482,6 +526,8 @@ private:
     inline static jmethodID jmGetMaxConcurrencyCreateNum_ = nullptr;
     inline static jmethodID jmGetThreadPoolSize_ = nullptr;
     inline static jmethodID jmGetLoadPaths_ = nullptr;
+    inline static jmethodID jGetHttpIocThreadsNum_ = nullptr;
+    inline static jmethodID jGetHttpIdleTime_ = nullptr;
     inline static jmethodID jGetRpcTimeout_ = nullptr;
     inline static jmethodID jGetTenantId_ = nullptr;
     inline static jmethodID jGetNs_ = nullptr;
@@ -677,6 +723,7 @@ private:
     inline static jclass clz_ = nullptr;
     inline static jmethodID getValue_ = nullptr;
     inline static jmethodID getOperators_ = nullptr;
+    inline static jmethodID getAffinityScopeValue_ = nullptr;
 };
 
 class JNIReturnType {
@@ -909,6 +956,46 @@ private:
     inline static jmethodID jmGetErrorCode_ = nullptr;
     inline static jmethodID jmIsStart_ = nullptr;
     inline static jmethodID jmIsFinish_ = nullptr;
+};
+
+class JNIProducerConfig {
+public:
+    static void Init(JNIEnv *env);
+    static void Recycle(JNIEnv *env);
+    static YR::Libruntime::ProducerConf FromJava(JNIEnv *env, jobject obj);
+    static int64_t GetDelayFlushTimeMs(JNIEnv *env, jobject o);
+    static int64_t GetPageSizeByte(JNIEnv *env, jobject obj);
+    static uint64_t GetMaxStreamSize(JNIEnv *env, jobject obj);
+    static bool GetAutoCleanup(JNIEnv *env, jobject obj);
+    static bool GetEncryptStream(JNIEnv *env, jobject obj);
+    static uint64_t GetRetainForNumConsumers(JNIEnv *env, jobject obj);
+    static uint64_t GetReserveSize(JNIEnv *env, jobject obj);
+    static std::unordered_map<std::string, std::string> GetExtendConfig(JNIEnv *env, jobject obj);
+
+private:
+    inline static jclass clz_ = nullptr;
+    inline static jmethodID jmGetDelayFlushTimeMs_ = nullptr;
+    inline static jmethodID jmGetPageSizeByte_ = nullptr;
+    inline static jmethodID jmGetMaxStreamSize_ = nullptr;
+    inline static jmethodID jmGetAutoCleanup_ = nullptr;
+    inline static jmethodID jmGetEncryptStream_ = nullptr;
+    inline static jmethodID jmGetRetainForNumConsumers_ = nullptr;
+    inline static jmethodID jmGetReserveSize_ = nullptr;
+    inline static jmethodID jmGetExtendConfig_ = nullptr;
+};
+
+class JNINode {
+public:
+    static void Init(JNIEnv *env);
+    static void Recycle(JNIEnv *env);
+    static jobject GetResourcesFromResourceUnit(JNIEnv *env, const YR::Libruntime::ResourceUnit &resourceUnit);
+    static jobject GetLabelsFromResourceUnit(JNIEnv *env, const YR::Libruntime::ResourceUnit &resourceUnit);
+    static jobject FromCc(JNIEnv *env, const YR::Libruntime::ResourceUnit &resourceUnit);
+
+private:
+    inline static jclass clz_ = nullptr;
+    inline static jmethodID init_ = nullptr;
+    inline static jmethodID jmInit_ = nullptr;
 };
 
 }  // namespace jni

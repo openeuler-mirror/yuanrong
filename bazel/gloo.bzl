@@ -1,7 +1,6 @@
-cc_library(
+cc_import(
     name = "gloo",
-    srcs = [],
-    hdrs = glob(["gloo/**/*.h"]),
-    includes = ["include"], # 指定头文件根目录
+    hdrs = glob(["include/gloo/**/*.h"]),
+    shared_library = "lib/libgloo.so",
     visibility = ["//visibility:public"],
 )

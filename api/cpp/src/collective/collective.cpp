@@ -18,13 +18,16 @@
 
 #include <json.hpp>
 #include <ostream>
+#include <vector>
 
 #include "api/cpp/src/utils/utils.h"
 #include "gloo_collective_group.h"
+#include "src/dto/config.h"
 #include "src/libruntime/err_type.h"
 #include "src/utility/logger/logger.h"
 #include "yr/api/exception.h"
-#include "yr/api/kv_manager.h"
+#include "yr/yr.h"
+
 
 namespace YR::collective {
 
@@ -89,7 +92,10 @@ void InitCollectiveGroup(int worldSize, int rank, const std::string &groupName, 
 void CreateCollectiveGroup(const std::vector<std::string> &instanceIDs, int worldSize, const std::vector<int> &ranks,
                            const std::string &groupName, Backend backend)
 {
-    // todo 前置参数校验
+    THROW_IF_TRUE(
+            instanceIDs.size() != static_cast<size_t>(worldSize) || static_cast<size_t>(worldSize) != ranks.size(),
+            YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
+            "failed to create collective group, unequal actor, rank or world size, please check");
     CollectiveGroupInfo info{
         .instances = instanceIDs, .worldSize = worldSize, .ranks = ranks, .groupName = groupName, .backend = backend};
 
@@ -101,86 +107,88 @@ void DestroyCollectiveGroup(const std::string &groupName)
     CollectiveGroupMgr::GetInstance().DestroyCollectiveGroup(groupName);
 }
 
-void AllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, const std::string &groupName)
+void AllReduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op,
+               const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->AllReduce(input, output, op);
+                  "please create group " + groupName + "first");
+    group->AllReduce(sendbuf, recvbuf, count, dtype, op);
 }
 
-void Reduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank,
+void Reduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op, int dstRank,
             const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->Reduce(input, output, op, dstRank);
+                  "please create group " + groupName + "first");
+    group->Reduce(sendbuf, recvbuf, count, dtype, op, dstRank);
 }
 
-void AllGather(const DataDescriptor &input, DataDescriptor &output, const std::string &groupName)
+void AllGather(const void *sendbuf, void *recvbuf, int count, DataType dtype, const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->AllGather(input, output);
+                  "please create group " + groupName + "first");
+    group->AllGather(sendbuf, recvbuf, count, dtype);
 }
 
 void Barrier(const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
+                  "please create group " + groupName + "first");
     group->Barrier();
 }
 
-void Scatter(const DataDescriptor &input, DataDescriptor &output, int srcRank, const std::string &groupName)
+void Scatter(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank, const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->Scatter(input, output, srcRank);
+                  "please create group " + groupName + "first");
+    group->Scatter(sendbuf, recvbuf, count, dtype, srcRank);
 }
 
-void Broadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank, const std::string &groupName)
+void Broadcast(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank, const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->Barrier();
+                  "please create group " + groupName + "first");
+    group->Broadcast(sendbuf, recvbuf, count, dtype, srcRank);
 }
 
-void Recv(DataDescriptor &output, int srcRank, int tag, const std::string &groupName)
+void Recv(void *recvbuf, int count, int srcRank, int tag, const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->Recv(output, srcRank, tag);
+                  "please create group " + groupName + "first");
+    group->Recv(recvbuf, count, srcRank, tag);
 }
 
-void Send(const DataDescriptor &input, int dstRank, int tag, const std::string &groupName)
+void Send(const void *sendbuf, int count, int dstRank, int tag, const std::string &groupName)
 {
     auto group = CollectiveGroupMgr::GetInstance().CheckAndCreateGroup(groupName);
     THROW_IF_TRUE(group == nullptr, YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                  "group: " + groupName + " is not init");
-    group->Send(input, dstRank, tag);
+                  "please create group " + groupName + "first");
+    group->Send(sendbuf, count, dstRank, tag);
 }
 
 std::shared_ptr<CollectiveGroup> CollectiveGroupMgr::CheckAndCreateGroup(const std::string &groupName)
 {
-    std::lock_guard<std::recursive_mutex> lock(mtx_);  // todo 看下锁的范围
+    std::lock_guard<std::recursive_mutex> lock(mtx_);
     if (groups_.find(groupName) != groups_.end()) {
         return groups_[groupName];
     }
     auto str = YR::KVManager::Get(COLLECTIVE_GROUP_INFO_PREFIX + groupName);
-    THROW_IF_TRUE(str.empty(), YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "group: " + groupName + " is not init");
+    THROW_IF_TRUE(str.empty(), YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
+                  "please create group " + groupName + "first");
 
     CollectiveGroupInfo info;
     info.FromJson(str);
 
-    int index = 0;
+    size_t index = 0;
     for (; index < info.instances.size(); ++index) {
-        if (info.instances.at(index) == "GetInstanceID") { // todo 获取instanceID
+        if (info.instances.at(index) == YR::Libruntime::Config::Instance().INSTANCE_ID()) {
             break;
         }
     }
@@ -217,6 +225,7 @@ void CollectiveGroupMgr::InitCollectiveGroup(int worldSize, int rank, const std:
 void CollectiveGroupMgr::DestroyCollectiveGroup(const std::string &groupName)
 {
     std::lock_guard<std::recursive_mutex> lock(mtx_);
+    YR::KVManager::Del(COLLECTIVE_GROUP_INFO_PREFIX + groupName);
     groups_.erase(groupName);
 }
 

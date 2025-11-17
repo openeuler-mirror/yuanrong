@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2023-2023. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,13 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <unordered_map>
 #include <utility>
 
-#include "data_descriptor.h"
 #include "reduce_op.h"
 
 namespace YR::collective {
@@ -34,25 +35,26 @@ enum Backend : uint8_t {
 class CollectiveGroup {
 public:
     CollectiveGroup(std::string groupName, int worldSize, int rank, Backend backend)
-        : rank_(rank), groupName_(std::move(groupName)), backend_(backend), worldSize_(worldSize)
+            : groupName_(std::move(groupName)), rank_(rank), backend_(backend), worldSize_(worldSize)
     {
     }
 
-    virtual void AllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op) = 0;
+    virtual void AllReduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op) = 0;
 
-    virtual void Reduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank) = 0;
+    virtual void Reduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op,
+                        int dstRank) = 0;
 
-    virtual void AllGather(const DataDescriptor &input, DataDescriptor &output) = 0;
+    virtual void AllGather(const void *sendbuf, void *recvbuf, int count, DataType dtype) = 0;
 
     virtual void Barrier() = 0;
 
-    virtual void Scatter(const DataDescriptor &input, DataDescriptor &output, int srcRank) = 0;
+    virtual void Scatter(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank) = 0;
 
-    virtual void Broadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank) = 0;
+    virtual void Broadcast(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank) = 0;
 
-    virtual void Recv(DataDescriptor &output, int srcRank, int tag) = 0;
+    virtual void Recv(void *recvbuf, int count, int srcRank, int tag) = 0;
 
-    virtual void Send(const DataDescriptor &input, int dstRank, int tag) = 0;
+    virtual void Send(const void *sendbuf, int count, int dstRank, int tag) = 0;
 
     int GetRank() const;
     std::string GetGroupName();
@@ -95,22 +97,24 @@ void CreateCollectiveGroup(const std::vector<std::string> &instanceIDs, int worl
  */
 void DestroyCollectiveGroup(const std::string &groupName);
 
-void AllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, const std::string &groupName);
+void AllReduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op,
+               const std::string &groupName);
 
-void Reduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank,
+void Reduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op, int dstRank,
             const std::string &groupName);
 
-void AllGather(const DataDescriptor &input, DataDescriptor &output, const std::string &groupName);
+void AllGather(const void *sendbuf, void *recvbuf, int count, DataType dtype, const std::string &groupName);
 
 void Barrier(const std::string &groupName);
 
-void Scatter(const DataDescriptor &input, DataDescriptor &output, int srcRank, const std::string &groupName);
+void Scatter(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank, const std::string &groupName);
 
-void Broadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank, const std::string &groupName);
+void Broadcast(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank,
+               const std::string &groupName);
 
-void Recv(DataDescriptor &output, int srcRank, int tag, const std::string &groupName);
+void Recv(void *recvbuf, int count, int srcRank, int tag, const std::string &groupName);
 
-void Send(const DataDescriptor &input, int dstRank, int tag, const std::string &groupName);
+void Send(const void *sendbuf, int count, int dstRank, int tag, const std::string &groupName);
 
 class CollectiveGroupMgr {
 public:

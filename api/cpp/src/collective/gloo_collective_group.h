@@ -25,37 +25,38 @@ class GlooCollectiveGroup : public CollectiveGroup {
 public:
     GlooCollectiveGroup(std::string groupName, int worldSize, int rank);
 
-    void AllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op) override;
+    void AllReduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op) override;
 
-    void Reduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank) override;
+    void Reduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op,
+                int dstRank) override;
 
-    void AllGather(const DataDescriptor &input, DataDescriptor &output) override;
+    void AllGather(const void *sendbuf, void *recvbuf, int count, DataType dtype) override;
 
     void Barrier() override;
 
-    void Scatter(const DataDescriptor &input, DataDescriptor &output, int srcRank) override;
+    void Scatter(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank) override;
 
-    void Broadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank) override;
+    void Broadcast(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank) override;
 
-    void Recv(DataDescriptor &output, int srcRank, int tag) override;
+    void Recv(void *recvbuf, int count, int srcRank, int tag) override;
 
-    void Send(const DataDescriptor &input, int dstRank, int tag) override;
+    void Send(const void *sendbuf, int count, int dstRank, int tag) override;
 
 private:
     template <typename T>
-    void DoAllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op);
+    void DoAllReduce(const void *sendbuf, void *recvbuf, int count, const ReduceOp &op);
 
     template <typename T>
-    void DoReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank);
+    void DoReduce(const void *sendbuf, void *recvbuf, int count, const ReduceOp &op, int dstRank);
 
     template <typename T>
-    void DoAllGather(const DataDescriptor &input, DataDescriptor &output);
+    void DoAllGather(const void *sendbuf, void *recvbuf, int count);
 
     template <typename T>
-    void DoScatter(const DataDescriptor &input, DataDescriptor &output, int srcRank);
+    void DoScatter(const void *sendbuf, void *recvbuf, int count, int srcRank);
 
     template <typename T>
-    void DoBroadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank);
+    void DoBroadcast(const void *sendbuf, void *recvbuf, int count, int srcRank);
 
     template <typename T>
     static gloo::AllreduceOptions::Func GetReduceOp(const ReduceOp &op);

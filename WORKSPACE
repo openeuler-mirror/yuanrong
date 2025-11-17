@@ -178,8 +178,8 @@ http_archive(
 
 new_local_repository(
     name = "gloo",
-    build_file = "//third_party:gloo.bzl",
-    path = "../third_party/gloo",
+    path = "../thirdparty/gloo/install",
+    build_file = "@//bazel:gloo.bzl",
 )
 
 maybe(

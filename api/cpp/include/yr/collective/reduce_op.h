@@ -19,6 +19,14 @@
 #include <cstdint>
 
 namespace YR {
+
+enum DataType : uint8_t {
+    INT = 0,
+    DOUBLE,
+
+    INVALID
+};
+
 enum ReduceOp : uint8_t {
     SUM = 0,
     PRODUCT = 1,

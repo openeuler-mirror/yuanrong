@@ -24,9 +24,11 @@
 #include <gloo/rendezvous/prefix_store.h>
 #include <gloo/scatter.h>
 #include <gloo/transport/tcp/device.h>
+#include <gloo/transport/ibverbs//device.h>
 
 #include "api/cpp/src/utils/utils.h"
-#include "yr/api/kv_manager.h"
+#include "src/dto/config.h"
+#include "yr/yr.h"
 
 namespace YR::collective {
 
@@ -79,27 +81,39 @@ GlooCollectiveGroup::GlooCollectiveGroup(std::string groupName, int worldSize, i
     auto dsStore = std::make_shared<DsStore>();
     auto prefixStore = std::make_shared<gloo::rendezvous::PrefixStore>(groupName_, dsStore);
 
-    gloo::transport::tcp::attr attr;
-    attr.hostname = "";  // todo 从环境变量里取本地地址 也支持环境变量配置使用哪种后端
-    auto dev = gloo::transport::tcp::CreateDevice(attr);
+    std::shared_ptr<gloo::transport::Device> dev;
+    auto backend = GetEnv("GLOO_BACKEND_TYPE");
+    if (backend.empty() || backend == "TCP") {
+        gloo::transport::tcp::attr attr;
+        attr.hostname = YR::Libruntime::Config::Instance().HOST_IP();
+        dev = gloo::transport::tcp::CreateDevice(attr);
+    } else if (backend == "IBVERBS") {
+        gloo::transport::ibverbs::attr attr;
+        attr.name = GetEnv("GLOO_IBVERBS_NAME");
+        dev = gloo::transport::ibverbs::CreateDevice(attr);
+    } else {
+        throw YR::Exception(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
+                            "invalid backend type: " + backend);
+    }
 
     context_ = std::make_shared<gloo::rendezvous::Context>(rank_, worldSize_);
     context_->connectFullMesh(prefixStore, dev);
 }
 
-void GlooCollectiveGroup::AllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op)
+void GlooCollectiveGroup::AllReduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op)
 {
-    EXECUTE_BY_TYPE(input.dType, DoAllReduce, input, output, op);
+    EXECUTE_BY_TYPE(dtype, DoAllReduce, sendbuf, recvbuf, count, op);
 }
 
-void GlooCollectiveGroup::Reduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank)
+void GlooCollectiveGroup::Reduce(const void *sendbuf, void *recvbuf, int count, DataType dtype, const ReduceOp &op,
+                                 int dstRank)
 {
-    EXECUTE_BY_TYPE(input.dType, DoReduce, input, output, op, dstRank);
+    EXECUTE_BY_TYPE(dtype, DoReduce, sendbuf, recvbuf, count, op, dstRank);
 }
 
-void GlooCollectiveGroup::AllGather(const DataDescriptor &input, DataDescriptor &output)
+void GlooCollectiveGroup::AllGather(const void *sendbuf, void *recvbuf, int count, DataType dtype)
 {
-    EXECUTE_BY_TYPE(input.dType, DoAllGather, input, output);
+    EXECUTE_BY_TYPE(dtype, DoAllGather, sendbuf, recvbuf, count);
 }
 
 void GlooCollectiveGroup::Barrier()
@@ -108,26 +122,26 @@ void GlooCollectiveGroup::Barrier()
     gloo::barrier(opts);
 }
 
-void GlooCollectiveGroup::Scatter(const DataDescriptor &input, DataDescriptor &output, int srcRank)
+void GlooCollectiveGroup::Scatter(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank)
 {
-    EXECUTE_BY_TYPE(input.dType, DoScatter, input, output, srcRank);
+    EXECUTE_BY_TYPE(dtype, DoScatter, sendbuf, recvbuf, count, srcRank);
 }
 
-void GlooCollectiveGroup::Broadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank)
+void GlooCollectiveGroup::Broadcast(const void *sendbuf, void *recvbuf, int count, DataType dtype, int srcRank)
 {
-    EXECUTE_BY_TYPE(input.dType, DoBroadcast, input, output, srcRank);
+    EXECUTE_BY_TYPE(dtype, DoBroadcast, sendbuf, recvbuf, count, srcRank);
 }
 
-void GlooCollectiveGroup::Recv(DataDescriptor &output, int srcRank, int tag)
+void GlooCollectiveGroup::Recv(void *recvbuf, int count, int srcRank, int tag)
 {
-    auto ubuf = context_->createUnboundBuffer(output.buf, output.count);
+    auto ubuf = context_->createUnboundBuffer(recvbuf, count);
     ubuf->recv(srcRank, tag);
     ubuf->waitRecv();
 }
 
-void GlooCollectiveGroup::Send(const DataDescriptor &input, int dstRank, int tag)
+void GlooCollectiveGroup::Send(const void *sendbuf, int count, int dstRank, int tag)
 {
-    auto ubuf = context_->createUnboundBuffer(input.buf, input.count);
+    auto ubuf = context_->createUnboundBuffer(const_cast<void *>(sendbuf), count);
     ubuf->send(dstRank, tag);
     ubuf->waitSend();
 }
@@ -154,52 +168,52 @@ gloo::AllreduceOptions::Func GlooCollectiveGroup::GetReduceOp(const ReduceOp &op
 }
 
 template <typename T>
-void GlooCollectiveGroup::DoAllReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op)
+void GlooCollectiveGroup::DoAllReduce(const void *sendbuf, void *recvbuf, int count, const ReduceOp &op)
 {
     gloo::AllreduceOptions opts(context_);
-    opts.setInput(static_cast<T *>(input.buf), input.count);
-    opts.setOutput(static_cast<T *>(output.buf), output.count);
+    opts.setInput(const_cast<T *>((T *)sendbuf), count);
+    opts.setOutput(static_cast<T *>(recvbuf), count);
     opts.setReduceFunction(GetReduceOp<T>(op));
     gloo::allreduce(opts);
 }
 
 template <typename T>
-void GlooCollectiveGroup::DoReduce(const DataDescriptor &input, DataDescriptor &output, const ReduceOp &op, int dstRank)
+void GlooCollectiveGroup::DoReduce(const void *sendbuf, void *recvbuf, int count, const ReduceOp &op, int dstRank)
 {
     gloo::ReduceOptions opts(context_);
-    opts.setInput(static_cast<T *>(input.buf), input.count);
-    opts.setOutput(static_cast<T *>(output.buf), output.count);
+    opts.setInput(const_cast<T *>((T *)sendbuf), count);
+    opts.setOutput(static_cast<T *>(recvbuf), count);
     opts.setReduceFunction(GetReduceOp<T>(op));
     gloo::reduce(opts);
 }
 
 template <typename T>
-void GlooCollectiveGroup::DoBroadcast(const DataDescriptor &input, DataDescriptor &output, int srcRank)
+void GlooCollectiveGroup::DoBroadcast(const void *sendbuf, void *recvbuf, int count, int srcRank)
 {
     gloo::BroadcastOptions opts(context_);
-    opts.setInput(static_cast<T *>(input.buf), input.count);
-    opts.setOutput(static_cast<T *>(output.buf), output.count);
+    opts.setInput(const_cast<T *>((T *)sendbuf), count);
+    opts.setOutput(static_cast<T *>(recvbuf), count);
     opts.setRoot(srcRank);
     gloo::broadcast(opts);
 }
 
 template <typename T>
-void GlooCollectiveGroup::DoScatter(const DataDescriptor &input, DataDescriptor &output, int srcRank)
+void GlooCollectiveGroup::DoScatter(const void *sendbuf, void *recvbuf, int count, int srcRank)
 {
     gloo::ScatterOptions opts(context_);
-    std::vector<T *> inputs = {static_cast<T *>(input.buf)};
-    opts.setInputs(inputs, input.count);
-    opts.setOutput(static_cast<T *>(output.buf), output.count);
+    std::vector<T *> inputs = {const_cast<T *>((T *)sendbuf)};
+    opts.setInputs(inputs, count);
+    opts.setOutput(static_cast<T *>(recvbuf), count);
     opts.setRoot(srcRank);
     gloo::scatter(opts);
 }
 
 template <typename T>
-void GlooCollectiveGroup::DoAllGather(const DataDescriptor &input, DataDescriptor &output)
+void GlooCollectiveGroup::DoAllGather(const void *sendbuf, void *recvbuf, int count)
 {
     gloo::AllgatherOptions opts(context_);
-    opts.setInput(static_cast<T *>(input.buf), input.count);
-    opts.setOutput(static_cast<T *>(output.buf), output.count);
+    opts.setInput(const_cast<T *>((T *)sendbuf), count);
+    opts.setOutput(static_cast<T *>(recvbuf), count);
     gloo::allgather(opts);
 }
 }  // namespace YR::collective

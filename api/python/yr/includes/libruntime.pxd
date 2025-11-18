@@ -529,6 +529,7 @@ cdef extern from "src/dto/resource_unit.h" nogil:
         uint32_t status
         unordered_map[string, float] capacity
         unordered_map[string, float] allocatable
+        unordered_map[string, vector[string]] nodeLabels
 
 cdef extern from "src/dto/resource_unit.h" nogil:
     cdef cppclass CScalar "YR::Libruntime::Resource::Scalar":

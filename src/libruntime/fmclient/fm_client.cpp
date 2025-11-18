@@ -149,6 +149,17 @@ ErrorInfo ParseQueryResponseToRgUnit(const std::string &result, ResourceGroupUni
     return ErrorInfo();
 }
 
+std::unordered_map<std::string, std::vector<std::string>> ProcessNodeLabels(
+        const ::google::protobuf::Map<std::string, ::resources::Value::Counter> &nodeLabels) {
+    std::unordered_map<std::string, std::vector<std::string>> result;
+    for (auto &counter : nodeLabels) {
+        for (auto &labels : counter.second.items()) {
+            result[counter.first].push_back(labels.first);
+        }
+    }
+    return result;
+}
+
 ErrorInfo ParseQueryResponse(const std::string &result, std::vector<ResourceUnit> &res)
 {
     QueryResourcesInfoResponse resp;
@@ -162,6 +173,7 @@ ErrorInfo ParseQueryResponse(const std::string &result, std::vector<ResourceUnit
         unit.status = resPair.second.status();
         unit.capacity = ProcessResources(resPair.second.capacity().resources());
         unit.allocatable = ProcessResources(resPair.second.allocatable().resources());
+        unit.nodeLabels = ProcessNodeLabels(resPair.second.nodelabels());
         res.push_back(unit);
     }
     return ErrorInfo();

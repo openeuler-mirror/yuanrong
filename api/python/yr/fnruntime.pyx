@@ -2065,6 +2065,7 @@ cdef class Fnruntime:
         """
         cdef:
             pair[CErrorInfo, vector[CResourceUnit]] ret
+            vector[string] label_values
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
             raise RuntimeError("already finalized")
@@ -2081,14 +2082,22 @@ cdef class Fnruntime:
             res['status'] = it.status
             capacity = {}
             for r in it.capacity:
-                name = r.first.decode()
-                capacity[name] = r.second
+                name = r[0].decode()
+                capacity[name] = r[1]
             res['capacity'] = capacity
             allocatable = {}
             for r in it.allocatable:
-                name = r.first.decode()
-                allocatable[name] = r.second
+                name = r[0].decode()
+                allocatable[name] = r[1]
             res['allocatable'] = allocatable
+            labels = {}
+            for r in it.nodeLabels:
+                key = r[0].decode()
+                label_values = r[1]
+                labels[key] = []
+                for value in label_values:
+                    labels[key].append(value.decode())
+            res['labels'] = labels
             result.append(res)
         return result
     

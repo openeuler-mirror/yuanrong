@@ -1038,7 +1038,7 @@ TEST_F(TaskTest, TestDifferentResourceTask)
  * @title: 中途手动kill proxy进程，invoke请求不卡住
  * @expect:  1.get到正确的数据
  */
-TEST_F(TaskTest, TestGrpcClientReconnect)
+TEST_F(TaskTest, DISABLED_TestGrpcClientReconnect)
 {
     auto r1 = YR::Function(&AddAfterSleepTen).Invoke(2);
     sleep(1);

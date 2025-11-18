@@ -56,6 +56,9 @@ extern const char *DELEGATE_DOWNLOAD;
 const std::string NEED_ORDER = "need_order";
 const std::string RECOVER_RETRY_TIMES = "RecoverRetryTimes";
 
+// Suspend-state instance handler retrieval only; pending refactor
+const std::string NAMED_FUNCMETA = "named_funcmeta";
+
 struct InvokeSpec {
     InvokeSpec(const std::string &jobId, const FunctionMeta &functionMeta, const std::vector<DataObject> &returnObjs,
                std::vector<InvokeArg> invokeArgs, const libruntime::InvokeType invokeType, std::string traceId,
@@ -110,7 +113,7 @@ struct InvokeSpec {
 
     void BuildInstanceInvokeRequest(const LibruntimeConfig &config);
 
-    std::string BuildCreateMetaData(const LibruntimeConfig &config);
+    std::string BuildCreateMetaData(const LibruntimeConfig &config, std::string &funcMetaStr);
 
     std::string BuildInvokeMetaData(const LibruntimeConfig &config);
 
@@ -120,12 +123,17 @@ struct InvokeSpec {
         Arg *pbArg;
         if (functionMeta.apiType != libruntime::ApiType::Posix) {
             std::string metaData;
+            std::string funcMetaStr;
             if (isCreate) {
-                metaData = BuildCreateMetaData(config);
+                metaData = BuildCreateMetaData(config, funcMetaStr);
             } else {
                 metaData = BuildInvokeMetaData(config);
             }
-
+            if constexpr (std::is_same<T, CreateRequest>::value) {
+                if (!funcMetaStr.empty()) {
+                    request.mutable_createoptions()->insert({NAMED_FUNCMETA, funcMetaStr});
+                }
+            }
             pbArg = request.add_args();
             pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
             pbArg->set_value(metaData);

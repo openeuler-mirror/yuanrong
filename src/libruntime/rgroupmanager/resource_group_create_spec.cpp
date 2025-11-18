@@ -15,20 +15,10 @@
  */
 
 #include "resource_group_create_spec.h"
+#include "src/libruntime/utils/utils.h"
 
 namespace YR {
 namespace Libruntime {
-
-GroupPolicy ConvertStrategyToPolicy(const std::string &stategy)
-{
-    static const std::unordered_map<std::string, GroupPolicy> strategyMap = {
-        {"PACK", GroupPolicy::Pack},
-        {"STRICT_PACK", GroupPolicy::StrictPack},
-        {"SPREAD", GroupPolicy::Spread},
-        {"STRICT_SPREAD", GroupPolicy::StrictSpread}};
-    auto it = strategyMap.find(stategy);
-    return (it != strategyMap.end()) ? it->second : GroupPolicy::None;
-}
 
 void ResourceGroupCreateSpec::BuildCreateResourceGroupRequest()
 {

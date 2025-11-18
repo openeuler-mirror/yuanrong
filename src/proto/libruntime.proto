@@ -54,6 +54,8 @@ enum Signal {
     Subsribe = 9;
     Update = 10;
     Unsubsribe = 11;
+    GroupSuspend = 16;
+    GroupResume = 17;
     UpdateAlias = 64;
     UpdateFrontend = 65;
     UpdateScheduler = 66;

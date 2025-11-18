@@ -107,7 +107,7 @@
 |  参数名  | 说明    | 默认值                                                  |  备注 |
 | ------- | ------- |------------------------------------------------------| ------------------- |
 | `-g,--driver_gateway_enable` | function-proxy 开启端口，支持 driver 直连。 | ``false``                                                | 选填，取值：``true``、``false``，yr_master.sh 启动固定为 ``true``。 |
-| `--state_storage_type` | 状态存储类型。 | ``disable``                                              | 选填，取值：``datasystem``、``disable``。 |
+| `--state_storage_type` | 状态存储类型。 | ``datasystem``                                              | 选填，取值：``datasystem``、``disable``。 |
 | `--min_instance_cpu_size` | 函数实例支持请求最小 cpu（单位：``1/1000`` 核）。 | ``300``                                                  |选填。 |
 | `--min_instance_memory_size` | 函数实例支持请求最小 memory（单位：MB）。 | ``128``                                                  | 选填。|
 | `--max_instance_cpu_size` | 函数实例支持请求最大 cpu（单位：``1/1000`` 核）。 | ``16000``                                                |选填。最大值：``1073741824``。 |

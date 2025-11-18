@@ -33,7 +33,7 @@ from cython.operator import dereference, postincrement
 from cpython.exc cimport PyErr_CheckSignals
 
 import yr
-from yr.config import SchedulingAffinityType, FunctionGroupOptions, ResourceGroupOptions
+from yr.config import SchedulingAffinityType, FunctionGroupOptions, ResourceGroupOptions, GroupOptions
 from yr.common.types import GroupInfo, CommonStatus, Resource, Resources, BundleInfo, Option, RgInfo, ResourceGroupUnit
 from yr.common import constants
 from yr.common.utils import generate_random_id, create_new_event_loop
@@ -67,7 +67,7 @@ CErrorCode, CErrorInfo, CFunctionMeta,
 CInternalWaitResult, CInvokeArg,
 CInvokeOptions, CInvokeType, CModuleCode,
 CLanguageType, CLibruntimeConfig,
-CLibruntimeManager,move,CLibruntime,
+CLibruntimeManager,move,CLibruntime, CGroupOptions,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
 CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
@@ -353,6 +353,15 @@ cdef CGetParams get_params_from_py(params: GetParams):
         c_get_param = get_param_from_py(get_param)
         c_get_params.getParams.push_back(c_get_param)
     return c_get_params
+
+cdef CGroupOptions group_options_from_py(group_name: str, group_opts: GroupOptions):
+    cdef:
+        CGroupOptions c_group_options
+    c_group_options.groupName = group_name.encode()
+    c_group_options.timeout = group_opts.timeout
+    c_group_options.sameLifecycle = group_opts.same_lifecycle
+    c_group_options.strategy = group_opts.strategy
+    return c_group_options
 
 cdef CFunctionGroupOptions function_group_options_from_py(function_group_opts: FunctionGroupOptions, group_size: int):
     cdef:
@@ -960,6 +969,7 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     opts.minInstances = opt.min_instances
     opts.maxInstances = opt.max_instances
     opts.resourceGroupOpts = resource_group_options_from_py(opt.resource_group_options)
+    opts.groupName = opt.group_name.encode()
     if group_info is not None:
         opts.functionGroupOpts = function_group_options_from_py(opt.function_group_options, group_info.group_size)
         opts.groupName = group_info.group_name.encode()
@@ -2263,6 +2273,48 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().AddReturnObject(c_obj_ids)
         return ret
+    
+    def create_group(self, group_name: str, group_opts: GroupOptions):
+        cdef:
+            string c_group_name = group_name.encode()
+            CGroupOptions c_group_options
+        c_group_options = group_options_from_py(group_name, group_opts)
+        with nogil:
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupCreate(c_group_name, c_group_options)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to create group, code: {ret.Code()}, "
+                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def wait_group(self, group_name: str):
+        cdef:
+            string c_group_name = group_name.encode()
+        with nogil:
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupWait(c_group_name)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to wait group, code: {ret.Code()}, "
+                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def suspend_group(self, group_name: str):
+        cdef:
+            string c_group_name = group_name.encode()
+        with nogil:
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupSuspend(c_group_name)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to suspend group, code: {ret.Code()}, "
+                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def resume_group(self, group_name: str):
+        cdef:
+            string c_group_name = group_name.encode()
+        with nogil:
+            ret = CLibruntimeManager.Instance().GetLibRuntime().get().GroupResume(c_group_name)
+        if not ret.OK():
+            raise RuntimeError(
+                f"failed to resume group, code: {ret.Code()}, "
+                f"module code: {ret.MCode()}, msg: {ret.Msg().decode()}")
 
 cdef cluster_access_info_cpp_to_py(const CClusterAccessInfo & c_cluster_info):
     return {

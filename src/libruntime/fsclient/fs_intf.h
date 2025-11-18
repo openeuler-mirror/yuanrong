@@ -195,7 +195,7 @@ public:
 
 class CallMessageSpec : public MessgeSpec {
 public:
-    CallMessageSpec() : MessgeSpec(){};
+    CallMessageSpec() : MessgeSpec() {};
     explicit CallMessageSpec(const std::shared_ptr<::runtime_rpc::StreamingMessage> &msg) : MessgeSpec(msg) {}
     ~CallMessageSpec() override = default;
     CallRequest &Mutable()
@@ -293,6 +293,7 @@ protected:
 private:
     bool AddProcessingRequestId(const std::string &requestId);
     bool DeleteProcessingRequestId(const std::string &requestId);
+    bool ExistProcessingRequestId();
     bool cleared_{false};
     FSIntfHandlers handlers;
     bool syncHeartbeat;
@@ -318,6 +319,8 @@ private:
             INITIALIZED,
             SHUTTING_DOWN,
             SHUTDOWN,
+            CHECKPOINTING,
+            INTERRUPT_CHECKPOITING,
         };
 
         InstanceStatus() : state(STARTED)
@@ -373,6 +376,40 @@ private:
                 state = SHUTTING_DOWN;
             }
             return state == SHUTTING_DOWN;
+        }
+
+        bool SetCheckpointing()
+        {
+            absl::MutexLock lock(&this->mu);
+            if (state != CHECKPOINTING) {
+                state = CHECKPOINTING;
+                err = std::make_pair(common::ERR_INNER_SYSTEM_ERROR, "instance is checkpointing");
+            }
+            return state == CHECKPOINTING;
+        }
+
+        void SetCheckpointed()
+        {
+            absl::MutexLock lock(&this->mu);
+            if (state == CHECKPOINTING || state == INTERRUPT_CHECKPOITING) {
+                state = INITIALIZED;
+            }
+            err = std::make_pair(common::ERR_NONE, "");
+        }
+
+        void InterruptCheckpointing()
+        {
+            absl::MutexLock lock(&this->mu);
+            if (state == CHECKPOINTING) {
+                state = INTERRUPT_CHECKPOITING;
+                err = std::make_pair(common::ERR_INNER_SYSTEM_ERROR, "checkpoint is interrupted");
+            }
+        }
+
+        bool IsCheckpointingInterrupted()
+        {
+            absl::MutexLock lock(&this->mu);
+            return state == INTERRUPT_CHECKPOITING;
         }
 
         void SetShutdown()

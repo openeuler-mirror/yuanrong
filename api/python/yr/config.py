@@ -297,6 +297,13 @@ class FunctionGroupContext:
 
 
 @dataclass
+class GroupOptions:
+    timeout: int = -1
+    same_lifecycle: bool = True
+    strategy: str = ""
+
+
+@dataclass
 class InvokeOptions:
     """Use to set the invoke options.
 
@@ -424,7 +431,8 @@ class InvokeOptions:
     #: selected for scheduling.
     preferred_anti_other_labels = False
 
-    resource_group_options: ResourceGroupOptions = field(default_factory=ResourceGroupOptions)
+    resource_group_options: ResourceGroupOptions = field(
+        default_factory=ResourceGroupOptions)
     """
     Specify the ResourceGroup option, which includes resource_group_name and bundle_index. 
     
@@ -451,7 +459,8 @@ class InvokeOptions:
     """
 
     #: Function group options.
-    function_group_options: FunctionGroupOptions = field(default_factory=FunctionGroupOptions)
+    function_group_options: FunctionGroupOptions = field(
+        default_factory=FunctionGroupOptions)
     #: Set environment variables when the instance starts.
     env_vars: Dict[str, str] = field(default_factory=dict)
     #: Number of retries for stateless functions.
@@ -501,6 +510,8 @@ class InvokeOptions:
        * If you use conda, you need to specify the environment variable `YR_CONDA_HOME` to point to installation path. 
     """
 
+    group_name: str = ""
+
     def check_options_valid(self):
         """
         Check whether the options are valid.
@@ -530,7 +541,6 @@ class InvokeOptions:
                     f"invalid type for '{actual}', actual: {type(actual_value)}, expect: {expected_type}"
                 )
 
-
     def check_options_range(self):
         """
         Check whether the options are in the valid range.
@@ -541,7 +551,7 @@ class InvokeOptions:
             "max_instances",
             "max_invoke_latency",
             "min_instances",
-       ]
+        ]
 
         for attr in attrs:
             value = getattr(self, attr)

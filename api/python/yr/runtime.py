@@ -22,7 +22,7 @@ from enum import Enum
 from typing import List, Tuple, Union, Any, Callable, Dict
 
 from yr.common.types import GroupInfo
-from yr.config import InvokeOptions
+from yr.config import InvokeOptions, GroupOptions
 from yr.libruntime_pb2 import FunctionMeta
 from yr.fnruntime import SharedBuffer
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
@@ -121,7 +121,6 @@ class MSetParam:
 @dataclass
 class CreateParam:
     """Create param."""
-
 
     #: Configure the reliability of the data.
     #: When the server is configured to support a secondary cache for ensuring reliability,
@@ -617,4 +616,44 @@ class Runtime(metaclass=ABCMeta):
         add return object
         Returns:
             bool
+        """
+
+    @abstractmethod
+    def create_group(self, group_name: str, group_opts: GroupOptions):
+        """
+        create group
+        Returns:
+            None
+        """
+
+    @abstractmethod
+    def terminate_group(self, group_name: str):
+        """
+        terminate group
+        Returns:
+            None
+        """
+
+    @abstractmethod
+    def wait_group(self, group_name: str):
+        """
+        wait group
+        Returns:
+            None
+        """
+
+    @abstractmethod
+    def suspend_group(self, group_name: str):
+        """
+        suspend group
+        Returns:
+            None
+        """
+
+    @abstractmethod
+    def resume_group(self, group_name: str):
+        """
+        resume group
+        Returns:
+            None
         """

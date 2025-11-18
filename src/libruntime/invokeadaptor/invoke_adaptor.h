@@ -28,8 +28,8 @@
 #include "src/libruntime/dependency_resolver.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/fiber.h"
-#include "src/libruntime/fsclient/fs_client.h"
 #include "src/libruntime/fmclient/fm_client.h"
+#include "src/libruntime/fsclient/fs_client.h"
 #include "src/libruntime/groupmanager/function_group.h"
 #include "src/libruntime/groupmanager/group_manager.h"
 #include "src/libruntime/invoke_order_manager.h"
@@ -39,12 +39,12 @@
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/objectstore/object_store.h"
+#include "src/libruntime/rgroupmanager/resource_group_create_spec.h"
+#include "src/libruntime/rgroupmanager/resource_group_manager.h"
 #include "src/libruntime/runtime_context.h"
 #include "src/libruntime/utils/constants.h"
 #include "src/libruntime/utils/exception.h"
 #include "src/libruntime/utils/utils.h"
-#include "src/libruntime/rgroupmanager/resource_group_create_spec.h"
-#include "src/libruntime/rgroupmanager/resource_group_manager.h"
 #include "src/utility/notification_utility.h"
 
 namespace YR {
@@ -119,8 +119,12 @@ public:
 
     virtual void GroupTerminate(const std::string &groupName);
 
+    virtual ErrorInfo GroupSuspend(const std::string &groupName);
+
+    virtual ErrorInfo GroupResume(const std::string &groupName);
+
     virtual std::pair<std::vector<std::string>, ErrorInfo> GetInstanceIds(const std::string &objId,
-                                                                  const std::string &groupName);
+                                                                          const std::string &groupName);
 
     virtual ErrorInfo SaveState(const std::shared_ptr<Buffer> data, const int &timeout);
 
@@ -134,7 +138,8 @@ public:
 
     void CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec> spec);
     virtual std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> GetInstance(const std::string &name,
-                                                                   const std::string &nameSpace, int timeoutSec);
+                                                                           const std::string &nameSpace,
+                                                                           int timeoutSec);
     void SubscribeAll();
     void Subscribe(const std::string &insId);
     ErrorInfo Accelerate(const std::string &groupName, const AccelerateMsgQueueHandle &handle,
@@ -144,10 +149,11 @@ public:
 
     virtual std::pair<ErrorInfo, std::string> GetNodeId();
     virtual std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResources(void);
-    virtual std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTable(const std::string &resourceGroupId);\
+    virtual std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTable(const std::string &resourceGroupId);
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
     void PushInvokeSpec(std::shared_ptr<InvokeSpec> spec);
     void SubscribeActiveMaster();
+
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
     void CreateNotifyHandler(const NotifyRequest &req);

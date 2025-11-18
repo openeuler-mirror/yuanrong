@@ -15,57 +15,16 @@
  */
 
 #include "src/libruntime/groupmanager/named_group.h"
+#include "src/libruntime/utils/utils.h"
 
 namespace YR {
 namespace Libruntime {
+
 NamedGroup::NamedGroup(const std::string &name, const std::string &inputTenantId, GroupOpts &inputOpts,
                        std::shared_ptr<FSClient> client, std::shared_ptr<WaitingObjectManager> waitManager,
-                       std::shared_ptr<MemoryStore> memStore)
-    : Group(name, inputTenantId, inputOpts, client, waitManager, memStore)
+                       std::shared_ptr<MemoryStore> memStore, std::shared_ptr<InvokeOrderManager> invokeOrderMgr)
+    : RangeGroup(name, inputTenantId, inputOpts, client, waitManager, memStore, invokeOrderMgr)
 {
-}
-
-void NamedGroup::CreateRespHandler(const CreateResponses &resps)
-{
-    YRLOG_DEBUG("recieve group create response, resp code is {}, message is {}, runflag is {}", resps.code(),
-                resps.message(), runFlag);
-    if (!runFlag) {
-        return;
-    }
-    groupId = resps.groupid();
-    YRLOG_DEBUG("groupId id is {}", groupId);
-    if (resps.code() != common::ERR_NONE) {
-        for (auto &spec : createSpecs) {
-            memStore_->SetError(spec->returnIds[0].id, ErrorInfo(static_cast<ErrorCode>(resps.code()), ModuleCode::CORE,
-                                                                 resps.message(), true));
-        }
-    } else {
-        for (int i = 0; i < resps.instanceids_size(); i++) {
-            YRLOG_DEBUG("instace_{} id is {}", i, resps.instanceids(i));
-            createSpecs[i]->instanceId = resps.instanceids(i);
-            memStore_->SetInstanceId(createSpecs[i]->returnIds[0].id, resps.instanceids(i));
-        }
-    }
-}
-
-void NamedGroup::CreateNotifyHandler(const NotifyRequest &req)
-{
-    YRLOG_DEBUG("recieve group create notify, req code is {}, message is {}, runflag is {}", req.code(), req.message(),
-                runFlag);
-    if (!runFlag) {
-        return;
-    }
-    if (req.code() != common::ERR_NONE) {
-        for (auto &spec : createSpecs) {
-            this->memStore_->SetError(spec->returnIds[0].id, ErrorInfo(static_cast<ErrorCode>(req.code()),
-                                                                       ModuleCode::CORE, req.message(), true));
-        }
-    } else {
-        for (auto &spec : createSpecs) {
-            this->memStore_->SetReady(spec->returnIds[0].id);
-        }
-        isReady = true;
-    }
 }
 
 CreateRequests NamedGroup::BuildCreateReqs()
@@ -82,6 +41,7 @@ CreateRequests NamedGroup::BuildCreateReqs()
     options->set_groupname(groupName);
     options->set_timeout(opts.timeout);
     options->set_samerunninglifecycle(opts.sameLifecycle);
+    options->set_grouppolicy(ConvertStrategyToPolicy(opts.strategy));
     return reqs;
 }
 

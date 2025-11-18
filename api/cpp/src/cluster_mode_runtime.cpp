@@ -872,6 +872,7 @@ void ClusterModeRuntime::GroupCreate(const std::string &name, GroupOptions &opts
     libOpts.timeout = opts.timeout;
     libOpts.groupName = name;
     libOpts.sameLifecycle = opts.sameLifecycle;
+    libOpts.strategy = opts.strategy;
     auto errInfo = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime()->GroupCreate(name, libOpts);
     if (!errInfo.OK()) {
         throw YR::Exception(static_cast<int>(errInfo.Code()), static_cast<int>(errInfo.MCode()), errInfo.Msg());

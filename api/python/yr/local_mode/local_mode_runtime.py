@@ -23,7 +23,7 @@ from concurrent.futures import Future
 from typing import Union, Dict, List, Any, Tuple, Callable
 from yr.accelerate.shm_broadcast import Handle
 from yr.common.types import GroupInfo
-from yr.config import InvokeOptions
+from yr.config import InvokeOptions, GroupOptions
 from yr.exception import YRInvokeError
 from yr.common.utils import (
     generate_random_id, generate_task_id, GaugeData, UInt64CounterData, DoubleCounterData
@@ -75,7 +75,8 @@ class LocalModeRuntime(Runtime, ABC):
         :return: data which get from ds
         """
         if timeout < 0 and timeout != -1:
-            raise RuntimeError(f"Invalid parameter, timeout: {timeout}, expect -1 or > 0")
+            raise RuntimeError(
+                f"Invalid parameter, timeout: {timeout}, expect -1 or > 0")
         self.wait(ids, len(ids), timeout)
         objects = [self.__local_store.get(i) for i in ids]
         for obj in objects:
@@ -104,7 +105,8 @@ class LocalModeRuntime(Runtime, ABC):
                     break
             else:
                 iteration_timeout = None
-            ready, _ = futures.wait(unready_futures, iteration_timeout, futures.FIRST_COMPLETED)
+            ready, _ = futures.wait(
+                unready_futures, iteration_timeout, futures.FIRST_COMPLETED)
             if not ready:
                 break
             unready_futures -= ready
@@ -619,3 +621,18 @@ class LocalModeRuntime(Runtime, ABC):
             else:
                 unready_map[future] = [object_id]
         return ready_objs, unready_map, exist_exception
+
+    def create_group(self, group_name: str, group_opts: GroupOptions):
+        raise RuntimeError("not support in local mode")
+
+    def terminate_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def wait_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def suspend_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def resume_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")

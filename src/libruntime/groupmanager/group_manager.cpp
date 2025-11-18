@@ -94,6 +94,24 @@ void GroupManager::Terminate(const std::string &groupName)
     groupSpecs_.erase(groupName);
 }
 
+ErrorInfo GroupManager::Suspend(const std::string &groupName)
+{
+    if (groups_.find(groupName) == groups_.end()) {
+        return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME,
+                         "group not exist, please select correct group");
+    }
+    return groups_[groupName]->Suspend();
+}
+
+ErrorInfo GroupManager::Resume(const std::string &groupName)
+{
+    if (groups_.find(groupName) == groups_.end()) {
+        return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME,
+                         "group not exist, please select correct group");
+    }
+    return groups_[groupName]->Resume();
+}
+
 void GroupManager::Stop()
 {
     for (auto &pair : groups_) {

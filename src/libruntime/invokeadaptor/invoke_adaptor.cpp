@@ -1348,7 +1348,8 @@ ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &
 
     auto killPromise = std::make_shared<std::promise<KillResponse>>();
     std::shared_future<KillResponse> killFuture = killPromise->get_future().share();
-    this->fsClient->KillAsync(killReq, [killPromise](KillResponse rsp, ErrorInfo err) -> void { killPromise->set_value(rsp); });
+    this->fsClient->KillAsync(killReq,
+                              [killPromise](KillResponse rsp, ErrorInfo err) -> void { killPromise->set_value(rsp); });
     ErrorInfo errInfo;
     if (signal == libruntime::Signal::killInstanceSync) {
         errInfo = WaitAndCheckResp(killFuture, instanceId, NO_TIMEOUT);
@@ -1383,7 +1384,7 @@ ErrorInfo InvokeAdaptor::GroupCreate(const std::string &groupName, GroupOpts &op
 {
     if (!this->groupManager->IsGroupExist(groupName)) {
         auto group = std::make_shared<NamedGroup>(groupName, librtConfig->tenantId, opts, this->fsClient,
-                                                  this->waitingObjectManager, this->memStore);
+                                                  this->waitingObjectManager, this->memStore, this->invokeOrderMgr);
         this->groupManager->AddGroup(group);
         return this->groupManager->GroupCreate(groupName);
     }
@@ -1435,6 +1436,16 @@ ErrorInfo InvokeAdaptor::GroupWait(const std::string &groupName)
 void InvokeAdaptor::GroupTerminate(const std::string &groupName)
 {
     return this->groupManager->Terminate(groupName);
+}
+
+ErrorInfo InvokeAdaptor::GroupSuspend(const std::string &groupName)
+{
+    return this->groupManager->Suspend(groupName);
+}
+
+ErrorInfo InvokeAdaptor::GroupResume(const std::string &groupName)
+{
+    return this->groupManager->Resume(groupName);
 }
 
 std::pair<std::vector<std::string>, ErrorInfo> InvokeAdaptor::GetInstanceIds(const std::string &objId,
@@ -1655,18 +1666,21 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
     killReq.set_signal(libruntime::Signal::GetInstance);
     auto promise = std::promise<std::pair<libruntime::FunctionMeta, ErrorInfo>>();
     auto future = promise.get_future();
-    this->fsClient->KillAsync(killReq, [&promise](const KillResponse &rsp, const ErrorInfo &err) -> void {
-        if (rsp.code() != common::ERR_NONE) {
-            YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME,
-                                              rsp.message());
-            errInfo.SetIsTimeout(err.IsTimeout());
-            promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
-        } else {
-            libruntime::FunctionMeta funcMeta;
-            funcMeta.ParseFromString(rsp.message());
-            promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
-        }
-    }, timeoutSec);
+    this->fsClient->KillAsync(
+        killReq,
+        [&promise](const KillResponse &rsp, const ErrorInfo &err) -> void {
+            if (rsp.code() != common::ERR_NONE) {
+                YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME,
+                                                  rsp.message());
+                errInfo.SetIsTimeout(err.IsTimeout());
+                promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
+            } else {
+                libruntime::FunctionMeta funcMeta;
+                funcMeta.ParseFromString(rsp.message());
+                promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
+            }
+        },
+        timeoutSec);
     auto [funcMeta, errorInfo] = future.get();
     YRLOG_DEBUG("get instance finished, err code is {}, err msg is {}, function meta is {}", errorInfo.Code(),
                 errorInfo.Msg(), funcMeta.DebugString());

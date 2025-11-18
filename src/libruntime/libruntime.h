@@ -578,6 +578,10 @@ public:
     */
     virtual void GroupTerminate(const std::string &groupName);
 
+    virtual ErrorInfo GroupSuspend(const std::string &groupName);
+
+    virtual ErrorInfo GroupResume(const std::string &groupName);
+
     /*!
       @brief Get instances associated with the specified object ID within a timeout
       @param objId the ID of the object

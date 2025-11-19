@@ -15,7 +15,6 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.24.0
-	huawei.com/wisesecurity/sts-sdk v1.0.1-20250319171100-c6b279f3bac
 )
 
 require (

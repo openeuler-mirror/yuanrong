@@ -25,8 +25,6 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/magiconair/properties"
 	"github.com/smartystreets/goconvey/convey"
-
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
 )
 
 func TestGetConfig(t *testing.T) {
@@ -38,76 +36,6 @@ func TestGetConfig(t *testing.T) {
 					convey.So(conf.LogPath, convey.ShouldBeEmpty)
 				},
 			)
-		},
-	)
-}
-
-func TestLoadSTSConfig(t *testing.T) {
-	convey.Convey(
-		"Test loadSTSConfig", t, func() {
-			convey.Convey(
-				"Test loadSTSConfig when configPath == \"\"", func() {
-					convey.So(func() {
-						loadSTSConfig("")
-					}, convey.ShouldNotPanic)
-				},
-			)
-			file, _ := os.Create("config.json")
-			convey.Convey(
-				"Test loadSTSConfig when json.Unmarshal error", func() {
-					convey.So(func() {
-						loadSTSConfig("config.json")
-					}, convey.ShouldNotPanic)
-				},
-			)
-			c := &GlobalConfig{
-				RawStsConfig: StsConfig{
-					StsEnable: false,
-					ServerConfig: ServerConfig{
-						Domain: "244",
-						Path:   "244",
-					},
-					SensitiveConfigs: SensitiveConfigs{
-						Auth: map[string]string{
-							"enableIam": "false",
-						},
-					},
-				},
-			}
-			bytes, _ := json.Marshal(c)
-			file.Write(bytes)
-			convey.Convey(
-				"Test loadSTSConfig when c.RawStsConfig.StsEnable == false", func() {
-					convey.So(func() {
-						loadSTSConfig("config.json")
-					}, convey.ShouldNotPanic)
-				},
-			)
-			c.RawStsConfig.StsEnable = true
-			bytes, _ = json.Marshal(c)
-			file, _ = os.OpenFile("config.json", os.O_WRONLY|os.O_TRUNC, 0644)
-			file.Write(bytes)
-			convey.Convey(
-				"Test loadSTSConfig when stsgoapi.InitWith error", func() {
-					convey.So(func() {
-						loadSTSConfig("config.json")
-					}, convey.ShouldNotPanic)
-				},
-			)
-
-			convey.Convey(
-				"Test enableIam is false", func() {
-					convey.So(func() {
-						defer gomonkey.ApplyFunc(stsgoapi.InitWith, func(property properties.Properties) error {
-							return nil
-						}).Reset()
-						loadSTSConfig("config.json")
-					}, convey.ShouldNotPanic)
-				},
-			)
-
-			file.Close()
-			os.Remove("config.json")
 		},
 	)
 }

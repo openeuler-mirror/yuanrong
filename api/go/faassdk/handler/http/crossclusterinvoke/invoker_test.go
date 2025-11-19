@@ -32,8 +32,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/valyala/fasthttp"
-
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
+	
 	"yuanrong.org/kernel/runtime/faassdk/common/constants"
 	"yuanrong.org/kernel/runtime/faassdk/sts"
 	"yuanrong.org/kernel/runtime/faassdk/types"
@@ -182,106 +181,6 @@ func TestInvoker_DoInvoke(t *testing.T) {
 		convey.So(resp.StatusCode, convey.ShouldEqual, constants.FaaSError)
 		convey.So(strings.Contains(resp.ErrorMessage, "mock sts init error"), convey.ShouldBeTrue)
 	})
-
-	convey.Convey("ak/sk is empty", t, func() {
-		defer gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg types.StsServerConfig) error {
-			return nil
-		}).Reset()
-		defer gomonkey.ApplyFunc(stsgoapi.DecryptSensitiveConfig,
-			func(rawConfigValue string) (plainBytes []byte, err error) {
-				return []byte{}, errors.New("mock sts error 1111")
-			}).Reset()
-		invoker := getMockInvoker()
-		invoker.AccessKey = ""
-		invoker.SecretKey = ""
-		resp := &types.GetFutureResponse{}
-		invoker.DoInvoke(types.InvokeRequest{}, resp, 100, log.GetLogger())
-		convey.So(resp.StatusCode, convey.ShouldEqual, constants.FaaSError)
-		convey.So(strings.Contains(resp.ErrorMessage, "AK or SK is nil"), convey.ShouldBeTrue)
-	})
-
-	convey.Convey("decrypt ak/sk failed", t, func() {
-		defer gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg types.StsServerConfig) error {
-			return nil
-		}).Reset()
-		defer gomonkey.ApplyFunc(stsgoapi.DecryptSensitiveConfig,
-			func(rawConfigValue string) (plainBytes []byte, err error) {
-				return []byte{}, errors.New("mock sts error")
-			}).Reset()
-		invoker := getMockInvoker()
-		resp := &types.GetFutureResponse{}
-		invoker.DoInvoke(types.InvokeRequest{}, resp, 100, log.GetLogger())
-		convey.So(resp.StatusCode, convey.ShouldEqual, constants.FaaSError)
-		convey.So(strings.Contains(resp.ErrorMessage, "mock sts error"), convey.ShouldBeTrue)
-	})
-
-	convey.Convey("do invoke cases", t, func() {
-		invoker := getMockInvoker()
-		type bodyStruct struct {
-			Code         int             `json:"code"`
-			Message      string          `json:"message"`
-			UserResponse json.RawMessage `json:"userResponse"`
-		}
-		mockResponse := struct {
-			response bodyStruct
-			err      error
-		}{}
-		patches := []*gomonkey.Patches{
-			gomonkey.ApplyMethod(reflect.TypeOf(&fasthttp.Client{}), "DoTimeout",
-				func(_ *fasthttp.Client, req *fasthttp.Request, resp *fasthttp.Response) error {
-					body, _ := json.Marshal(mockResponse.response)
-					resp.SetBody(body)
-					return mockResponse.err
-				}),
-			gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg types.StsServerConfig) error {
-				return nil
-			}),
-			gomonkey.ApplyFunc(stsgoapi.DecryptSensitiveConfig, func(rawConfigValue string) (plainBytes []byte, err error) {
-				return []byte{}, nil
-			}),
-		}
-		defer func() {
-			for _, patch := range patches {
-				patch.Reset()
-			}
-		}()
-		resp := &types.GetFutureResponse{}
-		convey.Convey("do invoke ok", func() {
-			mockResponse.response = bodyStruct{
-				UserResponse: json.RawMessage("{\"key\":\"hello world\"}"),
-				Code:         0,
-				Message:      "",
-			}
-			mockResponse.err = nil
-			invoker.DoInvoke(types.InvokeRequest{
-				FuncUrn: "aaa",
-			}, resp, 100*time.Second, log.GetLogger())
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.NoneError)
-			convey.So(resp.Content, convey.ShouldEqual, "{\"key\":\"hello world\"}")
-		})
-		convey.Convey("do invoke failed 0", func() {
-			mockResponse.response = bodyStruct{
-				UserResponse: json.RawMessage("{\"key\": \"hello world\"}"),
-				Code:         0,
-				Message:      "",
-			}
-			mockResponse.err = fmt.Errorf("error is error")
-			invoker.DoInvoke(types.InvokeRequest{}, resp, 100*time.Second, log.GetLogger())
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.FaaSError)
-			convey.So(strings.Contains(resp.ErrorMessage, "error is error"), convey.ShouldBeTrue)
-		})
-		convey.Convey("do invoke failed 1", func() {
-			mockResponse.response = bodyStruct{
-				UserResponse: json.RawMessage("{\"key\":\"hello world\"}"),
-				Code:         constants.FunctionRunError,
-				Message:      "errorMsg is errorMsg",
-			}
-			mockResponse.err = nil
-			invoker.DoInvoke(types.InvokeRequest{}, resp, 100*time.Second, log.GetLogger())
-			convey.So(resp.StatusCode, convey.ShouldEqual, constants.FunctionRunError)
-			convey.So(strings.Contains(resp.ErrorMessage, "errorMsg is errorMsg"), convey.ShouldBeTrue)
-		})
-	})
 }
 
 func TestNeedTryLocalCluster(t *testing.T) {
@@ -333,38 +232,5 @@ func Test_getCrossClusterAuthConfig(t *testing.T) {
 		config := getCrossClusterAuthConfig()
 		convey.So(config.AccessKey, convey.ShouldEqual, "testAk")
 		convey.So(config.SecretKey, convey.ShouldEqual, "testSK")
-	})
-}
-
-func Test_SetHeader(t *testing.T) {
-	convey.Convey("Test SetHeader", t, func() {
-		patches := []*gomonkey.Patches{
-			gomonkey.ApplyFunc(sts.InitStsSDK, func(serverCfg types.StsServerConfig) error {
-				return nil
-			}),
-			gomonkey.ApplyFunc(stsgoapi.DecryptSensitiveConfig,
-				func(rawConfigValue string) (plainBytes []byte, err error) {
-					return []byte(base64.StdEncoding.EncodeToString([]byte("aaa"))), nil
-				}),
-		}
-		defer func() {
-			for _, patch := range patches {
-				patch.Reset()
-			}
-		}()
-		invoker := getMockInvoker()
-		httpReq := &fasthttp.Request{}
-		req := types.InvokeRequest{
-			Payload: "hello",
-		}
-		httpReq.SetBody([]byte(req.Payload))
-		err := invoker.setHeader(httpReq, req, log.GetLogger())
-		timeStamp := "1736864093"
-		signature := buildSignature(timeStamp, []byte(req.Payload), invoker.AccessKey)
-		sign := signer.Sign([]byte(invoker.SecretKey), signature)
-		signStr := signer.EncodeHex(sign)
-		buildAuth := signer.BuildAuthorization(invoker.AccessKey, timeStamp, signStr)
-		convey.So(err, convey.ShouldBeNil)
-		convey.So(buildAuth, convey.ShouldEqual, "SDK-HMAC-SHA256 accessId=testAK,timestamp="+timeStamp+",signature=0b3558036eaf229573c9390016e2adaaa4b39403bde85e6f075bb0b224658b7f")
 	})
 }

@@ -24,7 +24,6 @@ import (
 	"sync"
 
 	"github.com/magiconair/properties"
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
 
 	"yuanrong.org/kernel/runtime/libruntime/common/faas/logger"
 	"yuanrong.org/kernel/runtime/libruntime/common/logger/config"
@@ -128,53 +127,4 @@ func GetConfig() *Configuration {
 	initConfig()
 	config.LogLevelFromFlag = configSingleton.cfg.LogLevel
 	return configSingleton.cfg
-}
-
-func loadSTSConfig(configPath string) {
-	if configPath == "" {
-		return
-	}
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		logger.GetLogger().Warnf("read config failed, err %s", err.Error())
-		return
-	}
-	c := &GlobalConfig{}
-	err = json.Unmarshal(data, c)
-	if err != nil {
-		logger.GetLogger().Warnf("unmarshal config failed, err %s", err.Error())
-		return
-	}
-	if !c.RawStsConfig.StsEnable {
-		return
-	}
-	stsProperties := properties.LoadMap(
-		map[string]string{
-			"sts.server.domain": c.RawStsConfig.ServerConfig.Domain,
-			"sts.config.path":   c.RawStsConfig.ServerConfig.Path,
-		},
-	)
-	err = stsgoapi.InitWith(*stsProperties)
-	if err != nil {
-		logger.GetLogger().Warnf("failed to init sts sdk, error %s\n", err.Error())
-		return
-	}
-	enableIam, ok := c.RawStsConfig.SensitiveConfigs.Auth["enableIam"]
-	if !ok || enableIam != "true" {
-		logger.GetLogger().Warnf("enable iam is not true")
-		return
-	}
-	ak, err := stsgoapi.DecryptSensitiveConfig(c.RawStsConfig.SensitiveConfigs.Auth["accessKey"])
-	if err != nil {
-		logger.GetLogger().Warnf("failed to get accessKey, error %s\n", err.Error())
-		return
-	}
-	sk, err := stsgoapi.DecryptSensitiveConfig(c.RawStsConfig.SensitiveConfigs.Auth["secretKey"])
-	if err != nil {
-		logger.GetLogger().Warnf("failed to get secretKey, error %s\n", err.Error())
-		return
-	}
-	logger.GetLogger().Infof("init system auth info success, ak: %s", string(ak))
-	configSingleton.cfg.SystemAuthAccessKey = string(ak)
-	configSingleton.cfg.SystemAuthSecretKey = string(sk)
 }

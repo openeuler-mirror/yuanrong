@@ -31,7 +31,6 @@ import (
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
 
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
 	"yuanrong.org/kernel/runtime/faassdk/common/constants"
 	"yuanrong.org/kernel/runtime/faassdk/config"
 	"yuanrong.org/kernel/runtime/faassdk/sts"
@@ -267,29 +266,8 @@ func (invoker *Invoker) setHeader(httpReq *fasthttp.Request, request types.Invok
 }
 
 func (invoker *Invoker) parseAuthConfig() ([]byte, []byte, error) {
-	err := initSTS(invoker.StsServerConfig)
-	if err != nil {
-		return []byte{}, []byte{}, fmt.Errorf("init STS error,err:%s", err.Error())
-	}
-
-	AKey := invoker.AccessKey
-	SKey := invoker.SecretKey
-
-	if AKey == "" || SKey == "" {
-		return []byte{}, []byte{}, fmt.Errorf("AK or SK is nil")
-	}
-	accessKey, err := stsgoapi.DecryptSensitiveConfig(AKey)
-	if err != nil {
-		return []byte{}, []byte{}, fmt.Errorf("decrypt accessKey failed, err: %s", err)
-	}
-	secretKey, err := stsgoapi.DecryptSensitiveConfig(SKey)
-	if err != nil {
-		return []byte{}, []byte{}, fmt.Errorf("decrypt secretKey failed , err: %s", err)
-	}
-	decodeKey, err := base64.StdEncoding.DecodeString(string(secretKey))
-	if err != nil {
-		return []byte{}, []byte{}, fmt.Errorf("decode secretKey failed , err: %s", err)
-	}
+	var accessKey []byte
+	var decodeKey []byte
 	return accessKey, decodeKey, nil
 }
 

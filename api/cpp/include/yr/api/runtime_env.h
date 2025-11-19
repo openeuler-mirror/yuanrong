@@ -24,87 +24,25 @@
 #include "yr/api/exception.h"
 
 namespace YR {
-
-/*!
- * @class RuntimeEnv
- * @brief interfaces of setting runtime environments for python actor.
- */
 class RuntimeEnv {
 public:
-    /*!
-     * @brief Set a runtime env by name and Object.
-     *
-     * @tparam T The second param type of the value.
-     * @param name The runtime env plugin name.
-     * @param value An object with jsonable type of nlohmann/json.
-     *
-     * @note Constraints
-     * - RuntimeEnv only processes keys named conda, pip, working_dir, and env_vars; other keys neither take effect
-     * nor trigger errors.
-     * - [1] **pip** `String[]/Iterable<String>` Specifies Python dependencies (mutually exclusive with conda),
-     * for example:
-     * @snippet{trimleft} runtime_env_example1.cpp set pip
-     * - [2] **working_dir** `str` Specify the code path, but this feature is not enabled yet. for example:
-     * @snippet{trimleft} runtime_env_example1.cpp set working_dir
-     * - [3] **env_vars** `JSON` Environment variables (values must be strings), for example:
-     * @snippet{trimleft} runtime_env_example1.cpp set env_vars
-     * - [4] **conda** `str/JSON` Conda configuration (requires YR_CONDA_HOME), for example:<br>
-     *   (1). Specify scheduling to an existing conda environment.
-     *   @snippet{trimleft} runtime_env_example1.cpp set existed conda environ
-     *   (2). Create a new environment and specify its dependencies and environment name (optional).
-     *   @snippet{trimleft} runtime_env_example1.cpp set conda environ with dependency
-     *   (3). Create a new environment, specify dependencies and environment names through files.
-     *   @snippet{trimleft} runtime_env_example1.cpp set conda environ with yaml file
-     *
-     * @snippet{trimleft} runtime_env_example.cpp runtime env demo
-     */
+    void SetJsonStr(const std::string &name, const std::string &jsonStr);
+
     template <typename T>
     void Set(const std::string &name, const T &value);
 
-    /**
-     * @brief  Get the object of a runtime env field.
-     * @tparam T The return type of the function.
-     * @param name The runtime env plugin name.
-     * @return A runtime env field with T type.
-     */
-    template <typename T>
-    T Get(const std::string &name) const;
-
-    /**
-     * @brief  Set a runtime env by name and json string.
-     * @param name The runtime env plugin name.
-     * @param jsonStr A json string represents the runtime env.
-     */
-    void SetJsonStr(const std::string &name, const std::string &jsonStr);
-
-    /**
-     * @brief  Get the json string of a runtime env field.
-     * @param name The runtime env plugin name.
-     * @return A string type object with runtime env field.
-     */
-    std::string GetJsonStr(const std::string &name) const;
-
-    /**
-     * @brief  Whether a field is contained.
-     * @param name The runtime env plugin name.
-     * @return Whether the filed is contained.
-     */
-    bool Contains(const std::string &name) const;
-
-    /**
-     * @brief  Whether the runtime env is empty.
-     * @return  Whether the runtime env is empty.
-     */
     bool Empty() const
     {
         return jsons_.empty();
     }
 
-    /**
-     * @brief  Remove a field by name.
-     * @param name The runtime env plugin name.
-     * @return true if remove an existing field, otherwise false.
-     */
+    template <typename T>
+    T Get(const std::string &name) const;
+
+    std::string GetJsonStr(const std::string &name) const;
+
+    bool Contains(const std::string &name) const;
+
     bool Remove(const std::string &name);
 
 private:

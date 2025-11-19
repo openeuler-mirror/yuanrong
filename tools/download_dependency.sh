@@ -36,6 +36,7 @@ YR_DATASYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/datasystem"
 YR_FUNCTIONSYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/functionsystem"
 YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/metrics"
 THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/../thirdparty/"
+RUNTIME_OUTPUT_DIR="${RUNTIME_SRC_DIR}/output"
 MODULES="runtime"
 bash -x ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
 RUNTIME_THIRD_PARTY_CACHE=${RUNTIME_THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/runtime_deps/"}
@@ -100,6 +101,7 @@ function compile_datasystem() {
     tar -xf $ds_filename -C ${YR_DATASYSTEM_BIN_DIR}/output/
     mkdir -p ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
     tar -xf $ds_filename -C ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
+    cp -f ${ds_filename} $RUNTIME_OUTPUT_DIR/
 }
 
 function compile_functionsystem() {
@@ -112,6 +114,7 @@ function compile_functionsystem() {
     cd output
     tar -xf ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz
     cp -r ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/function_system/metrics ${RUNTIME_SRC_DIR}/../
+    cp -f ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz $RUNTIME_OUTPUT_DIR/
 }
 
 function compile_all(){
@@ -160,6 +163,7 @@ if [ "$BUILD_ALL" == "true" ]; then
   if [ ! -d ${YR_DATASYSTEM_BIN_DIR} ]; then
     git clone https://gitee.com/openeuler/yuanrong-datasystem.git -b master datasystem
   fi
+  mkdir $RUNTIME_OUTPUT_DIR
   compile_datasystem
   compile_functionsystem
 else

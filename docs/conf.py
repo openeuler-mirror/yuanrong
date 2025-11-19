@@ -121,7 +121,7 @@ html_theme_options = {
     ],
     "switcher": {
         "json_url": "https://pages.openeuler.openatom.cn/openyuanrong/docs/versions.json",
-        "version_match": "latest",
+        "version_match": os.getenv("BUILD_VERSION", "latest"),
     },
 }
 

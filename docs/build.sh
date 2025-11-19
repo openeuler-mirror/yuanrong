@@ -21,7 +21,7 @@ Usage: bash build.sh [-thdDcCrvPSbEm:]
 Options:
     -v the version of yuanrong
 "
-while getopts 'athr:v:S:DcCgPET:p:bm:j:g' opt; do
+while getopts 'v:' opt; do
     case "$opt" in
     v)
         BUILD_VERSION="${OPTARG}"

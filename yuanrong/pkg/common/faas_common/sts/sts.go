@@ -21,13 +21,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/magiconair/properties"
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
-
 	"yuanrong/pkg/common/faas_common/alarm"
 	"yuanrong/pkg/common/faas_common/constant"
-	"yuanrong/pkg/common/faas_common/logger/config"
-	"yuanrong/pkg/common/faas_common/logger/log"
 	"yuanrong/pkg/common/faas_common/sts/raw"
 )
 
@@ -37,20 +32,7 @@ const fileMode = 0640
 
 // InitStsSDK - Configure sts go sdk
 func InitStsSDK(serverCfg raw.ServerConfig) error {
-	initStsSdkLog()
-	stsProperties := properties.LoadMap(
-		map[string]string{
-			"sts.server.domain":     serverCfg.Domain,
-			"sts.config.path":       serverCfg.Path,
-			"sts.connect.timeout":   "20000",
-			"sts.handshake.timeout": "20000",
-		},
-	)
-	err := stsgoapi.InitWith(*stsProperties)
-	if err != nil {
-		reportStsAlarm(err.Error())
-	}
-	return err
+	return nil
 }
 
 func reportStsAlarm(errMsg string) {
@@ -72,17 +54,4 @@ func reportStsAlarm(errMsg string) {
 }
 
 func initStsSdkLog() {
-	coreInfo, err := config.GetCoreInfoFromEnv()
-	if err != nil {
-		coreInfo = config.GetDefaultCoreInfo()
-	}
-	stsSdkLogFilePath := coreInfo.FilePath + "/sts.sdk.log"
-	stsgoapi.SetLogFile(stsSdkLogFilePath)
-	file, err := os.OpenFile(stsSdkLogFilePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileMode)
-	if err != nil {
-		log.GetLogger().Errorf("failed to open stsSdkLogFile")
-		return
-	}
-	defer file.Close()
-	return
 }

@@ -21,29 +21,12 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/json-iterator/go"
-
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
-
 	"yuanrong/pkg/common/faas_common/wisecloudtool/types"
 )
 
 // ParseServiceAccount -
 func ParseServiceAccount(serviceAccountKeyStr string) (*types.ServiceAccount, error) {
-	if len(serviceAccountKeyStr) <= 0 {
-		return nil, fmt.Errorf("serviceAccountKeyStr is empty")
-	}
-
-	decryptedByte, err := stsgoapi.DecryptSensitiveConfig(serviceAccountKeyStr)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt service account key failed")
-	}
-	serviceAccount := &types.ServiceAccount{}
-	err = jsoniter.Unmarshal(decryptedByte, &serviceAccount)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal service account key failed, err: %s", err.Error())
-	}
-	return serviceAccount, nil
+	return nil, nil
 }
 
 // ParseTlsCipherSuites -

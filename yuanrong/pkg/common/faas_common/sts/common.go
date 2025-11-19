@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"huawei.com/wisesecurity/sts-sdk/pkg/cloudsoa"
 	"k8s.io/api/core/v1"
 
 	"yuanrong/pkg/common/faas_common/tls"
@@ -164,21 +163,6 @@ func NewCustomKeyProvider(tenantID string, key []byte) *CustomKeyProvider {
 	return &CustomKeyProvider{tenantID: tenantID, key: key}
 }
 
-// GetKey -
-func (c *CustomKeyProvider) GetKey(keyLabel cloudsoa.KeyLabel) ([]byte, int64, error) {
-	return c.key, 0, nil
-}
-
-// GetHmacKey -
-func (c *CustomKeyProvider) GetHmacKey(keyLabel cloudsoa.KeyLabel) cloudsoa.HmacKeyEntry {
-	return nil
-}
-
-// GetKeyPair -
-func (c *CustomKeyProvider) GetKeyPair(keyLabel cloudsoa.KeyLabel) cloudsoa.KeyPairEntry {
-	return nil
-}
-
 // Load -
 func (c *CustomKeyProvider) Load() {
 }
@@ -186,11 +170,6 @@ func (c *CustomKeyProvider) Load() {
 // GetName -
 func (c *CustomKeyProvider) GetName() string {
 	return c.tenantID
-}
-
-// GetKeyWithVersion -
-func (c *CustomKeyProvider) GetKeyWithVersion(keyLabel cloudsoa.KeyLabel, version int64) ([]byte, error) {
-	return c.key, nil
 }
 
 // GenerateHTTPSAndLocalSecretVolumeMounts -

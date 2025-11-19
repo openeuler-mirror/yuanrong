@@ -20,16 +20,10 @@ package sts
 import (
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
-	"github.com/magiconair/properties"
 	"github.com/smartystreets/goconvey/convey"
-	"huawei.com/wisesecurity/sts-sdk/pkg/cloudsoa"
-	"huawei.com/wisesecurity/sts-sdk/pkg/stsgoapi"
 
-	"yuanrong/pkg/common/faas_common/sts/raw"
 	"yuanrong/pkg/common/faas_common/tls"
 	"yuanrong/pkg/common/faas_common/utils"
-	mockUtils "yuanrong/pkg/common/faas_common/utils"
 )
 
 func TestGenerateSecretVolumeMounts(t *testing.T) {
@@ -54,54 +48,6 @@ func TestGenerateSecretVolumeMounts(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestInitStsSDK(t *testing.T) {
-	type args struct {
-		serverCfg raw.ServerConfig
-	}
-	tests := []struct {
-		name        string
-		args        args
-		wantErr     bool
-		patchesFunc mockUtils.PatchesFunc
-	}{
-		{"case1", args{serverCfg: raw.ServerConfig{}}, false, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(stsgoapi.InitWith, func(property properties.Properties) error { return nil })})
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc((*cloudsoa.AESCryptorBuilder).Builder, func(
-					_ *cloudsoa.AESCryptorBuilder) (*cloudsoa.AESCryptor, error) {
-					return nil, nil
-				})})
-			return patches
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			patches := tt.patchesFunc()
-			if err := InitStsSDK(tt.args.serverCfg); (err != nil) != tt.wantErr {
-				t.Errorf("InitStsSDK() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			patches.ResetAll()
-		})
-	}
-}
-
-func TestCustomKeyProvider(t *testing.T) {
-	convey.Convey("test custom key provider", t, func() {
-		provider := NewCustomKeyProvider("aaa", []byte("bbb"))
-		convey.So(provider, convey.ShouldNotBeNil)
-		key, i, err := provider.GetKey(cloudsoa.KeyLabel{})
-		convey.So(string(key), convey.ShouldEqual, "bbb")
-		convey.So(i, convey.ShouldEqual, 0)
-		convey.So(err, convey.ShouldBeNil)
-		key, err = provider.GetKeyWithVersion(cloudsoa.KeyLabel{}, 0)
-		convey.So(string(key), convey.ShouldEqual, "bbb")
-		convey.So(err, convey.ShouldBeNil)
-		convey.So(provider.GetName(), convey.ShouldEqual, "aaa")
-	})
 }
 
 func TestGenerateHTTPSAndLocalSecretVolumeMounts(t *testing.T) {

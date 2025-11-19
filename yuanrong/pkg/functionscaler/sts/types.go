@@ -17,10 +17,6 @@
 // Package sts provide methods for obtaining sensitive information
 package sts
 
-import (
-	"huawei.com/wisesecurity/sts-sdk/pkg/auth"
-)
-
 const (
 	gcmStandardNonceSize = 12
 	// CertPath Get certificate interface url
@@ -46,11 +42,6 @@ const (
 	// ECDHKeyLen - ECDH key len
 	ECDHKeyLen = 16
 )
-
-var serviceMeta = &auth.StsMicroServiceMeta{
-	Service:      MgmtServiceName,
-	MicroService: MgmtMicroServiceName,
-}
 
 // CertResponse - certificate interface resp
 type CertResponse struct {

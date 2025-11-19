@@ -33,9 +33,7 @@ require (
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools v2.3.0+incompatible
-	huawei.com/wisesecurity/sts-sdk v1.0.1-20250319171100-c6b279f3bac
 	yuanrong.org/kernel/runtime v1.0.0
-	huaweicloud.com/containers/security/cbb_adapt v1.0.7
 	k8s.io/api v0.31.2
 	k8s.io/apimachinery v0.31.2
 	k8s.io/client-go v0.31.2

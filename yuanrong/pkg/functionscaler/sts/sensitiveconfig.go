@@ -19,11 +19,6 @@ package sts
 
 import (
 	"fmt"
-
-	"github.com/json-iterator/go"
-	"huawei.com/wisesecurity/sts-sdk/pkg/remote"
-
-	"yuanrong/pkg/common/faas_common/logger/log"
 )
 
 // GetEnvMap - environment variables for sensitive configuration items
@@ -76,39 +71,5 @@ func ParseStsResponseStrict(respBody *SensitiveConfigResponse) (map[string]strin
 
 // GetSensitiveConfigIDs -
 func GetSensitiveConfigIDs(configIDs []string) (*SensitiveConfigResponse, error) {
-	log.GetLogger().Info("[sts] start get sensitiveConfig")
-	size := len(configIDs)
-	httpRequest := new(remote.StsHttpRequestBuilder).SetMethod("POST").SetPath(SensitiveConfigPath).Build()
-	httpClient := GetStsHTTPClient()
-	var stsConfigs = SensitiveConfigResponse{}
-
-	for i := 0; i < size; i += maxConfigIDPerRequest {
-		var tmpConfigIDs []string
-		for j := i; j < i+maxConfigIDPerRequest && j < size; j++ {
-			tmpConfigIDs = append(tmpConfigIDs, configIDs[j])
-		}
-		req := &configIDsReq{
-			ConfigIds: tmpConfigIDs,
-		}
-		requestJSONByte, err := jsoniter.Marshal(req)
-		if err != nil {
-			return nil, fmt.Errorf("marshal failed: %v", err)
-		}
-		httpRequest.Body = requestJSONByte
-		// If the config ID is incorrect, 200 is returned.
-		// The config ID is in Missing Config Items. If the config ID is empty, 400 is returned.
-		buf, err := doStsRequest(httpRequest, httpClient)
-		if err != nil {
-			return nil, err
-		}
-
-		var configs SensitiveConfigResponse
-		err = jsoniter.Unmarshal(buf, &configs)
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal failed, error: %v", err)
-		}
-		stsConfigs.MissingConfigItems = append(stsConfigs.MissingConfigItems, configs.MissingConfigItems...)
-		stsConfigs.ConfigItems = append(stsConfigs.ConfigItems, configs.ConfigItems...)
-	}
-	return &stsConfigs, nil
+	return &SensitiveConfigResponse{}, nil
 }

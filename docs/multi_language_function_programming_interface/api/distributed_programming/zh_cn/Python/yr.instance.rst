@@ -69,5 +69,5 @@ yr.instance
             >>>
             >>> yr.finalize()
 
-.. _yr.InvokeOptions: ../../Python/generated/yr.InvokeOptions.html#yr.InvokeOptions
+.. _yr.InvokeOptions: ../../zh_cn/Python/yr.InvokeOptions.html
 .. _InstanceCreator: ../../zh_cn/Python/yr.InstanceCreator.html#yr.InstanceCreator

@@ -36,7 +36,7 @@ PYTHON_ONLY="false"
 CURRENT_ARCH=$(uname -m)
 
 # default tag
-TAG="v0.0.1"
+BUILD_VERSION="v0.0.1"
 YR_REQUIREMENTS=""
 PYTHON_BIN_PATH="python3"
 
@@ -56,7 +56,6 @@ function setup_workspace () {
         rm -rf ${PYPI_BUILD_DIR}/src/yr/inner/runtime/sdk/
         rm -rf ${PYPI_BUILD_DIR}/src/yr/inner/alias
         rm -rf ${PYPI_BUILD_DIR}/src/yr/inner/initcontainer
-        rm -rf ${PYPI_BUILD_DIR}/src/yr/inner/pattern
         # keep cpp/include directory
         rm -rf ${PYPI_BUILD_DIR}/src/yr/inner/data_system/sdk/*.jar
         rm -rf ${PYPI_BUILD_DIR}/src/yr/inner/data_system/sdk/*.whl
@@ -99,7 +98,7 @@ function build_pypi () {
 
     # build
     pushd ${PYPI_BUILD_DIR}/src/
-    YR_BUILD_VERSION="${TAG}" \
+    YR_BUILD_VERSION="${BUILD_VERSION}" \
     YR_REQUIREMENTS="${YR_REQUIREMENTS}" \
         ${PYTHON_BIN_PATH} setup.py bdist_wheel --dist-dir ${OUTPUT_DIR} \
         --plat-name "manylinux_${glibc_version}_${CURRENT_ARCH}"
@@ -107,13 +106,13 @@ function build_pypi () {
 }
 
 function parse_args () {
-    getopt_cmd=$(getopt -o o:t:h -l output_dir:,tag:,pypi_build_dir:,prebuild_yuanrong:,arch:,python_only:,python_bin_path:,help -- "$@")
+    getopt_cmd=$(getopt -o o:v:h -l output_dir:,version:,pypi_build_dir:,prebuild_yuanrong:,arch:,python_only:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
     eval set -- "$getopt_cmd"
     while true; do
         case "$1" in
         -o|--output_dir) OUTPUT_DIR=$2 && shift 2 ;;
-        -t|--tag) TAG=$2 && shift 2 ;;
+        -v|--version) BUILD_VERSION=$2 && shift 2 ;;
         --pypi_build_dir) PYPI_BUILD_DIR=$2 && shift 2 ;;
         --prebuild_yuanrong) PREBUILD_BIN_PATH_YUANRONG=$2 && shift 2 ;;
         --arch) CURRENT_ARCH=$2 && shift 2 ;;
@@ -131,7 +130,7 @@ Usage:
   packaging rpm packages, args and default values:
     -o|--output_dir      the output dir (=${OUTPUT_DIR})
     -b|--pypi_build_dir  build tree dir (=${PYPI_BUILD_DIR})
-    -t|--tag             the version and release (=${TAG})
+    -v|--version             the version and release (=${BUILD_VERSION})
     --prebuild_yuanrong  the prebuild yuanrong.tar.gz path (=${PREBUILD_BIN_PATH_YUANRONG})
     --python_only        the trim pacakge (=${PYTHON_ONLY})
     --python_bin_path    the python path (=${PYTHON_BIN_PATH})

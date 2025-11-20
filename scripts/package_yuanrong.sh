@@ -14,7 +14,7 @@
 # limitations under the License.
 
 set -e
-TAG=v0.0.1
+BUILD_VERSION=v0.0.1
 BASE_DIR=$(
   cd "$(dirname "$0")"
   pwd
@@ -22,14 +22,14 @@ BASE_DIR=$(
 . ${BASE_DIR}/package/utils.sh
 OUTPUT_DIR="${BASE_DIR}/../output"
 function parse_args () {
-    getopt_cmd=$(getopt -o t:h -l tag:,python_bin_path:,help -- "$@")
+    getopt_cmd=$(getopt -o v:h -l version:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
     eval set -- "$getopt_cmd"
     while true; do
         case "$1" in
         -h|--help) SHOW_HELP="true" && shift ;;
         --python_bin_path) PYTHON_BIN_PATH=$2 && shift 2 ;;
-        -t|--tag) TAG=$2 && shift 2 ;;
+        -v|--version) BUILD_VERSION=$2 && shift 2 ;;
         --) shift && break ;;
         *) die "Invalid option: $1" && exit 1 ;;
         esac
@@ -39,7 +39,7 @@ function parse_args () {
         cat <<EOF
 Usage:
   packaging rpm packages, args and default values:
-    -t|--tag             the version (=${TAG})
+    -v|--version             the version (=${BUILD_VERSION})
     -h|--help            show this help info
 EOF
         exit 1
@@ -60,6 +60,18 @@ function get_all(){
         curl -SO ${DATA_SYSTEM_CACHE}
       fi
   fi
+  if [ -n "${FRONTEND_CACHE}" ]; then
+      frontend_filename=$(ls *frontend*.tar.gz)
+      if [ ! -n "${frontend_filename}" ]; then
+        curl -SO ${FRONTEND_CACHE}
+      fi
+  fi
+  if [ -n "${DASHBOARD_CACHE}" ]; then
+      dashboard_filename=$(ls *dashboard*.tar.gz)
+      if [ ! -n "${dashboard_filename}" ]; then
+        curl -SO ${DASHBOARD_CACHE}
+      fi
+  fi
 }
 
 function main () {
@@ -75,7 +87,7 @@ cd ${OUTPUT_DIR}
 
 get_all
 
-tar -zxvf yr-runtime-${TAG}.tar.gz -C ${OUTPUT_DIR}/openyuanrong
+tar -zxvf yr-runtime-*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
 tar -zxvf *functionsystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
 
 mkdir -p ${OUTPUT_DIR}/openyuanrong/data_system
@@ -86,6 +98,16 @@ cp -fr ${BASE_DIR}/../deploy/data_system/* ${OUTPUT_DIR}/openyuanrong/data_syste
 cp -fr ${BASE_DIR}/../deploy ${OUTPUT_DIR}/openyuanrong
 rm -rf ${OUTPUT_DIR}/openyuanrong/deploy/data_system
 
+frontend_filename=$(ls *frontend*.tar.gz)
+if [ -n "${frontend_filename}" ]; then
+    tar -zxvf ${frontend_filename} -C ${OUTPUT_DIR}/openyuanrong
+fi
+
+dashboard_filename=$(ls *dashboard*.tar.gz)
+if [-n "${dashboard_filename}" ]; then
+    tar -zxvf ${dashboard_filename} -C ${OUTPUT_DIR}/openyuanrong/funcion_system/
+fi
+
 find . -type d -exec chmod 750 {} \;
 find . -type l -exec chmod 777 {} \;
 find . -type f -exec chmod 640 {} \;
@@ -93,7 +115,7 @@ find . -type f -exec chmod 640 {} \;
 if [ -d ${OUTPUT_DIR}/openyuanrong/deploy/process/ ]; then
   find ${OUTPUT_DIR}/openyuanrong/deploy/process/ -type f -exec chmod 550 {} \;
   find ${OUTPUT_DIR}/openyuanrong/deploy/process/ -type f -name "*.yaml" -exec chmod 640 {} \;
-fi
+fiz
 
 if [ -d ${OUTPUT_DIR}/openyuanrong/data_system/ ]; then
   find ${OUTPUT_DIR}/openyuanrong/data_system/ -type f -exec chmod 550 {} \;
@@ -139,8 +161,8 @@ if [ -d ${OUTPUT_DIR}/openyuanrong/runtime/service/python/yr/config/ ]; then
 fi
 
 cat >${OUTPUT_DIR}/openyuanrong/VERSION <<EOF
-"${TAG}"
+"${BUILD_VERSION}"
 EOF
 [ -d "${OUTPUT_DIR}/openyuanrong/runtime/sdk/cpp" ] && cp -ar ${OUTPUT_DIR}/openyuanrong/VERSION ${OUTPUT_DIR}/openyuanrong/runtime/sdk/cpp/VERSION
 
-tar -zcf openyuanrong-${TAG}.tar.gz openyuanrong
+tar -zcf openyuanrong-${BUILD_VERSION}.tar.gz openyuanrong

@@ -30,7 +30,7 @@ CURRENT_ARCH=$(uname -m)
 SHOW_HELP=""
 
 # default tag
-TAG="v0.0.1"
+BUILD_VERSION="v0.0.1"
 
 BUILD_TARGETS="whl"
 WHL_PYTHON_ONLY="false"
@@ -39,7 +39,7 @@ PYTHON_BIN_PATH="python3"
 function build_whl () {
     bash ${BASE_DIR}/pypi/package.sh \
         --prebuild_yuanrong=${PREBUILD_BIN_PATH_YUANRONG} \
-        --tag ${TAG} \
+        --version ${BUILD_VERSION} \
         --arch=${CURRENT_ARCH} \
         --python_only=${WHL_PYTHON_ONLY} \
         --python_bin_path=${PYTHON_BIN_PATH} \
@@ -47,13 +47,13 @@ function build_whl () {
 }
 
 function parse_args () {
-    getopt_cmd=$(getopt -o o:t:h -l output_dir:,tag:,prebuild_yuanrong:,targets:,whl_python_only:,python_bin_path:,help -- "$@")
+    getopt_cmd=$(getopt -o o:v:h -l output_dir:,version:,prebuild_yuanrong:,targets:,whl_python_only:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
     eval set -- "$getopt_cmd"
     while true; do
         case "$1" in
         -o|--output_dir) OUTPUT_DIR=$2 && shift 2 ;;
-        -t|--tag) TAG=$2 && shift 2 ;;
+        -v|--version) BUILD_VERSION=$2 && shift 2 ;;
         --prebuild_yuanrong) PREBUILD_BIN_PATH_YUANRONG=$2 && shift 2 ;;
         --arch) CURRENT_ARCH=$2 && shift 2 ;;
         --targets) BUILD_TARGETS=$2 && shift 2 ;;
@@ -70,7 +70,7 @@ function parse_args () {
 Usage:
   packaging rpm packages, args and default values:
     -o|--output_dir              the output dir (=${OUTPUT_DIR})
-    -t|--tag                     the version and release (=${TAG})
+    -v|--version                     the version and release (=${BUILD_VERSION})
     --prebuild_yuanrong          the prebuild yuanrong.tar.gz path (=${PREBUILD_BIN_PATH_YUANRONG})
     --targets                    build target packages (=${BUILD_TARGETS})
     --arch                       the arch (=${CURRENT_ARCH})

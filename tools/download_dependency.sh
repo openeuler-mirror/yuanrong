@@ -34,6 +34,8 @@ BASE_DIR=$(
 RUNTIME_SRC_DIR="${BASE_DIR}/../"
 YR_DATASYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/datasystem"
 YR_FUNCTIONSYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/functionsystem"
+YR_FRONTEND_SRC_DIR="${RUNTIME_SRC_DIR}/frontend"
+YR_DASHBOARD_SRC_DIR="${RUNTIME_SRC_DIR}/yuanrong"
 YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/metrics"
 THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/../thirdparty/"
 RUNTIME_OUTPUT_DIR="${RUNTIME_SRC_DIR}/output"
@@ -117,6 +119,21 @@ function compile_functionsystem() {
     cp -f ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz $RUNTIME_OUTPUT_DIR/
 }
 
+function compile_frontend() {
+    cd ${YR_FRONTEND_SRC_DIR}
+    ln -sf ${RUNTIME_SRC_DIR} ${RUNTIME_SRC_DIR}/runtime
+    bash build.sh
+    cd output
+    cp -f ${YR_FRONTEND_SRC_DIR}/output/yr-frontend*.tar.gz $RUNTIME_OUTPUT_DIR/
+}
+
+function compile_dashboard() {
+    cd ${YR_DASHBOARD_SRC_DIR}
+    bash build.sh
+    cd output
+    cp -f ${YR_DASHBOARD_SRC_DIR}/output/yr-dashboard*.tar.gz $RUNTIME_OUTPUT_DIR/
+}
+
 function compile_all(){
   if [ ! -d "${THIRD_PARTY_DIR}/boost/lib" ]; then
     pushd "${THIRD_PARTY_DIR}/boost/"
@@ -163,9 +180,14 @@ if [ "$BUILD_ALL" == "true" ]; then
   if [ ! -d ${YR_DATASYSTEM_BIN_DIR} ]; then
     git clone https://gitee.com/openeuler/yuanrong-datasystem.git -b master datasystem
   fi
-  mkdir $RUNTIME_OUTPUT_DIR
+  if [ ! -d ${YR_FRONTEND_SRC_DIR} ]; then
+    git clone https://gitee.com/openeuler/yuanrong-frontend.git -b master frontend
+  fi
+  mkdir -p $RUNTIME_OUTPUT_DIR
   compile_datasystem
   compile_functionsystem
+  compile_frontend
+  compile_dashboard
 else
   download_datasystem
   download_metrics

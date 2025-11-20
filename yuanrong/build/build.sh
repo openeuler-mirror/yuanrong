@@ -23,6 +23,9 @@ POSIX_DIR="${PROJECT_DIR}/proto/posix"
 BUILD_TAGS=""
 FLAGS='-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"'
 
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
 # go module prepare
 export GO111MODULE=on
 export GONOSUMDB=*

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 set -e
-TAG=v0.0.1
+BUILD_VERSION=v0.0.1
 BASE_DIR=$(
   cd "$(dirname "$0")"
   pwd
@@ -22,12 +22,12 @@ BASE_DIR=$(
 OUTPUT_DIR="${BASE_DIR}/../output"
 . ${BASE_DIR}/package/utils.sh
 function parse_args () {
-    getopt_cmd=$(getopt -o t:h -l tag:,python_bin_path:,help -- "$@")
+    getopt_cmd=$(getopt -o v:h -l version:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
     eval set -- "$getopt_cmd"
     while true; do
         case "$1" in
-        -t|--tag) TAG=$2 && shift 2 ;;
+        -v|--version) BUILD_VERSION=$2 && shift 2 ;;
         --python_bin_path) PYTHON_BIN_PATH=$2 && shift 2 ;;
         -h|--help) SHOW_HELP="true" && shift ;;
         --) shift && break ;;
@@ -38,7 +38,7 @@ function parse_args () {
         cat <<EOF
 Usage:
   packaging rpm packages, args and default values:
-    -t|--tag             the version and release (=${TAG})
+    -v|--version             the version and release (=${BUILD_VERSION})
     -h|--help            show this help info
 EOF
         exit 1
@@ -56,7 +56,7 @@ PYTHON_BIN_PATH=${PYTHON_BIN_PATH:-"python3"}
 bash ${BASE_DIR}/package/package.sh package \
   --targets=whl \
   --prebuild_yuanrong=${OUTPUT_DIR}/openyuanrong \
-  --tag=${TAG} \
+  --version=${BUILD_VERSION} \
   --output_dir=${OUTPUT_DIR}/trimmed \
   --whl_python_only=true \
   --python_bin_path=${PYTHON_BIN_PATH}
@@ -66,7 +66,7 @@ cp -ar ${OUTPUT_DIR}/trimmed/*.whl ${OUTPUT_DIR}
 bash ${BASE_DIR}/package/package.sh package \
     --targets=whl \
     --prebuild_yuanrong=${OUTPUT_DIR}/openyuanrong \
-    --tag=${TAG} \
+    --version=${BUILD_VERSION} \
     --output_dir=${OUTPUT_DIR}/full \
     --python_bin_path=${PYTHON_BIN_PATH}
 

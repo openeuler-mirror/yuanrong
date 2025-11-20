@@ -104,8 +104,8 @@ if [ -n "${frontend_filename}" ]; then
 fi
 
 dashboard_filename=$(ls *dashboard*.tar.gz)
-if [-n "${dashboard_filename}" ]; then
-    tar -zxvf ${dashboard_filename} -C ${OUTPUT_DIR}/openyuanrong/funcion_system/
+if [ -n "${dashboard_filename}" ]; then
+    tar -zxvf ${dashboard_filename} -C ${OUTPUT_DIR}/openyuanrong/function_system/
 fi
 
 find . -type d -exec chmod 750 {} \;
@@ -115,7 +115,7 @@ find . -type f -exec chmod 640 {} \;
 if [ -d ${OUTPUT_DIR}/openyuanrong/deploy/process/ ]; then
   find ${OUTPUT_DIR}/openyuanrong/deploy/process/ -type f -exec chmod 550 {} \;
   find ${OUTPUT_DIR}/openyuanrong/deploy/process/ -type f -name "*.yaml" -exec chmod 640 {} \;
-fiz
+fi
 
 if [ -d ${OUTPUT_DIR}/openyuanrong/data_system/ ]; then
   find ${OUTPUT_DIR}/openyuanrong/data_system/ -type f -exec chmod 550 {} \;

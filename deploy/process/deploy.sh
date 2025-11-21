@@ -661,7 +661,7 @@ function restart_component() {
        restart_agent_runtime_accessor
      fi
     ;;
-  function_master|ds_master|collector|faas_frontend|dashboard|)
+  function_master|ds_master|collector|faas_frontend|dashboard)
     restart_module "$1"
     ;;
   etcd)

@@ -15,6 +15,21 @@
 set -e
 source /etc/profile.d/*.sh
 
+readonly USAGE="
+Usage: bash build.sh [-thdDcCrvPSbEm:]
+
+Options:
+    -v the version of yuanrong
+"
+while getopts 'v:' opt; do
+    case "$opt" in
+    v)
+        BUILD_VERSION="${OPTARG}"
+        export BUILD_VERSION="${OPTARG}"
+        ;;
+    esac
+done
+
 BASE_DIR=$(dirname "$(readlink -f "$0")")
 OUTPUT_DIR=${BASE_DIR}/../../output
 function doc_build() {

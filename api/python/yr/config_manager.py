@@ -59,7 +59,7 @@ class ConfigManager:
         self.__ds_address = ""
         self.__connection_nums = None
         self.__log_level = logging.WARNING
-        self.__in_cluster = False
+        self.__in_cluster = True
         self.__deployment_config = DeploymentConfig()
         self.tls_config = None
         self.meta_config = None
@@ -260,6 +260,7 @@ class ConfigManager:
         self.tls_config = conf.tls_config
         self.connection_nums = conf.connection_nums
         self.invoke_timeout = conf.invoke_timeout
+        self.__in_cluster = conf.in_cluster
 
         utils.set_job_id(self.job_id)
         self.runtime_id = conf.runtime_id

@@ -30,8 +30,8 @@ yr.DoubleCounter.set
         >>>         except Exception as err:
         >>>             print(f"error: {err}")
         >>>
-        >>>    def run(self, *args, **kwargs):
-        >>>        try:
-        >>>            self.data.set(1)
-        >>>        except Exception as err:
-        >>>            print(f"error: {err}")
+        >>>     def run(self, *args, **kwargs):
+        >>>         try:
+        >>>             self.data.set(1)
+        >>>         except Exception as err:
+        >>>             print(f"error: {err}")

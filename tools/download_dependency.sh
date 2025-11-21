@@ -34,7 +34,7 @@ BASE_DIR=$(
 RUNTIME_SRC_DIR="${BASE_DIR}/../"
 YR_DATASYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/datasystem"
 YR_FUNCTIONSYSTEM_BIN_DIR="${RUNTIME_SRC_DIR}/functionsystem"
-YR_FRONTEND_SRC_DIR="${RUNTIME_SRC_DIR}/frontend"
+YR_FRONTEND_SRC_DIR="${RUNTIME_SRC_DIR}/../frontend"
 YR_DASHBOARD_SRC_DIR="${RUNTIME_SRC_DIR}/yuanrong"
 YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/metrics"
 THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/../thirdparty/"
@@ -121,9 +121,6 @@ function compile_functionsystem() {
 
 function compile_frontend() {
     cd ${YR_FRONTEND_SRC_DIR}
-    if [ ! -d "${RUNTIME_SRC_DIR}/runtime" ]; then
-        ln -sf ${RUNTIME_SRC_DIR} ${RUNTIME_SRC_DIR}/runtime
-    fi
     bash build.sh
     cd output
     cp -f ${YR_FRONTEND_SRC_DIR}/output/yr-frontend*.tar.gz $RUNTIME_OUTPUT_DIR/
@@ -181,7 +178,7 @@ if [ "$BUILD_ALL" == "true" ]; then
     git clone https://gitee.com/openeuler/yuanrong-datasystem.git -b master datasystem
   fi
   if [ ! -d ${YR_FRONTEND_SRC_DIR} ]; then
-    git clone https://gitee.com/openeuler/yuanrong-frontend.git -b master frontend
+    git clone https://gitee.com/openeuler/yuanrong-frontend.git -b master ../frontend
   fi
   mkdir -p $RUNTIME_OUTPUT_DIR
   compile_datasystem

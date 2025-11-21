@@ -141,7 +141,7 @@ void FSIntfGrpcClientReaderWriter::ReconnectHandler()
 void FSIntfGrpcClientReaderWriter::ReceiveHandler()
 {
     YRLOG_INFO("begin to receive msg from {}", dstInstance);
-    while (!abnormal_) {
+    while (!abnormal_ && !stopped) {
         if (isConnect_) {
             RecvFunc();
             isConnect_.store(false);

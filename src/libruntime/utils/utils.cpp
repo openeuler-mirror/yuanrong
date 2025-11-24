@@ -241,4 +241,15 @@ bool WillSizeOverFlow(size_t a, size_t b)
 {
     return b > (std::numeric_limits<size_t>::max() - a);
 }
+
+GroupPolicy ConvertStrategyToPolicy(const std::string &stategy)
+{
+    static const std::unordered_map<std::string, GroupPolicy> strategyMap = {
+        {"PACK", GroupPolicy::Pack},
+        {"STRICT_PACK", GroupPolicy::StrictPack},
+        {"SPREAD", GroupPolicy::Spread},
+        {"STRICT_SPREAD", GroupPolicy::StrictSpread}};
+    auto it = strategyMap.find(stategy);
+    return (it != strategyMap.end()) ? it->second : GroupPolicy::None;
+}
 }  // namespace YR

@@ -14,21 +14,21 @@
  * limitations under the License.
  */
 
-#include "src/libruntime/groupmanager/group.h"
+#include "src/libruntime/groupmanager/range_group.h"
+#include "src/libruntime/invoke_order_manager.h"
 
 namespace YR {
 namespace Libruntime {
-class NamedGroup : public Group {
+class NamedGroup : public RangeGroup {
 public:
-    NamedGroup(const std::string &name) : Group(name){};
+    NamedGroup(const std::string &name, GroupOpts &inputOpts)
+        : RangeGroup(name, "", inputOpts, nullptr, nullptr, nullptr, nullptr) {};
     NamedGroup(const std::string &name, const std::string &inputTenantId, GroupOpts &inputOpts,
                std::shared_ptr<FSClient> client, std::shared_ptr<WaitingObjectManager> waitManager,
-               std::shared_ptr<MemoryStore> memStore);
+               std::shared_ptr<MemoryStore> memStore, std::shared_ptr<InvokeOrderManager> invokeOrderMgr);
 
 private:
     CreateRequests BuildCreateReqs() override;
-    void CreateRespHandler(const CreateResponses &resps) override;
-    void CreateNotifyHandler(const NotifyRequest &req) override;
     void SetTerminateError() override;
 };
 }  // namespace Libruntime

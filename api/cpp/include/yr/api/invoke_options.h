@@ -45,6 +45,20 @@ struct GroupOptions {
        - `false`: Instances can have independent lifecycles.
     */
     bool sameLifecycle = true;
+    /*!
+       @brief The strategy to create the group, defalut strategy is ``None``
+            
+            - ``'None'``: No strategy.
+
+            - ``'PACK'``: Pack multiple instances into the same node as much as possible.
+            
+            - ``'SPREAD`'': Distribute multiple instances across different nodes as much as possible.
+            
+            - ''`STRICT_PACK`'': All instances must be placed on the same node, otherwise creation fails.
+           
+            - ''`STRICT_SPREAD`'': All instances must be placed on different nodes, otherwise creation fails.
+    */
+    std::string strategy = "None";
 };
 
 /**

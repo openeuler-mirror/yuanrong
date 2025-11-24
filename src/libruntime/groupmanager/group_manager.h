@@ -25,6 +25,8 @@ public:
     ErrorInfo GroupCreate(const std::string &groupName);
     ErrorInfo Wait(const std::string &groupName);
     void Terminate(const std::string &groupName);
+    ErrorInfo Suspend(const std::string &groupName);
+    ErrorInfo Resume(const std::string &groupName);
     void Stop();
     bool IsGroupExist(const std::string &groupName);
     void AddSpec(std::shared_ptr<InvokeSpec> spec);
@@ -33,6 +35,7 @@ public:
     bool IsInsReady(const std::string &groupName);
     ErrorInfo Accelerate(const std::string &groupName, const AccelerateMsgQueueHandle &handle,
                          HandleReturnObjectCallback callback);
+
 private:
     mutable std::mutex groupMtx;
     std::unordered_map<std::string, std::shared_ptr<Group>> groups_;

@@ -102,7 +102,7 @@ TEST_F(GroupManagerTest, IsGroupExistTest)
     opts.groupName = "groupName";
     GroupOpts groupOpts{"groupName", -1};
     auto group = std::make_shared<NamedGroup>("groupName", "tenantId", groupOpts, this->fsClient, this->waitManager,
-                                              this->memoryStore);
+                                              this->memoryStore, this->invokeOrderMgr);
     auto isGroupExist1 = groupManager->IsGroupExist(opts.groupName);
     ASSERT_EQ(isGroupExist1, false);
 
@@ -179,7 +179,7 @@ TEST_F(GroupManagerTest, GroupTerminateTest)
     opts.groupName = "groupName";
     GroupOpts groupOpts{"groupName", -1};
     auto group = std::make_shared<NamedGroup>("groupName", "tenantId", groupOpts, this->fsClient, this->waitManager,
-                                              this->memoryStore);
+                                              this->memoryStore, this->invokeOrderMgr);
     auto spec = std::make_shared<InvokeSpec>();
     CreateRequest req;
     spec->requestCreate = req;
@@ -202,7 +202,7 @@ TEST_F(GroupManagerTest, GroupWaitTest)
     opts.groupName = "groupName";
     GroupOpts groupOpts{"groupName", -1};
     auto group = std::make_shared<NamedGroup>("groupName", "tenantId", groupOpts, this->fsClient, this->waitManager,
-                                              this->memoryStore);
+                                              this->memoryStore, this->invokeOrderMgr);
     auto groupGet1 = groupManager->GetGroup(opts.groupName);
     ASSERT_EQ(groupGet1, nullptr);
     auto errorInfo1 = groupManager->Wait(opts.groupName);

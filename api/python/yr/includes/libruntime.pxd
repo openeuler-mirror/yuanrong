@@ -343,6 +343,12 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         bool isGenerator
         bool isAsync
 
+    cdef cppclass CGroupOptions "YR::Libruntime::GroupOpts":
+        string groupName
+        int timeout
+        bool sameLifecycle
+        string strategy
+        
     cdef enum CBundleAffinity "YR::Libruntime::BundleAffinity":
         COMPACT "YR::Libruntime::BundleAffinity::COMPACT"
         DISCRETE "YR::Libruntime::BundleAffinity::DISCRETE"
@@ -686,6 +692,15 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo Accelerate(const string & group_name, const CAccelerateMsgQueueHandle & handle, CHandleReturnObjectCallback callback);
 
         bool SetError(const string &objId, const CErrorInfo &err);
+
+        CErrorInfo GroupCreate(const string & groupName, CGroupOptions & opts);
+
+        CErrorInfo GroupWait(const string & groupName);
+
+        CErrorInfo GroupSuspend(const string & groupName);
+
+        CErrorInfo GroupResume(const string & groupName);
+
 
 cdef extern from "src/libruntime/libruntime_manager.h" nogil:
     cdef cppclass CLibruntimeManager "YR::Libruntime::LibruntimeManager":

@@ -192,7 +192,8 @@ def test_cloud_init(init_yr):
         def init_oncloud(self, function_id, server_address, ds_address):
             import multiprocessing
             context = multiprocessing.get_context("spawn")
-            p = context.Process(target=init_in_process, args=(function_id, server_address, ds_address))
+            p = context.Process(target=init_in_process, args=(
+                function_id, server_address, ds_address))
             p.start()
             p.join()
             return "success" + str(p.exitcode)
@@ -207,7 +208,8 @@ def test_cloud_init(init_yr):
     function_id = os.getenv("YR_PYTHON_FUNC_ID")
     server_address = os.getenv("YR_SERVER_ADDRESS")
     ds_address = os.getenv("YR_DS_ADDRESS")
-    res = yr.get(actor.init_oncloud.invoke(function_id, server_address, ds_address))
+    res = yr.get(actor.init_oncloud.invoke(
+        function_id, server_address, ds_address))
     assert "success0" in res
 
     counter = yr.get_instance('counter-actor')
@@ -364,3 +366,33 @@ def test_create_and_invoke_in_different_method(init_yr):
         assert (res[1], 2)
 
     invoke_actor()
+
+
+@pytest.mark.smoke
+def test_group(init_yr):
+    group_opts = yr.GroupOptions()
+    group_name = "test"
+    g = yr.Group(group_name, group_opts)
+    opts = yr.InvokeOptions()
+    opts.group_name = group_name
+    ins = Counter.options(opts).invoke()
+    g.invoke()
+    res = ins.add.invoke()
+    assert (yr.get(res), 1)
+    g.terminate()
+
+
+@pytest.mark.smoke
+def test_group_suspend_resume(init_yr):
+    group_opts = yr.GroupOptions()
+    group_name = "test"
+    g = yr.Group(group_name, group_opts)
+    opts = yr.InvokeOptions()
+    opts.group_name = group_name
+    ins = Counter.options(opts).invoke()
+    g.invoke()
+    res = ins.add.invoke()
+    assert (yr.get(res), 1)
+    g.suspend()
+    g.resume()
+    g.terminate()

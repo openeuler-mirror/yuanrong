@@ -117,6 +117,12 @@ bool FSIntf::DeleteProcessingRequestId(const std::string &requestId)
     return num == 1;
 }
 
+bool FSIntf::ExistProcessingRequestId()
+{
+    absl::MutexLock lock(&this->mu);
+    return !this->processingRequestIds.empty();
+}
+
 void FSIntf::HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, CallCallBack callback)
 {
     if (!AddProcessingRequestId(req->Immutable().requestid())) {
@@ -153,6 +159,7 @@ void FSIntf::HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, Call
                     resp.set_message(msg);
                     YRLOG_DEBUG("after wait initialized, send call response, request ID: {}, code {}, message {}",
                                 req->Immutable().requestid(), resp.code(), resp.message());
+                    status.InterruptCheckpointing();
                     callback(resp);
                 } else {
                     callback(resp);
@@ -183,7 +190,31 @@ void FSIntf::HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCal
 {
     this->checkpointRecoverExecutor.Handle(
         [this, req, callback]() {
-            auto resp = this->handlers.checkpoint(req);
+            if (ExistProcessingRequestId()) {
+                CheckpointResponse resp;
+                resp.set_code(common::ERR_INNER_SYSTEM_ERROR);
+                resp.set_message("exit processing request");
+                callback(resp);
+                return;
+            }
+            if (status.SetCheckpointing()) {
+                auto resp = this->handlers.checkpoint(req);
+                if (status.IsCheckpointingInterrupted()) {
+                    CheckpointResponse resp;
+                    auto [code, msg] = status.GetErrorInfo();
+                    resp.set_code(code);
+                    resp.set_message(msg);
+                    callback(resp);
+                } else {
+                    callback(resp);
+                }
+                status.SetCheckpointed();
+                return;
+            }
+            CheckpointResponse resp;
+            auto [code, msg] = status.GetErrorInfo();
+            resp.set_code(code);
+            resp.set_message(msg);
             callback(resp);
         },
         "");

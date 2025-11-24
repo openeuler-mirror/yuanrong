@@ -27,11 +27,13 @@ using HandleReturnObjectCallback = std::function<std::pair<ErrorInfo, std::share
 class Group : public std::enable_shared_from_this<Group> {
 public:
     Group() = default;
-    Group(const std::string &name) : groupName(name){};
+    Group(const std::string &name) : groupName(name) {};
     ~Group() = default;
     ErrorInfo Wait();
     ErrorInfo GroupCreate();
     void Terminate();
+    ErrorInfo Suspend();
+    ErrorInfo Resume();
     void SetRunFlag();
     bool IsReady();
     std::string GetGroupName();
@@ -64,6 +66,7 @@ protected:
     std::string traceId;
     std::string tenantId;
     std::string groupId;
+    std::mutex groupIdMtx;
     GroupOpts opts;
     InstanceRange range;
     FunctionGroupOptions functionGroupOpts;
@@ -71,6 +74,9 @@ protected:
     std::vector<std::shared_ptr<InvokeSpec>> createSpecs;
     std::shared_ptr<WaitingObjectManager> waitManager_;
     std::shared_ptr<MemoryStore> memStore_;
+
+private:
+    ErrorInfo Signal(libruntime::Signal signal);
 };
 
 }  // namespace Libruntime

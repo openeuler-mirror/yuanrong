@@ -108,15 +108,64 @@ ErrorInfo Group::Wait()
 void Group::Terminate()
 {
     runFlag = false;
-    YRLOG_DEBUG("start terminate group ins, group name is {}, group id is {}", groupName, groupId);
+    std::string tmpGroupId;
+    {
+        std::lock_guard<std::mutex> lock(groupIdMtx);
+        tmpGroupId = groupId;
+    }
+    YRLOG_DEBUG("start terminate group ins, group name is {}, group id is {}", groupName, tmpGroupId);
     KillRequest killReq;
-    killReq.set_instanceid(groupId);
+    killReq.set_instanceid(tmpGroupId);
     killReq.set_payload("");
     killReq.set_signal(libruntime::Signal::KillGroupInstance);
     this->fsClient->KillAsync(killReq, [](KillResponse resp, ErrorInfo err) -> void {
         YRLOG_ERROR("get termiate group ins response, resp code is {}, resp msg is {}", resp.code(), resp.message());
     });
     SetTerminateError();
+}
+
+ErrorInfo Group::Suspend()
+{
+    YRLOG_DEBUG("start suspend group ins, group name is {}", groupName);
+    return Signal(libruntime::Signal::GroupSuspend);
+}
+
+ErrorInfo Group::Resume()
+{
+    YRLOG_DEBUG("start resume group ins, group name is {}", groupName);
+    return Signal(libruntime::Signal::GroupResume);
+}
+
+ErrorInfo Group::Signal(libruntime::Signal signal)
+{
+    if (!runFlag) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "group already terminate");
+    }
+    if (!isSendReq) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "group not create");
+    }
+    KillRequest killReq;
+    {
+        std::lock_guard<std::mutex> lock(groupIdMtx);
+        killReq.set_instanceid(groupId);
+        if (groupId.empty()) {
+            return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "groupId is empty");
+        }
+    }
+    killReq.set_signal(signal);
+    killReq.set_payload("");
+    auto promise = std::promise<ErrorInfo>();
+    auto future = promise.get_future();
+    this->fsClient->KillAsync(killReq, [&promise](KillResponse resp, ErrorInfo err) -> void {
+        if (resp.code() != common::ERR_NONE) {
+            ErrorInfo errInfo(static_cast<ErrorCode>(resp.code()), ModuleCode::RUNTIME, resp.message());
+            promise.set_value(errInfo);
+        } else {
+            promise.set_value(ErrorInfo());
+        }
+    });
+    auto err = future.get();
+    return err;
 }
 
 void Group::SetRunFlag()

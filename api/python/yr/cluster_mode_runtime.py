@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Tuple, Union, Callable
 from yr.exception import YRInvokeError
 from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 from yr.common.types import InvokeArg, GroupInfo
-from yr.config import InvokeOptions
+from yr.config import InvokeOptions, GroupOptions
 from yr.config_manager import ConfigManager
 from yr.fnruntime import Fnruntime, SharedBuffer
 from yr.libruntime_pb2 import FunctionMeta
@@ -55,8 +55,10 @@ class ClusterModeRuntime(Runtime):
         function_system_rt_server_ip_addr = ""
         function_system_rt_server_port = 0
         if ConfigManager().server_address != "":
-            function_system_ip_addr = ConfigManager().server_address.split(":")[0]
-            function_system_port = int(ConfigManager().server_address.split(":")[1])
+            function_system_ip_addr = ConfigManager().server_address.split(":")[
+                0]
+            function_system_port = int(
+                ConfigManager().server_address.split(":")[1])
         _logger.debug(
             "Initialize libruntime with functionsystem address: %s:%d",
             function_system_ip_addr,
@@ -64,8 +66,10 @@ class ClusterModeRuntime(Runtime):
         )
 
         if ConfigManager().rt_server_address != "":
-            function_system_rt_server_ip_addr = ConfigManager().rt_server_address.split(":")[0]
-            function_system_rt_server_port = int(ConfigManager().rt_server_address.split(":")[1])
+            function_system_rt_server_ip_addr = ConfigManager(
+            ).rt_server_address.split(":")[0]
+            function_system_rt_server_port = int(
+                ConfigManager().rt_server_address.split(":")[1])
         _logger.debug(
             "Initialize libruntime with functionsystem rt-server address: %s:%d",
             function_system_rt_server_ip_addr,
@@ -104,7 +108,8 @@ class ClusterModeRuntime(Runtime):
         :return: data which get from ds
         """
         if timeout < 0 and timeout != -1:
-            raise RuntimeError(f"Invalid parameter, timeout: {timeout}, expect -1 or > 0")
+            raise RuntimeError(
+                f"Invalid parameter, timeout: {timeout}, expect -1 or > 0")
 
         timeout_ms = -1 if timeout == -1 else timeout * 1000
         results = self.libruntime.get(ids, timeout_ms, allow_partial)
@@ -122,7 +127,8 @@ class ClusterModeRuntime(Runtime):
         :param timeout: timeout
         :return: ready objects, unready objects, exception to objects
         """
-        ready_ids, unready_ids, exception_ids = self.libruntime.wait(objs, wait_num, timeout)
+        ready_ids, unready_ids, exception_ids = self.libruntime.wait(
+            objs, wait_num, timeout)
         if exception_ids:
             ready_ids.extend(exception_ids)
         if len(ready_ids) > wait_num:
@@ -150,7 +156,8 @@ class ClusterModeRuntime(Runtime):
                     else:
                         callback(res)
                 except Exception as e:
-                    callback(ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, str(e)))
+                    callback(ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR,
+                             ModuleCode.RUNTIME, str(e)))
 
         self.libruntime.get_async(object_id, callback_wrapper)
 
@@ -602,11 +609,13 @@ class ClusterModeRuntime(Runtime):
         args_list_new = []
         for arg in args_list:
             if isinstance(arg, ObjectRef):
-                invoke_arg = InvokeArg(buf=bytes(), is_ref=True, obj_id=arg.id, nested_objects=set())
+                invoke_arg = InvokeArg(
+                    buf=bytes(), is_ref=True, obj_id=arg.id, nested_objects=set())
             else:
                 serialized_arg = Serialization().serialize(arg)
                 invoke_arg = InvokeArg(buf=None, is_ref=False, obj_id="",
-                                       nested_objects=set([ref.id for ref in serialized_arg.nested_refs]),
+                                       nested_objects=set(
+                                           [ref.id for ref in serialized_arg.nested_refs]),
                                        serialized_obj=serialized_arg)
             args_list_new.append(invoke_arg)
         return args_list_new
@@ -617,3 +626,18 @@ class ClusterModeRuntime(Runtime):
         """
         if not self.__enable_flag:
             raise RuntimeError("runtime not enable")
+
+    def create_group(self, group_name: str, group_opts: GroupOptions):
+        self.libruntime.create_group(group_name, group_opts)
+
+    def terminate_group(self, group_name: str):
+        self.libruntime.terminate_group(group_name)
+
+    def wait_group(self, group_name: str):
+        self.libruntime.wait_group(group_name)
+
+    def suspend_group(self, group_name: str):
+        self.libruntime.suspend_group(group_name)
+
+    def resume_group(self, group_name: str):
+        self.libruntime.resume_group(group_name)

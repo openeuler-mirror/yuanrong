@@ -160,7 +160,8 @@ TEST_F(InvokeAdaptorTest, ParseCreateRequestTest)
     pbArg->set_type(Arg_ArgType::Arg_ArgType_VALUE);
     InvokeSpec invokeSpec;
     invokeSpec.invokeType = libruntime::InvokeType::CreateInstance;
-    pbArg->set_value(invokeSpec.BuildCreateMetaData(*invokeAdaptor->librtConfig));
+    std::string meta;
+    pbArg->set_value(invokeSpec.BuildCreateMetaData(*invokeAdaptor->librtConfig, meta));
 
     auto pbArg2 = request.add_args();
     pbArg2->set_type(common::Arg::OBJECT_REF);
@@ -282,7 +283,8 @@ TEST_F(InvokeAdaptorTest, InitCallTest)
     auto pbArg1 = req.add_args();
     pbArg1->set_type(Arg_ArgType::Arg_ArgType_VALUE);
     InvokeSpec invokeSpec;
-    pbArg1->set_value(invokeSpec.BuildCreateMetaData(*invokeAdaptor->librtConfig));
+    std::string meta;
+    pbArg1->set_value(invokeSpec.BuildCreateMetaData(*invokeAdaptor->librtConfig, meta));
     auto res1 = invokeAdaptor->InitCall(req, metaData);
     ASSERT_EQ(res1.code(), ::common::ERR_NONE);
     libruntime::MetaConfig *config = metaData.mutable_config();
@@ -961,9 +963,9 @@ TEST_F(InvokeAdaptorTest, GetInstanceIdsTest)
 {
     auto [vec1, err1] = invokeAdaptor->GetInstanceIds("objid", "groupname");
     ASSERT_EQ(err1.Code(), ErrorCode::ERR_INNER_SYSTEM_ERROR);
-    GroupOptions opts;
+    GroupOpts opts;
     auto fsClient = std::make_shared<MockFsIntf>();
-    auto group = std::make_shared<NamedGroup>("groupname");
+    auto group = std::make_shared<NamedGroup>("groupname", opts);
     invokeAdaptor->groupManager->AddGroup(group);
     auto [vec2, err2] = invokeAdaptor->GetInstanceIds("objid", "groupname");
     ASSERT_EQ(vec2.size() == 1, true);

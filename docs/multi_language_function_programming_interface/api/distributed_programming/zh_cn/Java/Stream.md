@@ -260,7 +260,7 @@ Consumer 接口。
 
 #### List<Element> receive(long expectNum, int timeoutMs) Throws ActorTaskException
 
-消费者接收数据带有订阅功能，接收数据会等待期望个数 `expectNum`个 `element`，当超时时间 `timeoutMs` 到达或者期望个数的数据可接收到时，该调用返回。
+消费者接收数据带有订阅功能，接收数据会等待期望个数 `expectNum` 个 `element`，当超时时间 `timeoutMs` 到达或者期望个数的数据可接收到时，该调用返回。
 
 - 参数：
 

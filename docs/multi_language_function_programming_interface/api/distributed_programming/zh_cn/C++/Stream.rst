@@ -85,7 +85,7 @@ Stream
         自定义追踪 ID，用于故障排除和性能优化。
 
         仅在云环境中支持；在云环境之外的设置不会生效。
-        最大长度：36。有效字符必须符合正则表达式：^[a-zA-Z0-9.-\/_!#%\^&*()+=\:;]*$。
+        最大长度：36。有效字符必须符合正则表达式： ``^[a-zA-Z0-9.-\/_!#%\^&*()+=\:;]*$``。
 
 .. cpp:class:: StreamProducer : public YR::Producer
 
@@ -161,7 +161,7 @@ Stream
            std::shared_ptr<YR::Consumer> consumer = YR::Subscribe(streamName, config);
 
         参数：
-            - **streamName** - 流的名称。必须少于 256 个字符，且只能包含以下字符：(a-zA-Z0-9.-/_!#%^&*()+=:;)。
+            - **streamName** - 流的名称。必须少于 256 个字符，且只能包含以下字符：``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``。
             - **config** - 消费者的配置信息。
             - **autoAck** - 如果 autoAck 为 true，则消费者会自动向数据系统发送确认消息（Ack），以确认已接收消息。默认值：false。
     
@@ -195,7 +195,7 @@ Stream
             
     .. cpp:function:: inline SubscriptionConfig(std::string subName, const SubscriptionType subType)
         
-       SubscriptionConfig 的构造函数
+       SubscriptionConfig 的构造函数。
 
        参数：
            - **subName** - 订阅名称。
@@ -223,7 +223,7 @@ Stream
 
        用于故障排查和性能优化的自定义追踪 ID。
 
-       仅在云端支持；在云端之外设置将不会生效。最大长度：36。有效字符必须符合正则表达式：^[a-zA-Z0-9~.-/_!@#%^&*+=:;]*$。
+       仅在云端支持；在云端之外设置将不会生效。最大长度：36。有效字符必须符合正则表达式： ``^[a-zA-Z0-9~.-/_!@#%^&*+=:;]*$``。
 
 .. cpp:class:: StreamConsumer : public YR::Consumer
 
@@ -252,7 +252,7 @@ Stream
        抛出：
            - :cpp:class:`Exception` - 抛出异常情形如下：
 
-             - 3003: 总大小超出 uint64_t 的最大值，或总大小超出限制。
+             - 3003：总大小超出 uint64_t 的最大值，或总大小超出限制。
              - 4299：未能按预期数量（expectNum）接收元素。
   
     .. cpp:function:: virtual void Receive(uint32_t timeoutMs, std::vector<Element> &outElements)
@@ -268,7 +268,7 @@ Stream
        抛出：
            - :cpp:class:`Exception` - 抛出异常情形如下：
 
-             - 3003: 总大小超出 uint64_t 的最大值，或总大小超出限制。
+             - 3003：总大小超出 uint64_t 的最大值，或总大小超出限制。
              - 4299：接收元素失败。
   
     .. cpp:function:: virtual void Ack(uint64_t elementId)
@@ -315,7 +315,7 @@ Stream
        YR::DeleteStream(streamName);
 
     参数：
-        - **streamName** - 流的名称。必须少于 256 个字符，且只能包含以下字符：(a-zA-Z0-9.-/_!#%^&*()+=:;)。
+        - **streamName** - 流的名称。必须少于 256 个字符，且只能包含以下字符：``(a-zA-Z0-9\\~\\.\\-\\/_!@#%\\^\\&\\*\\(\\)\\+\\=\\:;)``。
     
     抛出：
         - :cpp:class:`Exception` - 4006：不支持本地模式。

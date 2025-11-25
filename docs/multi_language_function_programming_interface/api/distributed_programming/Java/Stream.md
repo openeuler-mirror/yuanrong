@@ -153,7 +153,7 @@ private ByteBuffer buffer
 
 ## Stream Object Operation Interface
 
-### public static Producer createProducer(String streamName) throws ActorTaskException
+### public static Producer createProducer(String streamName) throws YRException
 
 Create a producer.
 
@@ -167,9 +167,9 @@ Create a producer.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-### public static Producer createProducer(String streamName, ProducerConfig producerConf) throws ActorTaskException
+### public static Producer createProducer(String streamName, ProducerConfig producerConf) throws YRException
 
 Create a producer.
 
@@ -184,9 +184,9 @@ Create a producer.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-### public static Consumer subscribe(String streamName, SubscriptionConfig config) throws ActorTaskException
+### public static Consumer subscribe(String streamName, SubscriptionConfig config) throws YRException
 
 Create a consumer.
 
@@ -201,9 +201,9 @@ Create a consumer.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-### public static Consumer subscribe(String streamName, SubscriptionConfig config, boolean autoAck) throws ActorTaskException
+### public static Consumer subscribe(String streamName, SubscriptionConfig config, boolean autoAck) throws YRException
 
 Create a consumer.
 
@@ -219,7 +219,7 @@ Create a consumer.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
 ## public interface Producer
 
@@ -227,7 +227,7 @@ Producer interface class.
 
 ### Interface description
 
-#### void send(Element element) throws ActorTaskException
+#### void send(Element element) throws YRException
 
 The producer sends data, which is first placed in a buffer.
 
@@ -239,9 +239,9 @@ The buffer is flushed according to the configured automatic flush policy (send a
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-#### void send(Element element, int timeoutMs) throws ActorTaskException
+#### void send(Element element, int timeoutMs) throws YRException
 
 The producer sends data, which is first placed in a buffer.
 
@@ -254,17 +254,17 @@ The buffer is flushed according to the configured automatic flush policy (send a
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-#### void flush() throws ActorTaskException
+#### void flush() throws YRException
 
 Manually flush the buffer data to make it visible to consumers.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-#### void close() throws ActorTaskException
+#### void close() throws YRException
 
 Closing a producer triggers an automatic flush of the data buffer and indicates that the data buffer is no longer in use.
 
@@ -272,7 +272,7 @@ Once closed, the producer can no longer be used.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
 ## public class Consumer
 
@@ -280,7 +280,7 @@ Consumer interface class.
 
 ### Interface description
 
-#### List<Element> receive(long expectNum, int timeoutMs) throws ActorTaskException
+#### List<Element> receive(long expectNum, int timeoutMs) throws YRException
 
 The consumer receives data with a subscription function.
 
@@ -297,9 +297,9 @@ The consumer waits for expectNum elements. The call returns when the timeout tim
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-#### List<Element> receive(int timeoutMs) throws ActorTaskException
+#### List<Element> receive(int timeoutMs) throws YRException
 
 The consumer receives data with a subscription function.
 
@@ -315,9 +315,9 @@ The call returns when the timeout time timeoutMs is reached.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-#### void ack(long elementId) throws ActorTaskException
+#### void ack(long elementId) throws YRException
 
 After a consumer finishes using an element identified by a certain elementId, it needs to confirm that it has finished consuming, so that each worker can obtain information on whether all consumers have finished consuming.
 
@@ -329,15 +329,15 @@ If a certain page has been consumed, the internal memory recovery mechanism can 
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
-#### void close() throws ActorTaskException
+#### void close() throws YRException
 
 Close the consumer. Once closed, the consumer cannot be used.
 
 - Throws:
 
-   - **ActorTaskException** - Unified exception types thrown.
+   - **YRException** - Unified exception types thrown.
 
 ## Example
 
@@ -368,7 +368,7 @@ try {
     producer.close();
     consumer.close();
     YR.deleteStream("aaaaaaaa");
-} catch (ActorTaskException e) {
+} catch (YRException e) {
     // handle exception.
 }
 ```

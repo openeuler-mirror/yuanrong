@@ -18,7 +18,7 @@ Constraints: Users should avoid using special characters when setting keys and v
 
 ### Interface description
 
-#### public void Write(String key, Object value, ExistenceOpt existence) throws ActorTaskException
+#### public void Write(String key, Object value, ExistenceOpt existence) throws YRException
 
 The `Write` interface is provided for synchronous storage, supporting the serialization and saving of `value` to the data system.
 
@@ -35,9 +35,9 @@ YR.kv().Write("synchronous-key-1", "val-1", ExistenceOpt.NONE);
 
 - Throws:
 
-   - **ActorTaskException** - It may be caused by data system disconnection or the key containing illegal characters.
+   - **YRException** - It may be caused by data system disconnection or the key containing illegal characters.
 
-#### public void Write(String key, Object value, SetParam setParam) throws ActorTaskException
+#### public void Write(String key, Object value, SetParam setParam) throws YRException
 
 The `Write` interface is provided for synchronous storage, supporting the serialization and saving of `value` to the data system.
 
@@ -55,7 +55,7 @@ YR.kv().Write("synchronous-key-1", "val-1", setParam);
 
 - Throws:
 
-   - **ActorTaskException** - It may be caused by data system disconnection or the key containing illegal characters.
+   - **YRException** - It may be caused by data system disconnection or the key containing illegal characters.
 
 SetParam class description
 

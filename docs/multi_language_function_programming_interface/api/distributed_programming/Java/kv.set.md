@@ -36,7 +36,7 @@ boolean result = YR.kv().set("synchronous-key-1", "val-1".getBytes(StandardChars
 
     bool, Returns `true` if the storage is successful, otherwise returns `false`.
 
-#### public void set(String key, byte[] value, SetParam setParam) Throws ActorTaskException
+#### public void set(String key, byte[] value, SetParam setParam) Throws YRException
 
 The `set` interface is provided for synchronous storage, supporting the saving of binary data to the data system.
 
@@ -54,7 +54,7 @@ boolean result = YR.kv().set("synchronous-key-1", "val-1".getBytes(StandardChars
 
 - Throws:
 
-   - **ActorTaskException** - It may be caused by data system disconnection or the key containing illegal characters.
+   - **YRException** - It may be caused by data system disconnection or the key containing illegal characters.
 
 SetParam class description
 

@@ -137,7 +137,7 @@ private ByteBuffer buffer
 
 ## Stream Object Operation Interface
 
-### public static Producer createProducer(String streamName) Throws ActorTaskException
+### public static Producer createProducer(String streamName) Throws YRException
 
 创建生产者。
 
@@ -151,9 +151,9 @@ private ByteBuffer buffer
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-### public static Producer createProducer(String streamName, ProducerConfig producerConf) Throws ActorTaskException
+### public static Producer createProducer(String streamName, ProducerConfig producerConf) Throws YRException
 
 创建生产者。
 
@@ -168,9 +168,9 @@ private ByteBuffer buffer
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-### public static Consumer subscribe(String streamName, SubscriptionConfig config) Throws ActorTaskException
+### public static Consumer subscribe(String streamName, SubscriptionConfig config) Throws YRException
 
 创建消费者。
 
@@ -185,9 +185,9 @@ private ByteBuffer buffer
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-### public static Consumer subscribe(String streamName, SubscriptionConfig config, boolean autoAck) Throws ActorTaskException
+### public static Consumer subscribe(String streamName, SubscriptionConfig config, boolean autoAck) Throws YRException
 
 创建消费者。
 
@@ -203,7 +203,7 @@ private ByteBuffer buffer
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
 ## public interface Producer
 
@@ -211,7 +211,7 @@ Producer 接口。
 
 ### Interface description
 
-#### void send(Element element) Throws ActorTaskException
+#### void send(Element element) Throws YRException
 
 Producer 发送数据，数据会首先放入缓冲中，根据配置的自动 flush 策略（发送间隔一段时间或者缓冲写满）去刷缓冲或主动调用 flush 让消费者可以访问到。
 
@@ -221,9 +221,9 @@ Producer 发送数据，数据会首先放入缓冲中，根据配置的自动 f
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-#### void send(Element element, int timeoutMs) Throws ActorTaskException
+#### void send(Element element, int timeoutMs) Throws YRException
 
 Producer 发送数据，数据会首先放入缓冲中，根据配置的自动 flush 策略 (发送间隔一段时间或者缓冲写满) 去刷缓冲或主动调用 flush 让消费者可以访问到。
 
@@ -234,23 +234,23 @@ Producer 发送数据，数据会首先放入缓冲中，根据配置的自动 f
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-#### void flush() Throws ActorTaskException
+#### void flush() Throws YRException
 
 手动刷缓冲数据使得消费者可见。
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-#### void close() Throws ActorTaskException
+#### void close() Throws YRException
 
 关闭生产者会触发自动 flush 掉数据缓冲，并且表示不再使用数据缓冲。一旦关闭后，生产者不可再用。
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
 ## public class Consumer
 
@@ -258,7 +258,7 @@ Consumer 接口。
 
 ### Interface description
 
-#### List<Element> receive(long expectNum, int timeoutMs) Throws ActorTaskException
+#### List<Element> receive(long expectNum, int timeoutMs) Throws YRException
 
 消费者接收数据带有订阅功能，接收数据会等待期望个数 `expectNum` 个 `element`，当超时时间 `timeoutMs` 到达或者期望个数的数据可接收到时，该调用返回。
 
@@ -273,9 +273,9 @@ Consumer 接口。
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-#### List<Element> receive(int timeoutMs) Throws ActorTaskException
+#### List<Element> receive(int timeoutMs) Throws YRException
 
 消费者接收数据带有订阅功能，接收数据会等待期望个数 `expectNum` 个 `element`，当超时时间 `timeoutMs` 到达或者期望个数的数据可接收到时，该调用返回。
 
@@ -289,9 +289,9 @@ Consumer 接口。
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-#### void ack(long elementId) Throws ActorTaskException
+#### void ack(long elementId) Throws YRException
 
 消费者使用完某 `elementId` 标识的 element 后，需要确认已消费完，使得各个 worker 上可以获取到是否所有消费者都已经消费完的信息，若已经消费完某个 Page 可以触发内部的内存回收机制。若不 ack，则在消费者退出时候才会自动 ack。
 
@@ -301,15 +301,15 @@ Consumer 接口。
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
-#### void close() Throws ActorTaskException
+#### void close() Throws YRException
 
 关闭消费者。一旦关闭后，消费者不可再用。
 
 - 抛出：
 
-   - **ActorTaskException** - 统一抛出的异常类型。
+   - **YRException** - 统一抛出的异常类型。
 
 ## 样例
 
@@ -340,7 +340,7 @@ try {
     producer.close();
     consumer.close();
     YR.deleteStream("aaaaaaaa");
-} catch (ActorTaskException e) {
+} catch (YRException e) {
     // 处理异常。
 }
 ```

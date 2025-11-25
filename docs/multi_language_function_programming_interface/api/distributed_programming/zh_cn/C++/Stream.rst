@@ -60,10 +60,10 @@ Stream
 
     .. cpp:member:: uint64_t retainForNumConsumers = 0
 
-        指定应有多少个消费者保留生产者的数据。
+        指定为多少个消费者保留生产者的数据。
         
         默认值：0。如果设置为 0，则在没有消费者时不会保留数据。
-        稍后创建的消费者可能无法接收到数据。此参数仅对第一个创建的消费者有效，当前有效范围为 [0, 1]。不支持多个消费者。
+        此参数仅对第一个创建的消费者有效，当前有效范围为 [0, 1]。不支持多个消费者。在生产者之后创建的消费者可能无法接收到数据。
 
     .. cpp:member:: uint64_t reserveSize = 0
 
@@ -103,7 +103,6 @@ Stream
           std::string str = "hello";
           YR::Element element((uint8_t *)(str.c_str()), str.size());
           producer->Send(element);
-          producer->Flush();
         
        参数：
            - **element** - 要发送的元素数据。
@@ -124,21 +123,6 @@ Stream
         抛出：
             - :cpp:class:`Exception` - 4299: 发送元素失败。
   
-    .. cpp:function:: virtual void Flush()
-
-        手动刷新缓冲区，使数据对消费者可见。
-    
-        .. code-block:: cpp
-    
-           // 生产者发送数据
-           std::string str = "hello";
-           YR::Element element((uint8_t *)(str.c_str()), str.size());
-           producer->Send(element);
-           producer->Flush();
-           
-        抛出：
-            - :cpp:class:`Exception` - 4299: 生产者未能刷新缓冲区。
-      
     .. cpp:function:: virtual void Close()
 
         关闭生产者，触发缓冲区的自动刷新，并表明缓冲区将不再被使用。

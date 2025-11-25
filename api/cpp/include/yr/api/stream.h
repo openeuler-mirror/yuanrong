@@ -82,9 +82,8 @@ struct ProducerConf {
 
     /**
      * @brief Specifies how many consumers should retain the producer's data. Default: 0.
-     * If set to 0, data will not be retained if there are no consumers. When consumers are created later, they may not
-     * receive the data. This parameter is only effective for the first consumer created, and the current valid range is
-     * [0, 1]. Multiple consumers are not supported.
+     * If set to 0, data will not be retained if there are no consumers. This parameter is only effective for the first consumer created, and the current valid range is
+     * [0, 1]. Multiple consumers are not supported. A consumer created after the producer may not receive data.
      */
     uint64_t retainForNumConsumers = 0;
 

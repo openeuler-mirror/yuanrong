@@ -18,7 +18,7 @@ Constraint: Users should avoid using special characters when setting keys and va
 
 ### Interface description
 
-#### public void mSetTx(List<String> keys, List<byte[]> vals, MSetParam mSetParam) Throws ActorTaskException
+#### public void mSetTx(List<String> keys, List<byte[]> vals, MSetParam mSetParam) Throws YR Exception
 
 The `mSetTx` interface is provided for synchronous storage, supporting the saving of a set of binary data to the data system.
 
@@ -42,9 +42,9 @@ YR.kv().mSetTx(keys, vals, msetParam);
 
 - Throws:
 
-   - **ActorTaskException** - It may be caused by data system disconnection, mismatched numbers of keys and vals, empty keys, or the ExistenceOpt option being set to NONE.
+   - **YRException** - It may be caused by data system disconnection, mismatched numbers of keys and vals, empty keys, or the ExistenceOpt option being set to NONE.
 
-#### public void mSetTx(List<String> keys, List<byte[]> vals, List<Integer> lengths, MSetParam mSetParam) Throws ActorTaskException
+#### public void mSetTx(List<String> keys, List<byte[]> vals, List<Integer> lengths, MSetParam mSetParam) Throws YRException
 
 The `set` interface is provided for synchronous storage, supporting the saving of binary data to the data system.
 
@@ -72,7 +72,7 @@ YR.kv().mSetTx(keys, vals, lengths, msetParam);
 
 - Throws:
 
-   - **ActorTaskException** - It may be caused by data system disconnection or the key containing illegal characters.
+   - **YRTaskException** - It may be caused by data system disconnection or the key containing illegal characters.
 
 SetParam Class description
 

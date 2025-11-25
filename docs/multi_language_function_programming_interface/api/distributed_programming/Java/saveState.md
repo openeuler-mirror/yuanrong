@@ -17,7 +17,7 @@ Constraints:
 
 ### Interface description
 
-#### public static void saveState() throws ActorTaskException
+#### public static void saveState() throws YRException
 
 Used to save the instance state.
 
@@ -34,11 +34,11 @@ public class Counter {
         return this.cnt;
     }
 
-    public void save() throws ActorTaskException {
+    public void save() throws YRException {
         YR.saveState();
     }
 
-    public boolean load() throws ActorTaskException {
+    public boolean load() throws YRException {
         YR.loadState();
         return true;
     }
@@ -66,9 +66,9 @@ public static class MyYRApp{
 
 - Throws:
 
-   - **ActorTaskException** - Saving the state will fail and throw a `Failed to save state` exception.
+   - **YRException** - Saving the state will fail and throw a `Failed to save state` exception.
 
-#### public static void saveState(int timeoutSec) throws ActorTaskException
+#### public static void saveState(int timeoutSec) throws YRException
 
 Used to save the instance state.
 
@@ -78,4 +78,4 @@ Used to save the instance state.
 
 - Throws:
 
-   - **ActorTaskException** - Saving the state will fail and throw a `Failed to save state` exception.
+   - **YRException** - Saving the state will fail and throw a `Failed to save state` exception.

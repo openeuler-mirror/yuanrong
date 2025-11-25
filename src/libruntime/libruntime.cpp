@@ -15,10 +15,8 @@
  */
 
 #include "src/libruntime/libruntime.h"
-#include "src/libruntime/libruntime.h"
 #include <iostream>
 #include "invoke_order_manager.h"
-#include "re2/re2.h"
 #include "re2/re2.h"
 #include "src/dto/config.h"
 #include "src/dto/data_object.h"

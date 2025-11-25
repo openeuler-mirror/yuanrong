@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 if [ -z "${VERSION}" ]; then
-    VERSION="v1.0.0"
+    VERSION="v0.5.0"
 fi
 
 # go module prepare

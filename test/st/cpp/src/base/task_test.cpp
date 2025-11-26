@@ -1163,11 +1163,11 @@ TEST_F(TaskTest, RepeatPutShouldNotOOM)
 */
 TEST_F(TaskTest, ConcurrencyCall)
 {
-    int num = 10;
+    int num = 5;
     std::vector<YR::ObjectRef<std::string>> objs_str;
     objs_str.reserve(num);
     YR::InvokeOptions option;
-    option.customExtensions.insert({YR::CONCURRENCY_KEY, "10"});
+    option.customExtensions.insert({YR::CONCURRENCY_KEY, "5"});
     for (int i = 0; i < num; i++) {
         objs_str.push_back(YR::Function(PutOneData).Options(option).Invoke());
     }

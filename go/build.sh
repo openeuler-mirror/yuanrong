@@ -31,18 +31,12 @@ BUILD_TAGS=""
 VERSION=""
 FLAGS='-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"'
 
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -v|--version)
-            if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
-                VERSION="$2"
-                shift 2
-            fi
-            ;;
-      -h|--help)
-          echo -e "${USAGE}"
-          exit 0
-          ;;
+while true; do
+    case "$1" in
+    -v|--version) VERSION=$2 && shift 2 ;;
+    -h|--help) echo -e "${USAGE}" && exit 0 ;;
+    --) shift && break ;;
+    *) die "Invalid option: $1" && exit 1 ;;
     esac
 done
 

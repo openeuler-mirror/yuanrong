@@ -33,14 +33,6 @@ const routes = [
         component : () => import(/* webpackChunkName: "cluster" */ '@/pages/cluster/cluster-layout.vue'),
     },
     {
-        path:'/jobs',
-        component : () => import(/* webpackChunkName: "jobs" */ '@/pages/jobs/jobs-chart.vue'),
-    },
-    {
-        path:'/jobs/:jobID',
-        component : () => import(/* webpackChunkName: "jobDetails" */ '@/pages/job-details/job-details-layout.vue'),
-    },
-    {
         path:'/instances',
         component : () => import(/* webpackChunkName: "instances" */ '@/pages/instances/instances-chart.vue'),
     },

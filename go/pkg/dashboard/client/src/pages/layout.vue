@@ -46,11 +46,6 @@ const menuData = ref([
     id: '2',
   },
   {
-    title: 'Jobs',
-    url: '/jobs',
-    id: '3',
-  },
-  {
     title: 'Instances',
     url: '/instances',
     id: '4',

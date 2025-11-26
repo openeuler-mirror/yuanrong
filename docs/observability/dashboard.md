@@ -29,8 +29,6 @@ Cluster master info:
 * 查看总逻辑资源占用率：[Overview 页面](observability-dashboard-overview)，[Cluster 页面](observability-dashboard-cluster)
 * 概览所有组件和实例状态：[Overview 页面](observability-dashboard-overview)
 * 查看所有节点和组件的状态和逻辑资源占用率：[Cluster 页面](observability-dashboard-cluster)
-* 查看所有 jobs 任务进度和状态：[Jobs 页面](observability-dashboard-jobs)
-* 查看 job 的日志和错误信息：[Jobs 页面](observability-dashboard-jobs)，[Logs 页面](observability-dashboard-logs)
 * 查看所有 instances 任务进度和状态：[Instances 页面](observability-dashboard-instances)
 * 查看 instance 的日志和错误信息：[Logs 页面](observability-dashboard-logs)
 
@@ -60,33 +58,6 @@ Cluster 页面可以查看总逻辑资源占用率，所有节点和组件的状
 页面示例：
 
 ![](../images/5729df193ba762dda023bba1ea7d7a35_1896x890.png)
-
-(observability-dashboard-jobs)=
-
-### Jobs 页面
-
-Jobs 页面可以查看所有 jobs 的状态和基础信息。
-
-job 详细信息说明：
-
-* entrypoint：job 的入口命令。
-* runtimeEnv：job 的运行时环境。
-* submissionID：提交 job 时的提交 id。
-* status：job 状态（包括："PENDING"、"RUNNING"、"STOPPED"、"SUCCEEDED"、"FAILED"）。
-* startTime：job 的启动时间。
-* endTime：job 的结束时间。
-* message：描述 job 状态的详细信息。
-* driverNodeID：运行节点的 id。
-* driverNodeIP：运行节点的 ip。
-* driverPID：运行进程的 pid。
-
-页面示例：
-
-![](../images/f5719789375cf684391463a9c0a62d84_1912x312.png)
-
-点击 `log` 跳转至 job 详情页，可查看此 job 的详细信息、此 job 包含的 instances 信息、打印的日志和错误信息。页面示例：
-
-![](../images/mdstorm/f2ee11d89c8261367f0629cb6016fe85_1881x950.png)
 
 (observability-dashboard-instances)=
 

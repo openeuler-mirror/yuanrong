@@ -99,6 +99,7 @@ html_logo = "./images/logo-small.png"
 html_theme = "sphinx_book_theme"
 
 html_static_path = ["_static"]
+html_favicon = "_static/favicon.ico"
 html_css_files = [
     "custom.css",
 ]

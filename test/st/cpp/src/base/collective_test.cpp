@@ -66,11 +66,19 @@ TEST_F(CollectiveTest, InvalidGroupNameTest)
     res = ins.Function(&CollectiveActor::InitCollectiveGroup).Invoke(groupName2, 0, 1);
     EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(res), 2002, "groupName is invalid. It should match the regex");
 
-    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup({ins.GetInstanceId()}, 1, {0}, groupName1),
-                                   1001, "groupName is invalid. It should match the regex");
+    YR::Collective::CollectiveGroupSpec spec1{
+        .worldSize = 1,
+        .groupName = groupName1,
+    };
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec1, {ins.GetInstanceId()}, {0}), 1001,
+                                   "groupName is invalid. It should match the regex");
 
-    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup({ins.GetInstanceId()}, 1, {0}, groupName2),
-                                   1001, "groupName is invalid. It should match the regex");
+    YR::Collective::CollectiveGroupSpec spec2{
+        .worldSize = 1,
+        .groupName = groupName2,
+    };
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec2, {ins.GetInstanceId()}, {0}), 1001,
+                                   "groupName is invalid. It should match the regex");
 }
 
 /**
@@ -154,7 +162,11 @@ TEST_F(CollectiveTest, CreateGroupInDriverTest)
 
     std::string groupName = "test-group2";
     YR::Collective::DestroyCollectiveGroup(groupName);
-    YR::Collective::CreateCollectiveGroup(instanceIDs, 4, {0, 1, 2, 3}, groupName);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = 4,
+        .groupName = groupName,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, instanceIDs, {0, 1, 2, 3});
 
     std::vector<int> input = {1, 2, 3, 4};
     std::vector<YR::ObjectRef<int>> res;
@@ -198,8 +210,11 @@ TEST_F(CollectiveTest, SendRecvTest)
 
     std::string groupName = "test-group3";
     YR::Collective::DestroyCollectiveGroup(groupName);
-    YR::Collective::CreateCollectiveGroup({ins1.GetInstanceId(), ins2.GetInstanceId()}, 2, {0, 1}, groupName,
-                                          YR::Collective::Backend::GLOO);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = 2,
+        .groupName = groupName,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, {ins1.GetInstanceId(), ins2.GetInstanceId()}, {0, 1});
     std::vector<int> input = {1, 2, 3, 4};
     ins1.Function(&CollectiveActor::Send).Invoke(groupName, input, 1, 1234);
     auto ret = ins2.Function(&CollectiveActor::Recv).Invoke(groupName, 0, 1234, 4);
@@ -233,7 +248,11 @@ TEST_F(CollectiveTest, AllGatherTest)
 
     std::string groupName = "test-group4";
     YR::Collective::DestroyCollectiveGroup(groupName);
-    YR::Collective::CreateCollectiveGroup(instanceIDs, 4, {0, 1, 2, 3}, groupName);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = 4,
+        .groupName = groupName,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, instanceIDs, {0, 1, 2, 3});
 
     std::vector<int> input = {1, 2, 3, 4};
     std::vector<YR::ObjectRef<std::pair<int, int>>> res;
@@ -269,8 +288,12 @@ TEST_F(CollectiveTest, BroadcastTest)
 
     std::string groupName = "test-group5";
     YR::Collective::DestroyCollectiveGroup(groupName);
-    YR::Collective::CreateCollectiveGroup(instanceIDs, 4, {0, 1, 2, 3}, groupName, YR::Collective::Backend::GLOO,
-                                          10000);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = 4,
+        .groupName = groupName,
+        .timeout = 10000,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, instanceIDs, {0, 1, 2, 3});
 
     std::vector<int> input = {1, 2, 3, 4, 5};
     std::vector<YR::ObjectRef<int>> res;
@@ -306,7 +329,12 @@ TEST_F(CollectiveTest, ScatterTest)
 
     std::string groupName = "test-group6";
     YR::Collective::DestroyCollectiveGroup(groupName);
-    YR::Collective::CreateCollectiveGroup(instanceIDs, 4, {0, 1, 2, 3}, groupName, YR::Collective::Backend::GLOO, 1000);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = 4,
+        .groupName = groupName,
+        .timeout = 1000,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, instanceIDs, {0, 1, 2, 3});
 
     std::vector<std::vector<int>> input = {{1}, {2}, {3}, {4}};
     std::vector<YR::ObjectRef<int>> res;

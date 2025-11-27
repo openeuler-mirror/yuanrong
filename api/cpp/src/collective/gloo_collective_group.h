@@ -45,7 +45,7 @@ private:
 
 class GlooCollectiveGroup : public CollectiveGroup {
 public:
-    GlooCollectiveGroup(std::string groupName, int worldSize, int rank, int timeout, std::string storePrefix);
+    GlooCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, std::string storePrefix);
 
     ~GlooCollectiveGroup() override;
 

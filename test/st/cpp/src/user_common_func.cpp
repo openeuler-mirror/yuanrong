@@ -633,7 +633,11 @@ YR_INVOKE(CallLocal, CallCluster)
 
 int CollectiveActor::InitCollectiveGroup(std::string &groupName, int rank, int worldSize)
 {
-    YR::Collective::InitCollectiveGroup(worldSize, rank, groupName, YR::Collective::Backend::GLOO);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = worldSize,
+        .groupName = groupName,
+    };
+    YR::Collective::InitCollectiveGroup(spec, rank);
     YR::Collective::Barrier(groupName);
     return 0;
 }
@@ -672,6 +676,9 @@ double CollectiveActor::ComputeDouble(std::vector<double> in, std::string &group
 
 int CollectiveActor::Recv(std::string &groupName, int from, int tag, int count)
 {
+    if (count == 0 || count > 1000) {
+        return 1;
+    }
     int *output = new int[count];
     YR::Collective::Recv(output, count, YR::DataType::INT, from, tag, groupName);
     int result = 0;
@@ -737,7 +744,8 @@ int CollectiveActor::Scatter(std::string &groupName, std::vector<std::vector<int
     return sum;
 }
 
-int CollectiveActor::DestroyCollectiveGroup(std::string &groupName) {
+int CollectiveActor::DestroyCollectiveGroup(std::string &groupName)
+{
     YR::Collective::DestroyCollectiveGroup(groupName);
     return 0;
 }

@@ -95,22 +95,18 @@ void DsStore::wait(const std::vector<std::string> &keys, const std::chrono::mill
     for (const auto &key : keys) {
         editedKeys.push_back(ReplaceDsStoreKey(key));
     }
-    YR::KVManager::Get(editedKeys, static_cast<int>(timeout.count() / 1000));
+    YR::KVManager::Get(editedKeys, static_cast<int>(timeout.count() / S_TO_MS));
 }
 
 void DsStore::clear()
 {
     // clear ds kv
     std::vector<std::string> dels(keys_.begin(), keys_.end());
-    for (auto del : dels) {
-        std::cout << "#######~DsStore, del: " << del << std::endl;
-    }
     YR::KVManager::Del(dels);
 }
 
-GlooCollectiveGroup::GlooCollectiveGroup(std::string groupName, int worldSize, int rank, int timeout,
-                                         std::string storePrefix)
-    : CollectiveGroup(std::move(groupName), worldSize, rank, Backend::GLOO, timeout, std::move(storePrefix))
+GlooCollectiveGroup::GlooCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, std::string storePrefix)
+    : CollectiveGroup(groupSpec, rank, std::move(storePrefix))
 {
     auto dsStore = std::make_shared<DsStore>();
     std::string prefixKey = groupName_;
@@ -181,8 +177,8 @@ void GlooCollectiveGroup::Broadcast(const void *sendbuf, void *recvbuf, int coun
 
 void GlooCollectiveGroup::Recv(void *recvbuf, int count, DataType dtype, int srcRank, int tag)
 {
-    THROW_IF_TRUE(DATA_TYPE_SIZE_MAP.find(dtype) == DATA_TYPE_SIZE_MAP.end(),
-                  YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "invalid dtype: " + std::to_string(dtype));
+    ThrowIfTrue(DATA_TYPE_SIZE_MAP.find(dtype) == DATA_TYPE_SIZE_MAP.end(),
+                YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "invalid dtype: " + std::to_string(dtype));
     std::lock_guard<std::recursive_mutex> lock(mtx_);
     auto ubuf = context_->createUnboundBuffer(recvbuf, count * DATA_TYPE_SIZE_MAP.at(dtype));
     ubuf->recv(srcRank, tag);
@@ -191,8 +187,8 @@ void GlooCollectiveGroup::Recv(void *recvbuf, int count, DataType dtype, int src
 
 void GlooCollectiveGroup::Send(const void *sendbuf, int count, DataType dtype, int dstRank, int tag)
 {
-    THROW_IF_TRUE(DATA_TYPE_SIZE_MAP.find(dtype) == DATA_TYPE_SIZE_MAP.end(),
-                  YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "invalid dtype: " + std::to_string(dtype));
+    ThrowIfTrue(DATA_TYPE_SIZE_MAP.find(dtype) == DATA_TYPE_SIZE_MAP.end(),
+                YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "invalid dtype: " + std::to_string(dtype));
     std::lock_guard<std::recursive_mutex> lock(mtx_);
     auto ubuf = context_->createUnboundBuffer(const_cast<void *>(sendbuf), count * DATA_TYPE_SIZE_MAP.at(dtype));
     ubuf->send(dstRank, tag);

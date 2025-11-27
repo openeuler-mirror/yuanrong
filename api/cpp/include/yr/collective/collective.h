@@ -35,15 +35,21 @@ enum Backend : uint8_t {
 const int DEFAULT_COLLECTIVE_TIMEOUT = 60 * 1000;  // ms
 const std::string DEFAULT_GROUP_NAME = "default";  // ms
 
+struct CollectiveGroupSpec {
+    int worldSize;
+    std::string groupName = "default";
+    Backend backend = Backend::GLOO;
+    int timeout = DEFAULT_COLLECTIVE_TIMEOUT;
+};
+
 class CollectiveGroup {
 public:
-    CollectiveGroup(std::string groupName, int worldSize, int rank, Backend backend, int timeout,
-                    std::string storePrefix = "")
-        : groupName_(std::move(groupName)),
+    CollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, std::string storePrefix)
+        : groupName_(groupSpec.groupName),
           rank_(rank),
-          backend_(backend),
-          worldSize_(worldSize),
-          timeout_(timeout),
+          backend_(groupSpec.backend),
+          worldSize_(groupSpec.worldSize),
+          timeout_(groupSpec.timeout),
           storePrefix_(std::move(storePrefix))
     {
     }
@@ -89,25 +95,20 @@ protected:
 /**
  * init collective group in actor
  *
- * @param worldSize
+ * @param groupSpec
  * @param rank
- * @param groupName
  */
-void InitCollectiveGroup(int worldSize, int rank, const std::string &groupName = DEFAULT_GROUP_NAME,
-                         Backend backend = Backend::GLOO, int timeout = DEFAULT_COLLECTIVE_TIMEOUT,
-                         const std::string &storePrefix = "");
+void InitCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, const std::string &prefix = "");
 
 /**
  * create collective group with actor ids in driver
  *
+ * @param groupSpec
  * @param instanceIDs
- * @param worldSize
  * @param ranks
- * @param groupName
  */
-void CreateCollectiveGroup(const std::vector<std::string> &instanceIDs, int worldSize, const std::vector<int> &ranks,
-                           const std::string &groupName = DEFAULT_GROUP_NAME, Backend backend = Backend::GLOO,
-                           int timeout = DEFAULT_COLLECTIVE_TIMEOUT);
+void CreateCollectiveGroup(const CollectiveGroupSpec &groupSpec, const std::vector<std::string> &instanceIDs,
+                           const std::vector<int> &ranks);
 /**
  *
  *
@@ -152,8 +153,7 @@ public:
 
     std::shared_ptr<CollectiveGroup> CheckAndCreateGroup(const std::string &groupName);
 
-    void InitCollectiveGroup(int worldSize, int rank, const std::string &groupName, Backend backend, int timeout,
-                             const std::string &storePrefix);
+    void InitCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, const std::string &prefix);
 
     void DestroyCollectiveGroup(const std::string &groupName);
 

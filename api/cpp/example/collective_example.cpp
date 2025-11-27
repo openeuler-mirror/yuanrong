@@ -38,11 +38,12 @@ public:
         YR::Collective::Barrier(groupName);
 
         // send and recv
+        int tag = 1234;
         if (YR::Collective::GetRank(groupName) == 0) {
-            YR::Collective::Send(in.data(), in.size(), YR::DataType::INT, 1, 1234, groupName);
+            YR::Collective::Send(in.data(), in.size(), YR::DataType::INT, 1, tag, groupName);
         } else if (YR::Collective::GetRank(groupName) == 1) {
             output = new int[in.size()];
-            YR::Collective::Recv(output, in.size(), YR::DataType::INT, 0, 1234, groupName);
+            YR::Collective::Recv(output, in.size(), YR::DataType::INT, 0, tag, groupName);
         }
         YR::Collective::Barrier(groupName);
 
@@ -64,18 +65,23 @@ int main(void)
 
     std::vector<YR::NamedInstance<CollectiveActor>> instances;
     std::vector<std::string> instanceIDs;
-    for (int i = 0; i < 4; ++i) {
+    const int SIZE = 4;
+    for (int i = 0; i < SIZE; ++i) {
         auto ins = YR::Instance(CollectiveActor::FactoryCreate).Invoke();
         instances.push_back(ins);
         instanceIDs.push_back(ins.GetInstanceId());
     }
 
     std::string groupName = "test-group";
-    YR::Collective::CreateCollectiveGroup(instanceIDs, 4, {0, 1, 2, 3}, groupName);
+    YR::Collective::CollectiveGroupSpec spec{
+        .worldSize = SIZE,
+        .groupName = groupName,
+    };
+    YR::Collective::CreateCollectiveGroup(spec, instanceIDs, {0, 1, 2, 3});
 
     std::vector<int> input = {1, 2, 3, 4};
     std::vector<YR::ObjectRef<int>> res;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < SIZE; ++i) {
         res.push_back(instances[i]
                           .Function(&CollectiveActor::Compute)
                           .Invoke(input, groupName, static_cast<uint8_t>(YR::ReduceOp::SUM)));

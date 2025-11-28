@@ -2192,7 +2192,7 @@ cdef class Fnruntime:
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
             raise RuntimeError("already finalized")
-        yr_ns = get_namespace()
+        yr_ns = self.get_namespace()
         cinstanceID = (ns + "-" + name if ns else yr_ns + "-" + name).encode()
         with nogil:
             c_libruntime.get().SetTenantIdWithPriority()

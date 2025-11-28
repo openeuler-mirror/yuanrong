@@ -21,6 +21,6 @@
 
 本节将展开介绍 openYuanrong 提供的相关工具和数据。
 
+- [Dashboard](./dashboard.md)
 - [日志](./logs.md)
 - [指标](./metrics/index.md)
-- [Dashboard](./dashboard.md)

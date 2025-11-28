@@ -48,6 +48,13 @@ Java
    :hidden:
    :maxdepth: 1
 
+   Stream
+
+.. toctree::
+   :glob:
+   :hidden:
+   :maxdepth: 1
+
    setUrn
    cpp-function
    CppFunctionHandler
@@ -101,13 +108,6 @@ Java
    :maxdepth: 1
 
    Affinity
-
-.. toctree::
-   :glob:
-   :hidden:
-   :maxdepth: 1
-
-   Stream
 
 Basic API
 -----------
@@ -184,6 +184,17 @@ Data Object API
      - Initialize the ObjectRef.
 
 
+Stream API
+-----------------------
+
+.. list-table::
+   :header-rows: 0
+   :widths: 30 70
+
+   * - :doc:`Stream`
+     - Passing ordered unbounded data between openYuanrong functions.  
+
+     
 Function Interoperation API
 -----------------------------
 
@@ -288,12 +299,3 @@ Affinity Scheduling
    * - :doc:`Affinity`
      - Affinity Scheduling Configuration Parameters.
 
-Stream API
------------------------
-
-.. list-table::
-   :header-rows: 0
-   :widths: 30 70
-
-   * - :doc:`Stream`
-     - Passing ordered unbounded data between openYuanrong functions.  

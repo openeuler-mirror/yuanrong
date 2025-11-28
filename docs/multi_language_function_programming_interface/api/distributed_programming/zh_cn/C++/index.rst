@@ -56,6 +56,13 @@ C++
    :hidden:
    :maxdepth: 1
 
+   Stream
+   
+.. toctree::
+   :glob:
+   :hidden:
+   :maxdepth: 1
+
    PyFunction
    PyInstanceClass-FactoryCreate
    JavaFunction
@@ -99,13 +106,6 @@ C++
    :maxdepth: 1
 
    Affinity
-
-.. toctree::
-   :glob:
-   :hidden:
-   :maxdepth: 1
-
-   Stream
 
 基础 API
 ----------
@@ -198,6 +198,17 @@ C++
      - 对象引用，即数据对象的键。
 
 
+数据流 API
+-----------------------
+
+.. list-table::
+   :header-rows: 0
+   :widths: 30 70
+
+   * - :doc:`Stream`
+     - 在 openYuanrong 函数间传递共享的有序无界内存数据集。
+
+
 函数互调 API
 -----------------------
 
@@ -280,13 +291,3 @@ KV 缓存 API
    * - :doc:`Affinity`
      - 亲和调度的配置参数。
 
-
-数据流 API
------------------------
-
-.. list-table::
-   :header-rows: 0
-   :widths: 30 70
-
-   * - :doc:`Stream`
-     - 在 openYuanrong 函数间传递共享的有序无界内存数据集。

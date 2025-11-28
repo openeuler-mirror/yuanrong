@@ -19,7 +19,6 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -89,7 +88,11 @@ func PBToCompAdd(resource *resource.ResourceUnit) (ComponentsAddition, error) {
 		comp := Component{
 			Hostname: f.Id,
 			Status:   "alive",
-			Address:  parseAddress(f.Id),
+		}
+		if _, ok := f.NodeLabels["HOST_IP"]; ok {
+			for address := range f.NodeLabels["HOST_IP"].Items {
+				comp.Address = address
+			}
 		}
 		comp.Usage, err = PBToUsage(f)
 		if err != nil {
@@ -103,7 +106,7 @@ func PBToCompAdd(resource *resource.ResourceUnit) (ComponentsAddition, error) {
 		node := Component{
 			Hostname: k,
 			Status:   "healthy",
-			Address:  parseIP(compUnit[0].Address),
+			Address:  compUnit[0].Address,
 		}
 		node.AllocNPU = compUnit[0].AllocNPU
 		for _, component := range compUnit {
@@ -116,17 +119,4 @@ func PBToCompAdd(resource *resource.ResourceUnit) (ComponentsAddition, error) {
 	}
 	compAdd.Nodes = nodes
 	return compAdd, nil
-}
-
-func parseAddress(hostname string) string {
-	pathArr := strings.Split(hostname, "-")
-	length := len(pathArr)
-	if length < 2 { // pathArr at least has two member: ip and port
-		return ""
-	}
-	return pathArr[length-2] + ":" + pathArr[length-1] // pathArr[length-2] is ip, pathArr[length-1] is port
-}
-
-func parseIP(address string) string {
-	return strings.Split(address, ":")[0]
 }

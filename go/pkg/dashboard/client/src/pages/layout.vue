@@ -18,7 +18,9 @@
   <div class="preview">
     <tiny-nav-menu :data="menuData">
       <template #logo>
-        <img src="/favicon.ico" alt="YuanRong logo" class="yr-logo"/>
+        <a href="#/overview">
+          <img src="/favicon.ico" alt="YuanRong logo" class="yr-logo"/>
+        </a>
       </template>
       <template #toolbar>
          <p class="version">{{ config.version }}</p>

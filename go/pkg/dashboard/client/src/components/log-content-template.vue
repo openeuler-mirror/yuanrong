@@ -84,7 +84,7 @@ function initScrollerItem() {
     return ;
   }
   GetLogByFilenameAPI(filename, startLine.value - 1, endLine.value).then((res: string) => {
-    const content = res.split('\n');
+    const content = res.toString().split('\n');
     if (content.length >= 1 && content[0] === '<!doctype html>') {
       throw '';
     }

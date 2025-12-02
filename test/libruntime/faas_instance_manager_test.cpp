@@ -490,7 +490,8 @@ TEST_F(FaasInstanceManagerTest, AddInsInfoBareTest)
     ASSERT_EQ(insManager->totalCreatedInstanceNum_, 1);
 }
 
-std::string removeNewlines(const std::string& input) {
+std::string removeNewlines(const std::string& input)
+{
     std::string result;
     result.reserve(input.length());
     for (char c : input) {

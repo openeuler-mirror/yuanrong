@@ -831,15 +831,6 @@ func TestGDecreaseRefRaw(t *testing.T) {
 	)
 }
 
-func TestReleaseGRefs(t *testing.T) {
-	convey.Convey(
-		"Test ReleaseGRefs", t, func() {
-			err := ReleaseGRefs("remoteClientID")
-			convey.So(err, convey.ShouldBeNil)
-		},
-	)
-}
-
 func TestAllocReturnObject(t *testing.T) {
 	convey.Convey(
 		"Test AllocReturnObject", t, func() {

@@ -228,11 +228,6 @@ func (m mockLibruntimeClient) CreateClient(config api.ConnectArguments) (api.KvC
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) ReleaseGRefs(remoteClientID string) error {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (m *mockLibruntimeClient) UpdateSchdulerInfo(schedulerName string, option string) {
 	//TODO implement me
 	panic("implement me")

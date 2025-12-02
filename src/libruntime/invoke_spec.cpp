@@ -242,7 +242,6 @@ void InvokeSpec::BuildRequestPbCreateOptions(InvokeOptions &opts, const Librunti
         createOptions->insert({NEED_ORDER, ""});
     }
     createOptions->insert({RECOVER_RETRY_TIMES, std::to_string(opts.recoverRetryTimes)});
-//    auto workingDir = !opts.workingDir.empty() ? opts.workingDir : config.workingDir;
     auto workingDir = !opts.workingDir.empty() ? opts.workingDir : ([]() {
     char buf[PATH_MAX];
     return (getcwd(buf, sizeof(buf)) != nullptr) ? std::string(buf) : std::string();

@@ -80,26 +80,6 @@ cc_library(
         "-lpthread",
         "-libverbs",
     ],
-    visibility = ["//visibility:public"],
-)
-
-cc_binary(
-    name = "gloo_shared_lib",
-    linkshared = True,
-    deps = [":gloo"],
-)
-
-genrule(
-    name = "libgloo_so",
-    srcs = [":gloo_shared_lib"],
-    outs = ["libgloo_shared.so"],
-    cmd = "cp $(location :gloo_shared_lib) $@",
-    visibility = ["//visibility:public"],
-)
-
-filter_files_with_suffix(
-    name = "shared",
-    srcs = [":libgloo_so"],
-    suffix = ".so",
+    linkstatic = True,
     visibility = ["//visibility:public"],
 )

@@ -18,12 +18,15 @@
 #include <mutex>
 #include <unordered_set>
 
+#ifdef ENABLE_GLOO
 #include "gloo/allreduce.h"
 #include "gloo/rendezvous/context.h"
+#endif
 #include "yr/collective/collective.h"
 
 namespace YR::Collective {
 
+#ifdef ENABLE_GLOO
 const int DS_STORE_CHECK_DEFAULT_TIMEOUT = 5 * 60 * 1000;  // ms
 
 struct DsStore : public gloo::rendezvous::Store {
@@ -93,4 +96,5 @@ private:
     std::shared_ptr<DsStore> store_;
     std::recursive_mutex mtx_{};
 };
+#endif // ENABLE_GLOO
 }  // namespace YR::collective

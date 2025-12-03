@@ -1,4 +1,4 @@
-load("//bazel:yr.bzl", "COPTS", "LOPTS", "cc_strip")
+load("//bazel:yr.bzl", "COPTS", "COPTS_WITH_GLOO", "LOPTS", "cc_strip")
 
 genrule(
     name = "version",
@@ -33,7 +33,10 @@ cc_library(
         "include/yr/parallel/detail/*.h",
         "include/yr/collective/*.h",
     ]),
-    copts = COPTS,
+    copts = select({
+        "//conditions:default": COPTS_WITH_GLOO,
+        "//:disable_gloo": COPTS,
+    }),
     linkopts = ["-lstdc++fs"],
     linkstatic = True,
     strip_include_prefix = "include",
@@ -46,8 +49,10 @@ cc_library(
         "@securec",
         "@nlohmann_json",
         "@yaml-cpp",
-        "@gloo//:gloo",
-    ],
+    ] + select({
+        "//conditions:default": ["@gloo//:gloo"],
+        "//:disable_gloo": [],
+    }),
     alwayslink = True,
 )
 
@@ -165,7 +170,6 @@ genrule(
         ":cpp_strip",
         "//:grpc_strip",
         "@boringssl//:shared",
-        "@gloo//:shared",
         ":cpp_include",
     ],
     outs = ["yr_cpp_pkg.out"],
@@ -220,7 +224,6 @@ genrule(
         chrpath -d $(locations :cpp_strip) $(locations //:grpc_strip) &&
         cp -rf $(locations :cpp_strip) $(locations //:grpc_strip) $$CPP_SDK_DIR/lib/ &&
         cp -rf $(locations :cpp_strip) $$CPP_SDK_DIR/bin/ &&
-        cp -rf $(locations @gloo//:shared) $$CPP_SDK_DIR/lib/ &&
         rm -rf $$CPP_SDK_DIR/bin/libyr-api.so $$CPP_SDK_DIR/bin/libfunctionsdk.so
         cp -rf $$BASE_DIR/api/cpp/include $$CPP_SDK_DIR/ &&
         DATASYSTEM_DIR=$$BASE_DIR/external/datasystem_sdk/cpp &&

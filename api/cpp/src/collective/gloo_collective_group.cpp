@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#ifdef ENABLE_GLOO
+
 #include "gloo_collective_group.h"
 
 #include "api/cpp/src/utils/utils.h"
@@ -304,3 +306,5 @@ void GlooCollectiveGroup::DoAllGather(const void *sendbuf, void *recvbuf, int co
     gloo::allgather(opts);
 }
 }  // namespace YR::collective
+
+#endif // ENABLE_GLOO

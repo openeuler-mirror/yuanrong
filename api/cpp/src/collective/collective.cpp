@@ -22,7 +22,9 @@
 #include <vector>
 
 #include "api/cpp/src/utils/utils.h"
+#ifdef ENABLE_GLOO
 #include "gloo_collective_group.h"
+#endif
 #include "src/dto/config.h"
 #include "src/libruntime/err_type.h"
 #include "src/utility/id_generator.h"
@@ -260,9 +262,11 @@ void CollectiveGroupMgr::InitCollectiveGroup(const CollectiveGroupSpec &groupSpe
 
     std::shared_ptr<CollectiveGroup> group;
     switch (groupSpec.backend) {
+#ifdef ENABLE_GLOO
         case Backend::GLOO:
             group = std::make_shared<GlooCollectiveGroup>(groupSpec, rank, prefix);
             break;
+#endif
 
         case Backend::INVALID:
             // fall-through

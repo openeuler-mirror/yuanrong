@@ -1,5 +1,6 @@
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain")
 COPTS = ["-DVERSION=1", "-Wno-stringop-overflow", "-Werror", "-fstack-protector-strong", "-Wno-deprecated-declarations", "-fPIC"]
+COPTS_WITH_GLOO = COPTS + ["-DENABLE_GLOO"]
 LOPTS = ["-DVERSION=1"]
 
 def copy_file(name, srcs, dstdir = "", pre_cmd = "echo"):

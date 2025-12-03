@@ -256,8 +256,6 @@ docker run \
 
 3. 安装 openYuanrong
 
-   openYuanrong 目前支持在Linux x86_64 及 aarch64（ARM）上安装。
-
    在 Linux x86_64 环境上：
    
    ```bash

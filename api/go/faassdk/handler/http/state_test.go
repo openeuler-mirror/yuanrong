@@ -93,10 +93,6 @@ func (f *FakeDataSystemClinet) GDecreaseRef(objectIds []string, remoteClientId .
 	return []string{}, nil
 }
 
-func (f *FakeDataSystemClinet) ReleaseGRefs(remoteClientId string) error {
-	return nil
-}
-
 func TestGetStateManager(t *testing.T) {
 	dsClient := &FakeDataSystemClinet{}
 

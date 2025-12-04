@@ -810,12 +810,6 @@ std::pair<ErrorInfo, std::vector<std::string>> Libruntime::DecreaseReferenceRaw(
     return dsClients.dsObjectStore->DecreGlobalReference(objIds, remoteId);
 }
 
-ErrorInfo Libruntime::ReleaseGRefs(const std::string &remoteId)
-{
-    SetTraceId();
-    return memStore->ReleaseGRefs(remoteId);
-}
-
 // timeout < 0 : wait without timeout
 std::shared_ptr<YR::InternalWaitResult> Libruntime::Wait(const std::vector<std::string> &objs, std::size_t waitNum,
                                                          int timeoutSec)

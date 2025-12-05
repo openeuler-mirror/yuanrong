@@ -130,6 +130,7 @@ Stream
         关闭后，生产者不能再被使用。
 
         .. code-block:: cpp
+            
            producer->Close();
         
         抛出：

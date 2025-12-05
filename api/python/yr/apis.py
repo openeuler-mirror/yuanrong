@@ -993,7 +993,7 @@ def kv_get(
 
     Args:
         key (Union[str, List[str]]): A single key or a list of keys specifying the data to be retrieved.
-        timeout (int, optional): The timeout in seconds. C.
+        timeout (int, optional): The timeout in seconds. Defaults to ``300``.
             A value of ``-1`` indicates permanent blocking wait.
 
     Returns:

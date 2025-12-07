@@ -513,6 +513,14 @@ function start_faas_frontend() {
   check_and_set_component_checklist "faas_frontend" $FAAS_FRONTEND_PID
 }
 
+function start_function_scheduler() {
+  if [ "X${ENABLE_FUNCTION_SCHEDULER}" != "Xtrue" ] && [ "X${ENABLE_FUNCTION_SCHEDULER}" != "XTRUE" ]; then
+    return 0
+  fi
+  install_function_system "function_scheduler"
+  check_and_set_component_checklist "function_scheduler" $SCHEDULER_PID
+}
+
 function start_dashboard() {
   if [ "X${ENABLE_DASHBOARD}" != "Xtrue" ] && [ "X${ENABLE_DASHBOARD}" != "XTRUE" ]; then
     return 0
@@ -661,7 +669,7 @@ function restart_component() {
        restart_agent_runtime_accessor
      fi
     ;;
-  function_master|ds_master|collector|faas_frontend|dashboard)
+  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler)
     restart_module "$1"
     ;;
   etcd)
@@ -680,6 +688,7 @@ function restart_component() {
     terminate_process ${pid_table["collector"]}
     terminate_process ${pid_table["dashboard"]}
     terminate_process ${pid_table["faas_frontend"]}
+    terminate_process ${pid_table["function_scheduler"]}
     start_control_plane
     ;;
   *)
@@ -895,6 +904,7 @@ function main() {
   fi
   start_function_agent
   start_faas_frontend
+  start_function_scheduler
   start_dashboard
   start_collector
   # check all component is working, if not, restart with change port(for control plane only restart).

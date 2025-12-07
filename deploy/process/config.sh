@@ -44,7 +44,7 @@ ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
 ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
-enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,\
+enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,\
 function_agent_port:,function_proxy_port:,\
 function_proxy_grpc_port:,global_scheduler_port:,runtime_init_port:,\
 function_agent_litebus_thread:,function_master_litebus_thread:,function_proxy_litebus_thread:,\
@@ -234,6 +234,7 @@ readonly JEMALLOC_LIB_PATH=$(readlink -m "${BASE_DIR}/../../function_system/lib/
 ENABLE_FAAS_FRONTEND="false"
 FAAS_FRONTEND_HTTP_PORT=8888
 FAAS_FRONTEND_GRPC_PORT=31223
+ENABLE_FUNCTION_SCHEDULER="false"
 # Data System Configuration
 DS_MASTER_IP=""
 DS_MASTER_PORT=12123
@@ -441,6 +442,7 @@ function usage() {
   echo -e "     --enable_faas_frontend                              enable faasfrontend, options:true/false (default false)"
   echo -e "     --faas_frontend_http_port                           faas frontend http port (default 8888)"
   echo -e "     --faas_frontend_grpc_port                           faas frontend grpc port (default 31223)"
+  echo -e "     --enable_function_scheduler                         enable function scheduler, options:true/false (default false)"
   echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
   echo -e "     --max_priority                                      schedule max priority (default 0)"
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
@@ -585,6 +587,7 @@ function parse_opt() {
     --enable_faas_frontend) ENABLE_FAAS_FRONTEND=$2 && shift 2 ;;
     --faas_frontend_http_port) FAAS_FRONTEND_HTTP_PORT=$2 && port_policy_table["faas_frontend_http_port"]="FIX" && shift 2 ;;
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
+    --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
     --min_instance_cpu_size) MIN_INSTANCE_CPU_SIZE=$2 && shift 2 ;;
     --min_instance_memory_size) MIN_INSTANCE_MEMORY_SIZE=$2 && shift 2 ;;
     --max_instance_cpu_size) MAX_INSTANCE_CPU_SIZE=$2 && shift 2 ;;
@@ -1416,7 +1419,7 @@ function export_config() {
   # collector
   export ENABLE_COLLECTOR COLLECTOR_PORT
   # faas
-  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT
+  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER
 }
 
 function main() {

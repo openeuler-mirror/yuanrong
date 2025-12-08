@@ -289,6 +289,7 @@ GetRank
 
     抛出：
         :cpp:class:`Exception` - 如果组不存在或尚未创建，将抛出异常。
+        
 Collective-CommOps
 ------------------
 

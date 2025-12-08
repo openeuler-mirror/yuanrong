@@ -1,7 +1,7 @@
 yr.create_stream_consumer
 ==========================
 
-.. py:function:: yr.create_stream_producer(stream_name: str, config: SubscriptionConfig) -> Consumer
+.. py:function:: yr.create_stream_consumer(stream_name: str, config: SubscriptionConfig) -> Consumer
 
     创建消费者。
 	

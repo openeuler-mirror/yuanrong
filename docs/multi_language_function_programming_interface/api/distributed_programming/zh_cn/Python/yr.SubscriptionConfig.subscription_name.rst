@@ -1,7 +1,7 @@
 .. _subscription_name:
 
 yr.SubscriptionConfig.subscription_name
-------------------------------------
+------------------------------------------
 
 .. py:attribute:: SubscriptionConfig.subscription_name
    :type: str

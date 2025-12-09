@@ -236,14 +236,6 @@ Producer 发送数据，数据会首先放入缓冲中，根据配置的自动 f
 
    - **YRException** - 统一抛出的异常类型。
 
-#### void flush() Throws YRException
-
-手动刷缓冲数据使得消费者可见。
-
-- 抛出：
-
-   - **YRException** - 统一抛出的异常类型。
-
 #### void close() Throws YRException
 
 关闭生产者会触发自动 flush 掉数据缓冲，并且表示不再使用数据缓冲。一旦关闭后，生产者不可再用。
@@ -252,7 +244,7 @@ Producer 发送数据，数据会首先放入缓冲中，根据配置的自动 f
 
    - **YRException** - 统一抛出的异常类型。
 
-## public class Consumer
+## public interface Consumer
 
 Consumer 接口。
 
@@ -326,7 +318,6 @@ try {
     ByteBuffer buffer = ByteBuffer.wrap(toSend.getBytes());
     Element element = new Element(111L, buffer);
     producer.send(element);
-    producer.flush();
 
     List<Element> recv = consumer.receive(3, 6000);
     if (recv.isEmpty()) {

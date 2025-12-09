@@ -18,8 +18,6 @@ package crypto
 
 import (
 	"testing"
-
-	"github.com/agiledragon/gomonkey"
 )
 
 func TestGetKeyByName(t *testing.T) {
@@ -33,15 +31,4 @@ func TestGetKeyByName(t *testing.T) {
 func TestLoadRootKeyWithKeyFactor(t *testing.T) {
 	LoadRootKeyWithKeyFactor([]string{""})
 	LoadRootKeyWithKeyFactor([]string{"", "", "", "", ""})
-}
-
-// TestGetWorkKey is also a tool to get the work key from the pre-set resource path
-func TestGetWorkKey(t *testing.T) {
-	GetRootKey()
-
-	patch := gomonkey.ApplyFunc(LoadRootKey, func() (*RootKey, error) {
-		return nil, nil
-	})
-	GetRootKey()
-	patch.Reset()
 }

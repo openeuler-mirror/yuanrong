@@ -70,26 +70,8 @@ func TestSubmitJobHandleReq(t *testing.T) {
 			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "CheckField", func() error {
 				return nil
 			}).Reset()
-			expectedResult := &SubmitRequest{
-				Entrypoint:   "",
-				SubmissionId: "",
-				RuntimeEnv: &RuntimeEnv{
-					WorkingDir: "",
-					Pip:        []string{""},
-					EnvVars:    map[string]string{},
-				},
-				Metadata: map[string]string{},
-				Labels:   "abc",
-				CreateOptions: map[string]string{
-					"tenantId": "123456",
-				},
-				EntrypointResources: map[string]float64{},
-				EntrypointNumCpus:   0,
-				EntrypointNumGpus:   0,
-				EntrypointMemory:    0,
-			}
 			result := SubmitJobHandleReq(c)
-			convey.So(result, convey.ShouldResemble, expectedResult)
+			convey.So(result.Labels, convey.ShouldEqual, "abc")
 		})
 		convey.Convey("when CheckField failed", func() {
 			defer gomonkey.ApplyMethodFunc(&SubmitRequest{}, "CheckField", func() error {

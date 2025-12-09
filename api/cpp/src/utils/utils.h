@@ -22,6 +22,8 @@
 #include "src/dto/data_object.h"
 
 namespace YR {
+void ThrowIfTrue(bool condition, Libruntime::ErrorCode code, const std::string &msg);
+
 std::string ConvertFunctionUrnToId(const std::string &functionUrn);
 YR::Libruntime::ErrorInfo WriteDataObject(const void *data, std::shared_ptr<YR::Libruntime::DataObject> &dataObj,
                                           uint64_t size, const std::unordered_set<std::string> &nestedIds);

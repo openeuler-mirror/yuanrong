@@ -14,8 +14,6 @@ yr.runtime.CreateParam
     +----------------------------------------------+------------------------------------+
     | :ref:`consistency_type <consistency_type>`   | 数据一致性配置。                   |
     +----------------------------------------------+------------------------------------+
-    | :ref:`write_mode <write_mode_CP>`            | 配置数据可靠性。                   |
-    +----------------------------------------------+------------------------------------+
 
     
     **方法**：
@@ -31,6 +29,6 @@ yr.runtime.CreateParam
     yr.runtime.CreateParam.__init__
     yr.runtime.CreateParam.cache_type
     yr.runtime.CreateParam.consistency_type
-    yr.runtime.CreateParam.write_mode
+
  
 

@@ -276,7 +276,7 @@ def get(obj_refs: Union["ObjectRef", List, "RgObjectRef"], timeout: int = consta
     Args:
         obj_refs (ObjectRef, List[ObjectRef]): The object_ref of the object in the data system.
         timeout (int, optional): The timeout value. A value of -1 means wait indefinitely. Limit: -1, (0, ∞).
-            Default is ``constants.DEFAULT_GET_TIMEOUT``.
+            Defaults to ``300``.
         allow_partial (bool, optional): If set to False, the get interface will throw an exception
             when the data system returns partial results within the timeout period.
             If set to True, the get interface will return a list of objects and fill failed objects with None.

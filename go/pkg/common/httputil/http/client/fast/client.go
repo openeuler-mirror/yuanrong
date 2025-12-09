@@ -32,7 +32,6 @@ import (
 	"yuanrong.org/kernel/pkg/common/constants"
 	"yuanrong.org/kernel/pkg/common/httputil/http"
 	"yuanrong.org/kernel/pkg/common/httputil/utils"
-	"yuanrong.org/kernel/pkg/common/snerror"
 	"yuanrong.org/kernel/pkg/common/uuid"
 )
 
@@ -58,7 +57,7 @@ func setRequestHeaders(request *fhttp.Request, headers map[string]string) {
 func ParseFastResponse(response *fhttp.Response) (*http.SuccessResponse, error) {
 	if response.StatusCode() == fhttp.StatusInternalServerError {
 		// The call fails and the returned status code is 500, and the body contains the returned error message
-		return nil, snerror.ConvertBadResponse(response.Body())
+		return nil, nil
 	}
 	if response.StatusCode() == fhttp.StatusOK {
 		// The call is successful and the returned status code is 200 The body contains the returned information

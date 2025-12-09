@@ -18,9 +18,8 @@ set -e
 # global environment
 CUR_DIR=$(dirname "$(readlink -f "$0")")
 ROOT_PATH=${CUR_DIR}/../../
-SRC_PATH=${ROOT_PATH}/pkg/common/faas_common
+SRC_PATH=${ROOT_PATH}/pkg/common
 OUTPUT_PATH=${CUR_DIR}/output
-echo LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 
 # run go test and report
 run_gocover_report()

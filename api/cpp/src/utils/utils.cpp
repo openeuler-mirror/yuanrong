@@ -27,6 +27,14 @@ const int FUNCTION_NAME_INDEX = 5;
 const int FUNCTION_VERSION_INDEX = 6;
 const int URN_CUT_NUM = 7;
 
+void ThrowIfTrue(bool condition, Libruntime::ErrorCode code, const std::string &msg)
+{
+    if (condition) {
+        YRLOG_ERROR(msg);
+        throw YR::Exception(code, msg);
+    }
+}
+
 std::string ConvertFunctionUrnToId(const std::string &functionUrn)
 {
     char sep = ':';

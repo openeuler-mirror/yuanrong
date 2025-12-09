@@ -275,7 +275,7 @@ func Test_ClearByteMemory(t *testing.T) {
 	convey.Convey("test clearByteMemory", t, func() {
 		s := make([]byte, 33)
 		s = append(s, 'A')
-		clearByteMemory()
+		clearByteMemory(s)
 		convey.So(s[0], convey.ShouldEqual, 0)
 	})
 }

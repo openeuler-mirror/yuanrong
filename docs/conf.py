@@ -22,9 +22,14 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-sys.path.append(str(Path("..", "api", "python").resolve()))
+if os.getenv("BUILD_WITH_PACKAGE", "").lower() == "false":
+    sys.path.append(str(Path("..", "api", "python").resolve()))
+else:
+    logging.info("The installed openYuanrong package will be used to generate the Python API doc")
+
 
 ENV_YR_GIT_COMMIT_ID = os.environ.get("YR_DOC_GIT_COMMIT_ID", "")
+ENV_BUILD_VERSION = os.environ.get("BUILD_VERSION", "")
 
 build_time = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(
     hours=8
@@ -38,7 +43,7 @@ author = "openYuanrong with CC BY 4.0 LICENSE"
 logging.info(
     f"""Doc build configs:
 ENV_YR_GIT_COMMIT_ID: {ENV_YR_GIT_COMMIT_ID}
-
+ENV_BUILD_VERSION: {ENV_BUILD_VERSION}
 current_date: {current_time_str}
 project: {project}
 copyright: {copyright}
@@ -49,9 +54,6 @@ author: {author}
 templates_path = ["_templates"]
 exclude_patterns = [
     "_build",
-    "Thumbs.db",
-    ".DS_Store",
-
     "README.md",
     "sample_code",
     "multi_language_function_programming_interface/api/distributed_programming/C++",
@@ -108,6 +110,7 @@ html_theme_options = {
     "show_navbar_depth": 1,
     "max_navbar_depth": 7,
     "collapse_navigation": True,
+    "check_switcher": False,
     "extra_footer": """
         Built with
         <a href="https://www.sphinx-doc.org/en/master/">Sphinx</a>
@@ -123,6 +126,10 @@ html_theme_options = {
     "switcher": {
         "json_url": "https://pages.openeuler.openatom.cn/openyuanrong/docs/versions.json",
         "version_match": os.getenv("BUILD_VERSION", "latest"),
+    },
+    "logo": {
+        "image_light": "_static/image-light.png",
+        "image_dark": "_static/image-dark.png"
     },
 }
 

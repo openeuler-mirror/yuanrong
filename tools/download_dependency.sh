@@ -43,7 +43,7 @@ MODULES="runtime"
 bash -x ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
 RUNTIME_THIRD_PARTY_CACHE=${RUNTIME_THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/runtime_deps/"}
 DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem-v0.6.0.tar.gz"}
-FUNCTION_SYSTEM_CACHE=${FUNCTION_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-functionsystem-v0.6.0.tar.gz"}
+METRICS_CACHE=${METRICS_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/metrics.tar.gz"}
 function check_datasystem() {
     # check whether datasystem exist
     if [ ! -d "${YR_DATASYSTEM_BIN_DIR}"/output/sdk/cpp/include ]; then
@@ -70,7 +70,7 @@ function download_datasystem() {
     mkdir -p "${DS_OUT_DIR}"
     pushd "${DS_OUT_DIR}"
     wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
-    tar --no-same-owner -zxf datasystem.tar.gz
+    tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
     popd
 }
 
@@ -80,14 +80,9 @@ function download_metrics() {
         echo "datasystem sdk exist."
         return
     fi
-    METRICS_OUT_DIR="${YR_METRICS_BIN_DIR}/"
-    mkdir -p "${METRICS_OUT_DIR}"
-    pushd "${METRICS_OUT_DIR}"
-    wget -O functionsystem.tar.gz ${FUNCTION_SYSTEM_CACHE}
-    tar --no-same-owner -zxf functionsystem.tar.gz
-    mv function_system/metrics/* .
-    rm -rf function_system
-    popd
+    cd ${RUNTIME_SRC_DIR}
+    wget -O metrics.tar.gz ${METRICS_CACHE}
+    tar --no-same-owner -zxf metrics.tar.gz
 }
 
 function compile_datasystem() {
@@ -102,7 +97,7 @@ function compile_datasystem() {
     ds_filename=$(ls *.tar.gz)
     tar -xf $ds_filename -C ${YR_DATASYSTEM_BIN_DIR}/output/
     mkdir -p ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
-    tar -xf $ds_filename -C ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
+    tar -xf $ds_filename -C ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/ --strip-components=1
     cp -f ${ds_filename} $RUNTIME_OUTPUT_DIR/
 }
 
@@ -114,8 +109,7 @@ function compile_functionsystem() {
     cd ${YR_FUNCTIONSYSTEM_BIN_DIR}
     bash build.sh
     cd output
-    tar -xf ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz
-    cp -r ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/function_system/metrics ${RUNTIME_SRC_DIR}/
+    tar -xf ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/metrics.tar.gz -C ${RUNTIME_SRC_DIR}/
     cp -f ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz $RUNTIME_OUTPUT_DIR/
 }
 

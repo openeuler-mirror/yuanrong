@@ -28,7 +28,7 @@ OUTPUT_DIR="${PROJECT_DIR}/output"
 RUNTIME_OUTPUT_DIR="${PROJECT_DIR}/../output"
 POSIX_DIR="${PROJECT_DIR}/proto/posix"
 BUILD_TAGS=""
-VERSION="0.5.0"
+VERSION="latest"
 FLAGS='-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"'
 
 while getopts "v:h" opt; do

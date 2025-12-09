@@ -57,7 +57,14 @@ C++
    :maxdepth: 1
 
    Stream
-   
+
+.. toctree::
+   :glob:
+   :hidden:
+   :maxdepth: 1
+
+   Collective
+
 .. toctree::
    :glob:
    :hidden:
@@ -207,6 +214,17 @@ C++
 
    * - :doc:`Stream`
      - 在 openYuanrong 函数间传递共享的有序无界内存数据集。
+
+
+集合通信 API
+-----------------
+
+.. list-table::
+   :header-rows: 0
+   :widths: 30 70
+
+   * - :doc:`Collective`
+     - 集合通信 API 全量说明，涵盖类型定义、组管理接口与集合通信算子。
 
 
 函数互调 API

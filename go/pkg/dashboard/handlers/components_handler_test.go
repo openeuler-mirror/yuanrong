@@ -66,7 +66,7 @@ func TestComponentsHandler(t *testing.T) {
 			},
 		}
 		fragment1 := &resource.ResourceUnit{
-			Id:          "function-agent-7.185.104.157-31630",
+			Id:          "function-agent-127.0.0.1-31630",
 			Capacity:    resources,
 			Allocatable: resources,
 			NodeLabels:  nodeLabels,
@@ -79,7 +79,7 @@ func TestComponentsHandler(t *testing.T) {
 				Capacity:    resources,
 				Allocatable: resources,
 				Fragment: map[string]*resource.ResourceUnit{
-					"function-agent-7.185.104.157-31630": fragment1,
+					"function-agent-127.0.0.1-31630": fragment1,
 				},
 				NodeLabels:   nodeLabels,
 				Revision:     19,

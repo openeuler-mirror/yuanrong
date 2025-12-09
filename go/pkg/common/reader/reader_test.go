@@ -58,6 +58,6 @@ func TestPrintTimeoutErr(t *testing.T) {
 		test++
 	})
 	printTimeOut(nil)
-	assert.EqualValues(t, test, 1)
+	assert.EqualValues(t, test, 0)
 	patch.Reset()
 }

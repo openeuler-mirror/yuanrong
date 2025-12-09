@@ -57,7 +57,14 @@ C++
    :maxdepth: 1
 
    Stream
-   
+
+.. toctree::
+   :glob:
+   :hidden:
+   :maxdepth: 1
+
+   Collective
+
 .. toctree::
    :glob:
    :hidden:
@@ -206,7 +213,18 @@ Stream API
    :widths: 30 70
 
    * - :doc:`Stream`
-     - Passing ordered unbounded data between openYuanrong functions.  
+     - Passing ordered unbounded data between openYuanrong functions.
+
+
+Collective Communication API
+-----------------------------
+
+.. list-table::
+   :header-rows: 0
+   :widths: 30 70
+
+   * - :doc:`Collective`
+     - Complete documentation for collective communication, covering type definitions, group management APIs, and collective operators such as AllReduce, Reduce, AllGather, Broadcast, Scatter, Barrier, Send, Recv.
 
 
 Function Interoperation API

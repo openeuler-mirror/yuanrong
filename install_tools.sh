@@ -35,7 +35,7 @@ sudo yum install -y \
     sqlite-devel bison gawk texinfo glibc glibc-devel wget bzip2-devel sudo \
     rsync nfs-utils xz libuuid unzip util-linux-devel cpio libcap-devel libatomic \
     chrpath numactl-devel openeuler-lsb libasan dos2unix net-tools pigz cmake \
-    protobuf protobuf-devel patchelf
+    protobuf protobuf-devel patchelf libibverbs-devel libibverbs
 
 echo "✅ Detected architecture: $ARCH → using package suffix: $PKG_ARCH"
 

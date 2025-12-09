@@ -17,4 +17,5 @@ libboundscheck,v1.1.16,runtime;litebus;functionsystem;metrics,https://gitee.com/
 curl,8.8.0,litebus,https://gitee.com/mirrors/curl/repository/archive/curl-8_8_0.zip,73c70c94f487c5ae26f9f27094249e40bb1667ae6c0406a75c3b11f86f0c1128,test
 gtest_1_12_1,release-1.12.1,litebus;functionsystem;metrics;logs,https://gitee.com/mirrors/googletest/repository/archive/release-1.12.1.zip,4f1037f17462dbcc4d715f2fc8212c03431ad06e7a4b73bb49b3f534a13b21f1,test
 gtest_1_10_0,release-1.10.0,functionsystem,https://gitee.com/mirrors/googletest/repository/archive/release-1.10.0.zip,db55081e6b5a5f820d052f8d37e0d29835dd5a2bd5b8d4d50590b7834f9abfae,test
+gloo,main,runtime,https://github.com/pytorch/gloo/archive/refs/heads/main.zip,ddfb9627304025f294c78fd75ae84d7b9a662213d1b1c955afe6f91bfeb49254,
 ,,,,,,

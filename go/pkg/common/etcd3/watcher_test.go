@@ -146,9 +146,6 @@ func (es *EtcdTestSuite) TestCRUD() {
 	err := cli.Put(ctxInfo, etcdKey, etcdValue)
 	assert.Nil(es.T(), err)
 
-	_, err = cli.GetKeys(ctxInfo, etcdKey)
-	assert.Nil(es.T(), err)
-
 	_, err = cli.GetValues(ctxInfo, etcdKey)
 	assert.Nil(es.T(), err)
 

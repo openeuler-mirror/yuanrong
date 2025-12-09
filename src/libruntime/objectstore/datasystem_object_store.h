@@ -75,8 +75,6 @@ public:
 
     std::vector<int> QueryGlobalReference(const std::vector<std::string> &objectIds) override;
 
-    ErrorInfo ReleaseGRefs(const std::string &remoteId) override;
-
     ErrorInfo GenerateKey(std::string &key, const std::string &prefix, bool isPut) override;
 
     ErrorInfo GetPrefix(const std::string &key, std::string &prefix) override;

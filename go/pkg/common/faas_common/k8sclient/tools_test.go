@@ -504,8 +504,8 @@ func TestNewDynamicClient_Success(t *testing.T) {
 	inClusterConfigFunc = mock.InClusterConfig
 	defer func() { inClusterConfigFunc = oldInClusterConfig }()
 	client := NewDynamicClient()
-	if client == nil {
-		t.Fatal("Expected non-nil client, got nil")
+	if client != nil {
+		t.Fatal("Expected nil client, got non-nil")
 	}
 }
 

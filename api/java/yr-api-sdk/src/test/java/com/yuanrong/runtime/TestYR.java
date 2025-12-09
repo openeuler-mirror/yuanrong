@@ -207,9 +207,9 @@ public class TestYR {
     public void testTenantContext() {
         Config ctxConf = Config.builder()
                             .functionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-j-a:$latest")
-                            .serverAddress("10.243.25.129")
+                            .serverAddress("127.0.0.1")
                             .serverAddressPort(31222)
-                            .dataSystemAddress("10.243.25.129")
+                            .dataSystemAddress("127.0.0.1")
                             .dataSystemAddressPort(31501)
                             .isInCluster(false)
                             .tenantId("tenantId1")
@@ -260,9 +260,9 @@ public class TestYR {
     public void testTenantContextFailed() {
         Config ctxConf = Config.builder()
                             .functionURN("sn:cn:yrk:12345678901234561234567890123456:function:0-j-a:$latest")
-                            .serverAddress("10.243.25.129")
+                            .serverAddress("127.0.0.1")
                             .serverAddressPort(31222)
-                            .dataSystemAddress("10.243.25.129")
+                            .dataSystemAddress("127.0.0.1")
                             .dataSystemAddressPort(31501)
                             .isInCluster(false)
                             .tenantId("tenantId1")
@@ -434,7 +434,7 @@ public class TestYR {
     public void testNodes() throws Exception {
         YR.init(conf);
         Node node = new Node();
-        String nodeId = "function-agent-x.x.x.x";
+        String nodeId = "function-agent-127.0.0.1";
         node.setId(nodeId);
         node.setAlive(true);
         Map<String, Float> resources = new HashMap<>();

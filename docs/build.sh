@@ -15,25 +15,54 @@
 set -e
 source /etc/profile.d/*.sh
 
-readonly USAGE="
-Usage: bash build.sh [-thdDcCrvPSbEm:]
+readonly SCRIPT_NAME=$(basename "$0")
+
+show_help() {
+cat << EOF
+Usage: $SCRIPT_NAME -v VERSION [-P] [-h]
+
+Configure and build openYuanrong documentation.
 
 Options:
-    -v the version of yuanrong
-"
-while getopts 'v:' opt; do
-    case "$opt" in
+  -v VERSION    (Optional) Specify the version string. Defaults to "latest".
+  -P            (Optional) Use the installed package instead of building the runtime from source.
+  -h            Display this help message and exit.
+
+Examples:
+  ./$SCRIPT_NAME -v 1.0.0
+  ./$SCRIPT_NAME -v 1.0.0 -P
+EOF
+}
+
+BUILD_VERSION="latest"
+BUILD_WITH_PACKAGE="false"
+
+while getopts "hv:P" opt; do
+  case $opt in
+    h)
+      show_help
+      exit 0
+      ;;
     v)
-        BUILD_VERSION="${OPTARG}"
-        export BUILD_VERSION="${OPTARG}"
-        ;;
-    esac
+      BUILD_VERSION="$OPTARG"
+      ;;
+    P)
+      BUILD_WITH_PACKAGE="true"
+      ;;
+    \? | :)
+      echo "Try '$SCRIPT_NAME -h' for more information." >&2
+      exit 1
+      ;;
+  esac
 done
 
+# Export environment variables
+export BUILD_VERSION
+export BUILD_WITH_PACKAGE
+
 BASE_DIR=$(dirname "$(readlink -f "$0")")
-OUTPUT_DIR=${BASE_DIR}/../../output
+OUTPUT_DIR=${BASE_DIR}/../output
 function doc_build() {
-  pip install -r ${BASE_DIR}/../api/python/requirements.txt
   pip install -r ${BASE_DIR}/../docs/requirements_dev.txt
 
   pushd ${BASE_DIR}
@@ -46,7 +75,7 @@ function doc_build() {
   sed -i '285d' "${BASE_DIR}"/_build/html/_static/searchtools.js
   sed -i '284s/ ||//' "${BASE_DIR}"/_build/html/_static/searchtools.js
   rm -rf "${OUTPUT_DIR}"/docs && mkdir -p "${OUTPUT_DIR}"/docs
-  cp -rf "${BASE_DIR}"/../docs/_build/html/* "${OUTPUT_DIR}"/docs
+  cp -rf "${BASE_DIR}"/_build/html/* "${OUTPUT_DIR}"/docs
 }
 
 doc_build

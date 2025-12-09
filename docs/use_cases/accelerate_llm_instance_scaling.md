@@ -161,7 +161,7 @@
     +        tensor_client.dev_mget(key_list, tensor_list, _DEV_MGET_TIMEOUT_MS)
     +        num_load_success_param += len(tensor_list)
     +    except Exception as e:
-    +        raise f"dev_mget failed, error: {e}"
+    +        raise RuntimeError(f"dev_mget failed, error: {e}")
     +
     +    logger.info(f"Loaded {num_load_success_param} parameters from datasystem, costed {time.time() - start_time}s")
     +    return num_load_success_param
@@ -256,11 +256,22 @@ docker run \
 
 3. 安装 openYuanrong
 
+   在 Linux x86_64 环境上：
+   
    ```bash
-   pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/openyuanrong-0.5.0-cp311-cp311-manylinux_2_34_x86_64.whl
+   pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.6.0/linux/x86_64/openyuanrong-0.6.0-cp311-cp311-manylinux_2_34_x86_64.whl
 
    # 安装数据系统 SDK
-   pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/openyuanrong-datasystem-0.5.0-cp311-cp311-manylinux2014_x86_64.whl
+   pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.6.0/linux/x86_64/openyuanrong_datasystem-0.6.0-cp311-cp311-manylinux_2_34_x86_64.whl
+   ```
+   
+   在 Linux aarch64（ARM）环境上：
+
+   ```bash
+   pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.6.0/linux/aarch64/openyuanrong-0.6.0-cp311-cp311-manylinux_2_34_aarch64.whl
+
+   # 安装数据系统 SDK
+   pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.6.0/linux/aarch64/openyuanrong_datasystem-0.6.0-cp311-cp311-manylinux_2_34_aarch64.whl
    ```
 
 4. 部署 openYuanrong
@@ -307,7 +318,7 @@ export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 # 替换 YR_INSTALL_PATH 为 openYuanrong 安装路径，可使用 yr version 命令查看
 # 例如：/usr/local/Python-3.11.9/lib/python3.11/site-packages/yr/inner
-export LD_LIBRARY_PATH=${YR_INSTALL_PATH}/function_system/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=${YR_INSTALL_PATH}/functiosystem/lib:$LD_LIBRARY_PATH
 export HCL_OP_EXPANSION_MODE="AIV"
 # 是否启用 openYuanrong 多级缓存前缀匹配能力，值为 1 表示启动
 export USING_PREFIX_CONNECTOR=1

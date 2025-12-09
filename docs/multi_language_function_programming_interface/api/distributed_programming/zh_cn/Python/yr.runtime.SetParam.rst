@@ -19,7 +19,7 @@ yr.runtime.SetParam
          - 表示是否支持 Key 重复写入。
        * - :ref:`ttl_second <ttl_second_cp>`
          - 数据生命周期，超过会被删除。
-       * - :ref:`write_mode <write_mode_cp>`
+       * - :ref:`write_mode <write_mode_sp>`
          - 设置数据的可靠性。
 
     **方法**：

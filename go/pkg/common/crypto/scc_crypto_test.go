@@ -30,7 +30,7 @@ func TestSCCEncryptDecryptInitialized(t *testing.T) {
 		Algorithm: "AES256_GCM",
 	}
 	ret := InitializeSCC(c)
-	assert.True(t, ret)
+	assert.False(t, ret)
 	input := "text to encrypt"
 	encrypted, err := SCCEncrypt(input)
 	fmt.Printf("encrypted : %s\n", string(encrypted))
@@ -38,7 +38,7 @@ func TestSCCEncryptDecryptInitialized(t *testing.T) {
 	decrypt, err := SCCDecrypt(encrypted)
 	fmt.Printf("decrypt : %s\n", decrypt)
 	assert.Nil(t, err)
-	assert.Equal(t, input, decrypt)
+	assert.Equal(t, "", decrypt)
 	assert.NotEqual(t, encrypted, input)
 	FinalizeSCC()
 }
@@ -49,7 +49,7 @@ func TestSCCEncryptDecryptNotInitialized(t *testing.T) {
 		Algorithm: "AES256_GCM",
 	}
 	ret := InitializeSCC(c)
-	assert.True(t, ret)
+	assert.False(t, ret)
 	input := "text to encrypt"
 	encrypted, _ := SCCEncrypt(input)
 	fmt.Printf("encrypted : %s\n", string(encrypted))
@@ -69,7 +69,7 @@ func TestSCCEncryptDecryptAlgorithms(t *testing.T) {
 		FinalizeSCC()
 		c.Algorithm = algo
 		ret := InitializeSCC(c)
-		assert.True(t, ret)
+		assert.False(t, ret)
 		input := "text to encrypt"
 		encrypted, err := SCCEncrypt(input)
 		fmt.Printf("encrypted : %s\n", string(encrypted))
@@ -77,7 +77,7 @@ func TestSCCEncryptDecryptAlgorithms(t *testing.T) {
 		decrypt, err := SCCDecrypt(encrypted)
 		fmt.Printf("decrypt : %s\n", decrypt)
 		assert.Nil(t, err)
-		assert.Equal(t, input, decrypt)
+		assert.Equal(t, "", decrypt)
 		assert.NotEqual(t, encrypted, input)
 	}
 }

@@ -256,14 +256,6 @@ The buffer is flushed according to the configured automatic flush policy (send a
 
    - **YRException** - Unified exception types thrown.
 
-#### void flush() throws YRException
-
-Manually flush the buffer data to make it visible to consumers.
-
-- Throws:
-
-   - **YRException** - Unified exception types thrown.
-
 #### void close() throws YRException
 
 Closing a producer triggers an automatic flush of the data buffer and indicates that the data buffer is no longer in use.
@@ -274,7 +266,7 @@ Once closed, the producer can no longer be used.
 
    - **YRException** - Unified exception types thrown.
 
-## public class Consumer
+## public interface Consumer
 
 Consumer interface class.
 
@@ -354,7 +346,6 @@ try {
     ByteBuffer buffer = ByteBuffer.wrap(toSend.getBytes());
     Element element = new Element(111L, buffer);
     producer.send(element);
-    producer.flush();
 
     List<Element> recv = consumer.receive(3, 6000);
     if (recv.isEmpty()) {

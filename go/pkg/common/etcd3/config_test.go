@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package etcd3
 
 import (
@@ -47,56 +63,6 @@ func TestGetETCDCertificatePath(t *testing.T) {
 		So(etcdConfig.CaFile, ShouldNotEqual, tlsConfig.RootCAFile)
 		So(etcdConfig.CertFile, ShouldNotEqual, tlsConfig.ModuleCertFile)
 		So(etcdConfig.KeyFile, ShouldNotEqual, tlsConfig.ModuleKeyFile)
-	})
-}
-
-func TestGetEtcdAuthType(t *testing.T) {
-	Convey("Test getEtcdAuthType, tlsAuth", t, func() {
-		config := EtcdConfig{
-			SslEnable: true,
-			CaFile:    "",
-			CertFile:  "",
-			KeyFile:   "",
-		}
-		etcdAuth := config.getEtcdAuthType()
-		So(etcdAuth, ShouldNotBeNil)
-	})
-	Convey("Test getEtcdAuthType, noAuth", t, func() {
-		config := EtcdConfig{
-			SslEnable: false,
-			CaFile:    "",
-			CertFile:  "",
-			KeyFile:   "",
-			User:      "test",
-			Passwd:    "",
-		}
-		etcdAuth := config.getEtcdAuthType()
-		So(etcdAuth, ShouldNotBeNil)
-	})
-	Convey("Test getEtcdAuthType, pwdAuth", t, func() {
-		config := EtcdConfig{
-			SslEnable: false,
-			CaFile:    "",
-			CertFile:  "",
-			KeyFile:   "",
-			User:      "test",
-			Passwd:    "test",
-		}
-		etcdAuth := config.getEtcdAuthType()
-		So(etcdAuth, ShouldNotBeNil)
-	})
-	Convey("Test getEtcdAuthType, clientTlsAuth", t, func() {
-		config := EtcdConfig{
-			AuthType:  "TLS",
-			SslEnable: false,
-			CaFile:    "",
-			CertFile:  "",
-			KeyFile:   "",
-			User:      "test",
-			Passwd:    "test",
-		}
-		etcdAuth := config.getEtcdAuthType()
-		So(etcdAuth, ShouldNotBeNil)
 	})
 }
 

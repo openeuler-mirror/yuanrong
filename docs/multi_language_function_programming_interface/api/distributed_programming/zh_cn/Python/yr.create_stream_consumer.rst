@@ -1,7 +1,7 @@
 yr.create_stream_consumer
 ==========================
 
-.. py:function:: yr.create_stream_producer(stream_name: str, config: SubscriptionConfig) -> Consumer
+.. py:function:: yr.create_stream_consumer(stream_name: str, config: SubscriptionConfig) -> Consumer
 
     创建消费者。
 	
@@ -22,5 +22,5 @@ yr.create_stream_consumer
         ... except RuntimeError as exp:
         ...     pass
 
-.. _SubscriptionConfig: ../../Python/generated/yr.SubscriptionConfig.html#yr.SubscriptionConfig
-.. _Consumer: ../../Python/generated/yr.fnruntime.Consumer.html#yr.fnruntime.Consumer
+.. _SubscriptionConfig: ../../zh_cn/Python/yr.SubscriptionConfig.html#yr.SubscriptionConfig
+.. _Consumer: ../../zh_cn/Python/yr.fnruntime.Consumer.html#yr.fnruntime.Consumer

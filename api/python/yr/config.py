@@ -136,7 +136,7 @@ class Config:
     #: Code loading path.
     load_paths: list = field(default_factory=list)
     #: The timeout used for RPC.
-    rpc_timeout: bool = _DEFAULT_RPC_TIMOUT
+    rpc_timeout: int = _DEFAULT_RPC_TIMOUT
     #: Whether to enable client two-way authentication, default is ``False``.
     enable_mtls: bool = False
     #: Client private key file path.

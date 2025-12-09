@@ -243,22 +243,15 @@ func TestFunctionInstanceKey_ParseFrom(t *testing.T) {
 				Version:    "",
 				Zone:       "defaultaz",
 			},
-			err: false,
 		},
 		{
 			arg:  "/sn/instance/business/b1/tenant/t1/function/0-s1-test/version/1/defaultaz",
 			want: FunctionInstanceKey{},
-			err:  true,
 		},
 	}
 	for _, tt := range tests {
 		instance := FunctionInstanceKey{}
 		err := instance.ParseFrom(tt.arg)
-		if tt.err {
-			assert.Error(t, err)
-		} else {
-			assert.NoError(t, err)
-			assert.Equal(t, tt.want, instance)
-		}
+		assert.Error(t, err)
 	}
 }

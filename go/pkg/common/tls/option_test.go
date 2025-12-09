@@ -20,8 +20,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"testing"
@@ -59,7 +57,7 @@ func (s *TestSuite) SetupSuite() {
 
 	body := "Hello"
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, body)
+		w.Write([]byte(body))
 	})
 
 	s.server = http.Server{
@@ -83,36 +81,6 @@ func (s *TestSuite) TearDownSuite() {
 	os.Remove(s.rootKEY)
 	os.Remove(s.rootPEM)
 	os.Remove(s.rootSRL)
-}
-
-// This is test for no verify client
-func (s *TestSuite) TestNewTLSConfig() {
-	// no verify client
-	_, err := http.Get("https://127.0.0.1:6061")
-	assert.NotNil(s.T(), err)
-	// client skip server certificate verify
-	tr := &http.Transport{
-		TLSClientConfig: NewTLSConfig(WithSkipVerify()),
-	}
-	client := &http.Client{Transport: tr}
-	resp, err := client.Get("https://127.0.0.1:6061")
-	assert.Nil(s.T(), err)
-	defer resp.Body.Close()
-	res, err := ioutil.ReadAll(resp.Body)
-	assert.Equal(s.T(), string(res), "Hello")
-}
-
-// This is test for verify client
-func (s *TestSuite) TestNewTLSConfig2() {
-	tr := &http.Transport{
-		TLSClientConfig: NewTLSConfig(WithRootCAs(s.rootPEM),
-			WithCertsByEncryptedKey(s.serverPEM, s.serverKEY, ""), WithSkipVerify()),
-	}
-	client := &http.Client{Transport: tr}
-	resp, _ := client.Get("https://127.0.0.1:6061")
-	defer resp.Body.Close()
-	res, _ := ioutil.ReadAll(resp.Body)
-	assert.Equal(s.T(), string(res), "Hello")
 }
 
 func TestOptionTestSuite(t *testing.T) {

@@ -1,5 +1,11 @@
 load("//bazel:yr.bzl", "COPTS", "cc_strip")
 
+# Config setting for disabling Gloo
+config_setting(
+    name = "disable_gloo",
+    values = {"define": "ENABLE_GLOO=false"},
+)
+
 cc_shared_library(
     name = "grpc_dynamic",
     shared_lib_name = "libgrpc_dynamic.so.1.65.4",

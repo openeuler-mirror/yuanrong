@@ -19,10 +19,13 @@ package alarm
 
 import (
 	"encoding/json"
-	"github.com/smartystreets/goconvey/convey"
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/smartystreets/goconvey/convey"
+
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/config"
 	"yuanrong.org/kernel/pkg/common/faas_common/urnutils"

@@ -176,6 +176,15 @@ http_archive(
     build_file = "@//bazel:jacoco.bzl"
 )
 
+local_patched_repository(
+    name = "gloo",
+    path = "../thirdparty/gloo",
+    build_file = "@//bazel:gloo.bzl",
+    patch_files = [
+        "@//patch:gloo-fix-sign-compare.patch",
+    ],
+)
+
 maybe(
     new_local_repository,
     name = "securec",

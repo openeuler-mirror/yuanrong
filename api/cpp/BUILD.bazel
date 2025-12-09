@@ -1,4 +1,4 @@
-load("//bazel:yr.bzl", "COPTS", "LOPTS", "cc_strip")
+load("//bazel:yr.bzl", "COPTS", "COPTS_WITH_GLOO", "LOPTS", "cc_strip")
 
 genrule(
     name = "version",
@@ -23,14 +23,20 @@ cc_library(
         "src/utils/*.cpp",
         "src/executor/*.h",
         "src/executor/*.cpp",
+        "src/collective/*.h",
+        "src/collective/*.cpp",
     ]) + ["src/utils/version.h"],
     hdrs = glob([
         "include/yr/*.h",
         "include/yr/api/*.h",
         "include/yr/parallel/*.h",
         "include/yr/parallel/detail/*.h",
+        "include/yr/collective/*.h",
     ]),
-    copts = COPTS,
+    copts = select({
+        "//conditions:default": COPTS_WITH_GLOO,
+        "//:disable_gloo": COPTS,
+    }),
     linkopts = ["-lstdc++fs"],
     linkstatic = True,
     strip_include_prefix = "include",
@@ -43,7 +49,10 @@ cc_library(
         "@securec",
         "@nlohmann_json",
         "@yaml-cpp",
-    ],
+    ] + select({
+        "//conditions:default": ["@gloo//:gloo"],
+        "//:disable_gloo": [],
+    }),
     alwayslink = True,
 )
 
@@ -64,6 +73,7 @@ cc_library(
     hdrs = glob([
         "include/yr/*.h",
         "include/yr/api/*.h",
+        "include/yr/collective/*.h",
         "include/yr/parallel/*.h",
         "include/yr/parallel/detail/*.h",
     ]),

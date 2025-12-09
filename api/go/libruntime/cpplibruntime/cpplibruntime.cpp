@@ -1136,16 +1136,6 @@ CErrorInfo CDecreaseReferenceCommon(char **cObjIds, int size_cObjIds, char *cRem
     return ErrorInfoToCError(err1);
 }
 
-CErrorInfo CReleaseGRefs(char *cRemoteId)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return ErrorInfoToCError(err);
-    }
-    err = lrt->ReleaseGRefs(cRemoteId);
-    return ErrorInfoToCError(err);
-}
-
 CErrorInfo CKVWrite(char *key, CBuffer data, CSetParam param)
 {
     auto mData = std::make_shared<YR::Libruntime::NativeBuffer>(data.size_buffer);

@@ -97,6 +97,7 @@ ErrorInfo DSCacheStateStore::Init(const DsConnectOptions &options)
     ConnectOptions connectOptsInput{options.host,
                                options.port,
                                options.connectTimeoutMs,
+                               options.connectTimeoutMs,
                                options.clientPublicKey,
                                options.clientPrivateKey,
                                options.serverPublicKey,

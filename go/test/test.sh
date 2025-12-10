@@ -26,6 +26,8 @@ CLIENT_DIR="${PROJECT_DIR}/pkg/dashboard/client"
 export GO111MODULE=on
 export GONOSUMDB=*
 export CGO_ENABLED=1
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # resolve missing go.sum entry
 go env -w "GOFLAGS"="-mod=mod"

@@ -143,7 +143,7 @@ http_archive(
 new_local_repository(
     name = "datasystem_sdk",
     build_file = "@//bazel:datasystem_sdk.bzl",
-    path = "./datasystem/output/sdk/",
+    path = "./datasystem/output/sdk/cpp/",
 )
 
 new_local_repository(

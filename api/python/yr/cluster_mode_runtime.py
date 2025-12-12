@@ -338,12 +338,14 @@ class ClusterModeRuntime(Runtime):
         :return: producer
         """
         if config.max_stream_size < 0:
-            raise RuntimeError(f"Invalid parameter, max_stream_size: {config.max_stream_size}, expect >= 0")
+            raise RuntimeError(
+                f"Invalid parameter, max_stream_size: {config.max_stream_size}, expect >= 0")
         if config.retain_for_num_consumers < 0:
             raise RuntimeError(
                 f"Invalid parameter, retain_for_num_consumers: {config.retain_for_num_consumers}, expect >= 0")
         if config.reserve_size < 0:
-            raise RuntimeError(f"Invalid parameter, reserve_size: {config.reserve_size}, expect >= 0")
+            raise RuntimeError(
+                f"Invalid parameter, reserve_size: {config.reserve_size}, expect >= 0")
         return self.libruntime.create_stream_producer(stream_name, config)
 
     def create_stream_consumer(self, stream_name: str, config: SubscriptionConfig) -> Consumer:
@@ -572,7 +574,8 @@ class ClusterModeRuntime(Runtime):
             object_id
         """
         self._check_init()
-        result = self.libruntime.peek_object_ref_stream(generator_id, blocking, timeout_ms)
+        result = self.libruntime.peek_object_ref_stream(
+            generator_id, blocking, timeout_ms)
         if not isinstance(result, str):
             objects = Serialization().deserialize(result)
             for obj in objects:
@@ -688,7 +691,8 @@ class ClusterModeRuntime(Runtime):
                 else:
                     serialized_arg = Serialization().serialize(arg)
                     invoke_arg = InvokeArg(buf=None, is_ref=False, obj_id="",
-                                           nested_objects=set([ref.id for ref in serialized_arg.nested_refs]),
+                                           nested_objects=set(
+                                               [ref.id for ref in serialized_arg.nested_refs]),
                                            serialized_obj=serialized_arg)
             args_list_new.append(invoke_arg)
         return args_list_new
@@ -701,6 +705,9 @@ class ClusterModeRuntime(Runtime):
             raise RuntimeError("runtime not enable")
 
     def create_group(self, group_name: str, group_opts: GroupOptions):
+        if group_opts.timeout < 0 and group_opts.timeout != -1:
+            raise RuntimeError(
+                f"Invalid parameter, timeout: {group_opts.timeout}, expect -1 or > 0")
         self.libruntime.create_group(group_name, group_opts)
 
     def terminate_group(self, group_name: str):

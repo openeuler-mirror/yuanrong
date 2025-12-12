@@ -223,6 +223,9 @@ void InvokeOrderManager::UpdateFinishReqSeqNo(const std::string &instanceId, int
     absl::MutexLock lock(&mu);
     if (instances.find(instanceId) != instances.end()) {
         auto instOrder = instances[instanceId];
+        if (invokeSeqNo < instOrder->unfinishedSeqNo) {
+            return;
+        }
         instOrder->finishedOrderedReqSeqNo.emplace(invokeSeqNo);
         auto it = instOrder->finishedOrderedReqSeqNo.begin();
         while (it != instOrder->finishedOrderedReqSeqNo.end()) {

@@ -1314,6 +1314,7 @@ void InvokeAdaptor::InvokeNotifyHandler(const NotifyRequest &req, const ErrorInf
                 // if timeout, then send cancel req to runtime for erase pending thread
                 (void)this->KillAsync(spec->invokeInstanceId, req.requestid(), libruntime::Signal::ErasePendingThread);
             }
+            invokeOrderMgr->NotifyInvokeSuccess(spec);
         } else {
             YRLOG_ERROR(
                 "instance invoke failed and retry, request id: {}, instance id: {}, return id: {}, seq: {}, complete "

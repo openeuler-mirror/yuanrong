@@ -227,8 +227,8 @@ genrule(
         rm -rf $$CPP_SDK_DIR/bin/libyr-api.so $$CPP_SDK_DIR/bin/libfunctionsdk.so
         cp -rf $$BASE_DIR/api/cpp/include $$CPP_SDK_DIR/ &&
         DATASYSTEM_DIR=$$BASE_DIR/external/datasystem_sdk &&
-        cp -rf $$DATASYSTEM_DIR/include $$CPP_SDK_DIR &&
-        cp -rf $$DATASYSTEM_DIR/lib $$CPP_SDK_DIR &&
+        cp -rf $$DATASYSTEM_DIR/include/* $$CPP_SDK_DIR/include/ &&
+        cp -rf $$DATASYSTEM_DIR/lib/* $$CPP_SDK_DIR/lib/ &&
         METRICS_DIR=$$BASE_DIR/external/metrics_sdk &&
         cp -rf $$METRICS_DIR/include/* $$CPP_SDK_DIR/include &&
         cp -rf $$METRICS_DIR/lib/* $$CPP_SDK_DIR/lib &&

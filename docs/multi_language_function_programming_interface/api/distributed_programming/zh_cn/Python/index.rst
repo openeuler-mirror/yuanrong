@@ -323,7 +323,7 @@ Python
    :header-rows: 0
    :widths: 30 70
 
-   * - :doc:`yr.group`
+   * - :doc:`yr.Group`
      - 一个用于管理实例分组生命周期的类。
    * - :doc:`yr.config.GroupOptions`
      - 分组实例调度的配置选项。

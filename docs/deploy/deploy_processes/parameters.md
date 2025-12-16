@@ -22,6 +22,7 @@
 | `--status_collect_enable`       | 是否开启进程状态收集，记录日志。                    | ``false``     | 选填，取值：``true``，``false``。开启后，将定期收集进程状态信息，并记录到日志文件。 |
 | `--status_collect_interval`     | 进程状态收集间隔（s）。                             | ``300``       | 选填。status_collect_enable 为 ``true`` 生效。 |
 | `--enable_trace`                | 是否开启 trace。                                  | ``false``     | 选填，取值：``true``，``false``。 |
+| `--runtime_trace_config`        | runtime 调用链配置，预期是 json 字符串。                 | `""`      | 选填。 |
 | `--enable_metrics`              | 是否开启 metrics。                                | ``true``      | 选填，取值：``true``，``false``。 |
 | `--metrics_config`              | metrics 配置，预期是 json 字符串。                 | `""`      | 选填，格式参照 metrics_config_file。 |
 | `--metrics_config_file`         | metrics 配置文件，预期是绝对路径。                  | ``""``     | 选填。  |

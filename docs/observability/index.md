@@ -9,6 +9,7 @@
    dashboard
    logs
    metrics/index
+   traces
 ```
 
 可观察性是指用户通过各种外部输出（例如日志、指标、事件等）观察和推断 openYuanrong 应用程序和 openYuanrong 集群的内部状态的能力。openYuanrong 通过提供可观测性能力帮助用户轻松监控和调试 openYuanrong 应用程序和集群。
@@ -24,3 +25,7 @@
 - [Dashboard](./dashboard.md)
 - [日志](./logs.md)
 - [指标](./metrics/index.md)
+
+通过记录和关联分布式系统中各个服务的调用过程，调用链提供端到端的请求追踪能力
+
+- [调用链](./traces.md)

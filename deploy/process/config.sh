@@ -29,7 +29,7 @@ declare -A port_policy_table
 LONG_OPS_INFO="master,ip_address:,cpu_num:,memory_num:,shared_memory_num:,deploy_path:,master_info_output:,master_info:,\
 services_path:,master_ip:,driver_gateway_enable:,only_check_param,\
 cpu_reserved:,state_storage_type:,system_timeout:,runtime_conn_timeout_s:,\
-status_collect_enable:,status_collect_interval:,enable_trace:,enable_metrics:,metrics_config:,metrics_config_file:,runtime_init_call_timeout_seconds:,custom_resources:,\
+status_collect_enable:,status_collect_interval:,enable_trace:,trace_config:,runtime_trace_config:,enable_metrics:,metrics_config:,metrics_config_file:,runtime_init_call_timeout_seconds:,custom_resources:,\
 labels:,control_plane_port_min:,control_plane_port_max:,data_plane_port_min:,data_plane_port_max:,block:,\
 ds_worker_unique_enable,log_level:,\
 enable_distributed_master,\
@@ -126,6 +126,8 @@ ONLY_CHECK_PARAM="false"
 STATUS_COLLECT_ENABLE="false"
 STATUS_COLLECT_INTERVAL=300
 ENABLE_TRACE=false
+TRACE_CONFIG=""
+RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
 METRICS_CONFIG_FILE=$(readlink -m '${BASE_DIR}/../../../functionsystem/config/metrics/metrics_config.json')
@@ -373,6 +375,8 @@ function usage() {
   echo -e "     --status_collect_enable                             enable process status collect, options:true/false(default false)"
   echo -e "     --status_collect_interval                           interval of process status collect, unit second(default 300)"
   echo -e "     --enable_trace                                      enable trace, options:true/false(default false)"
+  echo -e "     --trace_config                                      function system trace config, should be json string"
+  echo -e "     --runtime_trace_config                              runtime trace config, should be json string"
   echo -e "     --enable_metrics                                    enable metrics, options:true/false(default true)"
   echo -e "     --metrics_config                                    metrics config, should be json string"
   echo -e "     --metrics_config_file                               metrics config file path, should be absolute path"
@@ -591,6 +595,8 @@ function parse_opt() {
     --pull_resource_interval) PULL_RESOURCE_INTERVAL=$2 && shift 2 ;;
     --only_check_param) ONLY_CHECK_PARAM="true" && shift ;;
     --enable_trace) ENABLE_TRACE=$2 && shift 2 ;;
+    --trace_config) TRACE_CONFIG=$2 && shift 2 ;;
+    --runtime_trace_config) RUNTIME_TRACE_CONFIG=$2 && shift 2 ;;
     --enable_metrics) ENABLE_METRICS=$2 && shift 2 ;;
     --metrics_config) METRICS_CONFIG=$2 && shift 2 ;;
     --metrics_config_file) METRICS_CONFIG_FILE=$2 && shift 2 ;;
@@ -1470,7 +1476,7 @@ function export_config() {
   # etcd
   export ETCD_IP ETCD_PORT ETCD_PEER_PORT ETCD_PROXY_NUMS ETCD_PROXY_NUMS ETCD_PROXY_PORT ETCD_NO_FSYNC
   # trace and metrics
-  export ENABLE_TRACE ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
+  export ENABLE_TRACE TRACE_CONFIG RUNTIME_TRACE_CONFIG ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
   export FUNCTION_AGENT_LITEBUS_THREAD FUNCTION_PROXY_LITEBUS_THREAD FUNCTION_MASTER_LITEBUS_THREAD
   export SYSTEM_TIMEOUT FUNCTION_PROXY_UNIQUE_ENABLE
   export ENABLE_META_STORE ENABLE_PERSISTENCE META_STORE_MODE META_STORE_EXCLUDED_KEYS

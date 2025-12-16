@@ -72,14 +72,14 @@ docker run \
 
 1. 为 vLLM Ascend 打补丁
 
-:::{Note}
+   :::{Note}
 
-首先配置您的 git 用户名和邮箱。如下所示：
+   首先配置您的 git 用户名和邮箱（如已配置，请忽略）。如下所示：
 
-git config --global user.name "your name"
-git config --global user.email "email@your_email
+   git config --global user.name "your name"
+   git config --global user.email "email@your_email
 
-:::
+   :::
 
    ```bash
    cd /vllm-workspace/vllm-ascend

@@ -322,8 +322,32 @@ class FunctionGroupContext:
 
 @dataclass
 class GroupOptions:
+    """
+    Configuration options for grouped instance scheduling.
+
+    The `GroupOptions` structure defines parameters for the lifecycle management of grouped instances, including timeout
+    settings for rescheduling when kernel resources are insufficient.
+    """
+
+    #: Timeout for rescheduling when kernel resources are insufficient, in seconds.
+    #: If set to `-1`, the kernel will retry scheduling indefinitely.
+    #: If set to a value less than `0`, an exception will be thrown.
+    #: Default value: ``-1``.
     timeout: int = -1
+
+    #: Whether to enable the fate-sharing configuration for grouped instances.
+    #: `True` (default): Instances in the group will be created and destroyed together.
+    #: `False`: Instances can have independent lifecycles.
+    #: Default value: ``True``.
     same_lifecycle: bool = True
+
+    #: The strategy to create the group
+    #: None: No strategy.
+    #: SPREAD: Distribute multiple instances across different nodes as much as possible.
+    #: STRICT_PACK: All instances must be placed on the same node, otherwise creation fails.
+    #: PACK: Pack multiple instances into the same node as much as possible.
+    #: STRICT_SPREAD: All instances must be placed on different nodes, otherwise creation fails.
+    #: Default: ``None``.
     strategy: str = ""
 
 

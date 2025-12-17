@@ -328,7 +328,7 @@ def get(obj_refs: Union["ObjectRef", List, "RgObjectRef"], timeout: int = consta
 
 
 @check_initialized
-def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: int = 1,
+def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: Optional[int] = None,
          timeout: Optional[int] = None) -> Tuple[List[ObjectRef], List[ObjectRef]]:
     """
     Wait for the value of the object in the data system to be ready based on the object's key.
@@ -384,6 +384,9 @@ def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: int = 1,
     if len(obj_refs) != len(set(obj_refs)):
         raise ValueError(
             "obj_refs value error: duplicate obj_ref exists in the list")
+
+    if wait_num is None:
+        wait_num = len(obj_refs)
     if wait_num == 0 or timeout == 0:
         return [], obj_refs
 

@@ -66,4 +66,8 @@ std::string GetEnvValue(const std::string &key);
 int32_t ToMs(int32_t timeoutS);
 bool WillSizeOverFlow(size_t a, size_t b);
 GroupPolicy ConvertStrategyToPolicy(const std::string &stategy);
+
+// Load environment variables from a JSON format file
+// This must be called before any code reads from environment variables
+void LoadEnvFromFile(const std::string &envFile);
 }  // namespace YR

@@ -24,7 +24,7 @@ import sys
 from yr import init, log
 from yr.apis import receive_request_loop
 from yr.config import Config
-from yr.common.utils import try_install_uvloop
+from yr.common.utils import load_env_from_file, try_install_uvloop
 
 DEFAULT_LOG_DIR = "/home/snuser/log/"
 _ENV_KEY_FUNCTION_LIB_PATH = "YR_FUNCTION_LIB_PATH"
@@ -53,6 +53,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime_id", type=str, required=True, help="Runtime ID")
     parser.add_argument("--job_id", type=str, required=True, help="Job ID")
     parser.add_argument("--log_level", type=str, required=True, help="Log level")
+    parser.add_argument("--env_file", type=str, default="", help="Path to environment variable file (JSON format)")
+    parser.add_argument("--is_seed", action="store_true", help="If set, read /dev to block after startup")
     return parser.parse_args()
 
 
@@ -69,14 +71,16 @@ def get_runtime_config():
     return config_json
 
 
-def configure():
+def configure(args: argparse.Namespace = None):
     """configure"""
-    args = parse_args()
+    if args is None:
+        args = parse_args()
     config = Config()
     config.rt_server_address = args.rt_server_address
     config.runtime_id = args.runtime_id
     config.job_id = args.job_id
     config.log_level = args.log_level
+    config.env_file = args.env_file
     config.ds_address = os.environ.get("DATASYSTEM_ADDR")
     config.is_driver = False
     log_dir = os.getenv("GLOG_log_dir")
@@ -102,9 +106,22 @@ def insert_sys_path():
 
 def main():
     """main"""
+    # Parse arguments first to get env_file path
+    args = parse_args()
+        
+    # If --is_seed is set, read /dev to block
+    if args.is_seed:
+        with open('/dev/zero', 'rb') as dev_file:
+            dev_file.read()
+    
+    
+    # Load environment variables from file BEFORE any code reads from os.environ
+    # This must be done before insert_sys_path() and configure() which read env vars
+    load_env_from_file(args.env_file)
+    
     # If args are invalid, the script automatically exits when calling 'parser.parse_args()'.
     insert_sys_path()
-    init(configure())
+    init(configure(args))
     try_install_uvloop()
     receive_request_loop()
 

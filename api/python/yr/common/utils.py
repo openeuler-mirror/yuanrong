@@ -22,6 +22,7 @@ import enum
 import gc
 import inspect
 import json
+import logging
 import os
 import re
 import sys
@@ -647,3 +648,51 @@ def is_static_method(base_cls, f_name):
         if f_name in base.__dict__:
             return isinstance(base.__dict__[f_name], staticmethod)
     return False
+
+
+def load_env_from_file(env_file_path: str):
+    """
+    Load environment variables from a JSON format file.
+    This must be called before any code reads from os.environ.
+
+    The file should contain a JSON object with key-value pairs, e.g.:
+    {
+        "KEY1": "VALUE1",
+        "KEY2": "VALUE2"
+    }
+
+    Args:
+        env_file_path (str): Path to the environment variable file (JSON format).
+    """
+    if not env_file_path or env_file_path.strip() == "":
+        return
+
+    if not os.path.exists(env_file_path):
+        logging.warning(f"Environment variable file not found: {env_file_path}")
+        return
+
+    try:
+        with open(env_file_path, 'r', encoding='utf-8') as f:
+            env_dict = json.load(f)
+
+        if not isinstance(env_dict, dict):
+            logging.error(
+                f"Invalid format in {env_file_path}: expected JSON object, got {type(env_dict).__name__}")
+            return
+
+        # Set environment variables
+        for key, value in env_dict.items():
+            # Convert value to string if it's not already
+            os.environ[str(key)] = str(value)
+
+
+        loaded_count = len(env_dict)
+        if loaded_count > 0:
+            logging.debug(
+                f"Loaded {loaded_count} environment variables from {env_file_path}")
+    except json.JSONDecodeError as e:
+        logging.error(
+            f"Failed to parse JSON from {env_file_path}: {e}")
+    except Exception as e:
+        logging.error(
+            f"Failed to load environment variables from {env_file_path}: {e}")

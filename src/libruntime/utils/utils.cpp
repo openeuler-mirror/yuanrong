@@ -17,7 +17,11 @@
 
 #include <cctype>
 #include <chrono>
+#include <fstream>
 #include <sstream>
+
+#include "json.hpp"
+#include "src/utility/logger/logger.h"
 
 namespace YR {
 const int IP_INDEX = 0;
@@ -293,5 +297,63 @@ std::string GetEnvValue(const std::string &key)
         return std::string(env);
     }
     return std::string("");
+}
+
+void LoadEnvFromFile(const std::string &envFile)
+{
+    if (envFile.empty()) {
+        YRLOG_WARN("Environment variable file is empty");
+        return;
+    }
+
+    std::ifstream file(envFile);
+    if (!file.is_open()) {
+        YRLOG_WARN("Environment variable file not found: {}", envFile);
+        return;
+    }
+
+    try {
+        nlohmann::json envDict;
+        file >> envDict;
+
+        if (!envDict.is_object()) {
+            YRLOG_ERROR("Invalid format in {}: expected JSON object, got {}", envFile,
+                       envDict.type_name());
+            return;
+        }
+
+        // Set environment variables
+        size_t loadedCount = 0;
+        for (auto &[key, value] : envDict.items()) {
+            std::string keyStr = key;
+            std::string valueStr;
+            
+            // Convert value to string
+            if (value.is_string()) {
+                valueStr = value.get<std::string>();
+            } else if (value.is_number()) {
+                valueStr = std::to_string(value.get<double>());
+            } else if (value.is_boolean()) {
+                valueStr = value.get<bool>() ? "true" : "false";
+            } else {
+                valueStr = value.dump();
+            }
+
+            // set environment variable
+            if (setenv(keyStr.c_str(), valueStr.c_str(), 1) != 0) {
+                YRLOG_ERROR("Failed to set environment variable: {}", keyStr);
+                continue;
+            }
+            loadedCount++;
+        }
+
+        if (loadedCount > 0) {
+            YRLOG_DEBUG("Loaded {} environment variables from {}", loadedCount, envFile);
+        }
+    } catch (const nlohmann::json::parse_error &e) {
+        YRLOG_ERROR("Failed to parse JSON from {}: {}", envFile, e.what());
+    } catch (const std::exception &e) {
+        YRLOG_ERROR("Failed to load environment variables from {}: {}", envFile, e.what());
+    }
 }
 }  // namespace YR

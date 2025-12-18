@@ -123,6 +123,10 @@ class Config:
     #: Log directory, specifies the path where log files will be stored.
     #: Default is the current working directory ("./").
     log_dir: str = "./"
+    #: Path to environment variable file (JSON format) to load at startup.
+    #: The file should contain a JSON object with key-value pairs, e.g. {"KEY1": "VALUE1", "KEY2": "VALUE2"}.
+    #: If specified, environment variables from this file will be loaded into os.environ.
+    env_file: str = ""
     #: Max size for log file, default is ``0`` (If the default value is ``0``, it will eventually be set to ``40``).
     log_file_size_max: int = 0
     #: Max number for log file, default is ``0`` (If the default value is ``0``, it will eventually be set to ``20``).

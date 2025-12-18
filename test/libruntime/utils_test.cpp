@@ -191,36 +191,46 @@ TEST_F(UtilsTest, unhexlifyTest)
 
 TEST_F(UtilsTest, LoadEnvFromFile)
 {
-    // Create temporary JSON file
-    std::string tempFile = "/tmp/test_env_" + std::to_string(getpid()) + ".json";
+    // Create temporary .env file with various scenarios
+    std::string tempFile = "/tmp/test_env_" + std::to_string(getpid()) + ".env";
     std::ofstream file(tempFile);
-    file << R"({"TEST_KEY1":"value1","TEST_KEY2":"value2","TEST_KEY3":"value with spaces"})";
+    file << "# Comment line\n";
+    file << "TEST_KEY1=value1\n";
+    file << "TEST_KEY2=value with spaces\n";
+    file << "TEST_SINGLE_QUOTE='quoted value'\n";
+    file << "TEST_DOUBLE_QUOTE=\"quoted value\"\n";
+    file << "TEST_WITH_EQUALS=key=value\n";
+    file << "TEST_WHITESPACE= value with spaces \n";
+    file << "\n";  // Empty line
     file.close();
 
     // Clear test environment variables
     unsetenv("TEST_KEY1");
     unsetenv("TEST_KEY2");
-    unsetenv("TEST_KEY3");
+    unsetenv("TEST_SINGLE_QUOTE");
+    unsetenv("TEST_DOUBLE_QUOTE");
+    unsetenv("TEST_WITH_EQUALS");
+    unsetenv("TEST_WHITESPACE");
 
     {
         YR::LoadEnvFromFile(tempFile);
 
-        const char *val1 = std::getenv("TEST_KEY1");
-        const char *val2 = std::getenv("TEST_KEY2");
-        const char *val3 = std::getenv("TEST_KEY3");
-
-        ASSERT_NE(val1, nullptr);
-        ASSERT_STREQ(val1, "value1");
-        ASSERT_NE(val2, nullptr);
-        ASSERT_STREQ(val2, "value2");
-        ASSERT_NE(val3, nullptr);
-        ASSERT_STREQ(val3, "value with spaces");
+        ASSERT_STREQ(std::getenv("TEST_KEY1"), "value1");
+        ASSERT_STREQ(std::getenv("TEST_KEY2"), "value with spaces");
+        ASSERT_STREQ(std::getenv("TEST_SINGLE_QUOTE"), "quoted value");
+        ASSERT_STREQ(std::getenv("TEST_DOUBLE_QUOTE"), "quoted value");
+        ASSERT_STREQ(std::getenv("TEST_WITH_EQUALS"), "key=value");
+        ASSERT_STREQ(std::getenv("TEST_WHITESPACE"), "value with spaces");
     }
+
     // Cleanup
     unlink(tempFile.c_str());
     unsetenv("TEST_KEY1");
     unsetenv("TEST_KEY2");
-    unsetenv("TEST_KEY3");
+    unsetenv("TEST_SINGLE_QUOTE");
+    unsetenv("TEST_DOUBLE_QUOTE");
+    unsetenv("TEST_WITH_EQUALS");
+    unsetenv("TEST_WHITESPACE");
 }
 
 }  // namespace test

@@ -14,15 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for load_env_from_file function."""
-
-import json
 import os
 import tempfile
 import unittest
+import logging
 from unittest.mock import patch
 
 from yr.common import utils
+
+logger = logging.getLogger(__name__)
 
 
 class TestLoadEnvFromFile(unittest.TestCase):
@@ -33,7 +33,7 @@ class TestLoadEnvFromFile(unittest.TestCase):
         # Save original environment variables that might be modified
         self.original_env = os.environ.copy()
         # Clear test environment variables
-        test_keys = ["TEST_KEY1", "TEST_KEY2", "TEST_KEY3", "TEST_NUM", "TEST_BOOL"]
+        test_keys = ["TEST_KEY1", "TEST_KEY2", "TEST_KEY3", "TEST_NUM", "TEST_BOOL", "TEST_QUOTED"]
         for key in test_keys:
             if key in os.environ:
                 del os.environ[key]
@@ -44,16 +44,20 @@ class TestLoadEnvFromFile(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self.original_env)
 
-    def test_load_env_from_file(self):
-        """Test loading basic environment variables from JSON file."""
-        env_data = {
-            "TEST_KEY1": "value1",
-            "TEST_KEY2": "value2",
-            "TEST_KEY3": "value with spaces"
-        }
+    @patch("yr.log.get_logger")
+    def test_load_env_from_file(self, mock_get_logger):
+        mock_get_logger.return_value = logger
+        
+        """Test loading basic environment variables from .env file."""
+        env_content = """
+                      TEST_KEY1=value1
+                      TEST_KEY2=value2
+                      TEST_KEY3=value with spaces
+                      TEST_QUOTED="quoted value"
+                      """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            json.dump(env_data, f)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+            f.write(env_content)
             env_file_path = f.name
 
         try:
@@ -62,6 +66,54 @@ class TestLoadEnvFromFile(unittest.TestCase):
             self.assertEqual(os.environ.get("TEST_KEY1"), "value1")
             self.assertEqual(os.environ.get("TEST_KEY2"), "value2")
             self.assertEqual(os.environ.get("TEST_KEY3"), "value with spaces")
+            self.assertEqual(os.environ.get("TEST_QUOTED"), "quoted value")
+        finally:
+            os.unlink(env_file_path)
+
+    @patch("yr.log.get_logger")
+    def test_load_env_from_file_with_comments(self, mock_get_logger):
+        mock_get_logger.return_value = logger
+        
+        """Test loading environment variables with comments."""
+        env_content = """
+                      # This is a comment
+                      TEST_KEY1=value1
+                      # Another comment
+                      TEST_KEY2=value2
+                      """
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+            f.write(env_content)
+            env_file_path = f.name
+
+        try:
+            utils.load_env_from_file(env_file_path)
+
+            self.assertEqual(os.environ.get("TEST_KEY1"), "value1")
+            self.assertEqual(os.environ.get("TEST_KEY2"), "value2")
+        finally:
+            os.unlink(env_file_path)
+
+    @patch("yr.log.get_logger")
+    def test_load_env_from_file_empty_lines(self, mock_get_logger):
+        mock_get_logger.return_value = logger
+
+        """Test loading environment variables with empty lines."""
+        env_content = """
+                      TEST_KEY1=value1
+
+                      TEST_KEY2=value2
+                      """
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+            f.write(env_content)
+            env_file_path = f.name
+
+        try:
+            utils.load_env_from_file(env_file_path)
+
+            self.assertEqual(os.environ.get("TEST_KEY1"), "value1")
+            self.assertEqual(os.environ.get("TEST_KEY2"), "value2")
         finally:
             os.unlink(env_file_path)
 

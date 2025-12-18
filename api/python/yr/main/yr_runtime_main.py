@@ -53,7 +53,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runtime_id", type=str, required=True, help="Runtime ID")
     parser.add_argument("--job_id", type=str, required=True, help="Job ID")
     parser.add_argument("--log_level", type=str, required=True, help="Log level")
-    parser.add_argument("--env_file", type=str, default="", help="Path to environment variable file (JSON format)")
+    parser.add_argument("--env_file", type=str, default="", help="Path to environment variable file "
+                                                                 "(.env format: KEY=VALUE, one per line)")
     parser.add_argument("--is_seed", action="store_true", help="If set, read /dev to block after startup")
     return parser.parse_args()
 

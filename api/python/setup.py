@@ -29,7 +29,7 @@ ROOT_DIR = os.path.dirname(__file__)
 
 def get_version():
     """get version"""
-    version = os.getenv('BUILD_VERSION', "")
+    version = os.getenv("BUILD_VERSION", "")
     if len(version) == 0:
         return "v0.0.1"
     return version
@@ -69,44 +69,59 @@ class BinaryDistribution(setuptools.Distribution):
         return True
 
 
-if sys.version_info[0] == 3 and sys.version_info[1] == 6:
-    requirements_file = "requirements_for_py36.txt"
-elif sys.version_info[0] == 3 and sys.version_info[1] == 7:
-    requirements_file = "requirements_for_py37.txt"
-elif sys.version_info[0] == 3 and sys.version_info[1] == 11:
-    requirements_file = "requirements_for_py311.txt"
-else:
-    requirements_file = "requirements.txt"
+def openyuanrong_sdk():
+    if sys.version_info[0] == 3 and sys.version_info[1] == 6:
+        requirements_file = "requirements_for_py36.txt"
+    elif sys.version_info[0] == 3 and sys.version_info[1] == 7:
+        requirements_file = "requirements_for_py37.txt"
+    elif sys.version_info[0] == 3 and sys.version_info[1] == 11:
+        requirements_file = "requirements_for_py311.txt"
+    else:
+        requirements_file = "requirements.txt"
 
-with open(os.path.join(ROOT_DIR, requirements_file)) as f:
-    requirements = f.read().splitlines()
+    with open(os.path.join(ROOT_DIR, requirements_file)) as f:
+        requirements = f.read().splitlines()
 
-warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
-setuptools.setup(
-    name="yr_sdk",
-    version=get_version(),
-    author="openyuanrong",
-    classifiers=[
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-    ],
-    package_data={
-        "yr": ["includes/*.pxd", "*.so.*", "*.so"],
-    },
-    cmdclass={"build_ext": BuildExtImpl},
-    distclass=BinaryDistribution,
-    # Make setuptools regard the directory is the top-level directory for yr package building
-    packages=setuptools.find_packages(exclude=("tests", "*.tests", "*.tests.*")),
-    install_requires=requirements,
-    include_package_data=True,
-    exclude_package_data={
-        "": ["BUILD"],
-    },
-    extras_require={
-        "core": ["yr-core"],
-        "serve": ["fastapi"]
-    }
-)
+    warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
+    setuptools.setup(
+        name="yr_sdk",
+        version=get_version(),
+        author="openyuanrong",
+        classifiers=[
+            "Programming Language :: Python :: 3.6",
+            "Programming Language :: Python :: 3.8",
+            "Programming Language :: Python :: 3.9",
+            "Programming Language :: Python :: 3.10",
+            "Programming Language :: Python :: 3.11",
+        ],
+        package_data={
+            "yr": ["includes/*.pxd", "*.so.*", "*.so"],
+        },
+        cmdclass={"build_ext": BuildExtImpl},
+        distclass=BinaryDistribution,
+        # Make setuptools regard the directory is the top-level directory for yr package building
+        packages=setuptools.find_packages(exclude=("tests", "*.tests", "*.tests.*")),
+        install_requires=requirements,
+        include_package_data=True,
+        exclude_package_data={
+            "": ["BUILD"],
+        },
+        extras_require={"core": ["yr-core"], "serve": ["fastapi"]},
+        entry_points={
+            "console_scripts": [
+                "yrcli=yr.cli.scripts:main",
+            ]
+        },
+    )
+
+
+def openyuanrong():
+    pass
+
+
+def main():
+    openyuanrong_sdk()
+
+
+if __name__ == "__main__":
+    main()

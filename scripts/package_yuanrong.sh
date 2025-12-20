@@ -47,26 +47,29 @@ EOF
 }
 
 function get_all(){
-  echo "download datasystem functionsystem"
   if [ -n "${FUNCTION_SYSTEM_CACHE}" ]; then
+      echo "download functionsystem"
       fs_filename=$(ls *functionsystem*.tar.gz)
       if [ ! -n "${fs_filename}" ]; then
         curl -SO ${FUNCTION_SYSTEM_CACHE}
       fi
   fi
   if [ -n "${DATA_SYSTEM_CACHE}" ]; then
+      echo "download datasystem"
       ds_filename=$(ls *datasystem*.tar.gz)
       if [ ! -n "${ds_filename}" ]; then
         curl -SO ${DATA_SYSTEM_CACHE}
       fi
   fi
   if [ -n "${FRONTEND_CACHE}" ]; then
+      echo "download frontend"
       frontend_filename=$(ls *frontend*.tar.gz)
       if [ ! -n "${frontend_filename}" ]; then
         curl -SO ${FRONTEND_CACHE}
       fi
   fi
   if [ -n "${DASHBOARD_CACHE}" ]; then
+      echo "download dashboard"
       dashboard_filename=$(ls *dashboard*.tar.gz)
       if [ ! -n "${dashboard_filename}" ]; then
         curl -SO ${DASHBOARD_CACHE}
@@ -87,10 +90,10 @@ cd ${OUTPUT_DIR}
 
 get_all
 
-tar -zxvf yr-runtime-*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
-tar -zxvf *functionsystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
+tar -zxf yr-runtime-*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
+tar -zxf *functionsystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
 
-tar -zxvf *datasystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong/
+tar -zxf *datasystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong/
 rm -rf ${OUTPUT_DIR}/openyuanrong/datasystem/sdk/DATASYSTEM_SYM
 rm -rf ${OUTPUT_DIR}/openyuanrong/datasystem/service/DATASYSTEM_SYM
 mkdir -p ${OUTPUT_DIR}/openyuanrong/datasystem/deploy
@@ -101,19 +104,19 @@ rm -rf ${OUTPUT_DIR}/openyuanrong/deploy/data_system
 
 frontend_filename=$(ls *frontend*.tar.gz)
 if [ -n "${frontend_filename}" ]; then
-    tar -zxvf ${frontend_filename} -C ${OUTPUT_DIR}/openyuanrong
+    tar -zxf ${frontend_filename} -C ${OUTPUT_DIR}/openyuanrong
     cp -fr ${OUTPUT_DIR}/openyuanrong/pattern/pattern_faas/init_frontend_args.json ${OUTPUT_DIR}/openyuanrong/functionsystem/config/
 fi
 
 faas_filename=$(ls *faas*.tar.gz)
 if [ -n "${faas_filename}" ]; then
-    tar -zxvf ${faas_filename} -C ${OUTPUT_DIR}/openyuanrong
+    tar -zxf ${faas_filename} -C ${OUTPUT_DIR}/openyuanrong
     cp -fr ${OUTPUT_DIR}/openyuanrong/pattern/pattern_faas/init_scheduler_args.json ${OUTPUT_DIR}/openyuanrong/functionsystem/config/
 fi
 
 dashboard_filename=$(ls *dashboard*.tar.gz)
 if [ -n "${dashboard_filename}" ]; then
-    tar -zxvf ${dashboard_filename} -C ${OUTPUT_DIR}/openyuanrong/functionsystem/
+    tar -zxf ${dashboard_filename} -C ${OUTPUT_DIR}/openyuanrong/functionsystem/
 fi
 
 find . -type d -exec chmod 750 {} \;

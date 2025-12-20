@@ -108,15 +108,15 @@ bin_path = "{{ values.yr_package_path }}/functionsystem/bin/meta_service"
 ip = "{{ values.host_ip }}"
 port = "{{ 31182|check_port() }}" 
 clusters = ""
-config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_config.json"
-log_config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/meta_service_log_config.json"
+config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/metaservice_config.json"
+log_config_path = "{{ values.yr_package_path }}/functionsystem/config/meta_service/metaservice_log.json"
 
 [values.dashboard]
-bin_path = "{{ values.yr_package_path }}/functionsystem/bin/dashboard"
+bin_path = "{{ values.yr_package_path }}/dashboard/bin/dashboard"
 ip = "{{ values.host_ip }}"
 port = "{{ 9080|check_port() }}"
 grpc_port = "{{ 9081|check_port() }}"
-config_path = "{{ values.yr_package_path }}/dashboard/dashboard_config.json"
+config_path = "{{ values.yr_package_path }}/dashboard/config/dashboard_config.json"
 
 [values.dashboard.auth]
 enable = false
@@ -134,6 +134,6 @@ cert_file = ""
 key_file = ""
 
 [values.collector]
-bin_path = "{{ values.yr_package_path }}/functionsystem/bin/collector"
+bin_path = "{{ values.yr_package_path }}/dashboard/bin/collector"
 ip = "{{ values.host_ip }}"
 port = "{{ 9082|check_port() }}"

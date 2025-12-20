@@ -46,7 +46,7 @@ from yr.object_ref import ObjectRef
 from yr import log
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.device import DataType, DeviceBufferParam, DataInfo
-from yr.runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType, SetParam, MSetParam, CreateParam,
+from yr.base_runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType, SetParam, MSetParam, CreateParam,
                         GetParam, GetParams, AlarmInfo, AlarmSeverity)
 from yr import runtime_env
 from yr.exception import YRInvokeError

@@ -14,14 +14,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""server"""
-
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from yr.main.yr_runtime_main import main
-
-if __name__ == "__main__":
-    main()
+"""dashboard"""

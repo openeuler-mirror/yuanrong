@@ -66,7 +66,7 @@ from yr.fcc import (  # noqa: E402
     create_function_group, get_function_group_context
 )
 from yr.resource_group import ResourceGroup  # noqa: E402
-from yr.runtime import (  # noqa: E402
+from yr.base_runtime import (  # noqa: E402
     ExistenceOpt, WriteMode, CacheType, SetParam, MSetParam, CreateParam, AlarmSeverity, AlarmInfo,
     ConsistencyType, GetParams, GetParam
 )

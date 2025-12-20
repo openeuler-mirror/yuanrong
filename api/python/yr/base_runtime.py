@@ -24,7 +24,6 @@ from typing import List, Tuple, Union, Any, Callable, Dict
 from yr.common.types import GroupInfo
 from yr.config import InvokeOptions, GroupOptions
 from yr.libruntime_pb2 import FunctionMeta
-from yr.fnruntime import SharedBuffer
 from yr.common.utils import GaugeData, UInt64CounterData, DoubleCounterData
 from yr.common import constants
 from yr.accelerate.shm_broadcast import Handle
@@ -191,7 +190,7 @@ class AlarmInfo:
     custom_options: Dict[str, str] = field(default_factory=dict)
 
 
-class Runtime(metaclass=ABCMeta):
+class BaseRuntime(metaclass=ABCMeta):
     """
     Base runtime
     """
@@ -637,7 +636,7 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def create_buffer(self, buffer_size: int) -> Tuple[str, SharedBuffer]:
+    def create_buffer(self, buffer_size: int):
         """
         create buffer
         Returns:
@@ -645,7 +644,7 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def get_buffer(self, obj_id: str) -> SharedBuffer:
+    def get_buffer(self, obj_id: str):
         """
         get buffer
         Returns:

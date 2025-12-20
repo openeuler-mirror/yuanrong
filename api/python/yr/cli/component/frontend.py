@@ -78,6 +78,7 @@ class FrontendLauncher(ComponentLauncher):
             "{etcdCertFile}": etcd_cert,
             "{etcdKeyFile}": etcd_key,
             "{passphraseFile}": pass_phrase,
+            "{frontendSslEnable}": "false", # reserved field, frontend ssl is not supported yet
         }
 
         for placeholder, value in replacements.items():

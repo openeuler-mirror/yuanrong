@@ -174,7 +174,9 @@ function build_python_sdk() {
     fi
     API_DIR="$BASE_DIR/api"
     cd $API_DIR/python
-    $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    rm -rf build/ dist/ *.egg-info
+    SETUP_TYPE=sdk $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
     mkdir -p $OUTPUT_BASE/runtime/sdk/python/
     if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then
         cp -arf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
@@ -349,6 +351,10 @@ if [ "$BAZEL_COMMAND" == "build" ]; then
 fi
 
 if [ "$PACKAGE_ALL" == "true" ]; then
-    bash ${BASE_DIR}/scripts/package.sh -v ${BUILD_VERSION} --python_bin_path ${PYTHON3_BIN_PATH}
+    bash ${BASE_DIR}/scripts/package_yuanrong.sh -v ${BUILD_VERSION}
+    cd "$BASE_DIR"/api/python
+    rm -rf build/ dist/ *.egg-info
+    SETUP_TYPE= $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
 fi
 cd -

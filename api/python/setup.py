@@ -16,9 +16,9 @@
 
 """setup"""
 
+from enum import Enum
 import os
 import shutil
-import sys
 import warnings
 
 import setuptools
@@ -29,10 +29,83 @@ ROOT_DIR = os.path.dirname(__file__)
 
 def get_version():
     """get version"""
-    version = os.getenv("BUILD_VERSION", "")
-    if len(version) == 0:
-        return "v0.0.1"
+    version = os.getenv("BUILD_VERSION", None)
+    if version is None or len(version) == 0:
+        return open(os.path.join(ROOT_DIR, "../../VERSION")).read().strip()
     return version
+
+
+class SetupType(Enum):
+    """setup type enum"""
+
+    OPENYUANRONG = 1
+    OPENYUANRONG_SDK = 2
+    OPENYUANRONG_CPP_SDK = 3
+
+
+class SetupSpec:
+    """setup spec"""
+
+    def __init__(self, setup_type: SetupType, name: str, description: str):
+        self.setup_type = setup_type
+        self.name = name
+        self.description = description
+        self.version = get_version()
+        self.install_requires = []
+        self.extras = {}
+        self.entry_points = {}
+
+    def get_packages(self):
+        if self.setup_type == SetupType.OPENYUANRONG:
+            return setuptools.find_packages(include=("yr.inner", "yr.inner.*"))
+        elif self.setup_type == SetupType.OPENYUANRONG_SDK:
+            return setuptools.find_packages(
+                exclude=("yr.tests", "yr.tests.*", "yr.inner", "yr.inner.*")
+            )
+        else:
+            return []
+
+
+if os.getenv("SETUP_TYPE") == "sdk":
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG_SDK,
+        "openyuanrong_sdk",
+        "openyuanrong python sdk",
+    )
+    setup_spec.install_requires = [
+        "cloudpickle==2.2.1",
+        "msgpack==1.0.5",
+        "protobuf==4.25.5",
+        "cython==3.0.10",
+        "pyyaml==6.0.2",
+        "click==8.1.8",
+    ]
+    setup_spec.entry_points = {
+        "console_scripts": [
+            "yrcli=yr.cli.scripts:main",
+        ]
+    }
+elif os.getenv("SETUP_TYPE") == "sdk_cpp":
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG_CPP_SDK,
+        "openyuanrong_cpp_sdk",
+        "openyuanrong cpp sdk",
+    )
+else:
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG, "openyuanrong", "openyuanrong package"
+    )
+    setup_spec.install_requires = [
+        "openyuanrong_sdk==" + setup_spec.version,
+        # "openyuanrong_functionsystem==" + setup_spec.version,
+        # "openyuanrong_datasystem==" + setup_spec.version,
+    ]
+    setup_spec.extras["cpp"] = ["openyuanrong_cpp_sdk==" + setup_spec.version]
+    setup_spec.entry_points = {
+        "console_scripts": [
+            "yr=yr.inner.scripts:run_yr",
+        ]
+    }
 
 
 def copy_file(target, filename, root):
@@ -40,11 +113,50 @@ def copy_file(target, filename, root):
     source = os.path.relpath(filename, root)
     dst = os.path.join(target, source)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy(source, dst, follow_symlinks=True)
+    shutil.copy(filename, dst, follow_symlinks=True)
 
 
-def run_ext(ctx):
-    """run ext"""
+def contains_keyword(text, keywords):
+    return any(kw in text for kw in keywords)
+
+
+def compare_keyword(text, keywords):
+    return any(text == kw for kw in keywords)
+
+
+def copy_openyuanrong(ctx):
+    """copy openyuanrong"""
+    keyword_to_exclude = [
+        "datasystem/sdk",
+        "deploy/k8s",
+        "functionsystem/bin/domain_scheduler",
+        "functionsystem/bin/iam_server",
+        "functionsystem/bin/runtime_manager",
+        "functionsystem/sym",
+        "pattern_faas/faasmanager",
+        "runtime/sdk",
+    ]
+    file_to_exclude = [
+        "faasfrontend",
+        "faasfrontend.zip",
+        "faasscheduler",
+        "faasscheduler.zip",
+    ]
+    files_to_include = []
+    root_dir = os.path.join(ROOT_DIR, "../../output/openyuanrong")
+    for root, _, fs in os.walk(root_dir):
+        if contains_keyword(root, keyword_to_exclude):
+            continue
+        for i in fs:
+            if compare_keyword(i, file_to_exclude):
+                continue
+            files_to_include.append(os.path.join(root, i))
+    for filename in files_to_include:
+        copy_file(os.path.join(ctx.build_lib, "yr/inner"), filename, root_dir)
+
+
+def copy_openyuanrong_cpp_sdk(ctx):
+    """copy openyuanrong"""
     files_to_include = []
     for root, _, fs in os.walk("./yr"):
         for i in fs:
@@ -52,6 +164,14 @@ def run_ext(ctx):
                 files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
         copy_file(ctx.build_lib, filename, ROOT_DIR)
+
+
+def run_ext(ctx):
+    """run ext"""
+    if setup_spec.setup_type == SetupType.OPENYUANRONG:
+        copy_openyuanrong(ctx)
+    elif setup_spec.setup_type == SetupType.OPENYUANRONG_CPP_SDK:
+        copy_openyuanrong_cpp_sdk(ctx)
 
 
 class BuildExtImpl(build_ext):
@@ -69,59 +189,27 @@ class BinaryDistribution(setuptools.Distribution):
         return True
 
 
-def openyuanrong_sdk():
-    if sys.version_info[0] == 3 and sys.version_info[1] == 6:
-        requirements_file = "requirements_for_py36.txt"
-    elif sys.version_info[0] == 3 and sys.version_info[1] == 7:
-        requirements_file = "requirements_for_py37.txt"
-    elif sys.version_info[0] == 3 and sys.version_info[1] == 11:
-        requirements_file = "requirements_for_py311.txt"
-    else:
-        requirements_file = "requirements.txt"
-
-    with open(os.path.join(ROOT_DIR, requirements_file)) as f:
-        requirements = f.read().splitlines()
-
-    warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
-    setuptools.setup(
-        name="yr_sdk",
-        version=get_version(),
-        author="openyuanrong",
-        classifiers=[
-            "Programming Language :: Python :: 3.6",
-            "Programming Language :: Python :: 3.8",
-            "Programming Language :: Python :: 3.9",
-            "Programming Language :: Python :: 3.10",
-            "Programming Language :: Python :: 3.11",
-        ],
-        package_data={
-            "yr": ["includes/*.pxd", "*.so.*", "*.so"],
-        },
-        cmdclass={"build_ext": BuildExtImpl},
-        distclass=BinaryDistribution,
-        # Make setuptools regard the directory is the top-level directory for yr package building
-        packages=setuptools.find_packages(exclude=("tests", "*.tests", "*.tests.*")),
-        install_requires=requirements,
-        include_package_data=True,
-        exclude_package_data={
-            "": ["BUILD"],
-        },
-        extras_require={"core": ["yr-core"], "serve": ["fastapi"]},
-        entry_points={
-            "console_scripts": [
-                "yrcli=yr.cli.scripts:main",
-            ]
-        },
-    )
-
-
-def openyuanrong():
-    pass
-
-
-def main():
-    openyuanrong_sdk()
-
-
-if __name__ == "__main__":
-    main()
+warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
+setuptools.setup(
+    name=setup_spec.name,
+    version=setup_spec.version,
+    author="openyuanrong",
+    classifiers=[
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+    ],
+    cmdclass={"build_ext": BuildExtImpl},
+    distclass=BinaryDistribution,
+    packages=setup_spec.get_packages(),
+    install_requires=setup_spec.install_requires,
+    include_package_data=True,
+    package_data={
+        "yr": ["includes/*.pxd", "includes/*.pxi", "*.so.*", "*.so"],
+    },
+    exclude_package_data={
+        "": ["BUILD", "BUILD.bazel"],
+    },
+    extras_require=setup_spec.extras,
+    entry_points=setup_spec.entry_points,
+)

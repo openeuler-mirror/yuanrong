@@ -14,65 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ctypes
 from datetime import datetime
 import os
 import shutil
 import sys
 import subprocess
 import click
-
-import yr.inner
-
-
-PR_SET_PDEATHSIG = 1
-SIGTERM = 15
-
-
-def set_pdeathsig():
-    """
-    Send a SIGTERM signal to the child process when its parent process terminates.
-    """
-    libc = ctypes.CDLL("libc.so.6")
-    result = libc.prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0)
-    if result != 0:
-        raise OSError(f"prctl failed with error code {result}")
-
-
-def run_cli_prog(cli_name: str = "yr"):
-    """
-    run yuanrong cli tool
-    :param cli_name: the name of yuanrong cli tool
-    """
-    set_pdeathsig()
-    command = [
-        os.path.join(yr.inner.yuanrong_installation_dir, "cli", "bin", cli_name)
-    ] + sys.argv[1:]
-    try:
-        process = subprocess.Popen(
-            command,
-            stdin=sys.stdin,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
-            universal_newlines=True,
-            env={
-                "YR_INSTALLATION_DIR": yr.inner.yuanrong_installation_dir,
-                **os.environ,
-            },
-            preexec_fn=set_pdeathsig,
-        )
-        process.communicate()
-        sys.exit(process.returncode)
-    except subprocess.CalledProcessError:
-        pass
-        sys.exit(1)
-
-
-def run_yr():
-    """
-    run yr command
-    """
-    run_cli_prog("yr")
 
 
 __server_address = None

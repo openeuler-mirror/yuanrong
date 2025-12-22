@@ -39,7 +39,7 @@ CPU_RESOURCE_NAME = "CPU"
 MEMORY_RESOURCE_NAME = "Memory"
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class UserTLSConfig:
     """
     The SSL/TLS configuration used by users when communicating with external clusters.
@@ -54,7 +54,7 @@ class UserTLSConfig:
     server_name: str = None
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class DeploymentConfig:
     """
     AutoDeploymentConfig
@@ -73,7 +73,7 @@ class DeploymentConfig:
     spill_limit: int = 0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Config:
     """
     YR API config.
@@ -187,7 +187,7 @@ class Config:
     dedup_logs: bool = True
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ClientInfo:
     """
     Use to store yr client info.
@@ -196,7 +196,7 @@ class ClientInfo:
     job_id: str
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Device:
     """
     Use to init xpu task
@@ -218,7 +218,7 @@ class SchedulingAffinityType(IntEnum):
     REQUIRED_AFFINITY_IN_EACH_BUNDLE = 0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ResourceGroupOptions:
     """
     Resource group options.
@@ -236,7 +236,7 @@ class ResourceGroupOptions:
     bundle_index: int = -1
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class FunctionGroupOptions:
     """
     Function group options.
@@ -279,7 +279,7 @@ def function_group_enabled(opts: FunctionGroupOptions, group_size: int) -> bool:
         opts.scheduling_affinity_each_bundle_size))
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class DeviceInfo:
     #: 处理器 HDC 通道号
     device_id: int = 0
@@ -289,7 +289,7 @@ class DeviceInfo:
     rank_id: int = 0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ServerInfo:
     #: 挂载到本函数实例的设备信息
     devices: List[DeviceInfo] = field(default_factory=list)
@@ -297,7 +297,7 @@ class ServerInfo:
     server_id: str = ""
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class FunctionGroupContext:
     """
     A context class for managing function group information.
@@ -320,14 +320,14 @@ class FunctionGroupContext:
     device_name: str = ""
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GroupOptions:
     timeout: int = -1
     same_lifecycle: bool = True
     strategy: str = ""
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class InvokeOptions:
     """Use to set the invoke options.
 
@@ -628,7 +628,7 @@ def dataclass_from_dict(klass, d):
         return d  # Not a dataclass field
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class MetaFunctionID:
     """
     meta function id
@@ -638,7 +638,7 @@ class MetaFunctionID:
     java: str = ""
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class MetaConfig:
     """
     TaskMetadata is used to convey control information

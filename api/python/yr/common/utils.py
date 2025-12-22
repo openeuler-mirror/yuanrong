@@ -426,7 +426,7 @@ def get_function_from_urn(urn: str) -> str:
     return constants.SEPARATOR_SLASH.join(name)
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class CrossLanguageInfo:
     """
     CrossLanguageFunctionInfo
@@ -507,7 +507,7 @@ def get_environment_variable(variable_name: str, default_value: str = None) -> s
     return value
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class UInt64CounterData:
     """uint64 counter data"""
     name: str = ""
@@ -517,7 +517,7 @@ class UInt64CounterData:
     value: int = 0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class DoubleCounterData:
     """double counter data"""
     name: str = ""
@@ -527,7 +527,7 @@ class DoubleCounterData:
     value: float = 0.0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GaugeData:
     """gauge data"""
     name: str = ""

@@ -257,7 +257,7 @@ class Context:
         return self.invoke_property
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class EnvStorage:
     """
     env storage

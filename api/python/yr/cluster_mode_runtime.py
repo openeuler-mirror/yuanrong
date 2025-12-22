@@ -99,6 +99,15 @@ class ClusterModeRuntime(Runtime):
         """
         serialized_object = Serialization().serialize(obj)
         return self.libruntime.put(serialized_object, create_param)
+    
+    def put_serialized(self, serialized_object) -> str:
+        """
+        Put data to ds
+        :param obj: user object
+        :param create_param: create param for datasystem
+        :return: object id
+        """
+        return self.libruntime.put(serialized_object, CreateParam())
 
     def get(self, ids: List[str], timeout: int, allow_partial: bool) -> List[Any]:
         """

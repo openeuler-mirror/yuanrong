@@ -47,7 +47,7 @@ def sched_yield():
         time.sleep(0)
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Handle:
     n_reader: int
     max_chunk_bytes: int

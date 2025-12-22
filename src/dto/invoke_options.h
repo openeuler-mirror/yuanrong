@@ -194,6 +194,7 @@ struct FunctionMeta {
     bool isAsync = false;
     bool isGenerator = false;
     bool needOrder = false;
+    std::vector<char> code;
     bool IsServiceApiType()
     {
         return (apiType == libruntime::ApiType::Faas or apiType == libruntime::ApiType::Serve);

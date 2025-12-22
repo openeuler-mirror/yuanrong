@@ -21,7 +21,7 @@ from typing import Set, Any, Dict, List, Optional, Union
 import enum
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class InvokeArg:
     """
     Invoke arg
@@ -43,7 +43,7 @@ class SupportLanguage(enum.Enum):
     Go = "go"
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GroupInfo:
     """
     group info
@@ -52,13 +52,13 @@ class GroupInfo:
     group_name: str = ""
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class CommonStatus:
     code: int = 0
     message: str = ""
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Resource:
     class Type(int, enum.Enum):
         SCALER = 0
@@ -66,7 +66,7 @@ class Resource:
     name: str
     type: Type
 
-    @dataclass
+    @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
     class Scalar:
         value: float
         limit: float
@@ -74,12 +74,12 @@ class Resource:
     scalar: Scalar
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Resources:
     resources: Dict[str, Resource]
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class BundleInfo:
     bundleId: str
     rGroupName: str
@@ -94,14 +94,14 @@ class BundleInfo:
     kvLabels: Dict[str, str]
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Option:
     priority: int
     groupPolicy: int
     extension: Dict[str, str]
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class RgInfo:
     name: str
     owner: str
@@ -115,6 +115,6 @@ class RgInfo:
     opt: Option
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ResourceGroupUnit:
     resourceGroups: Dict[str, RgInfo]

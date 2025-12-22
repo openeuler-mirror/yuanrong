@@ -75,7 +75,7 @@ class ConsistencyType(Enum):
     CAUSAL = 1
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class SetParam:
     """Set parameters."""
     #: Whether duplicate key writing is supported.
@@ -96,7 +96,7 @@ class SetParam:
     cache_type: CacheType = CacheType.MEMORY
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class MSetParam:
     """Represents the parameter configuration class for the mset operation."""
     #: Whether duplicate key writing is supported.
@@ -118,7 +118,7 @@ class MSetParam:
     cache_type: CacheType = CacheType.MEMORY
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class CreateParam:
     """Create param."""
 
@@ -154,7 +154,7 @@ class AlarmSeverity(Enum):
     CRITICAL = 4
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GetParam():
     """Get the parameter configuration class."""
     #: Offset, default is ``0``.
@@ -163,14 +163,14 @@ class GetParam():
     size: int = 0
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class GetParams():
     """Interface class for obtaining parameters."""
     #: A group of GetParam, the quantity needs to be greater than 0.
     get_params: List[GetParam] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class AlarmInfo:
     """Alarm info."""
     #: The name of the alarm. The default value is an empty string.

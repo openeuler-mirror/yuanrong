@@ -55,7 +55,7 @@ ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION = "RUNTIME_SERVICE_FUNC_VERSION"
 _RUNTIME_MAX_RESP_BODY_SIZE = 6 * 1024 * 1024
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class InvokeOptions:
     """faas 调度参数。
 

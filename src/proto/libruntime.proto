@@ -93,6 +93,7 @@ message FunctionMeta {
     bool isAsync = 13;
     bool isGenerator = 14;
     bool needOrder = 15;
+    bytes code = 16;
 }
 
 message FunctionID {

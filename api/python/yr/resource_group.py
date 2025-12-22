@@ -20,7 +20,7 @@ from yr.common import constants
 from yr.runtime_holder import global_runtime
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ResourceGroup:
     """
     The handle returned after creating a ResourceGroup.

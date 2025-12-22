@@ -37,6 +37,7 @@ from yr.object_ref import ObjectRef
 from yr.runtime_holder import global_runtime, save_real_instance_id
 from yr.serialization import register_pack_hook, register_unpack_hook
 from yr.accelerate.shm_broadcast import MessageQueue, STOP_EVENT
+from yr.serialization import Serialization
 
 _logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class InstanceCreator:
         self.__base_cls__ = None
         self.__target_function_key__ = None
         self._code_ref = None
+        self._code = None
         self._lock = threading.Lock()
         self.__invoke_options__ = InvokeOptions()
         self.__is_async__ = False
@@ -65,12 +67,14 @@ class InstanceCreator:
         attrs = self.__dict__.copy()
         del attrs["_lock"]
         del attrs["_code_ref"]
+        del attrs["_code"]
         return attrs
 
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.__dict__["_lock"] = threading.Lock()
         self.__dict__["_code_ref"] = None
+        self.__dict__["_code"] = None
 
     @classmethod
     def create_from_user_class(cls, user_class, invoke_options):
@@ -113,6 +117,7 @@ class InstanceCreator:
         self.__user_class_methods__ = dict(class_methods)
         self.__base_cls__ = inspect.getmro(user_class)
         self._code_ref = None
+        self._code = None
         self._lock = threading.Lock()
         self.function_group_size = 0
         return self
@@ -229,7 +234,8 @@ class InstanceCreator:
                                  codeID=self._code_ref.id if self._code_ref is not None else "",
                                  name=name if name is not None else invoke_options.name,
                                  ns=invoke_options.namespace,
-                                 isAsync=self.__is_async__)
+                                 isAsync=self.__is_async__,
+                                 code=self._code if self._code is not None else b"",)
         runtime = global_runtime.get_runtime()
         if invoke_options.name:
             try:
@@ -253,8 +259,13 @@ class InstanceCreator:
                     self._code_ref is None
                     or not global_runtime.get_runtime().is_object_existing_in_local(self._code_ref.id)
             ):
-                self._code_ref = yr.put(self.__user_class__)
-                _logger.info("[Reference Counting] put code with id = %s, className = %s",
+                serialized_object = Serialization().serialize(self.__user_class__)
+                if len(serialized_object) <= 1024:
+                    self._code = serialized_object.to_bytes()
+                    _logger.debug("[Reference Counting] pass code by request, functionName = %s", self.__user_class__.__qualname__)
+                else:
+                    self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
+                    _logger.info("[Reference Counting] put code with id = %s, className = %s",
                              self._code_ref.id, self.__user_class_descriptor__.class_name)
         # __init__ existed when user-defined
         if self.__user_class_methods__ is not None and '__init__' in self.__user_class_methods__:

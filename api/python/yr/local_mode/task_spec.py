@@ -27,7 +27,7 @@ from yr.libruntime_pb2 import FunctionMeta, InvokeType
 _logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class TaskSpec:
     """TaskSpec"""
     task_id: str

@@ -51,7 +51,7 @@ def pop_local_object_refs():
     return object_refs
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class MessagePackSerializedObject:
     """message pack serialized object"""
     msgpack_data: bytes = None

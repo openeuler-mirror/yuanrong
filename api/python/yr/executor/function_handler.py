@@ -104,6 +104,7 @@ class FunctionHandler(HandlerIntf):
         return ErrorInfo()
 
     def __create_instance(self, func_meta, args) -> None:
+        log.get_logger().info("%s" % func_meta)
         class_code = CodeManager().load_code(func_meta, True)
         if class_code is None:
             raise RuntimeError(f"Failed to load code from data system, code id: [{func_meta.codeID}]")

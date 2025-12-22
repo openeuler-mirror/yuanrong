@@ -122,7 +122,7 @@ class AffinityScope(enum.Enum):
     """
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Affinity:
     """
     Represents an affinity.

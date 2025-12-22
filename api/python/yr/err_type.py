@@ -79,7 +79,7 @@ class ModuleCode(enum.Enum):
     DATASYSTEM = 30
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ErrorInfo:
     """
     error info

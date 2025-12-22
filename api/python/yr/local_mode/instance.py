@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class Resource:
     """instance resource"""
     comparable_res: tuple = ('cpu', 'memory', 'concurrency', 'resources')

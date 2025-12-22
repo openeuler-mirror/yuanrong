@@ -63,6 +63,7 @@ from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.unordered_set cimport unordered_set
 from libcpp.vector cimport vector
+from libc.string cimport memcpy
 
 from yr.includes.libruntime cimport (CApiType, CSignal, CBuffer, CDataObject, CElement,
 CErrorCode, CErrorInfo, CFunctionMeta, CInternalWaitResult, CInvokeArg,
@@ -98,7 +99,7 @@ class GeneratorEndError(RuntimeError):
         return f"generator stop : {self.message}"
 
 cdef error_code_from_cpp(CErrorCode code):
-    if code==CErrorCode.ERR_GENERATOR_FINISHED:
+    if code == CErrorCode.ERR_GENERATOR_FINISHED:
         return ErrorCode.ERR_GENERATOR_FINISHED
 
 cdef CErrorCode error_code_from_py(error_code: ErrorCode):
@@ -382,6 +383,17 @@ cdef CResourceGroupOptions resource_group_options_from_py(resource_group_opts: R
     c_resource_group_options.bundleIndex = resource_group_opts.bundle_index
     return c_resource_group_options
 
+cdef bytes_to_vector(b: bytes):
+    cdef Py_ssize_t n = len(b)
+    cdef const char* buf = b
+    cdef vector[char] v
+    v.resize(n)
+    memcpy(v.data(), buf, n)
+    return v
+
+def vector_to_bytes(vector[char] v):
+    return v.data()[:v.size()]
+
 cdef function_meta_from_py(CFunctionMeta & functionMeta, func_meta: FunctionMeta):
     cdef:
         string name
@@ -402,6 +414,7 @@ cdef function_meta_from_py(CFunctionMeta & functionMeta, func_meta: FunctionMeta
     functionMeta.initializerCodeId = func_meta.initializerCodeID
     functionMeta.isGenerator = func_meta.isGenerator
     functionMeta.isAsync = func_meta.isAsync
+    functionMeta.code = bytes_to_vector(func_meta.code)
 
 cdef function_meta_from_cpp(const CFunctionMeta & function):
     cdef:
@@ -419,7 +432,8 @@ cdef function_meta_from_cpp(const CFunctionMeta & function):
                              ns=function.ns.decode(),
                              initializerCodeID=function.initializerCodeId.decode(),
                              isGenerator=function.isGenerator,
-                             isAsync=function.isAsync)
+                             isAsync=function.isAsync,
+                             code=vector_to_bytes(function.code))
     return func_meta
 
 cdef function_group_running_info_from_cpp(const CFunctionGroupRunningInfo & info):
@@ -560,6 +574,19 @@ def load_code_from_datasystem(code_id: str):
             f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
     it = ret.second.begin()
     return yr.serialization.Serialization().deserialize(Buffer.make(dereference(it)))
+
+def load_code_from_bytes(code: bytes):
+    """get code from bytes"""
+    cdef const char* c_data = code
+    cdef shared_ptr[CBuffer] data_buf
+    cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+    if c_libruntime == nullptr:
+        raise RuntimeError("already finalized")
+    data_buf = dynamic_pointer_cast[CBuffer, StringNativeBuffer](make_shared[StringNativeBuffer](len(code)))
+    c_error_info = memory_copy(data_buf, code, len(code))
+    if not c_error_info.OK():
+        return None
+    return yr.serialization.Serialization().deserialize(Buffer.make(data_buf))
 
 def write_to_cbuffer(serialized_object: SerializedObject):
     # This method is for unit test suite 'test_serialization'
@@ -1323,6 +1350,7 @@ cdef class Fnruntime:
         global _serialization_ctx
         _serialization_ctx = ctx
         yr.code_manager.CodeManager().register_load_code_from_datasystem_func(load_code_from_datasystem)
+        yr.code_manager.CodeManager().register_load_code_from_bytes_func(load_code_from_bytes)
 
     def receive_request_loop(self):
         with nogil:

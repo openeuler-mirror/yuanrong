@@ -21,7 +21,7 @@ from enum import Enum
 from typing import Dict, Union
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class ProducerConfig:
     """
     The configuration class created by the producer.
@@ -75,7 +75,7 @@ class SubscriptionType(Enum):
     KEY_PARTITIONS = 2
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class SubscriptionConfig:
     """
     The configuration class subscribed by consumers.

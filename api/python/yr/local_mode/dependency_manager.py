@@ -30,7 +30,7 @@ from yr.runtime_holder import global_runtime
 _logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class TaskState:
     """TaskState"""
     task: TaskSpec

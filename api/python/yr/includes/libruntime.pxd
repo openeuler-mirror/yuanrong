@@ -348,6 +348,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         string initializerCodeId
         bool isGenerator
         bool isAsync
+        vector[char] code
 
     cdef cppclass CGroupOptions "YR::Libruntime::GroupOpts":
         string groupName

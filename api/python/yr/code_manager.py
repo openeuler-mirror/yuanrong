@@ -63,6 +63,7 @@ class CodeManager:
         self.custom_handler = os.environ.get(constants.ENV_KEY_ENV_DELEGATE_DOWNLOAD)
         self.deploy_dir = os.environ.get(constants.ENV_KEY_FUNCTION_LIBRARY_PATH)
         self.load_code_from_datasystem_func: Callable = None
+        self.load_code_from_bytes: Callable = None
 
     def clear(self):
         """clear"""
@@ -76,6 +77,12 @@ class CodeManager:
         """
         self.load_code_from_datasystem_func = function
 
+    def register_load_code_from_bytes_func(self, function: Callable):
+        """
+        register load code from bytes
+        """
+        self.load_code_from_bytes = function
+        
     def register(self, function_key: str, function_obj: Callable):
         """
         register function code to code manager
@@ -114,6 +121,10 @@ class CodeManager:
         """
         load user code
         """
+        if len(func_meta.code) != 0:
+            code = self.load_code_from_bytes(func_meta.code)
+            if code is not None:
+                return code
         if len(func_meta.codeID) != 0:
             return self.load_code_from_datasystem(func_meta.codeID)
         log.get_logger().debug(f'there is no code id in meta, try to load function from local {func_meta}')

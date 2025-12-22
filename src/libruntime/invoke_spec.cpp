@@ -355,6 +355,7 @@ std::string InvokeSpec::BuildCreateMetaData(const LibruntimeConfig &config, std:
     funcMeta->set_language(this->functionMeta.languageType);
     funcMeta->set_modulename(this->functionMeta.moduleName);
     funcMeta->set_signature(this->functionMeta.signature);
+    funcMeta->set_code(this->functionMeta.code.data(), this->functionMeta.code.size());
     if (!this->functionMeta.name.empty()) {
         funcMeta->set_name(this->functionMeta.name);
     }
@@ -422,6 +423,7 @@ std::string InvokeSpec::BuildInvokeMetaData(const LibruntimeConfig &config)
     funcMeta->set_functionid(this->functionMeta.functionId);
     funcMeta->set_isgenerator(this->functionMeta.isGenerator);
     funcMeta->set_isasync(this->functionMeta.isAsync);
+    funcMeta->set_code(this->functionMeta.code.data(), this->functionMeta.code.size());
     auto invocationMeta = meta.mutable_invocationmeta();
     if (config.runtimeId == "driver") {
         invocationMeta->set_invokerruntimeid(config.runtimeId + "_" + config.jobId);

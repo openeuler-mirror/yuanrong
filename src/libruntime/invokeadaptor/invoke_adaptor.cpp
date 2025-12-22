@@ -613,6 +613,8 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     functionMeta.apiType = metaData.functionmeta().apitype();
     functionMeta.isGenerator = metaData.functionmeta().isgenerator();
     functionMeta.isAsync = metaData.functionmeta().isasync();
+    std::string proto_bytes = metaData.functionmeta().code();
+    functionMeta.code.assign(proto_bytes.begin(), proto_bytes.end());
     if (functionMeta.apiType != libruntime::ApiType::Function) {
         returnObjects[0]->alwaysNative = true;
     }

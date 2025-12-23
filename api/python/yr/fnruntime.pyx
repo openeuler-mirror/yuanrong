@@ -1007,7 +1007,7 @@ cdef class Producer:
         ...     producer = yr.create_stream_producer("streamName", producer_config)
         ...     # .......
         ...     data = b"hello"
-        ...     element = Element(data=data, id=0)
+        ...     element = yr.Element(data=data, id=0)
         ...     producer.send(element)
         ...     producer.flush()
         ...     producer.close()
@@ -1094,10 +1094,10 @@ cdef class Consumer:
 
     Examples:
         >>> try:
-        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
-        ...     consumer = create_stream_consumer("streamName", config)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionType.STREAM)
+        ...     consumer = yr.create_stream_consumer("streamName", config)
         ...     # .......
-        ...     elements = consumer.Receive(6000, 1)
+        ...     elements = consumer.receive(6000, 1)
         ... except RuntimeError as exp:
         ...     # .......
         ...     pass

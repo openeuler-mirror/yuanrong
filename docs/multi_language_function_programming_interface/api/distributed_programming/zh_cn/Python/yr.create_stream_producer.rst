@@ -17,13 +17,13 @@ yr.create_stream_producer
 
     样例：
         >>> try:
-        ...     producer_config = ProducerConfig(
+        ...     producer_config = yr.ProducerConfig(
         ...         delay_flush_time=5,
         ...         page_size=1024 * 1024,
         ...         max_stream_size=1024 * 1024 * 1024,
         ...         auto_clean_up=True,
         ...     )
-        ...     stream_producer = create_stream_producer("streamName", producer_config)
+        ...     stream_producer = yr.create_stream_producer("streamName", producer_config)
         ... except RuntimeError as exp:
         ...     # 处理异常
         ...     pass

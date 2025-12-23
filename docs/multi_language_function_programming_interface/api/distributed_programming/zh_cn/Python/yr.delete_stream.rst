@@ -16,6 +16,6 @@ yr.delete_stream
 
     样例：
         >>> try:
-        ...     delete_stream("streamName")
+        ...     yr.delete_stream("streamName")
         ... except RuntimeError as exp:
         ...     pass

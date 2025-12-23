@@ -17,8 +17,8 @@ yr.create_stream_consumer
 
     样例：
         >>> try:
-        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
-        ...     consumer = create_stream_consumer("streamName", config)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionType.STREAM)
+        ...     consumer = yr.create_stream_consumer("streamName", config)
         ... except RuntimeError as exp:
         ...     pass
 

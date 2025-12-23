@@ -717,13 +717,13 @@ def create_stream_producer(stream_name: str, config: ProducerConfig) -> Producer
 
     Examples:
         >>> try:
-        ...     producer_config = ProducerConfig(
+        ...     producer_config = yr.ProducerConfig(
         ...         delay_flush_time=5,
         ...         page_size=1024 * 1024,
         ...         max_stream_size=1024 * 1024 * 1024,
         ...         auto_clean_up=True,
         ...     )
-        ...     stream_producer = create_stream_producer("streamName", producer_config)
+        ...     stream_producer = yr.create_stream_producer("streamName", producer_config)
         ... except RuntimeError as exp:
         ...     # 处理异常
         ...     pass
@@ -750,8 +750,8 @@ def create_stream_consumer(stream_name: str, config: SubscriptionConfig) -> Cons
 
     Examples:
         >>> try:
-        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
-        ...     consumer = create_stream_consumer("streamName", config)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionType.STREAM)
+        ...     consumer = yr.create_stream_consumer("streamName", config)
         ... except RuntimeError as exp:
         ...     pass
     """
@@ -806,7 +806,7 @@ def delete_stream(stream_name: str) -> None:
 
     Examples:
         >>> try:
-        ...     delete_stream("streamName")
+        ...     yr.delete_stream("streamName")
         ... except RuntimeError as exp:
         ...     pass
     """

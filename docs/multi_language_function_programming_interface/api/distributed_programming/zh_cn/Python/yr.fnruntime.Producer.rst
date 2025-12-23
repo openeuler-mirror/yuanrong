@@ -9,14 +9,14 @@ yr.fnruntime.Producer
 	
     样例：
         >>> try:
-        ...     producer_config = ProducerConfig(
+        ...     producer_config = yr.ProducerConfig(
         ...         delay_flush_time=5,
         ...         auto_clean_up=True,
         ...     )
         ...     producer = yr.create_stream_producer("streamName", producer_config)
         ...     # .......
         ...     data = b"hello"
-        ...     element = Element(data=data, id=0)
+        ...     element = yr.Element(data=data, id=0)
         ...     producer.send(element)
         ...     producer.flush()
         ...     producer.close()

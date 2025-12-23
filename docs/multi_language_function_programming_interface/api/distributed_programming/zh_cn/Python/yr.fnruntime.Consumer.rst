@@ -9,10 +9,10 @@ yr.fnruntime.Consumer
 
     样例：
         >>> try:
-        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
-        ...     consumer = create_stream_consumer("streamName", config)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionType.STREAM)
+        ...     consumer = yr.create_stream_consumer("streamName", config)
         ...     # .......
-        ...     elements = consumer.Receive(6000, 1)
+        ...     elements = consumer.receive(6000, 1)
         ... except RuntimeError as exp:
         ...     # .......
         ...     pass

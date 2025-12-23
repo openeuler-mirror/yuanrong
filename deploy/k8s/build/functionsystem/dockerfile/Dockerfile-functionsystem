@@ -1,7 +1,5 @@
 ARG docker_image
 FROM ${docker_image}
-RUN yum install -y shadow-utils tar \
-    xz sudo which iputils iptables iproute ipset unzip wget 
 ARG SNUSER_ID
 ARG SN_ID
 ENV USER_UID=${SN_ID} \
@@ -18,12 +16,13 @@ ENV HOME_FUNCTION_MASTER=${HOME}/function-master \
     HOME_FUNCTION_PROXY=${HOME}/function-proxy \
     HOME_SCHEDULER=${HOME}/scheduler \
     HOME_FRONTEND=${HOME}/frontend  \
-    HOME_MANAGER=${HOME}/manager
+    HOME_MANAGER=${HOME}/manager \
+    HOME_META_SERVICE=${HOME}/meta-service
 
 ENV FUNCTION_PROXY=${HOME}/bin/function_proxy
 ENV FUNCTION_MASTER=${HOME_FUNCTION_MASTER}/bin/function_master
 ENV IAM_SERVER=${HOME_IAM_ADAPTOR}/bin/iam_server
-
+ENV METASERVICE=${HOME_META_SERVICE}/bin/meta_service
 RUN mkdir -p ${HOME} && \
    echo "${USER_NAME}:x:${USER_UID}:${GROUP_ID}:${USER_NAME}:${HOME}:/bin/bash" >> /etc/passwd && \
    echo "${GROUP_NAME}:x:${GROUP_ID}:" >> /etc/group
@@ -43,7 +42,8 @@ RUN mkdir -p ${HOME_FUNCTION_MASTER} && \
     mkdir -p ${HOME_IAM_ADAPTOR} &&  \
     mkdir -p ${HOME_SCHEDULER}&& \
     mkdir -p ${HOME_FRONTEND}&& \
-    mkdir -p ${HOME_MANAGER}
+    mkdir -p ${HOME_MANAGER}&& \
+    mkdir -p ${HOME_META_SERVICE}
 
 # Common lib and configuration files
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/deploy/k8s/build/functionsystem/entrypoints/health-check ${HOME}/bin/
@@ -55,6 +55,10 @@ COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/functionsystem/bin/function_prox
 # Component function-master
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/functionsystem/bin/function_master ${HOME_FUNCTION_MASTER}/bin/
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/deploy/k8s/build/functionsystem/entrypoints/function-master/* ${HOME_FUNCTION_MASTER}/bin/
+
+# Component meta-service
+COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/functionsystem/bin/meta_service ${HOME_META_SERVICE}/bin/
+COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/deploy/k8s/build/functionsystem/entrypoints/meta-service/* ${HOME_META_SERVICE}/bin/
 
 # Component iam-adaptor
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/functionsystem/bin/iam_server ${HOME_IAM_ADAPTOR}/bin/

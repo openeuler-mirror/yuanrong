@@ -45,3 +45,11 @@ test/st/functions/**/*.xml
 ./thirdparty
 go/pkg/mod/
 cmake-build-debug
+api/python/build/
+build/
+go/output/bin/client/dist/
+go/pkg/dashboard/client/dist/
+go/pkg/dashboard/client/node_modules/
+example/custom_runtime/openyuanrong
+example/custom_runtime/worker/yuanrong
+output

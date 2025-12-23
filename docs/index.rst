@@ -59,5 +59,5 @@
   observability/index.md
   FAQ/index.md
   contributor_guide/index.md
-  glossary
+  reference/index.md
   security

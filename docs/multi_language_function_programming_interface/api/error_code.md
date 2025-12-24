@@ -131,6 +131,6 @@
 | 122009     | NoResourceInfo                   | 资源信息不存在。                             |
 | 130600     | InvalidParamErrorCode            | 解析 HTTP 请求的参数时出错。                 |
 | 150424     | function metadata not found      | 找不到函数元数据。                           |
-| 150500     | internal system error                               | 系统内部错误。                               |
+| 150500     | internal system error                      | 系统内部错误。                               |
 | 150444     | instance label not found         | 指定实例 label 不存在。                      |
-| 330404     | subcribe stream failed"          | 订阅流失败。                                 |
+| 330404     | subcribe stream failed             | 订阅流失败。                                 |

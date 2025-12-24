@@ -398,6 +398,7 @@ void LoadEnvFromFile(const std::string &envFile)
 
         if (loadedCount > 0) {
             YRLOG_DEBUG("Loaded {} environment variables from {}", loadedCount, envFile);
+            Libruntime::Config::Reset();
         }
     } catch (const std::exception &e) {
         YRLOG_ERROR("Failed to load environment variables from {}: {}", envFile, e.what());

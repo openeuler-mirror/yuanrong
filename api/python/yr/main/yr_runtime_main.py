@@ -74,8 +74,8 @@ def configure(args: argparse.Namespace = None):
     if args is None:
         args = parse_args()
     config = Config()
-    config.rt_server_address = args.rt_server_address
-    config.runtime_id = args.runtime_id
+    config.rt_server_address = os.environ.get("POSIX_LISTEN_ADDR", "127.0.0.1:22732")
+    config.runtime_id = os.environ.get("YR_RUNTIME_ID", "driver")
     config.job_id = args.job_id
     config.log_level = args.log_level
     config.env_file = os.environ.get("YR_ENV_FILE", "")
@@ -112,12 +112,12 @@ def main():
     if seed_file:
         with open(seed_file, 'rb') as f:
             f.read()
-    
+
     # Get env_file from environment variable
     # Load environment variables from file BEFORE any code reads from os.environ
     # This must be done before insert_sys_path() and configure() which read env vars
     load_env_from_file(os.environ.get("YR_ENV_FILE", ""))
-    
+
     # If args are invalid, the script automatically exits when calling 'parser.parse_args()'.
     insert_sys_path()
     init(configure(args))

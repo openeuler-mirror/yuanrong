@@ -41,7 +41,7 @@ bool ExecutionManager::isMultipleConcurrency()
 void ExecutionManager::DoHandle(std::function<void()> &&hdlr, std::string reqId)
 {
     if (!useCustomExecutor) {
-        if (concurrency_ > 1 && !this->callExecutor_) {
+        if (concurrency_ > 1 && this->callExecutor_) {
             boost::asio::post(*this->callExecutor_, std::move(hdlr));
         } else {
             hdlr();

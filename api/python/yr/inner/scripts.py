@@ -43,7 +43,7 @@ def run_cli_prog(cli_name: str = "yr"):
     """
     set_pdeathsig()
     command = [
-        os.path.join(yr.inner.yuanrong_installation_dir, "cli", "bin", cli_name)
+        os.path.join(yr.inner.yuanrong_installation_dir, "functionsystem", "bin", cli_name)
     ] + sys.argv[1:]
     try:
         process = subprocess.Popen(

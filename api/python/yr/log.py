@@ -117,6 +117,7 @@ class RuntimeLogger:
             log_file_name = os.getenv("GLOG_log_dir")
         os.environ["DATASYSTEM_CLIENT_LOG_DIR"] = log_file_name
         self.__runtime_log_location = log_file_name
+        os.makedirs(log_file_name, exist_ok=True)
         log_id = os.environ.get("YR_LOG_PREFIX", "")
         if len(log_id) != 0:
             log_file_name = os.path.join(log_file_name, log_id + _LOG_SUFFIX)

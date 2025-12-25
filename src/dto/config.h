@@ -67,6 +67,7 @@ Type Cast(const char *key, const std::string &value)
 class Config {
 public:
     static Config &Instance();
+    static void Reset();
 #define CONFIG_DECLARE(type, name, default)            \
 private:                                               \
     type name##_ = ParseFromEnv<type>(#name, default); \
@@ -117,6 +118,7 @@ public:                                                \
     CONFIG_DECLARE(std::string, YR_JAVA_FUNCID, "");
     CONFIG_DECLARE(std::string, YR_DS_ADDRESS, "");
     CONFIG_DECLARE(std::string, YR_SERVER_ADDRESS, "");
+    CONFIG_DECLARE(std::string, YR_DPOSIX_UDS, "");
     CONFIG_DECLARE(std::string, POSIX_LISTEN_ADDR, "");
     CONFIG_DECLARE(std::string, YR_LOG_PATH, "./");
     CONFIG_DECLARE(uint32_t, YR_MAX_LOG_SIZE_MB, 500);

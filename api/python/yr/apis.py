@@ -50,7 +50,17 @@ _DEFAULT_ALLOW_PARTIAL = False
 _DEFAULT_ALLOW_FORCE = True
 _DEFAULT_ALLOW_RECURSIVE = False
 _DEFAULT_SAVE_LOAD_STATE_TIMEOUT = 30
-_DEFAULT_FUNC_ID = "sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-py:$latest"
+
+
+def get_python_tag():
+    """获取 Python 版本标签"""
+    import sys
+
+    ver = sys.version_info
+    return f"py{ver.major}{ver.minor}"
+
+
+_DEFAULT_FUNC_ID = f"sn:cn:yrk:12345678901234561234567890123456:function:0-defaultservice-{get_python_tag()}:$latest"
 
 
 def is_initialized():
@@ -842,7 +852,7 @@ def kv_write(key: str, value: bytes, existence: ExistenceOpt = ExistenceOpt.NONE
 @check_initialized
 def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
     """
-    Provide a storage interface that supports custom parameter configuration, 
+    Provide a storage interface that supports custom parameter configuration,
     enabling binary data to be written to the data system in a more flexible manner.
 
     Args:
@@ -878,7 +888,7 @@ def kv_write_with_param(key: str, value: bytes, set_param: SetParam) -> None:
 @check_initialized
 def kv_m_write_tx(keys: List[str], values: List[bytes], m_set_param: MSetParam = MSetParam()) -> None:
     """
-    Provide a Redis-like set storage interface that supports persisting 
+    Provide a Redis-like set storage interface that supports persisting
     a collection of binary data into the data system.
 
     Args:
@@ -1338,15 +1348,15 @@ def create_resource_group(bundles: List[Dict[str, float]], name: Optional[str] =
             cannot be 'primary' or an empty string. This parameter is optional, with a default value of ``None``,
             meaning a rgroup-{uuid} type string will be randomly generated as the `resource group name`.
         strategy (OptionsOptional[str], optional): The strategy to create the resource group, defalut strategy is ``PACK``
-            
+
             - ``'None'``: No strategy.
 
             - ``'PACK'``: Pack multiple bundles into the same node as much as possible.
-            
+
             - ``'SPREAD`'': Distribute multiple bundles across different nodes as much as possible.
-            
+
             - ''`STRICT_PACK`'': All bundles must be placed on the same node, otherwise creation fails.
-           
+
             - ''`STRICT_SPREAD`'': All bundles must be placed on different nodes, otherwise creation fails.
 
     Returns:
@@ -1610,7 +1620,7 @@ def java_function(class_name: str, function_name: str, function_urn: str) -> Fun
 
 def java_instance_class(class_name: str, function_urn: str) -> InstanceCreator:
     """
-    A proxy used to construct Java classes and invoke them remotely. 
+    A proxy used to construct Java classes and invoke them remotely.
 
     Args:
         class_name (str): The name of java.

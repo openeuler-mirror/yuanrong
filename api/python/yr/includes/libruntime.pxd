@@ -269,6 +269,7 @@ cdef extern from "src/libruntime/libruntime_config.h" nogil:
         string runtimePrivateKeyPath
         string dsPublicKeyPath
         bool encryptEnable
+        string envFile
         CLibruntimeConfig()
         void InitConfig(const CMetaConfig & config)
         void BuildMetaConfig(CMetaConfig & config)

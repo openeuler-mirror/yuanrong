@@ -10,10 +10,30 @@
       # "key1" : "value1"
       # storageType: "local" # 代码包存储类型，默认值为 local, 进程部署只支持 local: 代码包存储在磁盘中
       # codePath: "/home/sn/function-packages" # 代码包本地路径，默认值为空（除了 python，此项必填）
-    py:
+    py311:
       cpu: 0
       memory: 0
       runtime: python3.11
+      warmup: seed
+      rootfs:
+        runtime: runsc
+        type: s3
+        imageurl: reg.docker.huaweicloud.com/faas/python311:0.6.0
+        readonly: true
+        storageInfo:
+          endpoint: reg.docker.huaweicloud.com/faas/
+          bucket: faas
+          object: python311
+          accessKey: accessKey
+          secretKey: secretKey
+    py39:
+      cpu: 0
+      memory: 0
+      runtime: python3.9
+    py310:
+      cpu: 0
+      memory: 0
+      runtime: python3.10
     java:
       cpu: 500
       memory: 500

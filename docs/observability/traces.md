@@ -112,7 +112,7 @@ bash ${CUR_DIR}/yuanrong/deploy/process/yr_master.sh -c 5000 -m 6000 -s 2048 -d 
 
 | 部署方式 | 日志路径 |
 |------| ------------------------- |
-| yr start 命令行 | 1. job-xxx-driver.log<br/>2. /tmp/yr_sessions/latest |
+| yr start 命令行 | 1. job-xxx-driver.log<br/>2. /tmp/yr_sessions/latest/log |
 | 进程部署 | 1. job-xxx-driver.log<br/>2. 部署参数 -d 指定的目录 |
 | k8s 部署 | 1. job-xxx-driver.log<br/>2. faasfrontend pod 、 faasscheduler pod 和调度函数实例的 agent pod 里 /home/snuser/log 目录下的 runtime 日志 |
 

@@ -72,7 +72,7 @@ spec:
       containers:
       - name: meta-service
         command:
-          - /home/sn/meta-service/entrypoint-meta-service
+          - /home/sn/meta-service/bin/entrypoint-meta-service
         imagePullPolicy: IfNotPresent
         image: {{ .Values.global.imageRegistry }}{{ .Values.global.images.common }}
         livenessProbe:

@@ -23,10 +23,13 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/logservice"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
+	"yuanrong.org/kernel/pkg/dashboard/flags"
+	"yuanrong.org/kernel/pkg/dashboard/getinfo"
 )
 
 type collectorClientInfo struct {
@@ -42,8 +45,13 @@ type collectorClient struct {
 
 // Connect will connect the collector and store the connection
 func (c *collectorClient) Connect() error {
+	creds := insecure.NewCredentials()
+	if flags.DashboardConfig.FunctionSystemConfig.SslEnable {
+		tlsConf := getinfo.NewTLSConfig(flags.DashboardConfig.FunctionSystemConfig)
+		creds = credentials.NewTLS(tlsConf)
+	}
 	// connect it
-	conn, err := grpc.Dial(c.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(c.Address, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return err
 	}

@@ -67,7 +67,9 @@ local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
 max_priority:,enable_preemption:,kill_process_timeout_seconds:,\
-dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,prometheus_address:,\
+dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
+prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
+dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
 memory_detection_interval:,oom_kill_enable:,oom_kill_control_limit:,oom_consecutive_detection_count:,\
 fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,disable_nc_check,\
 runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,local_ip:,\
@@ -188,6 +190,15 @@ DASHBOARD_GRPC_PORT=9081
 COLLECTOR_PORT=9082
 META_SERVICE_PORT=31111
 PROMETHEUS_ADDRESS=""
+PROMETHEUS_SSL_ENABLE="false"
+PROMETHEUS_SSL_BASE_PATH=""
+PROMETHEUS_SSL_ROOT_FILE="ca.crt"
+PROMETHEUS_SSL_CERT_FILE="client.crt"
+PROMETHEUS_SSL_KEY_FILE="client.key"
+DASHBOARD_SSL_ENABLE="false"
+DASHBOARD_SSL_BASE_PATH=""
+DASHBOARD_SSL_CERT_FILE="server.crt"
+DASHBOARD_SSL_KEY_FILE="server.key"
 METRICS_COLLECTOR_TYPE="proc"
 MERGE_PROCESS_ENABLE="true"
 FUNCTION_PROXY_MERGE_PROCESS_ENABLE="false"
@@ -433,6 +444,15 @@ function usage() {
   echo -e "     --dashboard_grpc_port                               dashboard grpc port (default 9081)"
   echo -e "     --collector_port                                    collector port (default 9082)"
   echo -e "     --prometheus_address                                prometheus address(default empty, format: prometheus_ip:prometheus_port)"
+  echo -e "     --prometheus_ssl_enable                             prometheus ssl enabled, options: true/false (default false)"
+  echo -e "     --prometheus_ssl_base_path                          prometheus ssl base path, configure absolute path"
+  echo -e "     --prometheus_ssl_root_file                          prometheus ssl root ca file name, default is ca.crt"
+  echo -e "     --prometheus_ssl_cert_file                          prometheus ssl module cert file name, default is client.crt"
+  echo -e "     --prometheus_ssl_key_file                           prometheus ssl module key file name, default is client.key"
+  echo -e "     --dashboard_ssl_enable                              dashboard ssl enabled, options: true/false (default false)"
+  echo -e "     --dashboard_ssl_base_path                           dashboard ssl base path, configure absolute path"
+  echo -e "     --dashboard_ssl_cert_file                           dashboard ssl module cert file name, default is server.crt"
+  echo -e "     --dashboard_ssl_key_file                            dashboard ssl module key file name, default is server.key"
   echo -e "     --metrics_collector_type                            runtime manager metrics collector type (default proc)"
   echo -e "     --port_policy                                       assign port policy, options: RANDOM, FIX(default RANDOM)"
   echo -e "     --runtime_heartbeat_enable                          enable heartbeat between function_proxy and runtime (default true)"
@@ -749,6 +769,15 @@ function parse_opt() {
     --collector_port) COLLECTOR_PORT=$2 && port_policy_table["collector_port"]="FIX" && shift 2 ;;
     --meta_service_port) META_SERVICE_PORT=$2 && port_policy_table["meta_service_port"]="FIX" && shift 2 ;;
     --prometheus_address) PROMETHEUS_ADDRESS=$2 && shift 2 ;;
+    --prometheus_ssl_enable) PROMETHEUS_SSL_ENABLE=$2 && shift 2 ;;
+    --prometheus_ssl_base_path) PROMETHEUS_SSL_BASE_PATH=$2 && shift 2 ;;
+    --prometheus_ssl_root_file) PROMETHEUS_SSL_ROOT_FILE=$2 && shift 2 ;;
+    --prometheus_ssl_cert_file) PROMETHEUS_SSL_CERT_FILE=$2 && shift 2 ;;
+    --prometheus_ssl_key_file) PROMETHEUS_SSL_KEY_FILE=$2 && shift 2 ;;
+    --dashboard_ssl_enable) DASHBOARD_SSL_ENABLE=$2 && shift 2 ;;
+    --dashboard_ssl_base_path) DASHBOARD_SSL_BASE_PATH=$2 && shift 2 ;;
+    --dashboard_ssl_cert_file) DASHBOARD_SSL_CERT_FILE=$2 && shift 2 ;;
+    --dashboard_ssl_key_file) DASHBOARD_SSL_KEY_FILE=$2 && shift 2 ;;
     --schedule_relaxed) SCHEDULE_RELAXED=$2 && shift 2 ;;
     --memory_detection_interval) MEMORY_DETECTION_INTERVAL=$2 && shift 2 ;;
     --oom_kill_enable) OOM_KILL_ENABLE=$2 && shift 2 ;;
@@ -1492,7 +1521,9 @@ function export_config() {
   export PRIVATE_KEY_PATH CERTIFICATE_FILE_PATH VERIFY_FILE_PATH SSL_BASE_PATH
 
   # dashboard
-  export ENABLE_DASHBOARD DASHBOARD_PORT DASHBOARD_GRPC_PORT PROMETHEUS_ADDRESS
+  export ENABLE_DASHBOARD DASHBOARD_PORT DASHBOARD_GRPC_PORT
+  export PROMETHEUS_ADDRESS PROMETHEUS_SSL_ENABLE PROMETHEUS_SSL_BASE_PATH PROMETHEUS_SSL_ROOT_FILE PROMETHEUS_SSL_CERT_FILE PROMETHEUS_SSL_KEY_FILE
+  export DASHBOARD_SSL_ENABLE DASHBOARD_SSL_BASE_PATH DASHBOARD_SSL_CERT_FILE DASHBOARD_SSL_KEY_FILE
   # collector
   export ENABLE_COLLECTOR COLLECTOR_PORT
   # meta_service

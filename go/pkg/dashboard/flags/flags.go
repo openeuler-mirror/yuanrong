@@ -45,17 +45,28 @@ const (
 	dashboardRegisterKey                  = "/yr/dashboard"
 )
 
+// CertConfig -
+type CertConfig struct {
+	SslEnable bool   `json:"sslEnable" valid:"optional"`
+	CaFile    string `json:"cafile,omitempty" valid:"optional"`
+	CertFile  string `json:"certfile,omitempty" valid:"optional"`
+	KeyFile   string `json:"keyfile,omitempty" valid:"optional"`
+}
+
 type dashboardConfig struct {
-	StaticPath         string           `json:"staticPath"`
-	Ip                 string           `json:"ip" valid:"ip"`
-	GrpcIP             string           `json:"grpcIP" valid:"ip"`
-	Port               int              `json:"port" valid:"port"`
-	GrpcPort           int              `json:"grpcPort" valid:"port"`
-	FunctionMasterAddr string           `json:"functionMasterAddr" valid:"url"`
-	FrontendAddr       string           `json:"frontendAddr" valid:"url"`
-	PrometheusAddr     string           `json:"prometheusAddr" valid:"url"`
-	RouterEtcdConfig   etcd3.EtcdConfig `json:"routerEtcdConfig"`
-	MetaEtcdConfig     etcd3.EtcdConfig `json:"metaEtcdConfig"`
+	StaticPath           string           `json:"staticPath"`
+	Ip                   string           `json:"ip" valid:"ip"`
+	GrpcIP               string           `json:"grpcIP" valid:"ip"`
+	Port                 int              `json:"port" valid:"port"`
+	GrpcPort             int              `json:"grpcPort" valid:"port"`
+	FunctionMasterAddr   string           `json:"functionMasterAddr" valid:"url"`
+	FrontendAddr         string           `json:"frontendAddr" valid:"url"`
+	PrometheusAddr       string           `json:"prometheusAddr" valid:"url"`
+	RouterEtcdConfig     etcd3.EtcdConfig `json:"routerEtcdConfig"`
+	MetaEtcdConfig       etcd3.EtcdConfig `json:"metaEtcdConfig"`
+	FunctionSystemConfig CertConfig       `json:"functionSystemConfig"`
+	PrometheusConfig     CertConfig       `json:"prometheusConfig"`
+	SslConfig            CertConfig       `json:"sslConfig"`
 
 	ServerAddr string
 }
@@ -64,6 +75,8 @@ const (
 	// frontend jobs instance url
 	defaultListenIP = "0.0.0.0"
 	appBasePath     = "/app/v1"
+	httpPrefix      = "http://"
+	httpsPrefix     = "https://"
 )
 
 var (
@@ -76,9 +89,15 @@ var (
 	dashboardLogConfigPath string
 )
 
-func addHTTPPrefix(url string) string {
-	if !strings.Contains(url, "://") {
-		url = "http://" + url
+// AddHTTPPrefix -
+func AddHTTPPrefix(url string, enableSsl bool) string {
+	if strings.Contains(url, "://") {
+		return url
+	}
+	if enableSsl {
+		url = httpsPrefix + url
+	} else {
+		url = httpPrefix + url
 	}
 	return url
 }
@@ -187,9 +206,11 @@ func initWithConfigFiles(cCmd *cobra.Command) {
 
 func initWithParams(cCmd *cobra.Command) {
 	cmdErr(cCmd.Execute())
-	DashboardConfig.FunctionMasterAddr = addHTTPPrefix(DashboardConfig.FunctionMasterAddr)
-	DashboardConfig.FrontendAddr = addHTTPPrefix(DashboardConfig.FrontendAddr) + appBasePath
-	DashboardConfig.PrometheusAddr = addHTTPPrefix(DashboardConfig.PrometheusAddr)
+	DashboardConfig.FunctionMasterAddr = AddHTTPPrefix(DashboardConfig.FunctionMasterAddr,
+		DashboardConfig.FunctionSystemConfig.SslEnable)
+	DashboardConfig.FrontendAddr = AddHTTPPrefix(DashboardConfig.FrontendAddr, false) + appBasePath
+	DashboardConfig.PrometheusAddr = AddHTTPPrefix(DashboardConfig.PrometheusAddr,
+		DashboardConfig.PrometheusConfig.SslEnable)
 	ip := DashboardConfig.Ip
 	if len(ip) == 0 {
 		ip = defaultListenIP

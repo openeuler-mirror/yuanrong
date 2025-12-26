@@ -19,11 +19,15 @@ package logcollector
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"net"
 	"os"
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"yuanrong.org/kernel/pkg/collector/common"
 	"yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/logservice"
@@ -154,7 +158,33 @@ func (s *server) QueryLogStream(ctx context.Context, request *logservice.QueryLo
 
 // StartReadLogService starts grpc server and then set ready channel
 func StartReadLogService(ready chan<- bool) error {
-	grpcServer := grpc.NewServer()
+	var creds credentials.TransportCredentials
+	functionSystemConf := common.CollectorConfigs.FunctionSystemConfig
+	if functionSystemConf.SslEnable {
+		serverCert, err := tls.LoadX509KeyPair(functionSystemConf.CertFile, functionSystemConf.KeyFile)
+		if err != nil {
+			log.GetLogger().Errorf("failed to load collector server certificate: %s", err.Error())
+			return err
+		}
+
+		certPool := x509.NewCertPool()
+		caCert, err := os.ReadFile(functionSystemConf.CaFile)
+		if err != nil {
+			log.GetLogger().Errorf("failed to load collector ca certificate: %s", err.Error())
+			return err
+		}
+		if ok := certPool.AppendCertsFromPEM(caCert); !ok {
+			log.GetLogger().Errorf("failed to append collector ca certificate")
+			return errors.New("failed to append collector ca certificate")
+		}
+
+		creds = credentials.NewTLS(&tls.Config{
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    certPool,
+			Certificates: []tls.Certificate{serverCert},
+		})
+	}
+	grpcServer := grpc.NewServer(grpc.Creds(creds))
 	logservice.RegisterLogCollectorServiceServer(grpcServer, &server{})
 
 	lis, err := net.Listen("tcp", common.CollectorConfigs.Address)

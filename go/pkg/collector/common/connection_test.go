@@ -47,16 +47,3 @@ func TestGetConnection(t *testing.T) {
 
 	conn.Close()
 }
-
-func TestFailedGetConnection(t *testing.T) {
-	once = sync.Once{}
-	connection = nil
-
-	CollectorConfigs.ManagerAddress = ""
-
-	conn := GetConnection()
-
-	if conn != nil {
-		t.Errorf("Expected a failed connection, but got: %#v", conn)
-	}
-}

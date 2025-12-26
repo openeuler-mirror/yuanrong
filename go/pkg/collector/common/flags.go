@@ -30,17 +30,26 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 )
 
+// CertConfig -
+type CertConfig struct {
+	SslEnable bool   `json:"sslEnable" valid:"optional"`
+	CaFile    string `json:"cafile,omitempty" valid:"optional"`
+	CertFile  string `json:"certfile,omitempty" valid:"optional"`
+	KeyFile   string `json:"keyfile,omitempty" valid:"optional"`
+}
+
 // CollectorConfig -
 type CollectorConfig struct {
-	CollectorID    string
-	IP             string
-	Port           string
-	Address        string
-	ManagerAddress string
-	DatasystemPort int
-	LogRoot        string
-	UserLogPath    string
-	EtcdConfig     etcd3.EtcdConfig
+	CollectorID          string
+	IP                   string
+	Port                 string
+	Address              string
+	ManagerAddress       string
+	DatasystemPort       int
+	LogRoot              string
+	UserLogPath          string
+	EtcdConfig           etcd3.EtcdConfig
+	FunctionSystemConfig CertConfig
 }
 
 var (
@@ -123,6 +132,14 @@ func registerCmdArgs(rootCmd *cobra.Command) {
 		"etcd config about key_file")
 	rootCmd.Flags().StringVarP(&CollectorConfigs.EtcdConfig.PassphraseFile, "etcd_config_passphrase_file", "", "",
 		"etcd config about passphrase_file")
+	rootCmd.Flags().BoolVarP(&CollectorConfigs.FunctionSystemConfig.SslEnable, "function_system_ssl_enable", "", false,
+		"function system config about ssl_enable")
+	rootCmd.Flags().StringVarP(&CollectorConfigs.FunctionSystemConfig.CaFile, "function_system_ca_file", "", "",
+		"function system config about ca_file")
+	rootCmd.Flags().StringVarP(&CollectorConfigs.FunctionSystemConfig.CertFile, "function_system_cert_file", "", "",
+		"function system config about cert_file")
+	rootCmd.Flags().StringVarP(&CollectorConfigs.FunctionSystemConfig.KeyFile, "function_system_key_file", "", "",
+		"function system config about key_file")
 }
 
 func checkPath(path string) error {

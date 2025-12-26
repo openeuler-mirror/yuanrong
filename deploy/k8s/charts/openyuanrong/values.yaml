@@ -503,7 +503,7 @@ global:
     # the timeout of etcd healthcheck rpc
     metaStoreTimeoutMs: 10000
     sslEnable: false
-    metaEtcdEnable: false
+    metaEtcdEnable: true
 
   # obs configurations management
   obsManagement:

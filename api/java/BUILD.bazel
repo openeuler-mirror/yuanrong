@@ -94,6 +94,65 @@ java_binary(
     ],
 )
 
+java_library(
+    name = "lib_faas_function_sdk",
+    srcs = glob([
+        "faas-function-sdk/src/main/java/**/*.java",
+        "function-common/src/main/java/**/*.java",
+    ]),
+    deps = [
+        "//api/java:lombok_basic_edge",
+        "//api/java:function_common",
+        "//src/proto:libruntime_java_proto",
+        "//src/proto:socket_java_proto",
+        "@maven//:org_projectlombok_lombok",
+        "@maven//:commons_io_commons_io_2_16_1",
+        "@maven//:org_apache_logging_log4j_log4j_slf4j_impl",
+        "@maven//:org_apache_logging_log4j_log4j_api",
+        "@maven//:org_apache_logging_log4j_log4j_core",
+        "@maven//:org_slf4j_slf4j_api",
+        "@maven//:com_fasterxml_jackson_core_jackson_core",
+        "@maven//:com_fasterxml_jackson_core_jackson_databind",
+        "@maven//:com_fasterxml_jackson_core_jackson_annotations",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_msgpack_jackson_dataformat_msgpack",
+        "@maven//:com_google_code_gson_gson",
+        "@maven//:org_ow2_asm_asm",
+    ],
+)
+
+group_of_java_tests(
+    test_suite_name = "all_faas_function_sdk_tests",
+    test_classes = [
+        "com.function.common.TestUtil",
+        "com.function.runtime.exception.TestInvokeException",
+        "com.function.TestFunction",
+        "com.function.TestCreateOptions",
+        "com.function.TestObjectRef"
+    ],
+    srcs = glob([
+        "faas-function-sdk/src/test/java/**/*.java",
+    ]),
+    deps = [
+        ":create_native_jar",
+        ":native_yr_api_sdk",
+        ":lib_faas_function_sdk",
+        ":function_common",
+        "@maven//:junit_junit",
+        "@maven//:com_google_code_gson_gson",
+        "@maven//:org_apache_commons_commons_lang3",
+        "@maven//:org_mockito_mockito_core",
+        "@maven//:org_powermock_powermock_core",
+        "@maven//:org_powermock_powermock_module_junit4",
+        "@maven//:org_powermock_powermock_api_mockito2",
+        "@jacoco//:jacoco_agent",
+    ],
+    jvm_flags = [
+        "-javaagent:$(execpath @jacoco//:jacoco_agent)=destfile=jacoco.exec",
+    ],
+    local = True
+)
+
 group_of_java_tests(
     test_suite_name = "all_yr_api_sdk_tests",
     test_classes = [
@@ -124,7 +183,7 @@ group_of_java_tests(
     deps = [
         ":create_native_jar",
         ":native_yr_api_sdk",
-        ":lib_yr_api_sdk",
+        ":lib_faas_function_sdk",
         "@maven//:junit_junit",
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_powermock_powermock_core",
@@ -345,6 +404,7 @@ genrule(
         ":java_strip",
         "//:grpc_strip",
         "yr_runtime_deploy.jar",
+        ":lib_faas_function_sdk",
         ":create_native_jar",
     ],
     outs = ["yr_java_pkg.out"],
@@ -356,6 +416,7 @@ genrule(
         echo "$(locations :create_native_jar)"
         cp -rf $(locations yr_runtime_deploy.jar) $$JAVA_SERVICE_DIR/yr-runtime-1.0.0.jar &&
         cp -rf $$BASE_DIR/api/java/yr-runtime/src/main/resources/* $$JAVA_SERVICE_DIR/ &&
+        cp -rf $(locations :lib_faas_function_sdk) $$JAVA_SDK_DIR/faas-function-sdk-$$BUILD_VERSION.jar &&
         mkdir -p $$JAVA_SERVICE_DIR/lib &&
         chmod +w $(locations :java_strip) $(locations //:grpc_strip) &&
         chrpath -r '$$ORIGIN' $(locations :java_strip) &&
@@ -376,6 +437,7 @@ test_suite(
     tests = [
       "//api/java:all_yr_api_sdk_tests",
       "//api/java:all_function_common_tests",
-      "//api/java:all_yr_runtime_tests"
+      "//api/java:all_yr_runtime_tests",
+      "//api/java:all_faas_function_sdk_tests",
     ]
 )

@@ -21,14 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"plugin"
 	"strings"
 	"sync"
 	"time"
-
-	k8serror "k8s.io/apimachinery/pkg/api/errors"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
 
@@ -38,18 +33,12 @@ import (
 	commonType "yuanrong.org/kernel/pkg/common/faas_common/types"
 	commonUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"yuanrong.org/kernel/pkg/functionmanager/config"
-	"yuanrong.org/kernel/pkg/functionmanager/constant"
 	"yuanrong.org/kernel/pkg/functionmanager/state"
-	"yuanrong.org/kernel/pkg/functionmanager/types"
 	"yuanrong.org/kernel/pkg/functionmanager/utils"
-	"yuanrong.org/kernel/pkg/functionmanager/vpcmanager"
 )
 
 // Manager manages functions for faas pattern
 type Manager struct {
-	patKeyList        map[string]map[string]struct{}
-	VpcPlugin         vpcmanager.PluginVPC
-	vpcMutex          sync.Mutex
 	remoteClientLease map[string]*leaseTimer
 	remoteClientList  map[string]struct{}
 	clientMutex       sync.Mutex
@@ -70,14 +59,6 @@ type RequestOperation string
 var (
 	// requestOpCreate stands for create pat-service operation
 	requestOpCreate RequestOperation = "CreatePATService"
-	// requestOpCreateTrigger stands for create pullTrigger operation
-	requestOpCreateTrigger RequestOperation = "CreatePullTrigger"
-	// requestOpDeleteTrigger stands for delete pullTrigger operation
-	requestOpDeleteTrigger RequestOperation = "DeletePullTrigger"
-	// requestOpReport stands for instance report operation
-	requestOpReport RequestOperation = "ReportInstanceID"
-	// requestOpDelete stands for instance delete operation
-	requestOpDelete RequestOperation = "DeleteInstanceID"
 	// requestOpUnknown stands for unknown operation
 	requestOpUnknown RequestOperation = "Unknown"
 	// requestOpNewLease stands for create lease operation
@@ -110,22 +91,12 @@ func NewFaaSManagerLibruntime(libruntimeAPI api.LibruntimeAPI, stopCh chan struc
 
 // MakeFaasManager will create a new faas functions manager
 func MakeFaasManager(stopCh chan struct{}) (*Manager, error) {
-	functionLibPath := os.Getenv(constant.FunctionLibPath)
-	filePath := filepath.Join(functionLibPath, constant.PluginFile)
-	log.GetLogger().Infof("plugin file path is %s", filePath)
-	pluginFile, err := plugin.Open(filePath)
-	if err != nil {
-		log.GetLogger().Errorf("failed to open vpc plugin file: %s", err.Error())
-		return nil, err
-	}
 	cfg := config.GetConfig()
 	leaseRenewMinute := cfg.LeaseRenewMinute
 	if leaseRenewMinute == 0 {
 		leaseRenewMinute = defaultLeaseRenewMinute
 	}
 	faaSManager := &Manager{
-		patKeyList:        make(map[string]map[string]struct{}, 1),
-		vpcMutex:          sync.Mutex{},
 		remoteClientLease: make(map[string]*leaseTimer),
 		remoteClientList:  map[string]struct{}{},
 		clientMutex:       sync.Mutex{},
@@ -137,12 +108,7 @@ func MakeFaasManager(stopCh chan struct{}) (*Manager, error) {
 		},
 		leaseRenewMinute: time.Duration(cfg.LeaseRenewMinute),
 	}
-	faaSManager.VpcPlugin.Plugin = pluginFile
-	err = faaSManager.VpcPlugin.InitVpcPlugin()
-	if err != nil {
-		return nil, err
-	}
-	err = utils.InitKubeClient()
+	err := utils.InitKubeClient()
 	if err != nil {
 		return nil, err
 	}
@@ -152,15 +118,6 @@ func MakeFaasManager(stopCh chan struct{}) (*Manager, error) {
 
 // RecoverData -
 func (m *Manager) RecoverData() {
-	patKeyList := state.GetState().PatKeyList
-	log.GetLogger().Infof("now recover faaSManager patKeyList")
-	m.vpcMutex.Lock()
-	for patPodName, val := range patKeyList {
-		instanceIDMap := val
-		m.patKeyList[patPodName] = instanceIDMap
-	}
-	log.GetLogger().Infof("recovered patKeyList: %v", m.patKeyList)
-	m.vpcMutex.Unlock()
 	rcm := map[string]struct{}{}
 	err := commonUtils.DeepCopyObj(state.GetState().RemoteClientList, &rcm)
 	if err != nil {
@@ -208,14 +165,6 @@ func (m *Manager) HandlerRequest(requestOp RequestOperation, requestData []byte,
 	switch requestOp {
 	case requestOpCreate:
 		return m.handleRequestOpCreate(requestData, traceID)
-	case requestOpCreateTrigger:
-		return m.handleRequestOpCreateTrigger(requestData, traceID)
-	case requestOpReport:
-		return m.handleRequestOpReport(requestData, traceID)
-	case requestOpDelete:
-		return m.handleRequestOpDelete(requestData, traceID)
-	case requestOpDeleteTrigger:
-		return m.handleRequestOpDeleteTrigger(requestData, traceID)
 	case requestOpNewLease:
 		return m.handleNewLease(requestData, traceID, 0)
 	case requestOpKeepAlive:
@@ -242,158 +191,7 @@ func (m *Manager) ProcessSchedulerRequest(args []*api.Arg, traceID string) *comm
 }
 
 func (m *Manager) handleRequestOpCreate(requestData []byte, traceID string) *commonType.CallHandlerResponse {
-	newPatPod, err := m.VpcPlugin.CreateVpcResource(requestData)
-	if err != nil {
-		log.GetLogger().Errorf("failed to create vpc pat pod, traceID: %s, error: %s", traceID, err.Error())
-		return nil
-	}
-	if !m.checkExists(newPatPod.PatPodName) {
-		m.newPatListKey(newPatPod.PatPodName)
-	}
-	log.GetLogger().Infof("succeed to create pat service pod: %s, ip: %s, traceID %s",
-		newPatPod.PatPodName, newPatPod.PatContainerIP, traceID)
-	patInfo, err := json.Marshal(newPatPod)
-	if err != nil {
-		log.GetLogger().Errorf("failed to marshal vpc pat pod info, traceID: %s, error: %s", traceID, err.Error())
-		return nil
-	}
-	return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, string(patInfo))
-}
-
-func (m *Manager) handleRequestOpCreateTrigger(requestData []byte, traceID string) *commonType.CallHandlerResponse {
-	log.GetLogger().Infof("succeed receive pullTrigger create request, traceID: %s", traceID)
-	requestInfo := types.PullTriggerRequestInfo{}
-	err := json.Unmarshal(requestData, &requestInfo)
-	if err != nil {
-		log.GetLogger().Errorf("failed to Unmarshal pullTrigger requestInfo, traceID: %s, err: %s",
-			traceID, err.Error())
-		return nil
-	}
-	podName := utils.HandlePullTriggerName(requestInfo.PodName)
-	if podName == "" {
-		log.GetLogger().Errorf("invalid pull trigger name, traceID: %s", traceID)
-		return nil
-	}
-	requestInfo.PodName = podName
-	newPatPod, err := m.VpcPlugin.CreateVpcResource(requestData)
-	if err != nil {
-		log.GetLogger().Errorf("failed to create pullTrigger vpc pat pod, traceID: %s, error: %s",
-			traceID, err.Error())
-		return nil
-	}
-	if !m.checkExists(newPatPod.PatPodName) {
-		m.newPatListKey(newPatPod.PatPodName)
-	}
-	log.GetLogger().Infof("succeed to create pullTrigger pat pod: %s, ip: %s, traceID: %s",
-		newPatPod.PatPodName, newPatPod.PatContainerIP, traceID)
-	vpcNatConfByte, err := json.Marshal(newPatPod)
-	if err != nil {
-		log.GetLogger().Errorf("failed to Marshal PatPod info for %s, traceID: %s", newPatPod.PatPodName, traceID)
-		return nil
-	}
-	triggerInfo := vpcmanager.ParseFunctionMeta(requestInfo)
-	if triggerInfo == nil {
-		return nil
-	}
-	// get pull trigger deploy
-	triggerDeploy, errs := utils.GetDeployByK8S(utils.GetKubeClient(), triggerInfo.PodName)
-	if errs != nil {
-		log.GetLogger().Errorf("failed to get deploy %s, traceID %s", errs.Error(), traceID)
-	}
-	if k8serror.IsNotFound(errs) {
-		// if trigger deploy is not found, it will create pull trigger deploy
-		triggerDeploy = vpcmanager.MakePullTriggerDeploy(triggerInfo, vpcNatConfByte)
-		if err = utils.CreateDeployByK8S(utils.GetKubeClient(), triggerDeploy); err != nil {
-			log.GetLogger().Errorf("failed to create deploy %s by k8s, traceID: %s, error: %s",
-				triggerDeploy.Name, traceID, err.Error())
-			return nil
-		}
-		m.addPatList(newPatPod.PatPodName, requestInfo.PodName)
-		log.GetLogger().Infof("succeed add Trigger to patList, patPod %s, name %s, traceID: %s",
-			newPatPod.PatPodName, requestInfo.PodName, traceID)
-		return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "succeed create pull-trigger")
-	}
-	log.GetLogger().Infof("trigger %s has already exist, traceID %s", triggerDeploy.Name, traceID)
-	return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "skip create pull-trigger")
-}
-
-func (m *Manager) handleRequestOpReport(requestData []byte, traceID string) *commonType.CallHandlerResponse {
-	reportInfo := types.ReportInfo{}
-	err := json.Unmarshal(requestData, &reportInfo)
-	if err != nil {
-		log.GetLogger().Errorf("failed to unmarshal report info, traceID: %s, error: %s", traceID, err.Error())
-		return nil
-	}
-	if m.checkExists(reportInfo.PatPodName) {
-		m.addPatList(reportInfo.PatPodName, reportInfo.InstanceID)
-		log.GetLogger().Infof("succeed add pat list, patPodName %s, instanceID %s, traceID: %s",
-			reportInfo.PatPodName, reportInfo.InstanceID, traceID)
-		return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "succeed add pat list")
-	}
-	log.GetLogger().Infof("patPodName %s is not exist, skip, traceID: %s", reportInfo.PatPodName, traceID)
-	return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "skip add pat list")
-}
-
-func (m *Manager) handleRequestOpDelete(requestData []byte, traceID string) *commonType.CallHandlerResponse {
-	deleteInfo := types.DeleteInfo{}
-	err := json.Unmarshal(requestData, &deleteInfo)
-	if err != nil {
-		log.GetLogger().Errorf("failed to unmarshal delete info, traceID: %s, error: %s", traceID, err.Error())
-		return nil
-	}
-	patPodName, needDeletePat := m.deletePatList(deleteInfo.InstanceID)
-	if needDeletePat {
-		err := m.VpcPlugin.DeleteVpcResource(patPodName)
-		if err != nil {
-			log.GetLogger().Errorf("failed to delete vpc pat pod, traceID: %s, error: %s", traceID, err.Error())
-			return nil
-		}
-		log.GetLogger().Infof("succeed to delete pat-service %s, traceID: %s", patPodName, traceID)
-	}
-	log.GetLogger().Infof("succeed to delete instance %s, traceID: %s", deleteInfo.InstanceID, traceID)
-	return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "succeed delete instance list")
-}
-
-func (m *Manager) handleRequestOpDeleteTrigger(requestData []byte, traceID string) *commonType.CallHandlerResponse {
-	deleteInfo := types.PullTriggerDeleteInfo{}
-	err := json.Unmarshal(requestData, &deleteInfo)
-	if err != nil {
-		log.GetLogger().Errorf("failed to unmarshal pullTrigger delete info, traceID: %s, error: %s", traceID,
-			err.Error())
-		return nil
-	}
-	podName := utils.HandlePullTriggerName(deleteInfo.PodName)
-	if podName == "" {
-		log.GetLogger().Errorf("invalid pull trigger name, traceID: %s", traceID)
-		return nil
-	}
-	deleteInfo.PodName = podName
-	// get pull trigger deploy
-	triggerDeploy, errs := utils.GetDeployByK8S(utils.GetKubeClient(), deleteInfo.PodName)
-	if errs != nil {
-		log.GetLogger().Errorf("failed to get deploy, traceID: %s error: %s", traceID, errs.Error())
-	}
-	if k8serror.IsNotFound(errs) {
-		log.GetLogger().Infof("trigger %s has already deleted, traceID: %s", triggerDeploy.Name, traceID)
-		return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "skip delete pull-trigger")
-	}
-	if err = utils.DeleteDeployByK8S(utils.GetKubeClient(), triggerDeploy.Name); err != nil {
-		log.GetLogger().Errorf("failed to delete deploy %s by k8s, traceID: %s, error: %s",
-			triggerDeploy.Name, traceID, err.Error())
-		return nil
-	}
-	patPodName, needDeletePat := m.deletePatList(deleteInfo.PodName)
-	if needDeletePat {
-		err := m.VpcPlugin.DeleteVpcResource(patPodName)
-		if err != nil {
-			log.GetLogger().Errorf("failed to delete vpc pat pod, traceID: %s, error: %s", traceID, err.Error())
-			return nil
-		}
-		log.GetLogger().Infof("succeed to delete pat-service %s, traceID: %s", patPodName, traceID)
-	}
-	log.GetLogger().Infof("succeed delete Trigger, patPod %s, name %s, traceID: %s",
-		patPodName, deleteInfo.PodName, traceID)
-	return utils.GenerateSuccessResponse(commonconstant.InsReqSuccessCode, "succeed delete pull-trigger")
+	return nil
 }
 
 func (m *Manager) handleNewLease(requestData []byte, traceID string, timeout int64) *commonType.CallHandlerResponse {
@@ -539,79 +337,6 @@ func (m *Manager) handleDelLease(requestData []byte, traceID string) *commonType
 		Code:    commonconstant.InsReqSuccessCode,
 		Message: "Succeed to delete lease",
 	}
-}
-
-func (m *Manager) checkExists(patPodName string) bool {
-	m.vpcMutex.Lock()
-	if m.patKeyList == nil {
-		m.vpcMutex.Unlock()
-		return false
-	}
-	_, ok := m.patKeyList[patPodName]
-	m.vpcMutex.Unlock()
-	return ok
-}
-
-func (m *Manager) newPatListKey(patPodName string) {
-	m.vpcMutex.Lock()
-	m.patKeyList[patPodName] = map[string]struct{}{}
-	savePatKeyList(m.patKeyList)
-	m.vpcMutex.Unlock()
-	return
-}
-
-func (m *Manager) addPatList(patPodName, instanceID string) {
-	m.vpcMutex.Lock()
-	if m.patKeyList == nil {
-		m.vpcMutex.Unlock()
-		return
-	}
-	m.patKeyList[patPodName][instanceID] = struct{}{}
-	savePatKeyList(m.patKeyList)
-	m.vpcMutex.Unlock()
-	return
-}
-
-func (m *Manager) deletePatList(instanceID string) (string, bool) {
-	patPodName := ""
-	needDeletePat := false
-	m.vpcMutex.Lock()
-	if m.patKeyList == nil {
-		m.vpcMutex.Unlock()
-		return "", false
-	}
-	check := false
-	for patName, instanceList := range m.patKeyList {
-		for id := range instanceList {
-			if id == instanceID {
-				delete(m.patKeyList[patName], instanceID)
-				savePatKeyList(m.patKeyList)
-				check = true
-				break
-			}
-		}
-		if check {
-			if len(m.patKeyList[patName]) == 0 {
-				delete(m.patKeyList, patName)
-				savePatKeyList(m.patKeyList)
-				patPodName = patName
-				needDeletePat = true
-			}
-			break
-		}
-	}
-	m.vpcMutex.Unlock()
-	return patPodName, needDeletePat
-}
-
-func savePatKeyList(m map[string]map[string]struct{}) {
-	dst := map[string]map[string]struct{}{}
-	err := commonUtils.DeepCopyObj(m, &dst)
-	if err != nil {
-		log.GetLogger().Errorf("deep copy patKeyList failed, err: %v", err)
-		return
-	}
-	state.Update(dst)
 }
 
 func parseRequestOperationLibruntime(args []api.Arg) (RequestOperation, []byte) {

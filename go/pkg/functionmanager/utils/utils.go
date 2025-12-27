@@ -20,9 +20,8 @@ package utils
 import (
 	"context"
 	"errors"
-	"strings"
 
-	v1 "k8s.io/api/apps/v1"
+	"k8s.io/api/apps/v1"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -33,7 +32,6 @@ import (
 )
 
 const (
-	triggerNameIndex  = 1
 	defaultPodNameLen = 3
 )
 
@@ -57,15 +55,6 @@ func GenerateSuccessResponse(code int, message string) *types.CallHandlerRespons
 		Code:    code,
 		Message: message,
 	}
-}
-
-// HandlePullTriggerName -
-func HandlePullTriggerName(podName string) string {
-	splits := strings.Split(podName, "/")
-	if len(splits) != defaultPodNameLen {
-		return ""
-	}
-	return splits[triggerNameIndex]
 }
 
 // InitKubeClient initializes kubernetes client

@@ -56,80 +56,16 @@ type NATConfigure struct {
 	IsNewCreated   bool                `json:"isNewCreated"`
 }
 
-// VpcControllerRequester define request message for vpc_controller
-type VpcControllerRequester struct {
-	TraceID  string   `json:"trace_id"`
-	Delegate Delegate `json:"delegate"`
-	Vpc      Vpc      `json:"vpc"`
-}
-
-// Delegate include Xrole and AppXrole
-type Delegate struct {
-	Xrole    string `json:"xrole,omitempty"`
-	AppXrole string `json:"app_xrole,omitempty"`
-}
-
-// Vpc include info of function vpc
-type Vpc struct {
-	ID         string `json:"id,omitempty"`
-	DomainID   string `json:"domain_id,omitempty"`
-	Namespace  string `json:"namespace,omitempty"`
-	VpcName    string `json:"vpc_name,omitempty"`
-	VpcID      string `json:"vpc_id,omitempty"`
-	SubnetName string `json:"subnet_name,omitempty"`
-	SubnetID   string `json:"subnet_id,omitempty"`
-	TenantCidr string `json:"tenant_cidr,omitempty"`
-	HostVMCidr string `json:"host_vm_cidr,omitempty"`
-	Gateway    string `json:"gateway,omitempty"`
-	Xrole      string `json:"xrole,omitempty"`
-}
-
 // RequestInfo include info of request Option Create
 type RequestInfo struct {
-	ID         string `json:"id,omitempty"`
-	DomainID   string `json:"domain_id,omitempty"`
-	Namespace  string `json:"namespace,omitempty"`
-	VpcName    string `json:"vpc_name,omitempty"`
-	VpcID      string `json:"vpc_id,omitempty"`
-	SubnetName string `json:"subnet_name,omitempty"`
-	SubnetID   string `json:"subnet_id,omitempty"`
-	TenantCidr string `json:"tenant_cidr,omitempty"`
-	HostVMCidr string `json:"host_vm_cidr,omitempty"`
-	Gateway    string `json:"gateway,omitempty"`
-	Xrole      string `json:"xrole,omitempty"`
-	AppXrole   string `json:"app_xrole,omitempty"`
-}
-
-// PullTriggerRequestInfo include info of pullTrigger Option Create
-type PullTriggerRequestInfo struct {
-	PodName       string `json:"pod_name"`
-	Image         string `json:"image"`
-	DomainID      string `json:"domain_id,omitempty"`
-	Namespace     string `json:"namespace,omitempty"`
-	VpcName       string `json:"vpc_name,omitempty"`
-	VpcID         string `json:"vpc_id,omitempty"`
-	SubnetName    string `json:"subnet_name,omitempty"`
-	SubnetID      string `json:"subnet_id,omitempty"`
-	TenantCidr    string `json:"tenant_cidr,omitempty"`
-	HostVMCidr    string `json:"host_vm_cidr,omitempty"`
-	ContainerCidr string `json:"container_cidr"`
-	Gateway       string `json:"gateway,omitempty"`
-	Xrole         string `json:"xrole,omitempty"`
-	AppXrole      string `json:"app_xrole,omitempty"`
-}
-
-// ReportInfo include info of request Option report
-type ReportInfo struct {
-	PatPodName string `json:"patPodName,omitempty"`
-	InstanceID string `json:"instanceID,omitempty"`
-}
-
-// DeleteInfo include info of request Option delete
-type DeleteInfo struct {
-	InstanceID string `json:"instanceID,omitempty"`
-}
-
-// PullTriggerDeleteInfo include info of pullTrigger Option delete
-type PullTriggerDeleteInfo struct {
-	PodName string `json:"pod_name,omitempty"`
+	DomainID      string   `json:"domain_id,omitempty"`
+	Namespace     string   `json:"namespace,omitempty"`
+	VpcID         string   `json:"vpc_id,omitempty"`
+	SubnetID      string   `json:"subnet_id,omitempty"`
+	TenantCidr    string   `json:"tenant_cidr,omitempty"`
+	HostVMCidr    string   `json:"host_vm_cidr,omitempty"`
+	Gateway       string   `json:"gateway,omitempty"`
+	SecurityGroup []string `json:"security_group,omitempty"`
+	Xrole         string   `json:"xrole,omitempty"`
+	IPV6Enable    string   `json:"ipv_6_enable,omitempty"`
 }

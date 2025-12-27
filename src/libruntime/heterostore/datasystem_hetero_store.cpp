@@ -49,6 +49,7 @@ ErrorInfo DatasystemHeteroStore::Init(datasystem::ConnectOptions &options)
     connectOptions.serverPublicKey = options.serverPublicKey;
     connectOptions.accessKey = options.accessKey;
     connectOptions.secretKey = options.secretKey;
+    connectOptions.token = options.token;
     connectOptions.connectTimeoutMs = options.connectTimeoutMs;
     connectOptions.tenantId = options.tenantId;
     return ErrorInfo();

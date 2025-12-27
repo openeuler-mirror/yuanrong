@@ -233,6 +233,8 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
         if (!ak.empty() && !sk.Empty()) {
             connectOptions.accessKey = ak;
             connectOptions.secretKey = sk;
+        } else {
+            connectOptions.token = token;
         }
     }
     std::string tenantId = Config::Instance().YR_TENANT_ID();

@@ -69,6 +69,7 @@ ErrorInfo DatasystemStreamStore::Init(datasystem::ConnectOptions &inputConnOpt)
     this->connectOpts.serverPublicKey = inputConnOpt.serverPublicKey;
     this->connectOpts.accessKey = inputConnOpt.accessKey;
     this->connectOpts.secretKey = inputConnOpt.secretKey;
+    this->connectOpts.token = inputConnOpt.token;
     this->connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
     this->connectOpts.tenantId = inputConnOpt.tenantId;
     return ErrorInfo();

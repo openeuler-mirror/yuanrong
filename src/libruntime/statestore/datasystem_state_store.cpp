@@ -67,6 +67,7 @@ ErrorInfo DSCacheStateStore::Init(datasystem::ConnectOptions &inputConnOpt)
     connectOpts.serverPublicKey = inputConnOpt.serverPublicKey;
     connectOpts.accessKey = inputConnOpt.accessKey;
     connectOpts.secretKey = inputConnOpt.secretKey;
+    connectOpts.token = inputConnOpt.token;
     connectOpts.connectTimeoutMs = inputConnOpt.connectTimeoutMs;
     connectOpts.tenantId = inputConnOpt.tenantId;
     return ErrorInfo();
@@ -98,6 +99,7 @@ ErrorInfo DSCacheStateStore::Init(const DsConnectOptions &options)
                                options.port,
                                options.connectTimeoutMs,
                                options.connectTimeoutMs,
+                               options.token,
                                options.clientPublicKey,
                                options.clientPrivateKey,
                                options.serverPublicKey,

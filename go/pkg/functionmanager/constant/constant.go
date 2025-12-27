@@ -18,8 +18,6 @@
 package constant
 
 const (
-	// PluginFile is the path of vpccontroller.so
-	PluginFile = "vpc-controller/vpccontroller.so"
 	// FunctionLibPath -
 	FunctionLibPath = "FUNCTION_LIB_PATH"
 )

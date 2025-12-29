@@ -103,11 +103,17 @@ def _get_from_env(conf):
         conf.ds_address = os.environ.get("YR_DS_ADDRESS", "")
     if conf.working_dir == "":
         conf.working_dir = os.environ.get("YR_WORKING_DIR", "")
+    if conf.in_cluster is None:
+        in_cluster_env = os.environ.get("YR_IN_CLUSTER", "true").lower()
+        conf.in_cluster = True if in_cluster_env == "true" else False
     app_mode_env_var = os.environ.get("YR_APP_MODE", "false").lower()
     if app_mode_env_var == "true":
         conf.is_driver = False
     if conf.rt_server_address == "":
         conf.rt_server_address = os.environ.get("POSIX_LISTEN_ADDR", "")
+    if conf.enable_frontend_tls is None:
+        enable_frontend_tls_env = os.environ.get("YR_ENABLE_FRONTEND_TLS", "false").lower()
+        conf.enable_frontend_tls = True if enable_frontend_tls_env == "true" else False
     if conf.private_key_path == "":
         conf.private_key_path = os.environ.get("YR_PRIVATE_KEY_FILE", "")
     if conf.certificate_file_path == "":

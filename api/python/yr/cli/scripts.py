@@ -120,12 +120,12 @@ class YRContext:
 
 def deploy_function(function_json):
     http_client = HTTPClient(timeout=30)
-    url = f"http://{__metaservice_address}/v1/function/deploy"
+    url = f"http://{__metaservice_address}/serverless/v1/functions"
     resp = http_client.post_json(url, function_json)
     if resp["success"]:
-        return json.loads(resp["data"])["function"]["id"]
+        return resp["data"]["function"]["id"]
     else:
-        raise RuntimeError(f"deploy function failed: {resp['error']}")
+        raise RuntimeError(f"deploy function failed: {resp}")
 
 
 def package(backend, code_path, format):
@@ -177,7 +177,7 @@ def package(backend, code_path, format):
     required=False,
     type=str,
 )
-@click.version_option(package_name="yr_sdk")
+@click.version_option(package_name="openyuanrong-sdk")
 def cli(server_address, ds_address, metaservice_address):
     """
     run command

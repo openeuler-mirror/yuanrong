@@ -79,6 +79,7 @@ if os.getenv("SETUP_TYPE") == "sdk":
         "cython==3.0.10",
         "pyyaml==6.0.2",
         "click==8.1.8",
+        "requests==2.32.5",
     ]
     setup_spec.entry_points = {
         "console_scripts": [

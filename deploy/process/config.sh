@@ -72,7 +72,7 @@ runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,\
 etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
-runtime_metrics_config:,function_meta_path:,\
+runtime_metrics_config:,\
 help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
 \"rolling\": {\"maxsize\": {{logRollingMaxSize}},\"maxfiles\": {{logRollingMaxFiles}},\"retentionDays\": {{logRollingRetentionDays}}}, \
@@ -99,7 +99,6 @@ IP_ADDRESS=""
 HOST_IP=""
 MASTER_INFO=
 SERVICES_PATH="${BASE_DIR}/services.yaml"
-FUNCTION_META_PATH=""
 DS_WORKER_UNIQUE_ENABLE="false"
 FUNCTION_PROXY_UNIQUE_ENABLE="false"
 UNIQUE_KEY_PREFIX=""
@@ -716,7 +715,6 @@ function parse_opt() {
     --runtime_home_dir) RUNTIME_USER_HOME_DIR=$2 && shift 2 ;;
     --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
     --dposix_uds_path) DPOSIX_UDS_PATH=$2 && shift 2 ;;
-    --function_meta_path) FUNCTION_META_PATH=$2 && shift 2 ;;
     --) shift && break ;;
     *) log_error "Invalid option: $1" && return 1 ;;
     esac

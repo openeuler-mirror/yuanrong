@@ -215,7 +215,7 @@ function check_sanitizers() {
   fi
 }
 
-while getopts 'athr:v:S:DcCgPET:p:bm:j:gG' opt; do
+while getopts 'athr:l:v:S:DcCgPET:p:m:j:gG' opt; do
     case "$opt" in
     a)
         BUILD_ALL="true"
@@ -239,6 +239,12 @@ while getopts 'athr:v:S:DcCgPET:p:bm:j:gG' opt; do
         else
           log_warning "no remote cache server available"
         fi
+        ;;
+    l)
+        if [ ! -d "${OPTARG}" ] ;then
+          mkdir -p ${OPTARG}
+        fi
+        BAZEL_OPTIONS="$BAZEL_OPTIONS --disk_cache=${OPTARG} "
         ;;
     v)
         BUILD_VERSION="${OPTARG}"
@@ -287,9 +293,6 @@ while getopts 'athr:v:S:DcCgPET:p:bm:j:gG' opt; do
         BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=SECBRELLA_CCE_LD_PRELOAD=${SECBRELLA_CCE_LD_PRELOAD}"
         BAZEL_OPTIONS="${BAZEL_OPTIONS} --sandbox_debug"
         ;;
-    b)
-        BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=LD_PRELOAD=libbep_env.so"
-        ;;
     g)
         BAZEL_TARGETS="//api/python:cp_yr_proto //src/proto:libruntime_cc_proto //src/proto:libruntime_java_proto //src/proto:socket_cc_proto //src/proto:socket_java_proto"
         ;;
@@ -305,7 +308,7 @@ while getopts 'athr:v:S:DcCgPET:p:bm:j:gG' opt; do
 done
 
 if [ "$BAZEL_COMMAND" != "clean" ]; then
-   bash -x ${BASE_DIR}/tools/download_dependency.sh
+   bash ${BASE_DIR}/tools/download_dependency.sh
 fi
 
 API_DIR="${BASE_DIR}/api"

@@ -41,8 +41,12 @@ class HTTPClient:
         self.timeout = timeout
         self.session = requests.Session()
 
-    def post_json(
-        self, url: str, data: Dict[str, Any], headers: Optional[Dict[str, str]] = None
+    def request(
+        self,
+        url: str,
+        data: Dict[str, Any],
+        headers: Optional[Dict[str, str]] = None,
+        method: str = "POST",
     ) -> Dict[str, Any]:
         """
         发送POST JSON请求
@@ -67,13 +71,17 @@ class HTTPClient:
         logging.debug(f"请求数据: {json.dumps(data, indent=2, ensure_ascii=False)}")
 
         try:
-            response = self.session.post(
-                url, json=data, headers=default_headers, timeout=self.timeout
+            response = self.session.request(
+                method.upper(),
+                url,
+                json=data,
+                headers=default_headers,
+                timeout=self.timeout,
             )
             response.raise_for_status()
 
             result = response.json() if response.content else {}
-            logging.debug(f"请求成功，状态码: {response.status_code}")
+            logging.debug(f"请求成功，状态码: {response.status_code}, 响应数据: {json.dumps(result, indent=2, ensure_ascii=False)}")
 
             return {
                 "success": True,
@@ -83,7 +91,7 @@ class HTTPClient:
             }
 
         except RequestException as e:
-            logging.error(f"HTTP请求失败: {str(e)}")
+            logging.debug(f"HTTP请求失败: {str(e)}")
             return {
                 "success": False,
                 "error": str(e),
@@ -121,11 +129,54 @@ class YRContext:
 def deploy_function(function_json):
     http_client = HTTPClient(timeout=30)
     url = f"http://{__metaservice_address}/serverless/v1/functions"
-    resp = http_client.post_json(url, function_json)
+    resp = http_client.request(url, function_json, method="POST")
     if resp["success"]:
-        return resp["data"]["function"]["id"]
+        return True, resp["data"]["function"]["functionVersionUrn"]
     else:
-        raise RuntimeError(f"deploy function failed: {resp}")
+        return False, resp
+
+
+def update_function(function_json):
+    name = function_json.get("name")
+    if not name:
+        raise RuntimeError("function name is required to update function.")
+    http_client = HTTPClient(timeout=30)
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{name}"
+    resp = http_client.request(url, function_json, method="PUT")
+    if resp["success"]:
+        return True, resp["data"]["result"]["functionVersionUrn"]
+    else:
+        return False, resp
+
+
+def delete_function(function_name, version=None):
+    http_client = HTTPClient(timeout=30)
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber={version if version else 'latest'}"
+    resp = http_client.request(url, {}, method="DELETE")
+    if resp["success"]:
+        return True, None
+    else:
+        return False, resp
+
+
+def query_function(function_name):
+    http_client = HTTPClient(timeout=30)
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber=latest"
+    resp = http_client.request(url, {}, method="GET")
+    if resp["success"]:
+        return True, resp["data"]["function"]
+    else:
+        return False, resp
+
+
+def publish_function(function_name, publish_json):
+    http_client = HTTPClient(timeout=30)
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}/versions"
+    resp = http_client.request(url, publish_json, method="POST")
+    if resp["success"]:
+        return True, resp["data"]["function"]
+    else:
+        return False, resp
 
 
 def package(backend, code_path, format):
@@ -173,12 +224,11 @@ def package(backend, code_path, format):
     type=str,
 )
 @click.option(
-    "--metaservice-address",
-    required=False,
-    type=str,
+    "--metaservice-address", required=False, type=str, envvar="YR_METASERVICE_ADDRESS"
 )
+@click.option("--log-level", required=False, type=str, default="INFO")
 @click.version_option(package_name="openyuanrong-sdk")
-def cli(server_address, ds_address, metaservice_address):
+def cli(server_address, ds_address, metaservice_address, log_level):
     """
     run command
     """
@@ -191,6 +241,7 @@ def cli(server_address, ds_address, metaservice_address):
     if metaservice_address:
         global __metaservice_address
         __metaservice_address = metaservice_address
+    logging.basicConfig(level=getattr(logging, log_level.upper(), None))
 
 
 @cli.command()
@@ -217,10 +268,66 @@ yrcli download {package_key} to download this package."""
             )
             return
     if function_json:
-        ret = deploy_function(function_json)
-        print(f"succeed to deploy function, function id: {ret}")
+        name = function_json.get("name")
+        if name is None:
+            print("function name is required to deploy function.")
+            sys.exit(1)
+        query_ret, function_info = query_function(name)
+        if query_ret:
+            function_json["revisionId"] = function_info.get("revisionId")
+            ret = update_function(function_json)
+            if ret[0]:
+                print(f"succeed to update function: {ret[1]}")
+            else:
+                print(f"failed to update function: {ret[1]['error']}")
+        else:
+            ret = deploy_function(function_json)
+            if ret[0]:
+                print(f"succeed to deploy function: {ret[1]}")
+            else:
+                print(f"failed to deploy function: {ret[1]['error']}")
     else:
         print("function json is required to deploy function.")
+
+
+@cli.command()
+@click.option("--function-name", required=False, type=str, default=None)
+@click.option("--version", required=False, type=str, default=None)
+@click.option("--kind", required=False, type=str, default=None)
+def publish(function_name, version, kind):
+    publish_json = {}
+    query_ret, function_info = query_function(function_name)
+    if query_ret == False:
+        print(f"failed to query function: {function_info}")
+        return
+    print(f"succeed to get function: {function_info}")
+    publish_json["revisionId"] = function_info.get("revisionId")
+    publish_json["kind"] = kind if kind else "yrlib"
+    if version:
+        publish_json["versionNumber"] = version
+    print(f"publish function: {publish_json}")
+    ret = publish_function(function_name, publish_json)
+    if ret[0]:
+        print(f"succeed to publish function: {ret[1]}")
+    else:
+        print(f"failed to publish function: {ret[1]}")
+
+
+@cli.command()
+@click.option("--function-name", required=False, type=str, default=None)
+@click.option("--clear-package-also", required=False, type=bool, default=True)
+@click.option("--version", required=False, type=str, default=None)
+def delete(function_name, clear_package_also, version):
+    if clear_package_also:
+        function_info = query_function(function_name)
+        code_path = function_info.get("codePath")
+        if code_path and code_path.startswith("ds://"):
+            key = code_path.strip("ds://").split(".")[0]
+            with YRContext(__server_address, __ds_address):
+                yr.kv_del(key)
+            print(f"succeed to del package {code_path}")
+    ret = delete_function(function_name, version)
+    print(f"succeed to delete function: {function_name}")
 
 
 @cli.command

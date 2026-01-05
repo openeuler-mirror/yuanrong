@@ -34,6 +34,7 @@ type ManagerConfig struct {
 	FunctionCapability   int              `json:"functionCapability" valid:"optional"`
 	AuthenticationEnable bool             `json:"authenticationEnable" valid:"optional"`
 	LeaseRenewMinute     int              `json:"leaseRenewMinute" valid:"optional"`
+	EnableHealthCheck    bool             `json:"enableHealthCheck" valid:"optional"`
 	RouterEtcd           etcd3.EtcdConfig `json:"routerEtcd" valid:"optional"`
 	MetaEtcd             etcd3.EtcdConfig `json:"metaEtcd" valid:"optional"`
 	AlarmConfig          alarm.Config     `json:"alarmConfig" valid:"optional"`

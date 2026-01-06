@@ -32,14 +32,31 @@ import yr
 __server_address = None
 __ds_address = None
 __metaservice_address = None
+__client_cert = None
+__client_key = None
+__ca_cert = None
+__server_name = None
 
 
 class HTTPClient:
-    """HTTP客户端"""
+    """HTTP客户端, 支持双向证书认证"""
 
-    def __init__(self, timeout: int = 30):
+    def __init__(
+        self,
+        timeout: int = 30,
+        client_cert: Optional[str] = None,
+        client_key: Optional[str] = None,
+        ca_cert: Optional[str] = None,
+        verify: bool = True,
+        server_name: Optional[str] = None,
+    ):
         self.timeout = timeout
         self.session = requests.Session()
+        self.client_cert = client_cert
+        self.client_key = client_key
+        self.ca_cert = ca_cert
+        self.verify = verify
+        self.server_name = server_name
 
     def request(
         self,
@@ -70,18 +87,84 @@ class HTTPClient:
         logging.debug(f"发送POST请求到: {url}")
         logging.debug(f"请求数据: {json.dumps(data, indent=2, ensure_ascii=False)}")
 
-        try:
+        # 配置证书
+        cert = None
+        if self.client_cert and self.client_key:
+            cert = (self.client_cert, self.client_key)
+        elif self.client_cert:
+            cert = self.client_cert
+
+        verify = self.ca_cert if self.ca_cert else self.verify
+        if url.startswith("http://") and verify:
+            url = url.replace("http://", "https://", 1)
+
+        # 如果指定了 server_name，使用 hostname overwrite 方式
+        if self.server_name:
+            from requests.adapters import HTTPAdapter
+            from urllib3.poolmanager import PoolManager
+            from urllib3.util.ssl_ import create_urllib3_context
+            import ssl
+            
+            class HostNameOverridePoolManager(PoolManager):
+                def __init__(self, *args, server_hostname=None, **kwargs):
+                    self.server_hostname = server_hostname
+                    super().__init__(*args, **kwargs)
+                
+                def _new_pool(self, scheme, host, port, request_context=None):
+                    # 在创建连接池时注入 assert_hostname
+                    if request_context is None:
+                        request_context = self.connection_pool_kw.copy()
+                    if self.server_hostname:
+                        request_context['assert_hostname'] = self.server_hostname
+                    return super()._new_pool(scheme, host, port, request_context)
+            
+            class HostNameOverrideAdapter(HTTPAdapter):
+                def __init__(self, server_hostname, *args, **kwargs):
+                    self.server_hostname = server_hostname
+                    super().__init__(*args, **kwargs)
+                
+                def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+                    # 使用自定义的 PoolManager
+                    self.poolmanager = HostNameOverridePoolManager(
+                        num_pools=connections,
+                        maxsize=maxsize,
+                        block=block,
+                        server_hostname=self.server_hostname,
+                        **pool_kwargs
+                    )
+            
+            # 为这个请求创建临时 session
+            temp_session = requests.Session()
+            adapter = HostNameOverrideAdapter(self.server_name)
+            temp_session.mount('https://', adapter)
+            
+            response = temp_session.request(
+                method.upper(),
+                url,
+                json=data,
+                headers=default_headers,
+                timeout=self.timeout,
+                cert=cert,
+                verify=verify,
+            )
+        else:
             response = self.session.request(
                 method.upper(),
                 url,
                 json=data,
                 headers=default_headers,
                 timeout=self.timeout,
+                cert=cert,
+                verify=verify,
             )
+
+        try:
             response.raise_for_status()
 
             result = response.json() if response.content else {}
-            logging.debug(f"请求成功，状态码: {response.status_code}, 响应数据: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            logging.debug(
+                f"请求成功，状态码: {response.status_code}, 响应数据: {json.dumps(result, indent=2, ensure_ascii=False)}"
+            )
 
             return {
                 "success": True,
@@ -127,7 +210,13 @@ class YRContext:
 
 
 def deploy_function(function_json):
-    http_client = HTTPClient(timeout=30)
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+    )
     url = f"http://{__metaservice_address}/serverless/v1/functions"
     resp = http_client.request(url, function_json, method="POST")
     if resp["success"]:
@@ -140,7 +229,13 @@ def update_function(function_json):
     name = function_json.get("name")
     if not name:
         raise RuntimeError("function name is required to update function.")
-    http_client = HTTPClient(timeout=30)
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+    )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{name}"
     resp = http_client.request(url, function_json, method="PUT")
     if resp["success"]:
@@ -150,7 +245,13 @@ def update_function(function_json):
 
 
 def delete_function(function_name, version=None):
-    http_client = HTTPClient(timeout=30)
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+    )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber={version if version else 'latest'}"
     resp = http_client.request(url, {}, method="DELETE")
     if resp["success"]:
@@ -160,7 +261,13 @@ def delete_function(function_name, version=None):
 
 
 def query_function(function_name):
-    http_client = HTTPClient(timeout=30)
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+    )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber=latest"
     resp = http_client.request(url, {}, method="GET")
     if resp["success"]:
@@ -170,7 +277,13 @@ def query_function(function_name):
 
 
 def publish_function(function_name, publish_json):
-    http_client = HTTPClient(timeout=30)
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+    )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}/versions"
     resp = http_client.request(url, publish_json, method="POST")
     if resp["success"]:
@@ -212,23 +325,73 @@ def package(backend, code_path, format):
     return real_code_path, package_key
 
 
+def invoke_function(urn, payload):
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+    )
+    url = (
+        f"http://{__server_address}/serverless/v1/functions/{urn}/invocations"
+    )
+    resp = http_client.request(url, payload, method="POST")
+    if resp["success"]:
+        return True, resp["data"]
+    else:
+        return False, resp
+
+
 @click.group()
 @click.option(
     "--server-address",
     required=False,
     type=str,
+    envvar="YR_SERVER_ADDRESS",
+    help="YuanRong Server地址",
 )
 @click.option(
     "--ds-address",
     required=False,
     type=str,
+    envvar="YR_DS_ADDRESS",
+    help="YuanRong DataSystem地址",
 )
 @click.option(
     "--metaservice-address", required=False, type=str, envvar="YR_METASERVICE_ADDRESS"
 )
+@click.option(
+    "--client-cert",
+    required=False,
+    type=str,
+    envvar="YR_CERT_FILE",
+    help="客户端证书文件路径",
+)
+@click.option(
+    "--client-key",
+    required=False,
+    type=str,
+    envvar="YR_PRIVATE_KEY_FILE",
+    help="客户端私钥文件路径",
+)
+@click.option(
+    "--ca-cert",
+    required=False,
+    type=str,
+    envvar="YR_VERIFY_FILE",
+    help="CA证书文件路径",
+)
+@click.option(
+    "--server-name",
+    required=False,
+    type=str,
+    envvar="YR_SERVER_NAME",
+    help="用于证书验证的服务器名称(SNI)",
+)
 @click.option("--log-level", required=False, type=str, default="INFO")
 @click.version_option(package_name="openyuanrong-sdk")
-def cli(server_address, ds_address, metaservice_address, log_level):
+def cli(server_address, ds_address, metaservice_address, client_cert, client_key, ca_cert, server_name, log_level):
     """
     run command
     """
@@ -241,6 +404,18 @@ def cli(server_address, ds_address, metaservice_address, log_level):
     if metaservice_address:
         global __metaservice_address
         __metaservice_address = metaservice_address
+    if client_cert:
+        global __client_cert
+        __client_cert = client_cert
+    if client_key:
+        global __client_key
+        __client_key = client_key
+    if ca_cert:
+        global __ca_cert
+        __ca_cert = ca_cert
+    if server_name:
+        global __server_name
+        __server_name = server_name
     logging.basicConfig(level=getattr(logging, log_level.upper(), None))
 
 
@@ -315,19 +490,25 @@ def publish(function_name, version, kind):
 
 @cli.command()
 @click.option("--function-name", required=False, type=str, default=None)
-@click.option("--clear-package-also", required=False, type=bool, default=True)
+@click.option("--no-clear-package", is_flag=True, default=False)
 @click.option("--version", required=False, type=str, default=None)
-def delete(function_name, clear_package_also, version):
-    if clear_package_also:
-        function_info = query_function(function_name)
+def delete(function_name, no_clear_package, version):
+    if not no_clear_package:
+        ret, function_info = query_function(function_name)
+        if not ret:
+            print(f"function not found.")
+            return
         code_path = function_info.get("codePath")
         if code_path and code_path.startswith("ds://"):
             key = code_path.strip("ds://").split(".")[0]
             with YRContext(__server_address, __ds_address):
                 yr.kv_del(key)
             print(f"succeed to del package {code_path}")
-    ret = delete_function(function_name, version)
-    print(f"succeed to delete function: {function_name}")
+    ret, resp = delete_function(function_name, version)
+    if not ret:
+        print(f"function not found.")
+    else:
+        print(f"succeed to delete function: {function_name}")
 
 
 @cli.command
@@ -351,6 +532,21 @@ def download(package):
                 value = yr.kv_get(key)
                 f.write(value)
         print(f"save {package} to {file_name}")
+
+
+@cli.command
+@click.option("--urn", required=True, type=str, default=None)
+@click.option("--payload", required=False, type=str, default=None)
+def invoke(urn, payload):
+    if payload:
+        payload_dict = json.loads(payload)
+    else:
+        payload_dict = {}
+    ret, resp = invoke_function(urn, payload_dict)
+    if ret:
+        print(json.dumps(resp, indent=2, ensure_ascii=False))
+    else:
+        print(f"failed to invoke function: {resp['error']}")
 
 
 def main():

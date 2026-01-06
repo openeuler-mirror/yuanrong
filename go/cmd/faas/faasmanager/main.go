@@ -29,12 +29,14 @@ import (
 	"yuanrong.org/kernel/pkg/functionmanager"
 	"yuanrong.org/kernel/pkg/functionmanager/config"
 	"yuanrong.org/kernel/pkg/functionmanager/state"
+	"yuanrong.org/kernel/pkg/functionscaler/healthcheck"
 )
 
 var (
 	// faasManager handles functions management for faas pattern
 	faasManager *functionmanager.Manager
 	stopCh      = make(chan struct{})
+	errCh       = make(chan error)
 )
 
 // InitHandlerLibruntime is the init handler called by runtime
@@ -67,6 +69,9 @@ func InitHandlerLibruntime(args []api.Arg, libruntimeAPI api.LibruntimeAPI) ([]b
 	state.Update(&cfg)
 	if faasManager != nil {
 		go faasManager.WatchLeaseEvent()
+	}
+	if err = healthcheck.StartHealthCheck(errCh); err != nil {
+		return nil, err
 	}
 	return []byte(""), nil
 }

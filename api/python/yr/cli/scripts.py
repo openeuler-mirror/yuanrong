@@ -149,9 +149,9 @@ def update_function(function_json):
         return False, resp
 
 
-def delete_function(function_name):
+def delete_function(function_name, version=None):
     http_client = HTTPClient(timeout=30)
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}"
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber={version if version else 'latest'}"
     resp = http_client.request(url, {}, method="DELETE")
     if resp["success"]:
         return True, None
@@ -163,6 +163,16 @@ def query_function(function_name):
     http_client = HTTPClient(timeout=30)
     url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber=latest"
     resp = http_client.request(url, {}, method="GET")
+    if resp["success"]:
+        return True, resp["data"]["function"]
+    else:
+        return False, resp
+
+
+def publish_function(function_name, publish_json):
+    http_client = HTTPClient(timeout=30)
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}/versions"
+    resp = http_client.request(url, publish_json, method="POST")
     if resp["success"]:
         return True, resp["data"]["function"]
     else:
@@ -282,8 +292,32 @@ yrcli download {package_key} to download this package."""
 
 @cli.command()
 @click.option("--function-name", required=False, type=str, default=None)
-@click.option("--clear-package-also", required=False, type=bool, default=False)
-def delete(function_name, clear_package_also):
+@click.option("--version", required=False, type=str, default=None)
+@click.option("--kind", required=False, type=str, default=None)
+def publish(function_name, version, kind):
+    publish_json = {}
+    query_ret, function_info = query_function(function_name)
+    if query_ret == False:
+        print(f"failed to query function: {function_info}")
+        return
+    print(f"succeed to get function: {function_info}")
+    publish_json["revisionId"] = function_info.get("revisionId")
+    publish_json["kind"] = kind if kind else "yrlib"
+    if version:
+        publish_json["versionNumber"] = version
+    print(f"publish function: {publish_json}")
+    ret = publish_function(function_name, publish_json)
+    if ret[0]:
+        print(f"succeed to publish function: {ret[1]}")
+    else:
+        print(f"failed to publish function: {ret[1]}")
+
+
+@cli.command()
+@click.option("--function-name", required=False, type=str, default=None)
+@click.option("--clear-package-also", required=False, type=bool, default=True)
+@click.option("--version", required=False, type=str, default=None)
+def delete(function_name, clear_package_also, version):
     if clear_package_also:
         function_info = query_function(function_name)
         code_path = function_info.get("codePath")
@@ -292,7 +326,7 @@ def delete(function_name, clear_package_also):
             with YRContext(__server_address, __ds_address):
                 yr.kv_del(key)
             print(f"succeed to del package {code_path}")
-    ret = delete_function(function_name)
+    ret = delete_function(function_name, version)
     print(f"succeed to delete function: {function_name}")
 
 

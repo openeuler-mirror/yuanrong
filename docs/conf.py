@@ -121,7 +121,8 @@ html_theme_options = {
     """,
     "navbar_start": [
         "navbar-logo",
-        "version-switcher"
+        "version-switcher",
+        "navbar_links"
     ],
     "switcher": {
         "json_url": "https://pages.openeuler.openatom.cn/openyuanrong/docs/versions.json",

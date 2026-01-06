@@ -14,3 +14,39 @@ html {
 .bd-content .sd-tab-set .sd-tab-content {
     border-color: #d3d3d3;
 }
+
+/* custom.css */
+
+/* 1. 定义按钮的样式 (浅蓝底黑字) */
+#top-right-btn {
+    /* 背景和文字 */
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-weight: 500;
+    
+    /* 尺寸和形状 */
+    padding: 4px 10px !important;
+    border-radius: 6px !important;
+    border: 1px solid #000000 !important;
+    text-decoration: none;
+
+    font-size: 0.875rem !important;
+    font-weight: 500;
+    
+    /* 关键定位属性 */
+    position: fixed !important; /* 1. 固定定位：滚动页面它也不动 */
+    top: 15px;                  /* 2. 距离屏幕顶部 15px */
+    right: 10px;                /* 3. 距离屏幕右侧 15px */
+    
+    /* 层级 */
+    z-index: 9999;              /* 4. 确保在最顶层，不被其他内容挡住 */
+
+    /* 垂直居中微调 (可选) */
+    transform: translateY(0);
+}
+
+/* 2. 鼠标悬停效果 */
+#top-right-btn:hover {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}

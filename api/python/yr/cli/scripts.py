@@ -104,12 +104,12 @@ class HTTPClient:
             from urllib3.poolmanager import PoolManager
             from urllib3.util.ssl_ import create_urllib3_context
             import ssl
-            
+
             class HostNameOverridePoolManager(PoolManager):
                 def __init__(self, *args, server_hostname=None, **kwargs):
                     self.server_hostname = server_hostname
                     super().__init__(*args, **kwargs)
-                
+
                 def _new_pool(self, scheme, host, port, request_context=None):
                     # 在创建连接池时注入 assert_hostname
                     if request_context is None:
@@ -117,12 +117,12 @@ class HTTPClient:
                     if self.server_hostname:
                         request_context['assert_hostname'] = self.server_hostname
                     return super()._new_pool(scheme, host, port, request_context)
-            
+
             class HostNameOverrideAdapter(HTTPAdapter):
                 def __init__(self, server_hostname, *args, **kwargs):
                     self.server_hostname = server_hostname
                     super().__init__(*args, **kwargs)
-                
+
                 def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
                     # 使用自定义的 PoolManager
                     self.poolmanager = HostNameOverridePoolManager(
@@ -132,12 +132,12 @@ class HTTPClient:
                         server_hostname=self.server_hostname,
                         **pool_kwargs
                     )
-            
+
             # 为这个请求创建临时 session
             temp_session = requests.Session()
             adapter = HostNameOverrideAdapter(self.server_name)
             temp_session.mount('https://', adapter)
-            
+
             response = temp_session.request(
                 method.upper(),
                 url,
@@ -260,7 +260,7 @@ def delete_function(function_name, version=None):
         return False, resp
 
 
-def query_function(function_name):
+def query_function(function_name, version=None):
     http_client = HTTPClient(
         timeout=30,
         client_cert=__client_cert,
@@ -268,7 +268,7 @@ def query_function(function_name):
         ca_cert=__ca_cert,
         server_name=__server_name,
     )
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber=latest"
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber={version if version else 'latest'}"
     resp = http_client.request(url, {}, method="GET")
     if resp["success"]:
         return True, resp["data"]["function"]
@@ -471,7 +471,7 @@ yrcli download {package_key} to download this package."""
 @click.option("--kind", required=False, type=str, default=None)
 def publish(function_name, version, kind):
     publish_json = {}
-    query_ret, function_info = query_function(function_name)
+    query_ret, function_info = query_function(function_name, version)
     if query_ret == False:
         print(f"failed to query function: {function_info}")
         return
@@ -494,7 +494,7 @@ def publish(function_name, version, kind):
 @click.option("--version", required=False, type=str, default=None)
 def delete(function_name, no_clear_package, version):
     if not no_clear_package:
-        ret, function_info = query_function(function_name)
+        ret, function_info = query_function(function_name, version)
         if not ret:
             print(f"function not found.")
             return

@@ -23,6 +23,8 @@ import warnings
 
 import setuptools
 from setuptools.command.build_ext import build_ext
+from setuptools.command.develop import develop
+from setuptools import Extension
 
 ROOT_DIR = os.path.dirname(__file__)
 
@@ -41,6 +43,7 @@ class SetupType(Enum):
     OPENYUANRONG = 1
     OPENYUANRONG_SDK = 2
     OPENYUANRONG_CPP_SDK = 3
+    OPENYUANRONG_ALL = 4
 
 
 class SetupSpec:
@@ -92,14 +95,24 @@ elif os.getenv("SETUP_TYPE") == "sdk_cpp":
         "openyuanrong_cpp_sdk",
         "openyuanrong cpp sdk",
     )
+elif os.getenv("SETUP_TYPE") == "all":
+    setup_spec = SetupSpec(
+        SetupType.OPENYUANRONG_ALL,
+        "openyuanrong_all",
+        "openyuanrong all package",
+    )
+    setup_spec.entry_points = {
+        "console_scripts": [
+            "yr=yr.inner.scripts:run_yr",
+            "yrcli=yr.cli.scripts:main",
+        ]
+    }
 else:
     setup_spec = SetupSpec(
         SetupType.OPENYUANRONG, "openyuanrong", "openyuanrong package"
     )
     setup_spec.install_requires = [
         "openyuanrong_sdk==" + setup_spec.version,
-        # "openyuanrong_functionsystem==" + setup_spec.version,
-        # "openyuanrong_datasystem==" + setup_spec.version,
     ]
     setup_spec.extras["cpp"] = ["openyuanrong_cpp_sdk==" + setup_spec.version]
     setup_spec.entry_points = {
@@ -125,7 +138,7 @@ def compare_keyword(text, keywords):
     return any(text == kw for kw in keywords)
 
 
-def copy_openyuanrong(ctx):
+def copy_openyuanrong(build_lib):
     """copy openyuanrong"""
     keyword_to_exclude = [
         "datasystem/sdk",
@@ -153,10 +166,10 @@ def copy_openyuanrong(ctx):
                 continue
             files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
-        copy_file(os.path.join(ctx.build_lib, "yr/inner"), filename, root_dir)
+        copy_file(os.path.join(build_lib, "yr/inner"), filename, root_dir)
 
 
-def copy_openyuanrong_cpp_sdk(ctx):
+def copy_openyuanrong_cpp_sdk(build_lib):
     """copy openyuanrong"""
     files_to_include = []
     for root, _, fs in os.walk("./yr"):
@@ -164,22 +177,32 @@ def copy_openyuanrong_cpp_sdk(ctx):
             if "so" in i:
                 files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
-        copy_file(ctx.build_lib, filename, ROOT_DIR)
+        copy_file(build_lib, filename, ROOT_DIR)
 
 
-def run_ext(ctx):
+def run_ext(build_lib):
     """run ext"""
     if setup_spec.setup_type == SetupType.OPENYUANRONG:
-        copy_openyuanrong(ctx)
+        copy_openyuanrong(build_lib)
     elif setup_spec.setup_type == SetupType.OPENYUANRONG_CPP_SDK:
-        copy_openyuanrong_cpp_sdk(ctx)
+        copy_openyuanrong_cpp_sdk(build_lib)
+    elif setup_spec.setup_type == SetupType.OPENYUANRONG_ALL:
+        copy_openyuanrong(build_lib)
 
 
 class BuildExtImpl(build_ext):
     """build ext impl"""
 
     def run(self):
-        return run_ext(self)
+        run_ext(self.build_lib)
+
+
+class DevelopImpl(develop):
+    """develop impl for editable install"""
+
+    def run(self):
+        super().run()
+        run_ext(ROOT_DIR)
 
 
 class BinaryDistribution(setuptools.Distribution):
@@ -191,6 +214,13 @@ class BinaryDistribution(setuptools.Distribution):
 
 
 warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
+
+# 添加一个虚拟扩展模块来触发 build_ext
+ext_modules = []
+if setup_spec.setup_type in [SetupType.OPENYUANRONG, SetupType.OPENYUANRONG_CPP_SDK, SetupType.OPENYUANRONG_ALL]:
+    # 虚拟扩展模块，不实际编译，仅用于触发 build_ext
+    ext_modules = [Extension("yr._dummy", sources=[])]
+
 setuptools.setup(
     name=setup_spec.name,
     version=setup_spec.version,
@@ -200,8 +230,9 @@ setuptools.setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    cmdclass={"build_ext": BuildExtImpl},
+    cmdclass={"build_ext": BuildExtImpl, "develop": DevelopImpl},
     distclass=BinaryDistribution,
+    ext_modules=ext_modules,
     packages=setup_spec.get_packages(),
     install_requires=setup_spec.install_requires,
     include_package_data=True,

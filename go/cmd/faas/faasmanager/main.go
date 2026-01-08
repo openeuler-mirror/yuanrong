@@ -28,8 +28,8 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/utils"
 	"yuanrong.org/kernel/pkg/functionmanager"
 	"yuanrong.org/kernel/pkg/functionmanager/config"
+	"yuanrong.org/kernel/pkg/functionmanager/healthcheck"
 	"yuanrong.org/kernel/pkg/functionmanager/state"
-	"yuanrong.org/kernel/pkg/functionscaler/healthcheck"
 )
 
 var (

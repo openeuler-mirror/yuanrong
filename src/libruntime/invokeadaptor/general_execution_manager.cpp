@@ -23,5 +23,11 @@ void GeneralExecutionManager::Handle(const libruntime::InvocationMeta &meta, std
 {
     this->DoHandle(std::move(hdlr), reqId);
 }
+
+ErrorInfo GeneralExecutionManager::CancelInsFunction(const CancelReqInfo &cancalReqInfo)
+{
+    return ErrorInfo();
+}
+
 }  // namespace Libruntime
 }  // namespace YR

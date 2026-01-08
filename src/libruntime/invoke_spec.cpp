@@ -27,6 +27,17 @@ const char *ENABLE_DEBUG_KEY = "enable";
 const char *ENABLE_DEBUG = "true";
 const char *DEBUG_CONFIG_KEY = "debug_config";
 
+void to_json(nlohmann::json &j, const CancelReqInfo &cancelReqInfo)
+{
+    j = json{{"requestId", cancelReqInfo.requestId}, {"instanceId", cancelReqInfo.instanceId}};
+}
+
+void from_json(const nlohmann::json &j, CancelReqInfo &cancelReqInfo)
+{
+    j.at("requestId").get_to(cancelReqInfo.requestId);
+    j.at("instanceId").get_to(cancelReqInfo.instanceId);
+}
+
 InvokeSpec::InvokeSpec(const std::string &jobId, const FunctionMeta &functionMeta,
                        const std::vector<DataObject> &returnObjs, std::vector<InvokeArg> invokeArgs,
                        const libruntime::InvokeType invokeType, std::string traceId, std::string requestId,

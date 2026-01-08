@@ -52,8 +52,8 @@ public:
                                    const RequestResource &resource);
     bool NeedRetry(const ErrorInfo &errInfo, const std::shared_ptr<InvokeSpec> spec, bool &isConsumeRetryTime);
     bool NeedRetryCreate(const ErrorInfo &errInfo);
-    ErrorInfo CancelStatelessRequest(const std::vector<std::string> &objids, const KillFunc &killCallBack, bool isForce,
-                                     bool isRecursive);
+    virtual ErrorInfo CancelStatelessRequest(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack, bool isForce,
+                                     bool isRecursive, const std::string &objId);
     void Finalize(void);
     std::vector<std::string> GetInstanceIds();
     std::vector<std::string> GetCreatingInsIds();

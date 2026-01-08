@@ -31,6 +31,8 @@ public:
                  void(const std::string &scheduleName, const std::string &schedulerId, const std::string &option));
     MOCK_METHOD2(UpdateFaaSSchedulerInfo, void(std::string schedulerFuncKey,
                                  const std::vector<SchedulerInstance> &schedulerInstanceList));
+    MOCK_METHOD5(CancelStatelessRequest, ErrorInfo(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack,
+                                                bool isForce, bool isRecursive, const std::string &objId));
 };
 
 }  // namespace test

@@ -308,20 +308,20 @@ TEST_F(TaskSubmitterTest, CancelStatelessRequest)
     auto spec = std::make_shared<InvokeSpec>();
     spec->jobId = "jobId";
     spec->requestId = requestId;
-    spec->functionMeta = {.apiType = libruntime::ApiType::Faas};
-    taskSubmitter->requestManager->PushRequest(spec);
-    taskSubmitter->CancelStatelessRequest(objids, f, true, true);
-
     spec->invokeInstanceId = "instanceId";
     taskSubmitter->requestManager->PushRequest(spec);
-    taskSubmitter->CancelStatelessRequest(objids, f, true, true);
-    auto res = taskSubmitter->requestManager->GetRequest("requestId");
+    taskSubmitter->CancelStatelessRequest(spec, f, true, true, objids[0]);
+    auto res = taskSubmitter->requestManager->GetRequest(requestId);
     ASSERT_EQ(res, nullptr);
 
     spec->opts.customExtensions["Concurrency"] = "3";
     taskSubmitter->requestManager->PushRequest(spec);
-    auto res1 = taskSubmitter->CancelStatelessRequest(objids, f, true, true);
-    ASSERT_EQ(res1.Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
+    taskSubmitter->CancelStatelessRequest(spec, f, true, true, objids[0]);
+    auto res1 = taskSubmitter->requestManager->GetRequest(requestId);
+    ASSERT_EQ(res1, spec);
+
+    auto res2 = taskSubmitter->CancelStatelessRequest(spec, f, true, false, objids[0]);
+    EXPECT_TRUE(res2.OK());
 }
 
 std::list<std::shared_ptr<LabelOperator>> GetMockLabelOperators()
@@ -404,16 +404,6 @@ TEST_F(TaskSubmitterTest, TestAffinity)
     absl::ReaderMutexLock lock(&taskSubmitter->reqMtx_);
     ASSERT_EQ(taskSubmitter->taskSchedulerMap_[resource]->queue->Empty(), false);
     sleep(3);
-}
-
-TEST_F(TaskSubmitterTest, Test_When_Input_Empty_Objs_Cancel_StatelessRequest_Should_Return_OK)
-{
-    std::vector<std::string> objIds;
-    KillFunc f = [](const std::string &instanceId, const std::string &payload, int signal) -> ErrorInfo {
-        return ErrorInfo();
-    };
-    auto errorInfo = taskSubmitter->CancelStatelessRequest(objIds, f, true, false);
-    EXPECT_TRUE(errorInfo.OK());
 }
 
 TEST_F(TaskSubmitterTest, Test_When_UpdateConfig_Should_Update_OK)

@@ -464,6 +464,7 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
         }
     }
     invokeOrderMgr->Invoke(spec);
+    this->invokeAdaptor->PushInvokeSpec(spec);
     auto func = [this, spec, returnObjs](const ErrorInfo &err) {
         if (err.OK()) {
             invokeOrderMgr->UpdateUnfinishedSeq(spec);

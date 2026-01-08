@@ -28,6 +28,7 @@ public:
     virtual ~GeneralExecutionManager() = default;
 
     void Handle(const libruntime::InvocationMeta &meta, std::function<void()> &&hdlr, std::string reqId = "") override;
+    ErrorInfo CancelInsFunction(const CancelReqInfo &cancalReqInfo) override;
 };
 }  // namespace Libruntime
 }  // namespace YR

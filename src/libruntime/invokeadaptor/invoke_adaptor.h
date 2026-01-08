@@ -104,7 +104,9 @@ public:
     NotifyResponse NotifyHandler(const NotifyRequest &resp);
 
     virtual ErrorInfo Cancel(const std::vector<std::string> &objids, bool isForce, bool isRecursive);
-
+    virtual ErrorInfo CancelInstanceFunction(std::shared_ptr<InvokeSpec> sepc, const KillFunc &killCallBack,
+                                             bool isForce, bool isRecursive, const std::string &objId);
+    virtual ErrorInfo HandleInsFuncCancel(const CancelReqInfo &cancelReqInfo);
     virtual void Exit(const int code, const std::string &message);
 
     virtual void Finalize(bool isDriver = true);
@@ -191,7 +193,7 @@ private:
     void ExecUserShutdownCallback(uint64_t gracePeriodSec,
                                   const std::shared_ptr<utility::NotificationUtility> &notification);
     ErrorInfo ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo);
-
+    ErrorInfo ParseCancelReqInfo(const SignalRequest &req, CancelReqInfo &cancelReqInfo);
     template <typename ResponseType>
     static ErrorInfo WaitAndCheckResp(std::shared_future<ResponseType> &future, const std::string &instanceId,
                                       const int &timeout);

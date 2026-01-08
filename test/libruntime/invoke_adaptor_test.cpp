@@ -36,6 +36,8 @@
 #include "src/libruntime/generator/stream_generator_receiver.h"
 #include "src/libruntime/groupmanager/group.h"
 #include "src/libruntime/invokeadaptor/invoke_adaptor.h"
+#include "src/libruntime/invokeadaptor/ordered_execution_manager.h"
+#include "src/libruntime/invokeadaptor/general_execution_manager.h"
 #include "src/libruntime/objectstore/datasystem_object_store.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/runtime_context.h"
@@ -831,6 +833,59 @@ TEST_F(InvokeAdaptorTest, SignalHandlerTest)
     invokeAdaptor->isRunning = true;
 }
 
+TEST_F(InvokeAdaptorTest, SignalHandlerCancelWithPayloadTest)
+{
+    SignalRequest req;
+    req.set_signal(libruntime::Signal::Cancel);
+
+    req.set_payload("invalid json");
+    auto response1 = invokeAdaptor->SignalHandler(req);
+    ASSERT_EQ(response1.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
+    ASSERT_FALSE(response1.message().empty());
+
+    req.set_payload("{\"requestId\":\"test-req-id\"}");  // 缺少 instanceId
+    auto response2 = invokeAdaptor->SignalHandler(req);
+    ASSERT_EQ(response2.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
+    ASSERT_FALSE(response2.message().empty());
+
+    auto execMgr = std::make_shared<OrderedExecutionManager>(1, nullptr);
+    auto err = execMgr->DoInit(1);
+    ASSERT_EQ(err.OK(), true);
+    invokeAdaptor->execMgr = execMgr;
+
+    json cancelReqJson;
+    cancelReqJson["requestId"] = "test-req-id";
+    cancelReqJson["instanceId"] = "";
+    req.set_payload(cancelReqJson.dump());
+    auto response3 = invokeAdaptor->SignalHandler(req);
+    ASSERT_EQ(response3.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
+    ASSERT_FALSE(response3.message().empty());
+
+    cancelReqJson["instanceId"] = "non-existent-instance-id";
+    req.set_payload(cancelReqJson.dump());
+    auto response4 = invokeAdaptor->SignalHandler(req);
+    ASSERT_EQ(response4.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
+    ASSERT_FALSE(response4.message().empty());
+
+    auto generalExecMgr = std::make_shared<GeneralExecutionManager>(1, nullptr);
+    err = generalExecMgr->DoInit(1);
+    ASSERT_EQ(err.OK(), true);
+    invokeAdaptor->execMgr = generalExecMgr;
+
+    cancelReqJson["requestId"] = "test-req-id-2";
+    cancelReqJson["instanceId"] = "test-instance-id";
+    req.set_payload(cancelReqJson.dump());
+    auto response5 = invokeAdaptor->SignalHandler(req);
+    ASSERT_EQ(response5.code(), ::common::ErrorCode::ERR_NONE);
+
+    invokeAdaptor->execMgr = nullptr;
+    cancelReqJson["requestId"] = "test-req-id-3";
+    cancelReqJson["instanceId"] = "test-instance-id-2";
+    req.set_payload(cancelReqJson.dump());
+    auto response6 = invokeAdaptor->SignalHandler(req);
+    ASSERT_EQ(response6.code(), ::common::ErrorCode::ERR_NONE);
+}
+
 TEST_F(InvokeAdaptorTest, CreateInstanceRawTest)
 {
     CreateRequest req;
@@ -1318,6 +1373,94 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     std::remove(file.c_str());
     Config::Instance().METRICS_CONFIG_FILE_ = "";
     Config::Instance().ENABLE_METRICS_ = false;
+}
+
+TEST_F(InvokeAdaptorTest, CancelTest)
+{
+    // empty obj ids
+    std::vector<std::string> emptyObjids;
+    auto err1 = invokeAdaptor->Cancel(emptyObjids, false, false);
+    ASSERT_EQ(err1.OK(), true);
+
+    // invalid obj id
+    std::vector<std::string> invalidObjids = {"invalid-objid"};
+    auto err2 = invokeAdaptor->Cancel(invalidObjids, false, false);
+    ASSERT_EQ(err2.OK(), true);
+
+    // spec not exist
+    std::string requestId1 = YR::utility::IDGenerator::GenRequestId();
+    std::string objId1 = YR::utility::IDGenerator::GenObjectId(requestId1, 0);
+    std::vector<std::string> objids1 = {objId1};
+    auto err3 = invokeAdaptor->Cancel(objids1, false, false);
+    ASSERT_EQ(err3.OK(), true);
+
+    // invoke type of InvokeFunction
+    std::string requestId2 = YR::utility::IDGenerator::GenRequestId();
+    std::string objId2 = YR::utility::IDGenerator::GenObjectId(requestId2, 0);
+    auto spec1 = std::make_shared<InvokeSpec>();
+    spec1->requestId = requestId2;
+    spec1->invokeType = libruntime::InvokeType::InvokeFunction;
+    spec1->invokeInstanceId = "";
+    invokeAdaptor->requestManager->PushRequest(spec1);
+    std::vector<std::string> objids2 = {objId2};
+    auto err4 = invokeAdaptor->Cancel(objids2, false, false);
+    ASSERT_EQ(err4.OK(), true);
+    auto spec1_after = invokeAdaptor->requestManager->GetRequest(requestId2);
+    ASSERT_EQ(spec1_after, nullptr);
+
+    // invoke type of InvokeFunction with instance id
+    std::string requestId3 = YR::utility::IDGenerator::GenRequestId();
+    std::string objId3 = YR::utility::IDGenerator::GenObjectId(requestId3, 0);
+    auto spec2 = std::make_shared<InvokeSpec>();
+    spec2->requestId = requestId3;
+    spec2->invokeType = libruntime::InvokeType::InvokeFunction;
+    spec2->invokeInstanceId = "test-instance-id";
+    invokeAdaptor->requestManager->PushRequest(spec2);
+    std::vector<std::string> objids3 = {objId3};
+    auto err5 = invokeAdaptor->Cancel(objids3, false, false);
+    ASSERT_EQ(err5.OK(), true);
+    auto spec2_after = invokeAdaptor->requestManager->GetRequest(requestId3);
+    ASSERT_EQ(spec2_after, nullptr);
+
+    // invoke type of InvokeFunction while isForce=True
+    std::string requestId4 = YR::utility::IDGenerator::GenRequestId();
+    std::string objId4 = YR::utility::IDGenerator::GenObjectId(requestId4, 0);
+    auto spec3 = std::make_shared<InvokeSpec>();
+    spec3->requestId = requestId4;
+    spec3->invokeType = libruntime::InvokeType::InvokeFunction;
+    spec3->invokeInstanceId = "test-instance-id-2";
+    invokeAdaptor->requestManager->PushRequest(spec3);
+    std::vector<std::string> objids4 = {objId4};
+    auto err6 = invokeAdaptor->Cancel(objids4, true, false);
+    ASSERT_EQ(err6.OK(), true);
+
+    // invoke type of InvokeFunctionStateless
+    std::string requestId5 = YR::utility::IDGenerator::GenRequestId();
+    std::string objId5 = YR::utility::IDGenerator::GenObjectId(requestId5, 0);
+    auto spec4 = std::make_shared<InvokeSpec>();
+    spec4->requestId = requestId5;
+    spec4->invokeType = libruntime::InvokeType::InvokeFunctionStateless;
+    spec4->invokeInstanceId = "";
+    invokeAdaptor->requestManager->PushRequest(spec4);
+    invokeAdaptor->taskSubmitter = std::make_shared<MockTaskSubmitter>();
+    std::vector<std::string> objids5 = {objId5};
+    auto err7 = invokeAdaptor->Cancel(objids5, false, false);
+    ASSERT_EQ(err7.OK(), true);
+
+    // multi obj ids
+    std::string requestId7 = YR::utility::IDGenerator::GenRequestId();
+    std::string requestId8 = YR::utility::IDGenerator::GenRequestId();
+    std::string objId7 = YR::utility::IDGenerator::GenObjectId(requestId7, 0);
+    std::string objId8 = YR::utility::IDGenerator::GenObjectId(requestId8, 0);
+    auto spec6 = std::make_shared<InvokeSpec>();
+    spec6->requestId = requestId7;
+    spec6->invokeType = libruntime::InvokeType::InvokeFunction;
+    invokeAdaptor->requestManager->PushRequest(spec6);
+    std::vector<std::string> objids7 = {objId7, objId8};
+    auto err9 = invokeAdaptor->Cancel(objids7, false, false);
+    ASSERT_EQ(err9.OK(), true);
+    auto spec6_after = invokeAdaptor->requestManager->GetRequest(requestId7);
+    ASSERT_EQ(spec6_after, nullptr);
 }
 }  // namespace test
 }  // namespace YR

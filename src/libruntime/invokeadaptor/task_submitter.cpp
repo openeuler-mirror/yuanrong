@@ -761,62 +761,35 @@ bool TaskSubmitter::NeedRetry(const ErrorInfo &errInfo, const std::shared_ptr<In
     return (isConsumeRetryTime = false);
 }
 
-ErrorInfo TaskSubmitter::CancelStatelessRequest(const std::vector<std::string> &objids, const KillFunc &killCallBack,
-                                                bool isForce, bool isRecursive)
+ErrorInfo TaskSubmitter::CancelStatelessRequest(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack,
+                                                bool isForce, bool isRecursive, const std::string &objId)
 {
-    std::unordered_set<std::string> reqIdSet;
-    std::unordered_set<std::string> cancelReq;
-    ErrorInfo err;
-    for (unsigned int i = 0; i < objids.size(); i++) {
-        auto requestId = YR::utility::IDGenerator::GetRequestIdFromObj(objids[i]);
-        if (!err.OK()) {
-            YRLOG_ERROR("failed to get requestID from objID: {}, err: {}", objids[i], err.Msg());
-            continue;
+    YRLOG_DEBUG("start cancel request: {}, object id is {}", spec->requestId, objId);
+    if (spec->invokeInstanceId != "" && isForce) {
+        RequestResource resource = GetRequestResource(spec);
+        if (resource.concurrency > MIN_CONCURRENCY) {
+            YRLOG_WARN(
+                "request: {}  has been sent to the runtime, and concurrency is greater than 1.Cancellation is not "
+                "supported, return directly",
+                spec->requestId);
+            return ErrorInfo();
         }
-        reqIdSet.insert(requestId);
-    }
-
-    for (auto &reqId : reqIdSet) {
-        auto spec = requestManager->GetRequest(reqId);
-        if (spec != nullptr && spec->invokeInstanceId == "") {
-            // request exists, but scheduling has not been initiated
-            requestManager->RemoveRequest(reqId);
-            cancelReq.insert(reqId);
-        } else if (isForce && spec != nullptr && spec->invokeInstanceId != "") {
-            // request exists, an invoke request has been sent
-            RequestResource resource = GetRequestResource(spec);
-            if (resource.concurrency > MIN_CONCURRENCY) {
-                std::ostringstream oss;
-                oss << "request " << reqId
-                    << " has been sent to the runtime, and concurrency is greater than 1.Cancellation is not "
-                       "supported.";
-                return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                                 oss.str());
-            }
-            if (isRecursive) {
-                (void)killCallBack(spec->invokeInstanceId, "", libruntime::Signal::Cancel);
-            } else {
-                (void)killCallBack(spec->invokeInstanceId, "", libruntime::Signal::KillInstance);
-            }
-            insManagers[spec->functionMeta.apiType]->DelInsInfo(spec->invokeInstanceId, resource);
-            requestManager->RemoveRequest(reqId);
-            cancelReq.insert(reqId);
+        // 在调用同步的killCallBack之前调用RemoveRequest，避免滞后
+        requestManager->RemoveRequest(spec->requestId);
+        YRLOG_INFO("request: {} has already be sent, need to send signal to remote instance: {}", spec->requestId,
+                   spec->invokeInstanceId);
+        if (isRecursive) {
+            (void)killCallBack(spec->invokeInstanceId, "", libruntime::Signal::Cancel);
+        } else {
+            (void)killCallBack(spec->invokeInstanceId, "", libruntime::Signal::KillInstance);
         }
+    } else {
+        requestManager->RemoveRequest(spec->requestId);
     }
-
     ErrorInfo cancelErr(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                         "invalid get obj, the obj has been cancelled.");
-    for (unsigned int i = 0; i < objids.size(); i++) {
-        auto requestId = YR::utility::IDGenerator::GetRequestIdFromObj(objids[i]);
-        if (!err.OK()) {
-            YRLOG_ERROR("failed to get requestID from objID: {}, err: {}", objids[i], err.Msg());
-            continue;
-        }
-        if (cancelReq.find(requestId) != cancelReq.end()) {
-            memoryStore->SetError(objids[i], cancelErr);
-            this->UpdateFaasInvokeLog(requestId, cancelErr);
-        }
-    }
+    memoryStore->SetError(objId, cancelErr);
+    this->UpdateFaasInvokeLog(spec->requestId, cancelErr);
     return ErrorInfo();
 }
 

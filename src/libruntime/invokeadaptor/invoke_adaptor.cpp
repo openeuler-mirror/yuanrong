@@ -745,9 +745,27 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
     }
     switch (req.signal()) {
         case libruntime::Signal::Cancel: {
-            auto objIds = requestManager->GetObjIds();
-            Cancel(objIds, true, true);
-            Exit(0, "");
+            if (!req.payload().empty()) {
+                CancelReqInfo cancelReqInfo;
+                auto parseErr = ParseCancelReqInfo(req, cancelReqInfo);
+                if (!parseErr.OK()) {
+                    YRLOG_WARN("failed to parse cancel request payload: {}, error: {}", req.payload(), parseErr.Msg());
+                    resp.set_code(static_cast<common::ErrorCode>(parseErr.Code()));
+                    resp.set_message(parseErr.Msg());
+                    break;
+                }
+                auto cancelErr = this->HandleInsFuncCancel(cancelReqInfo);
+                if (!cancelErr.OK()) {
+                    YRLOG_WARN("failed to cancel request: {}, instanceId: {}, err: {}", cancelReqInfo.requestId,
+                               cancelReqInfo.instanceId, cancelErr.Msg());
+                    resp.set_code(static_cast<common::ErrorCode>(cancelErr.Code()));
+                    resp.set_message(cancelErr.Msg());
+                }
+            } else {
+                auto objIds = requestManager->GetObjIds();
+                Cancel(objIds, true, true);
+                Exit(0, "");
+            }
             break;
         }
         case libruntime::Signal::ErasePendingThread: {
@@ -861,6 +879,19 @@ HeartbeatResponse InvokeAdaptor::HeartbeatHandler(const HeartbeatRequest &req)
         }
     }
     return resp;
+}
+
+ErrorInfo InvokeAdaptor::ParseCancelReqInfo(const SignalRequest &req, CancelReqInfo &cancelReqInfo)
+{
+    try {
+        json cancelReqJson = json::parse(req.payload());
+        from_json(cancelReqJson, cancelReqInfo);
+    } catch (std::exception &e) {
+        YRLOG_WARN("failed to parse cancel request payload: {}, error: {}", req.payload(), e.what());
+        std::string msg = "failed to parse cancel request payload: " + std::string(e.what());
+        return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, msg);
+    }
+    return ErrorInfo();
 }
 
 ErrorInfo InvokeAdaptor::ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo)
@@ -1029,7 +1060,6 @@ void InvokeAdaptor::InvokeInstanceFunction(std::shared_ptr<InvokeSpec> spec)
             return;
         }
     }
-    requestManager->PushRequest(spec);
     fsClient->InvokeAsync(spec->requestInvoke, std::bind(&InvokeAdaptor::InvokeNotifyHandler, this, _1, _2),
                           spec->opts.timeout == 0 ? FLAG_OF_REQUEST_NO_TIMEOUT : spec->opts.timeout);
 }
@@ -1381,8 +1411,78 @@ bool InvokeAdaptor::NeedRetry(ErrorCode code, const std::shared_ptr<const Invoke
 
 ErrorInfo InvokeAdaptor::Cancel(const std::vector<std::string> &objids, bool isForce, bool isRecursive)
 {
+    std::vector<std::string> reqIdVec;
+    for (unsigned int i = 0; i < objids.size(); i++) {
+        std::string requestId = YR::utility::IDGenerator::GetRequestIdFromObj(objids[i]);
+        YRLOG_INFO("Get cancel request id: {} from object id: {}", requestId, objids[i]);
+        reqIdVec.push_back(requestId);
+    }
+    if (reqIdVec.empty()) {
+        YRLOG_INFO("there is no req need cancel, return directly");
+        return ErrorInfo();
+    }
     auto f = std::bind(&InvokeAdaptor::Kill, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-    return taskSubmitter->CancelStatelessRequest(objids, f, isForce, isRecursive);
+    for (size_t i = 0; i < reqIdVec.size(); i++) {
+        auto spec = requestManager->GetRequest(reqIdVec[i]);
+        if (spec == nullptr) {
+            YRLOG_INFO("spec of request: {} not exist, maybe has already finished, no need cancel, skip directly",
+                       reqIdVec[i]);
+            continue;
+        }
+        if (spec->invokeType == libruntime::InvokeType::InvokeFunction) {
+            this->CancelInstanceFunction(spec, f, isForce, isRecursive, objids[i]);
+        } else if (spec->invokeType == libruntime::InvokeType::InvokeFunctionStateless) {
+            taskSubmitter->CancelStatelessRequest(spec, f, isForce, isRecursive, objids[i]);
+        } else {
+            YRLOG_WARN(
+                "cancel request: {} is ignored because invoke type is not InvokeFunction or InvokeFunctionStateless, "
+                "skip directly",
+                reqIdVec[i]);
+        }
+    }
+    return ErrorInfo();
+}
+
+ErrorInfo InvokeAdaptor::CancelInstanceFunction(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack,
+                                                bool isForce, bool isRecursive, const std::string &objId)
+{
+    if (isForce) {
+        YRLOG_WARN("isForce=True is not supported for actor invoke reqeust: {}", spec->requestId);
+        return ErrorInfo();
+    }
+    YRLOG_INFO("start cancel instance invoke request: {}, object id is {}", spec->requestId, objId);
+    requestManager->RemoveRequest(spec->requestId);
+    if (spec->invokeInstanceId != "") {
+        RequestResource resource = GetRequestResource(spec);
+        if (resource.concurrency > MIN_CONCURRENCY) {
+            YRLOG_WARN(
+                "request: {}  has been sent to the runtime, and concurrency is greater than 1.Cancellation is not "
+                "supported, return directly",
+                spec->requestId);
+        }
+        CancelReqInfo cancelReqInfo;
+        cancelReqInfo.requestId = spec->requestId;
+        cancelReqInfo.instanceId = this->librtConfig->runtimeId == "driver"
+                                       ? this->librtConfig->runtimeId + "_" + this->librtConfig->jobId
+                                       : this->librtConfig->runtimeId;
+        json cancelReqJson = cancelReqInfo;
+        std::string cancelPayload = cancelReqJson.dump();
+        killCallBack(spec->invokeInstanceId, cancelPayload, libruntime::Signal::Cancel);
+    }
+    ErrorInfo cancelErr(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                        "invalid get obj, the obj has been cancelled.");
+    memStore->SetError(objId, cancelErr);
+    return  ErrorInfo();
+}
+
+ErrorInfo InvokeAdaptor::HandleInsFuncCancel(const CancelReqInfo &cancelReqInfo)
+{
+    YRLOG_INFO("start cancel instance function, request id is {}, src instance id is {}", cancelReqInfo.requestId,
+               cancelReqInfo.instanceId);
+    if (execMgr) {
+        return this->execMgr->CancelInsFunction(cancelReqInfo);
+    }
+    return ErrorInfo();
 }
 
 void InvokeAdaptor::Exit(const int code, const std::string &message)

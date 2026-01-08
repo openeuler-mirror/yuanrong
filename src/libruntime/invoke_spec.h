@@ -61,7 +61,7 @@ const std::string RECOVER_RETRY_TIMES = "RecoverRetryTimes";
 extern const char *ENABLE_DEBUG_KEY;
 extern const char *ENABLE_DEBUG;
 extern const char *DEBUG_CONFIG_KEY;
-
+using json = nlohmann::json;
 // Suspend-state instance handler retrieval only; pending refactor
 const std::string NAMED_FUNCMETA = "named_funcmeta";
 
@@ -263,5 +263,13 @@ struct ConcurrencyGroup {
     uint32_t maxConcurrency;
     std::vector<FunctionMeta> metas;
 };
+
+struct CancelReqInfo {
+    std::string requestId;
+    std::string instanceId;
+};
+
+void to_json(nlohmann::json &j, const CancelReqInfo &cancelReqInfo);
+void from_json(const nlohmann::json &j, CancelReqInfo &cancelReqInfo);
 }  // namespace Libruntime
 }  // namespace YR

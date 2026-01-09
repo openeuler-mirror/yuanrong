@@ -916,7 +916,11 @@ function main() {
   if [ "x${DEPLOY_FUNCTION_PROXY}" = "xtrue" ]; then
       health_check "function_proxy" ${pid_table["function_proxy"]}
   fi
-  start_function_agent
+  if [ ${CPU4COMP} -le 100 ]; then
+    log_warning "no cpu available for function agent, skip starting it"
+  else
+    start_function_agent
+  fi
   start_faas_frontend
   start_function_scheduler
   start_dashboard

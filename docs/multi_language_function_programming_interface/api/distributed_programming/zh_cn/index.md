@@ -16,7 +16,3 @@
 - [Python](./Python/index.rst)
 - [C++](./Cpp/index.rst)
 - [Java](./Java/index.rst)
-
-
-
-

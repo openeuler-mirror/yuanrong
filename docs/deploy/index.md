@@ -9,6 +9,7 @@
    installation
    deploy_processes/index
    build_and_deploy
+   service_app_guide
 ```
 
 ## 安装 openYuanrong

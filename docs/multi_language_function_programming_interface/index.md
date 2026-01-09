@@ -13,7 +13,7 @@
    api/index
 ```
 
-多语言函数编程接口提供了扩展分布式应用程序的基本原语：[有状态函数](key-concept-statefull-function)、[无状态函数](key-concept-stateless-function)、[数据对象](key-concept-data-object)和[数据流](key-concept-data-stream)。我们将通过简单示例向您介绍这些核心概念。
+多语言函数编程接口提供了扩展分布式应用程序的基本原语：[有状态函数](key-concept-statefull-function)、[无状态函数](key-concept-stateless-function)、[数据对象](key-concept-data-object)和[数据流](key-concept-data-stream)，支持函数以任务或 Serverless 服务方式运行。我们将通过简单示例向您介绍这些核心概念。
 
 ## 入门
 
@@ -130,6 +130,53 @@ data_ref = yr.put({"key": "value"})
 print(yr.get(data_ref))  # output {"key": "value"}
 ```
 
+## 数据流
+
+数据流是可以在多个 openYuanrong 函数间跨节点传递的内存数据，通过 pub/sub 方式访问。数据流在创建生产者或消费者时通过唯一的流名称被隐私创建。
+
+简单示例如下：
+
+```python
+# Define stream name
+stream_name = "this-stream"
+
+# Create producer, implicitly creating the stream.
+producer_config = yr.ProducerConfig(delay_flush_time=5, page_size=1024 * 1024, max_stream_size=1024 * 1024 * 1024, auto_clean_up=True)
+producer = yr.create_stream_producer(stream_name, producer_config)
+# Produce a piece of data
+element = yr.Element(value=b"hello", ele_id=0)
+producer.send(element)
+
+# Create consumer and associate it with the stream
+consumer_config = yr.SubscriptionConfig("local-consumer")
+consumer = yr.create_stream_consumer(stream_name, consumer_config)
+# Consume a piece of data
+elements = consumer.receive(1000, 1)
+```
+
+## 函数服务
+
+您可以将 openYuanrong 函数以 Serverless 服务方式部署，通过 HTTP 请求访问。函数服务定义了函数签名作为请求入口，实现该函数即可以部署为 Serverless 服务。
+
+简单示例如下：
+
+```python
+# handler 为函数执行方法入口，每次请求都会触发执行。
+# event 为 http 请求传递的数据（Header、Body等）。
+# context 为 openYuanrong 提供的运行时上下文，包含函数、执行环境等信息。
+def handler(event, context):
+    print("received request,event content:", event)
+
+    response = ""
+    try:
+        response = "hello " + event.get("name")
+    except Exception as e:
+        print(e)
+        response = "please enter your name,for example:{'name':'yuanrong'}"
+
+    return response
+```
+
 ## 下一步
 
 你可以将 openYuanrong 的简单原语组合起来表达几乎所有的分布式计算模式。想要深入了解 openYuanrong 的[关键概念](./key_concept.md)，请浏览以下用户指南：
@@ -138,3 +185,4 @@ print(yr.get(data_ref))  # output {"key": "value"}
 - [无状态函数](./development_guide/stateless_function/index.md)
 - [数据对象](./development_guide/data_object/index.md)
 - [数据流](./development_guide/data_stream/index.md)
+- [函数服务](./development_guide/function_service/index.md)

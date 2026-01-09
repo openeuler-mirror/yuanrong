@@ -55,7 +55,7 @@ data:
       "functionLimitRate": 20000,
       "npuEphemeralStorage": 512000,
       "ephemeralStorage": 6144,
-      "hostaliaseshostname": [{"hostnames":[""],"ip":""},{"hostnames":[""],"ip":""}],
+      "hostaliaseshostname": [],
       "systemAuth": "",
       "dockerRootPath":"/var/lib/docker",
       "functionConfig": [],

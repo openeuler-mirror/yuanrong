@@ -61,5 +61,3 @@ ldd ./handler | awk '/=>/ {print $3}' | grep -v '^$' | tr '\n' '\0' | xargs zip 
 - Header 参数 `X-Instance-Label`：在具有该标签的函数实例上处理请求。您可以在创建函数预留实例时配置标签。
 
 通过[函数服务示例工程](example-project-function-service)查看完整示例。
-
-       

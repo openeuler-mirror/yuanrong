@@ -23,6 +23,7 @@ openYuanrong 支持在 Linux 主机上以进程方式部署，也支持在 Kuber
 
 ## 部署 openYuanrong 应用
 
-openYuanrong 支持使用 Python、C++ 及 Java 多语言开发应用，应用通过客户端连接到 openYuanrong 集群运行。
+openYuanrong 支持使用 Python、C++ 及 Java 多语言开发分布式应用，了解如何运行 openYuanrong 应用请参考：
 
-了解如何运行 openYuanrong 应用请参考：[部署 openYuanrong 应用](./build_and_deploy.md)。
+* [部署作业类应用](./build_and_deploy.md)：部署使用单机程序分布式并行化接口开发的应用。
+* [部署服务类应用](./service_app_guide.md)：部署使用函数服务接口开发的应用。

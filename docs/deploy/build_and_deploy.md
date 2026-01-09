@@ -1,6 +1,6 @@
-# 部署 openYuanrong 应用
+# 部署 openYuanrong 作业类应用
 
-本章节向您介绍如何构建应用并在 openYuanrong 集群中部署。
+本章节向您介绍如何构建使用单机程序分布式并行化接口开发的作业类应用并在 openYuanrong 集群中部署。
 
 ## 环境依赖
 

@@ -10,6 +10,7 @@
    stateless_function/index
    data_object/index
    data_stream/index
+   function_service/index
    scheduling/index
 ```
 
@@ -21,6 +22,7 @@ openYuanrong 函数开发：
 - [无状态函数](./stateless_function/index.md)
 - [数据对象](./data_object/index.md)
 - [数据流](./data_stream/index.md)
+- [函数服务](./function_service/index.md)
 
 调度 openYuanrong 函数：
 

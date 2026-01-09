@@ -40,6 +40,8 @@ pip install https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/release/0.
 
 [安装 openYuanrong](install-yuanrong-with-pip)后，即可在当前环境中使用，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
 
+(install-yuanrong-cpp-sdk)=
+
 ### C++ SDK
 
 [安装 openYuanrong](install-yuanrong-with-pip)后，参考如下命令查看 C++ SDK 路径，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
@@ -57,7 +59,7 @@ bin  include  lib  VERSION
 
 ### Java SDK
 
-[安装 openYuanrong](install-yuanrong-with-pip)后，参考如下命令查看 Java SDK 路径。应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
+[安装 openYuanrong](install-yuanrong-with-pip)后，参考如下命令查看 Java SDK 路径。其中 `yr-api-sdk-xxx.jar` 为单机程序分布式并行化 SDK，`faas-function-sdk-xxx.jar` 为函数服务 SDK，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
 
 ```console
 [xxx]# yr version
@@ -65,14 +67,18 @@ CLI version: DEV.
 Using yuanrong at: /home/.miniconda3/envs/yr/lib/python3.9/site-packages/yr/inner
 
 [xxx]# ls /home/.miniconda3/envs/yr/lib/python3.9/site-packages/yr/inner/runtime/sdk/java/
-yr-api-sdk-1.0.0.jar  pom.xml
+yr-api-sdk-1.0.0.jar faas-function-sdk-1.0.0.jar pom.xml
 ```
 
-如果您通过 Maven 管理 Java 项目，可参考如下命令安装 openYuanrong  Java SDK，并在项目 `pom.xml` 文件中引入依赖。
+如果您通过 Maven 管理 Java 项目，可参考如下命令安装 openYuanrong Java SDK，并在项目 `pom.xml` 文件中引入依赖。
 
 ```shell
 # 替换 yr-api-sdk-1.0.0.jar 为您实际的 SDK 版本包
 mvn install:install-file -Dfile=./yr-api-sdk-1.0.0.jar -DartifactId=yr-api-sdk \
+    -DgroupId=com.yuanrong -Dversion=1.0.0 -Dpackaging=jar -DpomFile=./pom.xml
+
+# 替换 faas-function-sdk-1.0.0.jar 为您实际的 SDK 版本包
+mvn install:install-file -Dfile=./faas-function-sdk-1.0.0.jar -DartifactId=faas-function-sdk \
     -DgroupId=com.yuanrong -Dversion=1.0.0 -Dpackaging=jar -DpomFile=./pom.xml
 ```
 
@@ -83,6 +89,11 @@ mvn install:install-file -Dfile=./yr-api-sdk-1.0.0.jar -DartifactId=yr-api-sdk \
     <dependency>
         <groupId>com.yuanrong</groupId>
         <artifactId>yr-api-sdk</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+    <dependency>
+        <groupId>com.yuanrong</groupId>
+        <artifactId>faas-function-sdk</artifactId>
         <version>1.0.0</version>
     </dependency>
 </dependencies>

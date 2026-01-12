@@ -6,7 +6,7 @@
    :maxdepth: 1
    :hidden:
 
-   python_sdk
+   zh_cn/Python/python_sdk
    function_invocation
    stream_invocation
    register_function
@@ -26,7 +26,7 @@
 
 ## 函数开发 SDK
 
-- [Python](./python_sdk.md)
+- [Python SDK](./zh_cn/Python/python_sdk.rst)
 
 ## 服务调用 REST API
 

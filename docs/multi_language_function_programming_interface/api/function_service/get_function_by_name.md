@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-该 API 用于在openYuanrong集群，调用 meta_service 接口查询函数版本列表。
+该 API 用于在 openYuanrong 集群，调用 meta_service 接口查询函数版本列表。
 
 ## 接口约束
 
@@ -63,9 +63,9 @@ GET /serverless/v1/functions/{name}/versions?pageIndex={pageIndex}&pageSize={pag
 | timeout | int | 是 |  | 函数调用超时时间 |
 | customResources | map | 否 | key-value 格式，key 为 string， value 为 float 类型| 函数自定义资源 |
 | environment | map | 否 | key-value 格式，key 和 value 均为 string | 函数环境变量 |
-| minInstance | int | 否 | | 最小实例数 ( faas 函数使用)|
-| maxInstance | int | 否 | | 最大实例数( faas 函数使用) |
-| concurrentNum | int | 否 | | 实例并发度( faas 函数使用) |
+| minInstance | int | 否 | | 最小实例数 (函数服务使用)|
+| maxInstance | int | 否 | | 最大实例数(函数服务使用) |
+| concurrentNum | int | 否 | | 实例并发度(函数服务使用) |
 | storageType | String | 是 | 取值 local,s3 | 代码包存储类型 |
 | codePath | String | 否 | | 代码包本地路径，storageType 配置为 local 时生效 |
 | bucketId | String | 否 | |  存储桶名|

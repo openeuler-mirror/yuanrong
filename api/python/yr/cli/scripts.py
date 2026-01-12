@@ -221,14 +221,21 @@ class YRContext:
 def get_name_from_info(function_info):
     name = function_info.get("name")
     version = function_info.get("versionNumber")
-    name = name.split("@", 1)[1]
-    return f"{name}:{version}"
-
+    if name.startswith("0@"):
+        name = name.split("@", 1)[1]
+        return f"{name}:{version}"
+    elif name.startswith("0-"):
+        name = name.split("-", 1)[1]
+        return f"{name}:{version}"
+    else:
+        return f"{name}:{version}"
 
 def build_function_name(function_name, version="latest"):
     if len(function_name.split(":")) == 1:
         function_name = f"{function_name}:{version}"
     if len(function_name.split("@")) == 3:
+        return function_name
+    elif len(function_name.split("-")) == 3:
         return function_name
     else:
         return f"0@{function_name}"
@@ -563,7 +570,8 @@ yrcli download {package_key} to download this package."""
         if name is None:
             print("function name is required to deploy function.")
             sys.exit(1)
-        name = build_function_name(name)
+        version = "latest" if function_json.get("kind", "faas") == "faas" else "$latest"
+        name = build_function_name(name, version)
         query_ret, function_info = query_function(name, __user)
         if query_ret and not update:
             print(f"function {name} already exists, use --update to update it.")
@@ -582,7 +590,7 @@ yrcli download {package_key} to download this package."""
                 name = get_name_from_info(ret[1])
                 print(f"succeed to deploy function: {name}")
             else:
-                print(f"failed to deploy function: {ret[1]['error']}")
+                print(f"failed to deploy function: {ret[1]}")
     else:
         print("function json is required to deploy function.")
 
@@ -642,8 +650,9 @@ def list():
 @cli.command()
 @click.option("-f", "--function-name", required=True, type=str, default=None)
 @click.option("--no-clear-package", is_flag=True, default=False)
-def delete(function_name, no_clear_package):
-    function_name = build_function_name(function_name)
+@click.option("-v", "--version", required=False, type=str, default=None)
+def delete(function_name, no_clear_package, version):
+    function_name = build_function_name(function_name, version)
     if not no_clear_package:
         ret, function_info = query_function(function_name, __user)
         if not ret:
@@ -699,6 +708,146 @@ def invoke(function_name, payload):
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
         print(f"failed to invoke function: {resp['error']}")
+
+
+@cli.command("deploy-faas-language", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True, allow_interspersed_args=False))
+@click.option(
+    "--runtime",
+    required=False,
+    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12"]),
+    help="Runtime language version",
+)
+@click.option("--no-rootfs", is_flag=True, default=False, help="Deploy without rootfs")
+@click.option("--function-json", required=False, type=str, default=None, help="Path to function JSON file")
+@click.pass_context
+def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
+    """Deploy a FaaS language runtime executor function
+
+    You can override any JSON field using dot notation, for example:
+    yrcli deploy-faas-language --runtime python3.11 --cpu=1000 --memory=1024 --rootfs.storageInfo.accessKey=mykey
+    yrcli deploy-faas-language --runtime python3.11 --rootfs.storageInfo.object=rootfs_python3.11.img
+    Or provide a function JSON file directly with --function-json
+    """
+
+    # Get extra arguments from context
+    overrides = ctx.args
+
+    # Determine which user to use
+    current_user = "12345678901234561234567890123456"
+
+    # If function_json is provided, load it as base configuration
+    if function_json:
+        with open(function_json, "r") as f:
+            function_json_data = json.load(f)
+    else:
+        # Validate runtime is provided when not using function_json
+        if not runtime:
+            print("Error: --runtime is required when not using --function-json")
+            sys.exit(1)
+
+        # Generate function name based on runtime (keep the dot in version)
+        # python3.11 -> 0-system-faasExecutorPython3.11
+        runtime_name = runtime[0].upper() + runtime[1:]  # Capitalize first letter
+        function_name = f"0-system-faasExecutor{runtime_name}"
+
+        # Build default function configuration based on the template
+        function_json_data = {
+            "name": function_name,
+            "runtime": runtime,
+            "kind": "yrlib",
+            "cpu": 600,
+            "memory": 512,
+            "timeout": 600,
+            "storageType": "local",
+            "hookHandler": {
+                "call": "faas_executor.faasCallHandler",
+                "checkpoint": "faas_executor.faasCheckPointHandler",
+                "init": "faas_executor.faasInitHandler",
+                "recover": "faas_executor.faasRecoverHandler",
+                "shutdown": "faas_executor.faasShutDownHandler",
+                "signal": "faas_executor.faasSignalHandler"
+            },
+            "warmup": "seed",
+            "rootfs": {
+                "runtime": "runsc",
+                "type": "s3",
+                "imageurl": f"registry.cn-hangzhou.com",
+                "readonly": True,
+                "mountpoint": "/var/task/code",
+                "storageInfo": {
+                    "endpoint": "cn-hangzhou.alipay.aliyun-inc.com",
+                    "bucket": "crfs-dev",
+                    "object": f"rootfs.img"
+                }
+            }
+        }
+
+    # Apply overrides from command line arguments using dot notation
+    # Example: --rootfs.storageInfo.accessKey=mykey
+    for override in overrides:
+        if override.startswith("--"):
+            override = override[2:]  # Remove leading --
+
+        if "=" in override:
+            key_path, value = override.split("=", 1)
+            keys = key_path.split(".")
+
+            # Navigate to the nested dict and set the value
+            current = function_json_data
+            for key in keys[:-1]:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+
+            # Try to parse value as int, bool, or keep as string
+            final_key = keys[-1]
+            if value.lower() in ("true", "false"):
+                current[final_key] = value.lower() == "true"
+            elif value.isdigit():
+                current[final_key] = int(value)
+            else:
+                current[final_key] = value
+
+    if no_rootfs:
+        if "rootfs" in function_json_data:
+            del function_json_data["rootfs"]
+        if "warmup" in function_json_data:
+            del function_json_data["warmup"]
+
+    # Get function name from the json data
+    function_name = function_json_data.get("name")
+    if not function_name:
+        print("Error: function name is required in configuration")
+        sys.exit(1)
+
+    # Check if function already exists
+    version = "$latest"
+    full_name = f"{function_name}:{version}"
+    query_ret, function_info = query_function(full_name, current_user)
+
+    if query_ret:
+        # Update existing function
+        function_json_data["revisionId"] = function_info.get("revisionId")
+        ret = update_function(function_json_data, current_user)
+        if ret[0]:
+            name = get_name_from_info(ret[1])
+            print(f"Successfully updated FaaS language runtime function: {name}")
+            if runtime:
+                print(f"Runtime: {runtime}")
+        else:
+            print(f"Failed to update FaaS language runtime function: {ret[1]['error']}")
+            sys.exit(1)
+    else:
+        # Deploy new function
+        ret = deploy_function(function_json_data, current_user)
+        if ret[0]:
+            name = get_name_from_info(ret[1])
+            print(f"Successfully deployed FaaS language runtime function: {name}")
+            if runtime:
+                print(f"Runtime: {runtime}")
+        else:
+            print(f"Failed to deploy FaaS language runtime function: {ret[1]}")
+            sys.exit(1)
 
 
 def main():

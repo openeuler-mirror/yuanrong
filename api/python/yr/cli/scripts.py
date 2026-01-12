@@ -710,7 +710,7 @@ def invoke(function_name, payload):
         print(f"failed to invoke function: {resp['error']}")
 
 
-@cli.command("deploy-faas-language", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True, allow_interspersed_args=False))
+@cli.command("deploy-language-rt", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True, allow_interspersed_args=False))
 @click.option(
     "--runtime",
     required=False,
@@ -724,8 +724,8 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
     """Deploy a FaaS language runtime executor function
 
     You can override any JSON field using dot notation, for example:
-    yrcli deploy-faas-language --runtime python3.11 --cpu=1000 --memory=1024 --rootfs.storageInfo.accessKey=mykey
-    yrcli deploy-faas-language --runtime python3.11 --rootfs.storageInfo.object=rootfs_python3.11.img
+    yrcli deploy-language-rt --runtime python3.11 --cpu=1000 --memory=1024 --rootfs.storageInfo.accessKey=mykey
+    yrcli deploy-language-rt --runtime python3.11 --rootfs.storageInfo.object=rootfs_python3.11.img
     Or provide a function JSON file directly with --function-json
     """
 

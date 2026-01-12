@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-该 API 用于在openYuanrong集群，调用 meta_service 接口删除函数，如果函数存在多个版本，均会删除。
+该 API 用于在 openYuanrong 集群，调用 meta_service 接口删除函数，如果函数存在多个版本，均会删除。
 
 ## 接口约束
 

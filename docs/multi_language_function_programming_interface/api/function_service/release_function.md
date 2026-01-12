@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-该 API 用于在openYuanrong集群，调用 meta_service 接口发布函数。
+该 API 用于在 openYuanrong 集群，调用 meta_service 接口发布函数。
 
 ## 接口约束
 

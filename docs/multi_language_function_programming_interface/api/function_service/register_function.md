@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-该 API 用于openYuanrong集群，调用 meta_service 接口注册函数。
+该 API 用于 openYuanrong 集群，调用 meta_service 接口注册函数。
 
 ## 接口约束
 
@@ -25,7 +25,7 @@
 
 | **名称**     | **类型**  | **是否必选**  | **描述**                                                                                           |
 | ----------- | -------------------- | ------------------------- | --------------------------------------------------------------------------------------------------|
-| name | String | 是 | 函数名称。faas 函数格式按照 `0@{serviceName}@{funcName}` 格式填写， yrlib 函数按照 `0-{serviceName}-{funcName}` 格式填写，需唯一。<br> **约束**：`ServiceName` 需为 1 - 16 位字母、数字组合；`funcName` 需为小写字母开头，可使用小写字母、数字、中划线（-）组合，长度不超过 127 位。 |
+| name | String | 是 | 函数名称。函数服务按照 `0@{serviceName}@{funcName}` 格式填写， yrlib 函数按照 `0-{serviceName}-{funcName}` 格式填写，需唯一。<br> **约束**：`ServiceName` 需为 1 - 16 位字母、数字组合；`funcName` 需为小写字母开头，可使用小写字母、数字、中划线（-）组合，长度不超过 127 位。 |
 | runtime | String | 是 | 函数 runtime 类型。                                                                                    |
 | description | String | 否 | 函数的描述。                                                                                             |
 | handler | String | 否 | 调用处理器。<br> 当 `kind` 为 ``faas`` 时，建议填写。                                                                                    |
@@ -37,13 +37,13 @@
 | environment | map | 否 | 函数环境变量，内置环境变量定义。<br> **约束**：key-value 格式，其中 key 和 value 均为 string 类型。                                                                    |
 | extendedHandler | ExtendedHandler | 否 | 配置 init handler 信息。                                                                               |
 | extendedTimeout | ExtendedTimeout | 否 | 配置 init 超时信息。                                                                                     |
-| minInstance | String | 否 | 最小实例数（faas 函数使用）。                                                                               |
-| maxInstance | String | 否 | 最大实例数（faas 函数使用）。                                                                                |
-| concurrentNum | String | 否 | 实例并发度（faas 函数使用）。                                                                                |
+| minInstance | String | 否 | 最小实例数（函数服务使用）。                                                                               |
+| maxInstance | String | 否 | 最大实例数（函数服务使用）。                                                                                |
+| concurrentNum | String | 否 | 实例并发度（函数服务使用）。                                                                                |
 | storageType | String | 否 | 代码包存储类型。``s3``: 代码包存储在 minio 中；``local``: 代码包存储在磁盘中；``copy``: 代码包存储在磁盘中并且需要拷贝至容器路径。<br> 取值：``local``、``s3`` 或 ``copy``，建议填写。                                                                                        |
 | codePath | String | 否 | 代码包本地路径。`storageType` 配置为 ``local`` 或 ``copy`` 时生效。                                                           |
 | s3CodePath | S3Object | 否 | 代码包 S3 路径。`storageType` 配置为 ``s3`` 时生效。                                                                 |
-| poolId | String | 否 | 自定义亲和 pool 池 ID。函数实例创建资源不足（或者亲和条件不满足），内核创建指定 poolID 的 POD，用于实例调度。<br> **约束**：仅对 faas 函数生效。配置约束与创建 pool 池接口一致。                                                                |
+| poolId | String | 否 | 自定义亲和 pool 池 ID。函数实例创建资源不足（或者亲和条件不满足），内核创建指定 poolID 的 POD，用于实例调度。<br> **约束**：仅对函数服务生效。配置约束与创建 pool 池接口一致。                                                                |
 | resourceAffinitySelectors | ResourceAffinitySelector | 否 | 函数调度亲和、优先级配置。                                                                                     |
 
 :::{Note}
@@ -72,15 +72,15 @@
 
 | **名称**      | **类型**  | **是否必填**  | **描述**                         |
 |-------------| -------------------- | ------------------------- |--------------------------------|
-| initializer | String | 否 | 初始化接口，faas 函数按需配置。    |
-| pre_stop     | String | 否 | 停止接口，函数停止之前执行的退出逻辑，faas 函数按需配置。 |
+| initializer | String | 否 | 初始化接口，函数服务按需配置。    |
+| pre_stop     | String | 否 | 停止接口，函数停止之前执行的退出逻辑，函数服务按需配置。 |
 
 #### ExtendedTimeout 介绍
 
 | **名称**         | **类型**  | **是否必填**  | **描述**                         |
 |----------------| -------------------- | ------------------------- |--------------------------------|
-| initializer    | int | 否 | 初始化超时时间，faas 函数按需配置。            |
-| pre_stop | int | 否 | 函数停止超时时间，最大值 ``180s``，faas 函数按需配置。 |
+| initializer    | int | 否 | 初始化超时时间，函数服务按需配置。            |
+| pre_stop | int | 否 | 函数停止超时时间，最大值 ``180s``，函数服务按需配置。 |
 
 :::{Note}
 

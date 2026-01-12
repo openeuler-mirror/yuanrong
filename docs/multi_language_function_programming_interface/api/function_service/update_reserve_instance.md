@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-该 API 用于在openYuanrong集群，调用 meta_service 接口针对 faas 函数更新特定标签预留实例配置。
+该 API 用于在 openYuanrong 集群，调用 meta_service 接口针对函数服务更新特定标签预留实例配置。
 
 ## 接口约束
 
@@ -29,7 +29,7 @@
 
 | **名称**              | **类型**                    | **是否必填** | **描述**                                      |
 |---------------------|---------------------------|----------|---------------------------------------------|
-| funcName            | String                    | 是        |  faas 函数格式按照 0@{serviceName}@{funcName} 格式填写。<br> **约束**：其中 ServiceName 为 1 - 16 位字母，数字组合；funcName 为小写字母开头，可使用小写字母、数字、中划线组合，长度不超过 127 位。 |
+| funcName            | String                    | 是        |  函数服务按照 0@{serviceName}@{funcName} 格式填写。<br> **约束**：其中 ServiceName 为 1 - 16 位字母，数字组合；funcName 为小写字母开头，可使用小写字母、数字、中划线组合，长度不超过 127 位。 |
 | version             | String                    | 是        | 函数版本号                                       |
 | instanceLabel       | String                    | 是        |                                                       | 标签名称，不允许为空。<br> **约束**：不超过 63 个字符，只能包含大小写字母，中划线，点。                                    |
 | instanceConfigInfos | Array[InstanceConfigInfo] | 是        | 预留实例配置，不允许配置重复 cluster                      |

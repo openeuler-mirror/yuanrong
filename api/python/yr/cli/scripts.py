@@ -350,20 +350,20 @@ def publish_function(function_name, publish_json, user=None):
 def install_requirements(requirements_file, target_dir):
     """
     Install Python dependencies from requirements file to target directory.
-    
+
     Args:
         requirements_file: Path to requirements.txt file
         target_dir: Target directory to install dependencies
-    
+
     Returns:
         True if successful, False otherwise
     """
     if not os.path.exists(requirements_file):
         print(f"Requirements file not found: {requirements_file}")
         return False
-    
+
     print(f"Installing dependencies from {requirements_file} to {target_dir}...")
-    
+
     try:
         result = subprocess.run(
             [
@@ -380,14 +380,14 @@ def install_requirements(requirements_file, target_dir):
             capture_output=True,
             text=True
         )
-        
+
         if result.returncode != 0:
             print(f"Failed to install dependencies: {result.stderr}")
             return False
-        
+
         print(f"Successfully installed dependencies to {target_dir}")
         return True
-        
+
     except Exception as e:
         print(f"Error installing dependencies: {str(e)}")
         return False
@@ -426,9 +426,9 @@ def package(backend, code_path, format):
     return real_code_path, package_key
 
 
-def invoke_function(function_name, payload, user=None):
+def invoke_function(function_name, payload, user=None, timeout=30):
     http_client = HTTPClient(
-        timeout=30,
+        timeout=timeout,
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
@@ -545,7 +545,7 @@ def cli(
 def deploy(backend, code_path, format, function_json, skip_package, update, requirements):
     if function_json:
         with open(function_json, "r") as f:
-            function_json = json.load(f)    
+            function_json = json.load(f)
     # Install dependencies if requirements file is provided
     if requirements and not skip_package:
         real_code_path = os.path.realpath(code_path)
@@ -697,13 +697,14 @@ def download(package):
 @cli.command
 @click.option("-f", "--function-name", required=True, type=str, default=None)
 @click.option("--payload", required=False, type=str, default=None)
-def invoke(function_name, payload):
+@click.option("--timeout", required=False, type=int, default=30)
+def invoke(function_name, payload, timeout):
     function_name = build_function_name(function_name)
     if payload:
         payload_dict = json.loads(payload)
     else:
         payload_dict = {}
-    ret, resp = invoke_function(function_name, payload_dict, __user)
+    ret, resp = invoke_function(function_name, payload_dict, __user, timeout)
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:

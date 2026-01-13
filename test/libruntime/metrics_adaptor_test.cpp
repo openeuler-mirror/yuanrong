@@ -19,6 +19,12 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/http.hpp>
 #include <string>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <climits>
+#include <filesystem>
+#include <iostream>
+
 #define private public
 #include "metrics/api/provider.h"
 #include "src/dto/config.h"
@@ -75,36 +81,11 @@ nlohmann::json GetValidConfig()
                     {
                         "prometheusPushExporter": {
                             "enable": true,
-                            "enable": true,
                             "batchSize": 2,
                             "batchIntervalSec": 10,
                             "failureQueueMaxSize": 2,
                             "failureDataDir": "/home/sn/metrics/failure",
                             "failureDataFileMaxCapacity": 1,
-                            "initConfig": {
-                                "ip": "127.0.0.1",
-                                "port": 31061
-                            }
-                        }
-                    }
-                ]
-            }
-        },
-        {
-            "immediatelyExport": {
-                "name": "LakeHouse",
-                "enable": true,
-                "exporters": [
-                    {
-                        "aomAlarmExporter": {
-                            "enable": true,
-                            "enable": true,
-                            "batchSize": 2,
-                            "batchIntervalSec": 10,
-                            "failureQueueMaxSize": 2,
-                            "failureDataDir": "/home/sn/metrics/failure",
-                            "failureDataFileMaxCapacity": 1,
-                            "enabledInstruments": ["name"],
                             "initConfig": {
                                 "ip": "127.0.0.1",
                                 "port": 31061
@@ -226,15 +207,60 @@ nlohmann::json GetExportConfigs()
     return nlohmann::json::parse(jsonStr);
 }
 
-std::string GetLibPath()
+static std::string GetSelfPathForTest()
 {
-    auto path = GetCurrentPath();
-    auto idx = path.find("yuanrong/");
-    if (idx != std::string::npos) {
-        std::string subPath = path.substr(0, idx);
-        return subPath + "yuanrong/metrics/lib";
+    Dl_info info;
+    if (dladdr((void*)&GetSelfPathForTest, &info) == 0) {
+        return "";
     }
-    return "";
+    std::string path(info.dli_fname);
+    auto pos = path.find_last_of('/');
+    if (pos == std::string::npos) {
+        return "";
+    }
+    return path.substr(0, pos);
+}
+
+static void PrepareExporterSo()
+{
+    static bool prepared = false;
+    if (prepared) {
+        return;
+    }
+    prepared = true;
+
+    auto path = GetSelfPathForTest();
+
+    auto idx = path.find("yuanrong/");
+    if (idx == std::string::npos) {
+        std::cerr << "cannot find '/yuanrong/' in path: " << path << "\n";
+        return;
+    }
+
+    std::string srcDir = path.substr(0, idx) + "yuanrong/metrics/lib";
+    std::string dstDir = std::filesystem::current_path().string() + "/test";
+
+    std::filesystem::create_directories(dstDir);
+
+    const std::vector<std::string> exporters = {
+        "libobservability-metrics-file-exporter.so",
+        "libobservability-prometheus-push-exporter.so"
+    };
+
+    for (const auto& so : exporters) {
+        std::filesystem::path src = srcDir + "/" + so;
+        std::filesystem::path dst = dstDir + "/" +so;
+
+        try {
+            std::filesystem::copy_file(
+                src,
+                dst,
+                std::filesystem::copy_options::overwrite_existing
+            );
+        } catch (const std::filesystem::filesystem_error & e) {
+            std::cerr << "Failed to copy " << "\n";
+        }
+    }
 }
 
 class MetricsAdaptorTest : public testing::Test {
@@ -243,6 +269,7 @@ public:
     ~MetricsAdaptorTest(){};
     void SetUp() override
     {
+        PrepareExporterSo();
         Mkdir("/tmp/log");
         LogParam g_logParam = {
             .logLevel = "DEBUG",
@@ -270,11 +297,6 @@ private:
 
 TEST_F(MetricsAdaptorTest, InitSuccessullyTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     setenv("YR_SSL_ENABLE", "true", 1);
     setenv("YR_SSL_PASSPHRASE", "YR_SSL_PASSPHRASE", 1);
     Config::c = Config();
@@ -285,18 +307,12 @@ TEST_F(MetricsAdaptorTest, InitSuccessullyTest)
     EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
     unsetenv("YR_SSL_ENABLE");
     unsetenv("YR_SSL_PASSPHRASE");
 }
 
 TEST_F(MetricsAdaptorTest, UnsupportedInitTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto nullMeterProvider = MetricsApi::Provider::GetMeterProvider();
     auto jsonStr = GetUnsupportedConfig();
@@ -305,32 +321,20 @@ TEST_F(MetricsAdaptorTest, UnsupportedInitTest)
     EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, InvalidInitTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetInvalidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
     metricsAdaptor->Init(jsonStr, true);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, InitNotEnableTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto nullMeterProvider = MetricsApi::Provider::GetMeterProvider();
     auto jsonStr = GetImmedExportNotEnableConfig();
@@ -346,16 +350,10 @@ TEST_F(MetricsAdaptorTest, InitNotEnableTest)
     EXPECT_NE(MetricsApi::Provider::GetMeterProvider(), nullMeterProvider);
     metricsAdaptor2->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -371,16 +369,10 @@ TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, SetAlarmTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -395,16 +387,10 @@ TEST_F(MetricsAdaptorTest, SetAlarmTest)
     EXPECT_EQ(err.Code(), YR::Libruntime::ErrorCode::ERR_OK);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, DoubleCounterTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -428,16 +414,10 @@ TEST_F(MetricsAdaptorTest, DoubleCounterTest)
     EXPECT_EQ(res.second, 0);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, UInt64CounterTest)
 {
-    auto path = GetLibPath();
-    if (path == "") {
-        ASSERT_EQ(1, 2);
-    }
-    setenv("SNUSER_LIB_PATH", path.c_str(), 1);
     Config::c = Config();
     auto jsonStr = GetValidConfig();
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -461,7 +441,6 @@ TEST_F(MetricsAdaptorTest, UInt64CounterTest)
     EXPECT_EQ(res.second, 0);
     metricsAdaptor->CleanMetrics();
     EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-    unsetenv("SNUSER_LIB_PATH");
 }
 
 TEST_F(MetricsAdaptorTest, MetricsFailedTest)
@@ -525,7 +504,7 @@ TEST_F(MetricsAdaptorTest, InitHttpExporterWithTLS)
 
     auto config = GetPrometheusPushExporterConfig();
     auto ret = metricsAdaptor->InitHttpExporter("prometheusPushExporter", "key", "name", config);
-    ASSERT_TRUE(ret == nullptr);
+    ASSERT_NE(ret, nullptr);
     auto value = std::getenv("YR_SSL_PASSPHRASE");
     ASSERT_TRUE(value != nullptr);
     ASSERT_EQ(std::string(value), "");

@@ -20,6 +20,7 @@ package routers
 import (
 	"github.com/gin-gonic/gin"
 
+    "yuanrong.org/kernel/pkg/common/job"
 	"yuanrong.org/kernel/pkg/dashboard/flags"
 	"yuanrong.org/kernel/pkg/dashboard/handlers"
 	"yuanrong.org/kernel/pkg/dashboard/logmanager"
@@ -82,6 +83,15 @@ func SetRouter() *gin.Engine {
 		rayServeGroup.PUT(serveAppPath, handlers.ServePutHandler)
 		rayServeGroup.DELETE(serveAppPath, handlers.ServeDelHandler)
 	}
+
+    jobGroup := r.Group(job.PathGroupJobs)
+    {
+        jobGroup.POST("", handlers.SubmitJobHandler)
+        jobGroup.GET("", handlers.ListJobsHandler)
+        jobGroup.GET(job.PathGetJobs, handlers.GetJobInfoHandler)
+        jobGroup.DELETE(job.PathDeleteJobs, handlers.DeleteJobHandler)
+        jobGroup.POST(job.PathStopJobs, handlers.StopJobHandler)
+    }
 
 	apiGroup := r.Group(apiPath)
 	{

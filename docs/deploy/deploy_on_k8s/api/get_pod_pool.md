@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-K8s 上部署openYuanrong集群时，查询已创建的 pod 资源池。
+K8s 上部署 openYuanrong 集群时，查询已创建的 pod 资源池。
 
 ## URI
 
@@ -142,4 +142,4 @@ GET {[meta service endpoint](api-meta-service-endpoint)}/serverless/v1/podpools?
 
 ## 错误码
 
-请参见[错误码](../../../../multi_language_function_programming_interface/api/error_code.md)。
+请参见[错误码](error-code-rest-api)。

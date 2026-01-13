@@ -2,7 +2,7 @@
 
 ## 功能介绍
 
-创建 pod 资源池用于在 K8s 上部署openYuanrong集群时运行函数。该接口为异步接口，创建完成后，您可通过[查询接口](get_pod_pool.md)获取 Pod 资源池的状态。
+创建 pod 资源池用于在 K8s 上部署 openYuanrong 集群时运行函数。该接口为异步接口，创建完成后，您可通过[查询接口](get_pod_pool.md)获取 Pod 资源池的状态。
 
 ## 接口约束
 
@@ -163,4 +163,4 @@ POST {[meta service endpoint](api-meta-service-endpoint)}/serverless/v1/podpools
 
 ## 错误码
 
-请参见[错误码](../../../../multi_language_function_programming_interface/api/error_code.md)。
+请参见[错误码](error-code-rest-api)。

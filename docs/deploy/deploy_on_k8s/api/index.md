@@ -1,6 +1,6 @@
 # 资源池管理 API
 
-章节描述了openYuanrong资源池管理相关接口。
+本节介绍 openYuanrong 资源池管理相关接口。
 
 ```{eval-rst}
 .. toctree::

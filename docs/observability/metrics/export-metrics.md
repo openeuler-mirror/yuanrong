@@ -55,50 +55,22 @@ openYuanrong 支持文件导出器（fileExporter）和 [Prometheus](https://pro
 
 ### 配置示例
 
-以下是指标配置文件示例。
+以下是两个指标配置文件示例。
  
 - 配置立即上报和批量上报两种导出模式，使用文件导出器导出指标。
 
-```json
-{
-  "backends": [
-    {
-      "immediatelyExport": {
-        "name": "your name",
-        "enable": true,
-        "exporters": [{
-          "fileExporter": {
-            "enable": true,
-            "enabledInstruments": ["yr_alarm"],
-            "failureQueueMaxSize": 1000,
-            "failureDataDir": "/home/sn/metrics/failure",
-            "failureDataFileMaxCapacity": 20,
-            "initConfig": {
-              "fileDir": "/home/sn/metrics/file",
-              "rolling": {
-                "enable": true,
-                "maxFiles": 3,
-                "maxSize": 100,
-                "compress": false
-              },
-              "contentType": "STANDARD"
-            }
-          }
-        }]
-      }
-    },
-    {
-      "batchExport": {
-        "name": "your name",
-        "enable": true,
-        "exporters": [
-          {
+  ```json
+  {
+    "backends": [
+      {
+        "immediatelyExport": {
+          "name": "your name",
+          "enable": true,
+          "exporters": [{
             "fileExporter": {
               "enable": true,
-              "enabledInstruments": ["yr_app_instance_billing_invoke_latency"],
-              "batchSize": 2,
-              "batchIntervalSec": 10,
-              "failureQueueMaxSize": 3,
+              "enabledInstruments": ["yr_alarm"],
+              "failureQueueMaxSize": 1000,
               "failureDataDir": "/home/sn/metrics/failure",
               "failureDataFileMaxCapacity": 20,
               "initConfig": {
@@ -112,47 +84,75 @@ openYuanrong 支持文件导出器（fileExporter）和 [Prometheus](https://pro
                 "contentType": "STANDARD"
               }
             }
-          }
-        ]
+          }]
+        }
+      },
+      {
+        "batchExport": {
+          "name": "your name",
+          "enable": true,
+          "exporters": [
+            {
+              "fileExporter": {
+                "enable": true,
+                "enabledInstruments": ["yr_app_instance_billing_invoke_latency"],
+                "batchSize": 2,
+                "batchIntervalSec": 10,
+                "failureQueueMaxSize": 3,
+                "failureDataDir": "/home/sn/metrics/failure",
+                "failureDataFileMaxCapacity": 20,
+                "initConfig": {
+                  "fileDir": "/home/sn/metrics/file",
+                  "rolling": {
+                    "enable": true,
+                    "maxFiles": 3,
+                    "maxSize": 100,
+                    "compress": false
+                  },
+                  "contentType": "STANDARD"
+                }
+              }
+            }
+          ]
+        }
       }
-    }
-  ]
-}
-```
+    ]
+  }
+  ```
 
 - 配置批量上导出模式，使用 prometheus 导出器导出指标。
 
-```json
-{
-  "backends": [
-    {
-      "batchExport": {
-        "name": "your name",
-        "enable": true,
-        "exporters": [
-          {
-            "prometheusPushExporter": {
-              "enable": true,
-              "enabledInstruments": ["yr_node_cpu_usage","yr_node_memory_usage","yr_etcd_alarm"],
-              "batchSize": 10,
-              "batchIntervalSec": 5,
-              "failureQueueMaxSize": 100,
-              "failureDataDir": "/home/sn/metrics/failure",
-              "failureDataFileMaxCapacity": 20,
-              "initConfig": {
-                "ip": "your prometheus pushgateway ip",
-                "port": 9091,
-                "heartbeatUrl": "/healthy",
-                "heartbeatInterval": 5000
+  ```json
+  {
+    "backends": [
+      {
+        "batchExport": {
+          "name": "your name",
+          "enable": true,
+          "exporters": [
+            {
+              "prometheusPushExporter": {
+                "enable": true,
+                "enabledInstruments": ["yr_node_cpu_usage","yr_node_memory_usage","yr_etcd_alarm"],
+                "batchSize": 10,
+                "batchIntervalSec": 5,
+                "failureQueueMaxSize": 100,
+                "failureDataDir": "/home/sn/metrics/failure",
+                "failureDataFileMaxCapacity": 20,
+                "initConfig": {
+                  "ip": "your prometheus pushgateway ip",
+                  "port": 9091,
+                  "heartbeatUrl": "/healthy",
+                  "heartbeatInterval": 5000
+                }
               }
             }
-          }
-        ]
+          ]
+        }
       }
-    }
-  ]
-}
-```
+    ]
+  }
+  ```
 
 ## 获取导出的指标数据
 

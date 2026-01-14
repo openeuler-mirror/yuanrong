@@ -64,7 +64,8 @@ def test_task_invoke_with_nested_ref(init_yr):
         sys.stdout.flush()
         return sum(yr.get(args))
 
-    ref = dis_sum.invoke([get_num.invoke(1), get_num.invoke(2), get_num.invoke(3)])
+    ref = dis_sum.invoke(
+        [get_num.invoke(1), get_num.invoke(2), get_num.invoke(3)])
     num = yr.get(ref, 30)
     assert num == 6
 
@@ -234,7 +235,8 @@ def test_actor_with_pass_to_runtime(init_yr):
 
     @yr.invoke
     def func(c):
-        res = yr.get(c.add.invoke()) + yr.get(c.sa.invoke(10)) + yr.get(c.ca.invoke(10))
+        res = yr.get(c.add.invoke()) + yr.get(c.sa.invoke(10)) + \
+            yr.get(c.ca.invoke(10))
         return res
 
     counter = Counter.invoke()
@@ -487,15 +489,19 @@ def test_invoke_inconsistent_return_values(init_yr):
 @pytest.mark.smoke
 def test_kv_write_and_get_with_new_arguments_success(init_yr):
     # Test ExistenceOpt
-    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE, yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
+    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE,
+                yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
     assert yr.kv_read("key1") == b"value1"
-    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE, yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
+    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE,
+                yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
     with pytest.raises(RuntimeError):
-        yr.kv_write("key1", b"value1", yr.ExistenceOpt.NX, yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
+        yr.kv_write("key1", b"value1", yr.ExistenceOpt.NX,
+                    yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
     yr.kv_del("key1")
 
     # Test ttl_second
-    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE, yr.WriteMode.NONE_L2_CACHE_EVICT, 1)
+    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE,
+                yr.WriteMode.NONE_L2_CACHE_EVICT, 1)
     assert yr.kv_read("key1") == b"value1"
     time.sleep(1.5)
     with pytest.raises(RuntimeError):
@@ -602,7 +608,8 @@ def test_custom_envs_config(init_yr_config):
 
 @pytest.mark.smoke
 def test_invoke_cpp_task(init_yr):
-    cppf = yr.cpp_function("PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+    cppf = yr.cpp_function(
+        "PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
     opt = yr.InvokeOptions()
     res = cppf.options(opt).invoke(10)
     cppres = yr.get(res)
@@ -612,7 +619,8 @@ def test_invoke_cpp_task(init_yr):
 @pytest.mark.smoke
 def test_invoke_cpp_task_with_ref(init_yr):
     obj = yr.put(10)
-    cppf = yr.cpp_function("PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
+    cppf = yr.cpp_function(
+        "PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
     opt = yr.InvokeOptions()
     res = cppf.options(opt).invoke(obj)
     cppres = yr.get(res)
@@ -623,7 +631,8 @@ def test_invoke_cpp_task_with_ref(init_yr):
 def test_invoke_cpp_actor(init_yr):
     opt = yr.InvokeOptions()
     cpp_function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest"
-    cpp_ins = yr.cpp_instance_class("Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
+    cpp_ins = yr.cpp_instance_class(
+        "Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
     add_res = cpp_ins.Add.invoke(10)
     assert yr.get(add_res) == 11
 
@@ -633,7 +642,8 @@ def test_invoke_cpp_actor_with_ref(init_yr):
     obj = yr.put(10)
     opt = yr.InvokeOptions()
     cpp_function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest"
-    cpp_ins = yr.cpp_instance_class("Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
+    cpp_ins = yr.cpp_instance_class(
+        "Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
     add_res = cpp_ins.Add.invoke(obj)
     assert yr.get(add_res) == 11
 
@@ -967,7 +977,8 @@ def test_handle_resource_group(init_yr):
     @yr.invoke
     def get_num(x):
         return x
-    rg = yr.create_resource_group([{"CPU": 1000, "Memory": 1000}, {"NPU": 1}, {"CPU": 500, "NPU": 0}], "rgname1")
+    rg = yr.create_resource_group([{"CPU": 1000, "Memory": 1000}, {"NPU": 1}, {
+                                  "CPU": 500, "NPU": 0}], "rgname1")
     rg.wait(10)
     rgp = yr.ResourceGroupOptions()
     rgp.resource_group_name = "rgname1"
@@ -978,14 +989,31 @@ def test_handle_resource_group(init_yr):
     results = [get_num.invoke(6) for i in range(1)]
     assert yr.get(results[0]) == 6
     yr.remove_resource_group("rgname1")
- 
- 
+
+
 @pytest.mark.smoke
 def test_task_invoke_with_return_small_and_big_obj(init_yr):
     @yr.invoke(return_nums=2)
     def func_returns():
         return 1, b"1" * 1024 * 20000
- 
+
     obj_ref1, obj_ref2 = func_returns.invoke()
     time.sleep(1)
     assert yr.get([obj_ref1, obj_ref2]) == [1, b"1" * 1024 * 20000]
+
+
+@pytest.mark.smoke
+def test_task_in_resource_group(init_yr):
+    @yr.invoke
+    def get_num(x):
+        return x
+    rg = yr.create_resource_group(
+        [{"CPU": 1000, "Memory": 1000}], "rgname1")
+    rg.wait(10)
+    rgp = yr.ResourceGroupOptions()
+    rgp.resource_group_name = "rgname1"
+    opts = yr.InvokeOptions()
+    opts.resource_group_options = rgp
+    results = [get_num.invoke(6) for i in range(1)]
+    assert yr.get(results[0]) == 6
+    yr.remove_resource_group("rgname1")

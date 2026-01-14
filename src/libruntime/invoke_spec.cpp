@@ -192,7 +192,6 @@ void InvokeSpec::BuildRequestPbScheduleOptions(InvokeOptions &opts, const Librun
     }
     if (ResourceGroupEnabled(opts.resourceGroupOpts)) {
         schedulingOps->set_rgroupname(opts.resourceGroupOpts.resourceGroupName);
-        this->opts.envVars["RG_NAME"] = opts.resourceGroupOpts.resourceGroupName;
     }
     static std::unordered_map<std::string, core_service::AffinityType> affinityMap = {
         {"PreferredAffinity", core_service::AffinityType::PreferredAffinity},
@@ -278,6 +277,9 @@ void InvokeSpec::BuildRequestPbCreateOptions(InvokeOptions &opts, const Librunti
         for (auto &pair : opts.envVars) {
             envsJson[pair.first] = pair.second;
         }
+    }
+    if (ResourceGroupEnabled(opts.resourceGroupOpts)) {
+        envsJson["RG_NAME"] = opts.resourceGroupOpts.resourceGroupName;
     }
     try {
         createOptions->insert({DELEGATE_ENV_VAR, envsJson.dump()});
@@ -501,7 +503,7 @@ bool RequestResource::operator==(const RequestResource &r) const
     if (r.opts.envVars.size() != opts.envVars.size()) {
         return false;
     }
-    for (const auto &envPair: r.opts.envVars) {
+    for (const auto &envPair : r.opts.envVars) {
         const auto &key = envPair.first;
         const auto &value = envPair.second;
         auto it = opts.envVars.find(key);
@@ -511,10 +513,9 @@ bool RequestResource::operator==(const RequestResource &r) const
     }
     return (functionMeta.languageType == r.functionMeta.languageType) &&
            (functionMeta.functionId == r.functionMeta.functionId) && (opts.cpu == r.opts.cpu) &&
-           (opts.memory == r.opts.memory) &&
-           (concurrency == r.concurrency &&
-            opts.resourceGroupOpts.resourceGroupName == r.opts.resourceGroupOpts.resourceGroupName) &&
-           affinityHash == 0;
+           (opts.memory == r.opts.memory) && (concurrency == r.concurrency) &&
+           (opts.resourceGroupOpts.resourceGroupName == r.opts.resourceGroupOpts.resourceGroupName) &&
+           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) && (affinityHash == 0);
 }
 
 std::size_t FaasInfoForBatchRenewFn::operator()(const FaasInfoForBatchRenew &i) const
@@ -562,12 +563,13 @@ std::size_t HashFn::operator()(const RequestResource &r) const
         std::size_t h11 = std::hash<int>()(r.opts.instanceSession->sessionTTL);
         result = result ^ h10 ^ h11;
     }
-    for (const auto &envPair: r.opts.envVars) {
+    for (const auto &envPair : r.opts.envVars) {
         std::size_t h12 = std::hash<std::string>()(envPair.first);
         std::size_t h13 = std::hash<std::string>()(envPair.second);
         result = result ^ h12 ^ h13;
     }
     result = result ^ std::hash<DebugConfig>()(r.opts.debug);
+    result = result ^ std::hash<ResourceGroupOptions>()(r.opts.resourceGroupOpts);
     return result;
 }
 }  // namespace Libruntime

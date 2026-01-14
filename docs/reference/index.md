@@ -4,6 +4,7 @@
 .. toctree::
   :hidden:
 
+  development-tools.md
   glossary.md
   releases.md
 ```

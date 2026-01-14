@@ -230,6 +230,7 @@ def get_name_from_info(function_info):
     else:
         return f"{name}:{version}"
 
+
 def build_function_name(function_name, version="latest"):
     if len(function_name.split(":")) == 1:
         function_name = f"{function_name}:{version}"
@@ -350,20 +351,20 @@ def publish_function(function_name, publish_json, user=None):
 def install_requirements(requirements_file, target_dir):
     """
     Install Python dependencies from requirements file to target directory.
-    
+
     Args:
         requirements_file: Path to requirements.txt file
         target_dir: Target directory to install dependencies
-    
+
     Returns:
         True if successful, False otherwise
     """
     if not os.path.exists(requirements_file):
         print(f"Requirements file not found: {requirements_file}")
         return False
-    
+
     print(f"Installing dependencies from {requirements_file} to {target_dir}...")
-    
+
     try:
         result = subprocess.run(
             [
@@ -375,19 +376,19 @@ def install_requirements(requirements_file, target_dir):
                 requirements_file,
                 "-t",
                 target_dir,
-                "--no-warn-script-location"
+                "--no-warn-script-location",
             ],
             capture_output=True,
-            text=True
+            text=True,
         )
-        
+
         if result.returncode != 0:
             print(f"Failed to install dependencies: {result.stderr}")
             return False
-        
+
         print(f"Successfully installed dependencies to {target_dir}")
         return True
-        
+
     except Exception as e:
         print(f"Error installing dependencies: {str(e)}")
         return False
@@ -541,11 +542,20 @@ def cli(
 @click.option("--function-json", required=False, type=str, default=None)
 @click.option("--skip-package", required=False, type=bool, default=False)
 @click.option("--update", required=False, is_flag=True, default=False)
-@click.option("-r", "--requirements", required=False, type=str, default=None, help="Path to requirements.txt file for installing dependencies")
-def deploy(backend, code_path, format, function_json, skip_package, update, requirements):
+@click.option(
+    "-r",
+    "--requirements",
+    required=False,
+    type=str,
+    default=None,
+    help="Path to requirements.txt file for installing dependencies",
+)
+def deploy(
+    backend, code_path, format, function_json, skip_package, update, requirements
+):
     if function_json:
         with open(function_json, "r") as f:
-            function_json = json.load(f)    
+            function_json = json.load(f)
     # Install dependencies if requirements file is provided
     if requirements and not skip_package:
         real_code_path = os.path.realpath(code_path)
@@ -710,7 +720,14 @@ def invoke(function_name, payload):
         print(f"failed to invoke function: {resp['error']}")
 
 
-@cli.command("deploy-faas-language", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True, allow_interspersed_args=False))
+@cli.command(
+    "deploy-faas-language",
+    context_settings=dict(
+        ignore_unknown_options=True,
+        allow_extra_args=True,
+        allow_interspersed_args=False,
+    ),
+)
 @click.option(
     "--runtime",
     required=False,
@@ -718,7 +735,13 @@ def invoke(function_name, payload):
     help="Runtime language version",
 )
 @click.option("--no-rootfs", is_flag=True, default=False, help="Deploy without rootfs")
-@click.option("--function-json", required=False, type=str, default=None, help="Path to function JSON file")
+@click.option(
+    "--function-json",
+    required=False,
+    type=str,
+    default=None,
+    help="Path to function JSON file",
+)
 @click.pass_context
 def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
     """Deploy a FaaS language runtime executor function
@@ -765,7 +788,7 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
                 "init": "faas_executor.faasInitHandler",
                 "recover": "faas_executor.faasRecoverHandler",
                 "shutdown": "faas_executor.faasShutDownHandler",
-                "signal": "faas_executor.faasSignalHandler"
+                "signal": "faas_executor.faasSignalHandler",
             },
             "warmup": "seed",
             "rootfs": {
@@ -777,9 +800,9 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
                 "storageInfo": {
                     "endpoint": "cn-hangzhou.alipay.aliyun-inc.com",
                     "bucket": "crfs-dev",
-                    "object": f"rootfs.img"
-                }
-            }
+                    "object": f"rootfs.img",
+                },
+            },
         }
 
     # Apply overrides from command line arguments using dot notation
@@ -848,6 +871,67 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
         else:
             print(f"Failed to deploy FaaS language runtime function: {ret[1]}")
             sys.exit(1)
+
+
+@cli.command("run-spark")
+@click.option(
+    "--script",
+    required=True,
+    type=str,
+    help="Path to the Python script to run with Spark",
+)
+@click.option(
+    "--args",
+    required=False,
+    type=str,
+    default="",
+    help="Arguments to pass to the Spark job",
+)
+def run_spark(script, args):
+    """Run a Python script with Spark job
+
+    Example:
+        yrcli run-spark --script /path/to/script.py
+        yrcli run-spark --script /path/to/script.py --args "arg1 arg2 arg3"
+    """
+    # Validate script path
+    if not os.path.exists(script):
+        print(f"Error: Script file not found: {script}")
+        sys.exit(1)
+
+    # Get absolute path
+    script_path = os.path.abspath(script)
+    # Build Java command
+    cmd = [
+        "java",
+        "-cp",
+        "spark-job.jar",
+        f"-Dentry.point.path={script_path}",
+    ]
+    
+    if args:
+        cmd.append(f"-Dargs={args}")
+    
+    cmd.append("com.SparkJobExample")
+
+    print(f"Running Spark job with script: {script_path}")
+    print(f"Command: {' '.join(cmd)}")
+
+    try:
+        # Execute the Java command with stdout/stderr redirected to terminal
+        result = subprocess.run(cmd)
+
+        # Check return code
+        if result.returncode != 0:
+            print(f"\nSpark job failed with exit code: {result.returncode}")
+            sys.exit(result.returncode)
+
+    except FileNotFoundError:
+        print("Error: Java command not found. Make sure Java is installed and in PATH.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error executing Spark job: {str(e)}")
+        sys.exit(1)
 
 
 def main():

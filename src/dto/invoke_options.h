@@ -75,7 +75,7 @@ struct FaasInvokeData {
           functionName(funcName),
           aliAs(inputAliAs),
           traceId(inputTraceId),
-          submitTime(inputSubmitTime){};
+          submitTime(inputSubmitTime) {};
     std::string businessId;
     std::string tenantId;
     std::string srcAppId;
@@ -260,3 +260,14 @@ struct Credential {
 };
 }  // namespace Libruntime
 }  // namespace YR
+
+namespace std {
+template <>
+class hash<YR::Libruntime::ResourceGroupOptions> {
+public:
+    size_t operator()(const YR::Libruntime::ResourceGroupOptions &d) const
+    {
+        return std::hash<std::string>()(d.resourceGroupName) ^ std::hash<int>()(d.bundleIndex);
+    }
+};
+}  // namespace std

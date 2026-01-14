@@ -371,7 +371,7 @@ public class Utils {
     public static String getEnvWithDefualtValue(String envKey, String defaultValue, String logPrefix) {
         String value = System.getenv(envKey);
         if (value == null || value.isEmpty()) {
-            LOGGER.warn("{}Failed to read the value of environment key ({}), value is {}. Use default value: ({}: {}).",
+            LOGGER.debug("{}Failed to read the value of environment key ({}), value is {}. Use default value: ({}: {}).",
                     logPrefix, envKey, value == null ? "null" : "empty string", envKey, defaultValue);
             return defaultValue;
         }

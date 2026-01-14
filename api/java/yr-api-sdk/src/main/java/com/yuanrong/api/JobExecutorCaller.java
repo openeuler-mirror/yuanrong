@@ -41,6 +41,11 @@ import com.yuanrong.storage.InternalWaitResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -129,6 +134,43 @@ public class JobExecutorCaller {
         // no record is found when the 'listjobs()' is invoked.
         getJobInfoCache().put(userJobID, new YRJobInfo());
         return userJobID;
+    }
+
+    public static String submitJob(YRJobParam yrJobParam, ObjectRef entryPointObjRef, String pathStr) throws YRException {
+        byte[] data = (byte[]) YR.getRuntime().get(entryPointObjRef, DEFAULT_JOB_EXECUTOR_INVOKE_TIMEOUT_MS);
+        if (!saveBytesToFile(data, pathStr)) {
+            throw new YRException(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME,
+                    "failed to load entryPoint file");
+        }
+        return submitJob(yrJobParam);
+    }
+
+    public static boolean saveBytesToFile(byte[] data, String outputPath) {
+        if (data == null) {
+            LOGGER.warn("entryPoint data is null");
+            return false;
+        }
+        if (outputPath == null || outputPath.trim().isEmpty()) {
+            LOGGER.warn("outputPath is empty");
+            return false;
+        }
+        try {
+            Path path = Paths.get(outputPath);
+            Path parent = path.getParent();
+            if (parent != null && !Files.exists(parent)) {
+                Files.createDirectories(parent);
+            }
+            // 写入文件
+            Files.write(path, data);
+            LOGGER.info("File saved successfully: " + outputPath);
+            return true;
+        } catch (InvalidPathException e) {
+            LOGGER.warn("Invalid output path: " + outputPath);
+            return false;
+        } catch (IOException e) {
+            LOGGER.warn("Failed to save the file: " + e.getMessage());
+            return false;
+        }
     }
 
     /**

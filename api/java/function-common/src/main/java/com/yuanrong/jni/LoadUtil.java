@@ -120,7 +120,7 @@ public class LoadUtil {
             System.loadLibrary(LIBRARY_TO_LOAD);
             return true;
         } catch (UnsatisfiedLinkError err) {
-            LOGGER.info("Error loading native library: {}, exception msg: {}, start to load lib from sdk jar.",
+            LOGGER.debug("Error loading native library: {}, exception msg: {}, start to load lib from sdk jar.",
                     LIBRARY_TO_LOAD, err.getMessage());
             return false;
         }

@@ -427,9 +427,9 @@ def package(backend, code_path, format):
     return real_code_path, package_key
 
 
-def invoke_function(function_name, payload, user=None):
+def invoke_function(function_name, payload, user=None, timeout=30):
     http_client = HTTPClient(
-        timeout=30,
+        timeout=timeout,
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
@@ -707,13 +707,14 @@ def download(package):
 @cli.command
 @click.option("-f", "--function-name", required=True, type=str, default=None)
 @click.option("--payload", required=False, type=str, default=None)
-def invoke(function_name, payload):
+@click.option("--timeout", required=False, type=int, default=30)
+def invoke(function_name, payload, timeout):
     function_name = build_function_name(function_name)
     if payload:
         payload_dict = json.loads(payload)
     else:
         payload_dict = {}
-    ret, resp = invoke_function(function_name, payload_dict, __user)
+    ret, resp = invoke_function(function_name, payload_dict, __user, timeout)
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
@@ -721,7 +722,7 @@ def invoke(function_name, payload):
 
 
 @cli.command(
-    "deploy-faas-language",
+    "deploy-language-rt",
     context_settings=dict(
         ignore_unknown_options=True,
         allow_extra_args=True,
@@ -747,8 +748,8 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
     """Deploy a FaaS language runtime executor function
 
     You can override any JSON field using dot notation, for example:
-    yrcli deploy-faas-language --runtime python3.11 --cpu=1000 --memory=1024 --rootfs.storageInfo.accessKey=mykey
-    yrcli deploy-faas-language --runtime python3.11 --rootfs.storageInfo.object=rootfs_python3.11.img
+    yrcli deploy-language-rt --runtime python3.11 --cpu=1000 --memory=1024 --rootfs.storageInfo.accessKey=mykey
+    yrcli deploy-language-rt --runtime python3.11 --rootfs.storageInfo.object=rootfs_python3.11.img
     Or provide a function JSON file directly with --function-json
     """
 
@@ -908,10 +909,10 @@ def run_spark(script, args):
         "spark-job.jar",
         f"-Dentry.point.path={script_path}",
     ]
-    
+
     if args:
         cmd.append(f"-Dargs={args}")
-    
+
     cmd.append("com.SparkJobExample")
 
     print(f"Running Spark job with script: {script_path}")

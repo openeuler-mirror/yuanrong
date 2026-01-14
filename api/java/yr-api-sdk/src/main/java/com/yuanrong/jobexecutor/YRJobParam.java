@@ -60,12 +60,17 @@ public class YRJobParam {
     /**
      * The default CPU value for the JobExecutor runtime.
      */
-    private static final int DEFUALT_CPU_NUM = 500;
+    private static final int DEFAULT_CPU_NUM = 500;
 
     /**
      * The default memory value for the JobExecutor runtime.
      */
-    private static final int DEFUALT_MEM_NUM = 500;
+    private static final int DEFAULT_MEM_NUM = 500;
+
+    /**
+     * The default concurrency value for the JobExecutor runtime.
+     */
+    private static final String DEFAULT_CONCURRENCY = "100";
 
     /**
      * The maximum value of memory for the JobExecutor runtime.
@@ -95,8 +100,8 @@ public class YRJobParam {
     private RuntimeEnv runtimeEnv = new RuntimeEnv();
     private OBSoptions obsOptions;
     private String localCodePath;
-    private int cpu = DEFUALT_CPU_NUM;
-    private int memory = DEFUALT_MEM_NUM;
+    private int cpu = DEFAULT_CPU_NUM;
+    private int memory = DEFAULT_MEM_NUM;
     private List<Affinity> scheduleAffinities = new ArrayList<Affinity>();
     private boolean preferredPriority = true;
     private boolean requiredPriority = false;
@@ -209,6 +214,16 @@ public class YRJobParam {
     }
 
     /**
+     * Adds the given CustomExtensions.
+     *
+     * @param key the key of CustomExtensions.
+     * @param value the value of customExtensions.
+     */
+    public void addCustomExtensions(String key, String value) {
+        this.customExtensions.put(key, value);
+    }
+
+    /**
      * Sets the preferred priority.
      *
      * @param isPreferred the boolean value indicating the preferred priority.
@@ -284,7 +299,10 @@ public class YRJobParam {
         if (!runtimeEnvStr.isEmpty()) {
             this.customExtensions.put(Constants.POST_START_EXEC, runtimeEnvStr);
         }
-
+        // sets default Concurrency
+        if (!this.customExtensions.containsKey(Constants.CONCURRENCY)) {
+            this.customExtensions.put(Constants.CONCURRENCY, DEFAULT_CONCURRENCY);
+        }
         // sets OBS options to invokeOptions
         if (this.obsOptions == null && this.localCodePath == null) {
             throw new YRException(ErrorCode.ERR_JOB_USER_CODE_EXCEPTION, ModuleCode.RUNTIME,

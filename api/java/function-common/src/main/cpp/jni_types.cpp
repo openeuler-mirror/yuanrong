@@ -2043,11 +2043,9 @@ YR::Libruntime::CreateParam JNICreateParam::FromJava(JNIEnv *env, jobject o)
 {
     YR::Libruntime::CreateParam createParam{};
     RETURN_IF_NULL(o, createParam);
-
-    return YR::Libruntime::CreateParam{
-        .consistencyType = GetConsistencyType(env, o),
-        .cacheType = GetCacheType(env, o),
-    };
+    createParam.consistencyType = GetConsistencyType(env, o);
+    createParam.cacheType = GetCacheType(env, o);
+    return createParam;
 }
 
 void JNICreateParam::Recycle(JNIEnv *env)

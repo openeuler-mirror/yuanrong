@@ -19,6 +19,7 @@
 #include <string>
 
 namespace Function {
+    
 /*! @enum ErrorCode Constant.h "include/faas/Constant.h"
  *  @brief Error codes for runtime and user handler operations.
  */
@@ -79,9 +80,12 @@ enum ErrorCode {
      */
     INTERNAL_ERROR = 110500,
 };
+
+// no exposed
 // UserErrorMax is the maximum value of user errors
 const int USER_ERROR_MAX = 10000;
 
+// no exposed
 const std::string SUCCESS_RESPONSE = "OK";
 const std::string ILLEGAL_ACCESS_MESSAGE = "function entry cannot be found";
 const std::string FUNCTION_EXCEPTION_MESSAGE = "function invocation exception: ";
@@ -89,6 +93,7 @@ const std::string USER_STATE_LARGE_ERROR_MESSAGE = "state content is too large";
 const std::string ILLEGAL_RETURN_MESSAGE = "function return value is too large";
 const std::string USER_STATE_UNDEFINED_ERROR_MESSAGE = "state is undefined";
 
+// no exposed
 const std::string INTERNAL_ERROR_MESSAGE = "internal system error";
 const uint32_t MAX_USER_EXCEPTION_LENGTH = 1024;
 const uint32_t MAX_USER_STATE_LENGTH = 3584 * 1024;

@@ -67,6 +67,7 @@ public:
      */
     explicit Function(Context &context, const std::string &funcName);
 
+    // no exposed
     explicit Function(Context &context, const std::string &funcName, const std::string &instanceName);
 
     /*!
@@ -105,14 +106,18 @@ public:
      */
     const std::string GetObjectRef(ObjectRef &objectRef);
 
+    // no exposed
     void GetInstance(const std::string &functionName, const std::string &instanceName);
 
+    // no exposed
     void GetLocalInstance(const std::string &functionName, const std::string &instanceName);
 
+    // no exposed
     ObjectRef Terminate();
 
+    // no exposed
     void SaveState();
-    
+
     /*!
      * @brief Get the configured Context parameters.
      * @return The Configured Context.
@@ -120,6 +125,7 @@ public:
      */
     const std::shared_ptr<Context> GetContext() const;
 
+    // no exposed
     std::string GetInstanceId() const;
 
 private:

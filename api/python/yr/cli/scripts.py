@@ -906,7 +906,7 @@ def run_spark(script, args):
     cmd = [
         "java",
         "-cp",
-        "spark-job.jar",
+        "/home/yuanrong/sparkjob/spark-job.jar",
         f"-Dentry.point.path={script_path}",
     ]
 

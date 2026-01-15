@@ -37,16 +37,22 @@ public:
      */
     virtual ~Context() = default;
 
+    // no exposed
     virtual const std::string GetAccessKey() const = 0;
 
+    // no exposed
     virtual const std::string GetSecretKey() const = 0;
 
+    // no exposed
     virtual const std::string GetSecurityAccessKey() const = 0;
 
+    // no exposed
     virtual const std::string GetSecuritySecretKey() const = 0;
 
+    // no exposed
     virtual const std::string GetToken() const = 0;
 
+    // no exposed
     virtual const std::string GetAlias() const = 0;
 
     /*!
@@ -67,8 +73,10 @@ public:
      */
     virtual const FunctionLogger &GetLogger() = 0;
 
+    // no exposed
     virtual const std::string GetState() const = 0;
 
+    // no exposed
     virtual const std::string GetInstanceId() const = 0;
 
     /*!
@@ -77,8 +85,10 @@ public:
      */
     virtual const std::string GetInstanceLabel() const = 0;
 
+    // no exposed
     virtual void SetState(const std::string &state) = 0;
 
+    // no exposed
     virtual const std::string GetInvokeProperty() const = 0;
 
     /*!
@@ -100,8 +110,10 @@ public:
      */
     virtual const std::string GetFunctionName() const = 0;
 
+    // no exposed
     virtual int GetRemainingTimeInMilliSeconds() const = 0;
 
+    // no exposed
     virtual int GetRunningTimeInSeconds() const = 0;
 
     /*!

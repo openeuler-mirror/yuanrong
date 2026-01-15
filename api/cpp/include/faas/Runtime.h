@@ -51,13 +51,13 @@ public:
 
     /*!
      * @brief Register an initial handler function to the yuanrong cpp runtime.
-     * @param handleRequestFunc The user-defined initial handler to be registered.
+     * @param initializerFunc The user-defined initial handler to be registered.
      */
     void RegisterInitializerFunction(std::function<void(Function::Context &context)> initializerFunc);
 
     /*!
      * @brief Register a prestop handler function to the cpp yuanrong runtime.
-     * @param handleRequestFunc The user-defined prestop handler to be registered.
+     * @param preStopFunc The user-defined prestop handler to be registered.
      */
     void RegisterPreStopFunction(std::function<void(Function::Context &context)> preStopFunc);
 

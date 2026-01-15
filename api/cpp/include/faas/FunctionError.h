@@ -36,7 +36,7 @@ public:
     
     FunctionError(int code, const std::string message) : errCode((ErrorCode)code), errMsg(message) {}
     /*!
-    * @brief default destructor.
+    * @brief The default destructor.
      */
     virtual ~FunctionError() = default;
 

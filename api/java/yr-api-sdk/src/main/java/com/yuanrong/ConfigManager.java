@@ -77,6 +77,7 @@ public class ConfigManager {
     private String dsPublicKeyContextPath = "";
     private String runtimePublicKeyContextPath = "";
     private String runtimePrivateKeyContextPath = "";
+    private boolean enableFrontendTLS;
 
     private static class ConfigManagerHolder {
         static final ConcurrentHashMap<String, ConfigManager> INSTANCE_CACHE = new ConcurrentHashMap<>();
@@ -139,5 +140,6 @@ public class ConfigManager {
         this.dsPublicKeyContextPath = config.getDsPublicKeyContextPath();
         this.runtimePublicKeyContextPath = config.getRuntimePublicKeyContextPath();
         this.runtimePrivateKeyContextPath = config.getRuntimePrivateKeyContextPath();
+        this.enableFrontendTLS = config.isEnableFrontendTLS();
     }
 }

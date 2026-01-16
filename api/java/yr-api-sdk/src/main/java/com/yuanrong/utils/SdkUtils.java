@@ -210,6 +210,7 @@ public class SdkUtils {
         libConfig.setDsPublicKeyContextPath(configManager.getDsPublicKeyContextPath());
         libConfig.setRuntimePublicKeyContextPath(configManager.getRuntimePublicKeyContextPath());
         libConfig.setRuntimePrivateKeyContextPath(configManager.getRuntimePrivateKeyContextPath());
+        libConfig.setEnableFrontendTLS(configManager.isEnableFrontendTLS());
         return libConfig;
     }
 

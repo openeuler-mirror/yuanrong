@@ -73,4 +73,5 @@ public class LibRuntimeConfig {
     private String dsPublicKeyContextPath = "";
     private String runtimePublicKeyContextPath = "";
     private String runtimePrivateKeyContextPath = "";
+    private boolean enableFrontendTLS;
 }

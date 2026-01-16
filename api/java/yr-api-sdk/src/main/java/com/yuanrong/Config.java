@@ -261,6 +261,7 @@ public class Config {
     private String dsPublicKeyContextPath = "";
     private String runtimePublicKeyContextPath = "";
     private String runtimePrivateKeyContextPath = "";
+    private boolean enableFrontendTLS;
 
     /**
      * The constructor of Config.

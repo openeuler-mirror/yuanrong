@@ -16,17 +16,18 @@ openYuanrong 文档主要包含以下几类内容:
 - [常见问题](../FAQ/multi_language_functional_programming.md)
 - [API 介绍](../multi_language_function_programming_interface/api/distributed_programming/zh_cn/Python/index.rst)
 
-openYuanrong 文档源码存放在[yuanrong](https://atomgit.com/openeuler/yuanrong/tree/master){target="_blank"}仓的 `docs` 目录，您可以参考已有的文档内容补充章节到对应文档目录，文档一级目录和代码路径的对应关系如下：
+openYuanrong 文档源码存放在 [yuanrong](https://atomgit.com/openeuler/yuanrong/tree/master){target="_blank"} 仓的 `docs` 目录，您可以参考已有的文档内容补充章节到对应文档目录，文档一级目录和代码路径的对应关系如下：
 
 - 概述：overview.md
 - 入门：getting_started.md
 - 安装部署：deploy
 - 使用案例：use_cases
 - 多语言函数编程接口：multi_language_function_programming_interface
+- 更多使用方式：more_usage
 - 监控与调试：observability
 - 常见问题：FAQ
 - 贡献者指南：contributor_guide
-- 词汇表: glossary.md
+- 参考: reference
 - 安全：security.md
 
 ## 文档语法与构建工具

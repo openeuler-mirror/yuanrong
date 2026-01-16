@@ -49,7 +49,7 @@ public:
 
     /*!
      * @brief Perform global initialization for the handler.
-     * This method is called once during runtime startup (before Start() completes) to 
+     * This method is called once during runtime startup (before Start() completes) to
      * initialize global resources (e.g., load configuration files, initialize loggers).
      * It is executed before any requests are processed.
      * @param context Runtime context object (contains runtime configuration)

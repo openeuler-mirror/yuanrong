@@ -22,7 +22,7 @@
 namespace Function {
 
 /*! @class Context Context.h "include/faas/Context.h"
- *  @brief This is the class of context parameters passed when executing a function, and this object contains 
+ *  @brief This is the class of context parameters passed when executing a function, and this object contains
  *  information such as the call, function and environment.
  */
 class Context {
@@ -69,7 +69,7 @@ public:
     virtual const std::string GetInvokeId() const = 0;
 
     /*!
-     * @brief Get the reference of to the instance of the `FunctionLogger` class provided by the context, which can 
+     * @brief Get the reference of to the instance of the `FunctionLogger` class provided by the context, which can
      * be used to print logs. For details, refer to the usage instructions of `FunctionLogger`.
      * @return An instance of FunctionLogger class.
      */

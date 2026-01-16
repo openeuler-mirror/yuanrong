@@ -21,6 +21,8 @@ ROOT_PATH=${PROJECT_DIR}
 PROJECT_OUTPUT_DIR="${PROJECT_DIR}/output"
 POSIX_DIR="${PROJECT_DIR}/proto/posix"
 CLIENT_DIR="${PROJECT_DIR}/pkg/dashboard/client"
+YR_DATASYSTEM_DIR="${PROJECT_DIR}/../datasystem"
+DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
 
 # go module prepare
 export GO111MODULE=on
@@ -59,6 +61,17 @@ cp "${CLIENT_CONFIG_DIR}/config.json.bak" "${CLIENT_CONFIG_DIR}/config.json"
 npm run coverage
 
 # collector test
+if [ ! -d "${YR_DATASYSTEM_DIR}"/output/sdk/go/stream ]; then
+    echo "start to download datasystem"
+    DS_OUT_DIR="${YR_DATASYSTEM_DIR}/output"
+    rm -rf "${DS_OUT_DIR}"
+    mkdir -p "${DS_OUT_DIR}"
+    pushd "${DS_OUT_DIR}"
+    wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
+    tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
+    popd
+fi
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"${YR_DATASYSTEM_DIR}/output/sdk/go/lib"
 sh "${CUR_DIR}/collector/test.sh"
 
 # common test

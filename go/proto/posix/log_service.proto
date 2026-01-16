@@ -18,8 +18,6 @@ syntax = "proto3";
 
 package log_service;
 
-import "common.proto";
-
 option go_package = "yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/logservice;logservice";
 
 service LogManagerService {

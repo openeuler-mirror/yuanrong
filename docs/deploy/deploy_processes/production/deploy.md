@@ -144,7 +144,7 @@ yr start --enable_collector=true \
 
 ### 配置函数日志在 Driver 端输出
 
-配置函数日志在 Driver 端输出后，本地程序直接调用无状态或有状态函数时，将流式输出函数的 stdout 和 stderr 日志到终端。
+配置函数日志在 Driver 端输出后，本地程序直接调用无状态或有状态函数时，将流式输出函数的 stdout 日志到终端。
 
 部署主节点：
 
@@ -153,6 +153,7 @@ yr start --enable_collector=true \
 yr start --master \
 --enable_collector=true \
 --enable_separated_redirect_runtime_std=true \
+--enable_dashboard=true \
 --port_policy=FIX
 ```
 

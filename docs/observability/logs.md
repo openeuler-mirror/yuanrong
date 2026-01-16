@@ -95,7 +95,7 @@ openYuanrong 组件及函数日志默认挂载到宿主机，其中[函数系统
 
 ## 转发无状态和有状态函数的标准输出到 Driver 端
 
-openYuanrong 支持本地程序直接调用无状态和有状态函数时，流式输出函数的 stdout 和 stderr 日志到终端。要开启此功能，可参考[配置函数日志在 Driver 端输出](deploy-processes-config-log-to-driver)部署 openYuanrong，相关部署参数如下：
+openYuanrong 支持本地程序直接调用无状态和有状态函数时，流式输出函数的 stdout 日志到终端。要开启此功能，可参考[配置函数日志在 Driver 端输出](deploy-processes-config-log-to-driver)部署 openYuanrong，相关部署参数如下：
 
 - `enable_dashboard`：主节点需要开启此选项。
 - `enable_collector`：所有节点均需要开启此选项。

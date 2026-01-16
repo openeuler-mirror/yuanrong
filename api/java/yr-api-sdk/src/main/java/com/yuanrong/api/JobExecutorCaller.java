@@ -25,7 +25,7 @@ import com.yuanrong.errorcode.ModuleCode;
 import com.yuanrong.exception.YRException;
 import com.yuanrong.exception.LibRuntimeException;
 import com.yuanrong.exception.handler.traceback.StackTraceUtils;
-import com.yuanrong.function.YRFunc4;
+import com.yuanrong.function.YRFunc1;
 import com.yuanrong.jni.LibRuntime;
 import com.yuanrong.jobexecutor.JobExecutor;
 import com.yuanrong.jobexecutor.RuntimeEnv;
@@ -41,11 +41,6 @@ import com.yuanrong.storage.InternalWaitResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -91,17 +86,13 @@ public class JobExecutorCaller {
      */
     public static String submitJob(YRJobParam yrJobParam) throws YRException {
         InstanceCreator<JobExecutor> jobExecutor = new InstanceCreator<JobExecutor>(
-                (YRFunc4<String, RuntimeEnv, ArrayList<String>, String, JobExecutor>) JobExecutor::new);
-        ArrayList<String> entryPoint = yrJobParam.getLocalEntryPoint();
+                (YRFunc1<YRJobParam, JobExecutor>) JobExecutor::new);
         InvokeOptions invokeOptions = yrJobParam.extractInvokeOptions();
         String objectID = "";
         try {
             InstanceHandler handler = jobExecutor
                 .options(invokeOptions)
-                .invoke(yrJobParam.getJobName(),
-                        yrJobParam.getRuntimeEnv(),
-                        entryPoint,
-                        invokeOptions.affinityMsgToJsonStr());
+                .invoke(yrJobParam);
             objectID = handler.getInstanceId();
         } catch (YRException e) {
             throw adaptException(e);
@@ -134,43 +125,6 @@ public class JobExecutorCaller {
         // no record is found when the 'listjobs()' is invoked.
         getJobInfoCache().put(userJobID, new YRJobInfo());
         return userJobID;
-    }
-
-    public static String submitJob(YRJobParam yrJobParam, ObjectRef entryPointObjRef, String pathStr) throws YRException {
-        byte[] data = (byte[]) YR.getRuntime().get(entryPointObjRef, DEFAULT_JOB_EXECUTOR_INVOKE_TIMEOUT_MS);
-        if (!saveBytesToFile(data, pathStr)) {
-            throw new YRException(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME,
-                    "failed to load entryPoint file");
-        }
-        return submitJob(yrJobParam);
-    }
-
-    public static boolean saveBytesToFile(byte[] data, String outputPath) {
-        if (data == null) {
-            LOGGER.warn("entryPoint data is null");
-            return false;
-        }
-        if (outputPath == null || outputPath.trim().isEmpty()) {
-            LOGGER.warn("outputPath is empty");
-            return false;
-        }
-        try {
-            Path path = Paths.get(outputPath);
-            Path parent = path.getParent();
-            if (parent != null && !Files.exists(parent)) {
-                Files.createDirectories(parent);
-            }
-            // 写入文件
-            Files.write(path, data);
-            LOGGER.info("File saved successfully: " + outputPath);
-            return true;
-        } catch (InvalidPathException e) {
-            LOGGER.warn("Invalid output path: " + outputPath);
-            return false;
-        } catch (IOException e) {
-            LOGGER.warn("Failed to save the file: " + e.getMessage());
-            return false;
-        }
     }
 
     /**

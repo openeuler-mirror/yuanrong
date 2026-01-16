@@ -403,10 +403,6 @@ public class YR extends YRCall {
         return JobExecutorCaller.submitJob(yrJobParam);
     }
 
-    public static String submitJob(YRJobParam yrJobParam, ObjectRef entryPointObjRef, String pathStr) throws YRException {
-        return JobExecutorCaller.submitJob(yrJobParam, entryPointObjRef, pathStr);
-    }
-
     /**
      * Stops a specified job and release resources of the related attached-runtime
      * process.

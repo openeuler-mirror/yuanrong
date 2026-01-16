@@ -95,6 +95,7 @@ rm -rf ${OUTPUT_DIR}/openyuanrong/datasystem/sdk/DATASYSTEM_SYM
 rm -rf ${OUTPUT_DIR}/openyuanrong/datasystem/service/DATASYSTEM_SYM
 mkdir -p ${OUTPUT_DIR}/openyuanrong/datasystem/deploy
 cp -fr ${BASE_DIR}/../deploy/data_system/* ${OUTPUT_DIR}/openyuanrong/datasystem/deploy/
+unzip ${OUTPUT_DIR}/openyuanrong/datasystem/sdk/openyuanrong_datasystem_sdk*.whl -d ${OUTPUT_DIR}/openyuanrong/runtime/service/python/
 
 cp -fr ${BASE_DIR}/../deploy ${OUTPUT_DIR}/openyuanrong
 rm -rf ${OUTPUT_DIR}/openyuanrong/deploy/data_system

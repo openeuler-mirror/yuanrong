@@ -48,7 +48,6 @@ int main(int argc, char *argv[])
 {
     Function::Runtime rt;
     rt.RegisterHandler(HandleRequest);
-    // 初始化函数入口
     rt.RegisterInitializerFunction(Initializer);
     rt.Start(argc, argv);
     return 0;

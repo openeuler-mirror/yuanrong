@@ -123,6 +123,7 @@ class A:
 
 insts = [A.invoke(i) for i in range(10)]
 print(yr.get([i.add.invoke() for i in insts]))
+[i.terminate() for i in insts]
 yr.finalize()
 ```
 

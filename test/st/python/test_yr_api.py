@@ -820,8 +820,7 @@ def test_get_async_instance_in_actor_proxy(init_yr_config):
     assert ret1 == ret2
 
 
-@pytest.mark.skip(
-    reason="This use case will now fail; let's temporarily disable it and resolve it later through an issue ID64WF.")
+@pytest.mark.smoke
 def test_get_order_instance_after_teminate(init_yr_config):
     conf = init_yr_config
     yr.init(conf)

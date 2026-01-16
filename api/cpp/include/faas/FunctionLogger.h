@@ -32,7 +32,7 @@ public:
     }
 
     /*!
-     * @brief Set the log persistence level. The available levels are `DEBUG`, `INFO`, `WARN`, and `ERROR`, 
+     * @brief Set the log persistence level. The available levels are `DEBUG`, `INFO`, `WARN`, and `ERROR`,
      * with `INFO` level as the default.
      * @param level The log level parameter.
      * @snippet{trimleft} faas_example1.cpp logger_usage

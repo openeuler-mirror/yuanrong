@@ -17,7 +17,7 @@ def handler(event, context)
 
 - handler：方法名称，可自定义。
 - event：函数服务的请求参数，包含请求头，请求体等数据，格式为 JSON 对象。
-- context：由 openYuanrong 运行时提供的上下文信息，接口介绍详见[Python 服务开发 SDK](../../api/function_service/python_sdk.md)。
+- context：由 openYuanrong 运行时提供的上下文信息，接口介绍详见函数服务 [Python SDK](../../api/function_service/zh_cn/Python/python_sdk.rst)。
 
 Handler 方法返回值为字符串，以下是一个完整的方法示例：
 
@@ -63,7 +63,7 @@ def initializer(context)
 ```
 
 - initializer：方法名称，可自定义。
-- context：由 openYuanrong 运行时提供的上下文信息，接口介绍详见[Python 服务开发 SDK](../../api/function_service/python_sdk.md)。
+- context：由 openYuanrong 运行时提供的上下文信息，接口介绍详见函数服务 [Python SDK](../../api/function_service/zh_cn/Python/python_sdk.rst)。
 
 Initializer 方法无返回值，一个简单的示例如下：
 

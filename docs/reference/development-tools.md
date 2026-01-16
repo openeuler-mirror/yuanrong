@@ -1,26 +1,26 @@
 # 常用工具安装
 
-本节将介绍如果在开发环境中安装一些常用的开发工具。
+本节介绍如何在 Linux 环境中安装一些常用的开发工具。
 
-## 安装 MinIO Client(mc)
+## MinIO Client(mc)
 
-Minio Client 简称 mc, 是 minio 服务器的客户端，[官网地址](https://min.io/download)
+[Minio Client](https://minio.org.cn/docs/minio/linux/reference/minio-mc.html){target="_blank"} 简称 mc, 是 minio 服务器的客户端。
 
-### 下载地址
+### 安装
 
-linux [下载地址](https://dl.min.io/client/mc/release/linux-amd64/mc), 下载安装包到主机，并执行以下命令安装
+[下载](https://dl.min.io/client/mc/release){target="_blank"}安装包中的 `mc` 文件到主机，执行以下命令安装：
 
 ```bash
 chmod +x mc
-sudo mv ./mc /usr/loccal/bin/mc
+sudo mv ./mc /usr/local/bin/mc
 ```
 
-### 常用命令
+### 使用
 
-初始化配置
+初始化配置：
 
 ```bash
-查看 openYuanrong 中的 MinIO 服务地址
+查看 openYuanrong 集群中的 MinIO 服务地址
 echo http://$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl get svc minio -o jsonpath='{.spec.ports[0].nodePort}')
 ```
 

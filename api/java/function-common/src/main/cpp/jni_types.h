@@ -497,6 +497,7 @@ private:
     inline static jmethodID jmIsEnableMetrics_ = nullptr;
     inline static jmethodID jmIsEnableMTLS_ = nullptr;
     inline static jmethodID jmIsEnableDsEncrypt_ = nullptr;
+    inline static jmethodID jmIsEnableFrontendTLS_ = nullptr;
     inline static jmethodID jmGetCertificateFilePath_ = nullptr;
     inline static jmethodID jmGetPrivateKeyPath_ = nullptr;
     inline static jmethodID jmGetDsPublicKeyContextPath_ = nullptr;

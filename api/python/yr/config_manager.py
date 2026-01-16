@@ -17,7 +17,7 @@
 """config manager"""
 
 import logging
-
+import os
 from yr.common import utils
 from yr.common.singleton import Singleton
 from yr.config import Config, DeploymentConfig, MetaConfig, MetaFunctionID
@@ -250,8 +250,11 @@ class ConfigManager:
             enableMetrics=conf.enable_metrics,
             functionMasters=conf.master_addr_list,
             maxTaskInstanceNum=conf.max_task_instance_num)
+        if conf.log_level != "":
+            self.log_level = conf.log_level
+        else:
+            self.log_level = os.environ.get("YR_LOG_LEVEL", "WARNING")
 
-        self.log_level = conf.log_level
         if is_init:
             # If the init method has been executed,
             # log_level and function_id are updated.

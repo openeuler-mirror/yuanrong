@@ -94,7 +94,7 @@ class Config:
     #: Only ``False`` when initialize in runtime, default is ``True``.
     is_driver: bool = True
     #: YR api log level have ``ERROR/WARNING/INFO/DEBUG``, default is ``WARNING``.
-    log_level: Union[str, int] = "WARNING"
+    log_level: Union[str, int] = ""
     #: Http client read timeout(sec), default is ``900``.
     invoke_timeout: int = 900
     #: Run code in local, default is ``False``.

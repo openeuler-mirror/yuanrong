@@ -21,6 +21,7 @@ import com.yuanrong.affinity.Affinity;
 import com.yuanrong.errorcode.ErrorCode;
 import com.yuanrong.errorcode.ModuleCode;
 import com.yuanrong.exception.YRException;
+import com.yuanrong.runtime.client.ObjectRef;
 import com.yuanrong.runtime.util.Constants;
 
 import com.google.gson.Gson;
@@ -105,6 +106,8 @@ public class YRJobParam {
     private List<Affinity> scheduleAffinities = new ArrayList<Affinity>();
     private boolean preferredPriority = true;
     private boolean requiredPriority = false;
+    private ObjectRef entryPointObjRef;
+    private String entryPointFileName;
 
     /**
      * The Custom resources."nvidia.com/gpu"

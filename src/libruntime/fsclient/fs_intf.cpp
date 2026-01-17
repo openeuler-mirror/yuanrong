@@ -192,8 +192,8 @@ void FSIntf::HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCal
         [this, req, callback]() {
             if (ExistProcessingRequestId()) {
                 CheckpointResponse resp;
-                resp.set_code(common::ERR_INNER_SYSTEM_ERROR);
-                resp.set_message("exist processing request, checkpoint error");
+                resp.set_code(common::ERR_INSTANCE_BUSY);
+                resp.set_message("Instance is busy handling requests, checkpoint cannot be performed now.");
                 callback(resp);
                 return;
             }

@@ -33,8 +33,8 @@ public:
     * @snippet{trimleft} faas_example1.cpp functionerror_usage
     * @see Function::ErrorCode
      */
-    
     FunctionError(int code, const std::string message) : errCode((ErrorCode)code), errMsg(message) {}
+    
     /*!
     * @brief The default destructor.
      */

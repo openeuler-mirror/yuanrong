@@ -25,8 +25,11 @@ namespace Function {
  */
 class FunctionLogger {
 public:
+    // not exposed
     FunctionLogger(){};
+    // not exposed
     virtual ~FunctionLogger(){};
+    // not exposed
     FunctionLogger(const std::string &traceId, const std::string &invokeId) : traceId(traceId), invokeId(invokeId)
     {
     }

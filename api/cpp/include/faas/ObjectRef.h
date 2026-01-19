@@ -25,14 +25,18 @@ namespace Function {
  */
 class ObjectRef {
 public:
+    // not exposed
     ObjectRef(std::string &futureId, std::string &instanceId)
         : objectRefId_(futureId), instanceId_(instanceId), isResultExist_(false)
     {
     }
 
+    // not exposed
     virtual ~ObjectRef() = default;
 
+    // not exposed
     const std::string GetObjectRefId() const;
+    // not exposed
     const std::string GetResult() const;
     
     /*!
@@ -40,6 +44,8 @@ public:
      * @return The result of the objectRef.
      */
     const std::string Get();
+
+    // not exposed
     bool GetResultFlag() const;
 
 private:

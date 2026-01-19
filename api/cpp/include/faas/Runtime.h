@@ -61,6 +61,7 @@ public:
      */
     void RegisterPreStopFunction(std::function<void(Function::Context &context)> preStopFunc);
 
+    // not exposed
     void InitState(std::function<void(const std::string &request, Function::Context &context)> initStateFunc);
 
     /*!

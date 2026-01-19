@@ -36,6 +36,7 @@ public:
      */
     virtual std::string HandleRequest(const std::string &request, Context &context) = 0;
 
+    // not exposed
     virtual void InitState(const std::string &request, Context &context) = 0;
 
     /*!

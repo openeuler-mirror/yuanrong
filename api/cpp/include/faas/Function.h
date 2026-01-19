@@ -48,7 +48,7 @@ struct InvokeOptions {
 };
 
 /*! @class Function Function.h "include/faas/Function.h"
- *  @brief The class provides the functionality for inter-function calls..
+ *  @brief The class provides the functionality for inter-function calls.
  */
 class Function {
 public:

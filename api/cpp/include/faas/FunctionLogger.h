@@ -78,7 +78,7 @@ public:
 
     /*!
      * @brief Set trace ID to be displayed in log printing
-     * @param invokeID Unique trace ID string for log output
+     * @param traceID Unique trace ID string for log output
      */
     void SetTraceID(std::string traceID);
 

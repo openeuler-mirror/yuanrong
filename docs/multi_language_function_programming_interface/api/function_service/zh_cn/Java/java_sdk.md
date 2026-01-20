@@ -79,9 +79,21 @@ public class demo {
  
     cpuNumber (int)：函数 CPU 数量。单位：m，1C=1000m。
 
-#### String getAlias()
+#### String getRequestID()
 
-获取函数别名。
+获取 requestID。
+
+- 返回：
+
+    requestID (String): request id。
+
+#### String getInstanceLabel()
+
+获取实例标签。
+
+- 返回：
+
+    instanceLabel (String): 实例标签。
 
 #### RuntimeLogger getLogger()
 

@@ -735,6 +735,11 @@ def invoke(function_name, payload, timeout):
     type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12"]),
     help="Runtime language version",
 )
+@click.option(
+    "--sdk",
+    is_flag=True, default=False,
+    help="sdk language",
+)
 @click.option("--no-rootfs", is_flag=True, default=False, help="Deploy without rootfs")
 @click.option(
     "--function-json",
@@ -744,12 +749,20 @@ def invoke(function_name, payload, timeout):
     help="Path to function JSON file",
 )
 @click.pass_context
-def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
-    """Deploy a FaaS language runtime executor function
+def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
+    """Deploy language runtime executor function
 
     You can override any JSON field using dot notation, for example:
     yrcli deploy-language-rt --runtime python3.11 --cpu=1000 --memory=1024 --rootfs.storageInfo.accessKey=mykey
     yrcli deploy-language-rt --runtime python3.11 --rootfs.storageInfo.object=rootfs_python3.11.img
+
+    Naming rules:
+    - sdk + python3.x -> 0-defaultservice-py3xx (e.g. python3.11 -> py311, python3.9 -> py39)
+    - non-sdk -> 0-system-faasExecutorPython3.x
+
+    Hook handler defaults:
+    - sdk -> yrlib_handler.*
+    - non-sdk -> faas_executor.*
     Or provide a function JSON file directly with --function-json
     """
 
@@ -769,12 +782,35 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
             print("Error: --runtime is required when not using --function-json")
             sys.exit(1)
 
-        # Generate function name based on runtime (keep the dot in version)
-        # python3.11 -> 0-system-faasExecutorPython3.11
-        runtime_name = runtime[0].upper() + runtime[1:]  # Capitalize first letter
-        function_name = f"0-system-faasExecutor{runtime_name}"
+        # Generate function name based on runtime and sdk flag
+        # sdk + python3.x -> 0-defaultservice-py3xx (e.g. python3.11 -> py311, python3.9 -> py39)
+        if sdk and runtime.startswith("python3."):
+            runtime_suffix = f"py{runtime.replace('python', '').replace('.', '')}"
+            function_name = f"0-defaultservice-{runtime_suffix}"
+        else:
+            # python3.11 -> 0-system-faasExecutorPython3.11
+            runtime_name = runtime[0].upper() + runtime[1:]  # Capitalize first letter
+            function_name = f"0-system-faasExecutor{runtime_name}"
 
         # Build default function configuration based on the template
+        if sdk:
+            hook_handler = {
+                "call": "yrlib_handler.call",
+                "checkpoint": "yrlib_handler.checkpoint",
+                "init": "yrlib_handler.init",
+                "recover": "yrlib_handler.recover",
+                "shutdown": "yrlib_handler.shutdown",
+                "signal": "yrlib_handler.signal",
+            }
+        else:
+            hook_handler = {
+                "call": "faas_executor.faasCallHandler",
+                "checkpoint": "faas_executor.faasCheckPointHandler",
+                "init": "faas_executor.faasInitHandler",
+                "recover": "faas_executor.faasRecoverHandler",
+                "shutdown": "faas_executor.faasShutDownHandler",
+                "signal": "faas_executor.faasSignalHandler",
+            }
         function_json_data = {
             "name": function_name,
             "runtime": runtime,
@@ -784,14 +820,7 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
             "timeout": 600,
             "storageType": "local",
             "codePath": "/var/task",
-            "hookHandler": {
-                "call": "faas_executor.faasCallHandler",
-                "checkpoint": "faas_executor.faasCheckPointHandler",
-                "init": "faas_executor.faasInitHandler",
-                "recover": "faas_executor.faasRecoverHandler",
-                "shutdown": "faas_executor.faasShutDownHandler",
-                "signal": "faas_executor.faasSignalHandler",
-            },
+            "hookHandler": hook_handler,
             "warmup": "seed",
             "rootfs": {
                 "runtime": "runsc",

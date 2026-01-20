@@ -783,6 +783,7 @@ def deploy_faas_language(ctx, runtime, function_json, no_rootfs):
             "memory": 512,
             "timeout": 600,
             "storageType": "local",
+            "codePath": "/var/task",
             "hookHandler": {
                 "call": "faas_executor.faasCallHandler",
                 "checkpoint": "faas_executor.faasCheckPointHandler",

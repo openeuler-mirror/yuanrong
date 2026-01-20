@@ -5,6 +5,7 @@
 ## 基本概念
 
 Span 可以理解为一次方法调用，一个程序块的调用，或者一次 RPC/数据库访问。只要是一个具有完整时间周期的程序访问，都可以被认为是一个 Span。
+
 - Span Tag：一组键值对构成的 Span 标签集合。键值对中，键必须为字符串，值可以是字符串，布尔，或者数字类型。
 - Span Log：一组 Span 的日志集合。 每次 log 操作包含一个键值对，以及一个时间戳。 键值对中，键必须为 string，值可以是任意类型。 但是需要注意，不是所有的支持 OpenTracing 的 Tracer 都需要支持所有的值类型。
 - SpanContext：Span 上下文对象。
@@ -116,7 +117,6 @@ export RUNTIME_TRACE_CONFIG="{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\"
 ```
 
 :::
-
 
 #### Trace 数据示例
 

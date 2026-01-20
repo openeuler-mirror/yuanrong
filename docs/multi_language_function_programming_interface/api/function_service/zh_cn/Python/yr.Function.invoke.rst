@@ -15,14 +15,14 @@ yr.Function.invoke
 
     样例：
         >>> from functionsdk import Function, InvokeOptions
- 	    >>> def my_handler(event, context)
- 	    >>>     f = Function(context, "hello")
- 	    >>>     objRef = f.invoke(event)
- 	    >>>     res = objRef.get()
- 	    >>>     return {
- 	    >>>        "statusCode": 200,
- 	    >>>        "isBase64Encoded": False,
- 	    >>>        "body": res,
- 	    >>>        "headers": {
- 	    >>>             "Content-Type": "application/json"
- 	    >>>         }
+        >>> def my_handler(event, context)
+        >>>     f = Function(context, "hello")
+        >>>     objRef = f.invoke(event)
+        >>>     res = objRef.get()
+        >>>     return {
+        >>>        "statusCode": 200,
+        >>>        "isBase64Encoded": False,
+        >>>        "body": res,
+        >>>        "headers": {
+        >>>             "Content-Type": "application/json"
+        >>>         }

@@ -57,7 +57,7 @@ public:
     virtual const std::string GetAlias() const = 0;
 
     /*!
-     * @brief Get the traceId of the current execution.
+     * @brief Get the traceId of the current execution request.
      * @return The traceId.
      */
     virtual const std::string GetTraceId() const = 0;
@@ -91,7 +91,7 @@ public:
     virtual const std::string GetInvokeProperty() const = 0;
 
     /*!
-     * @brief Get the requestId of the current execution.
+     * @brief Get the requestId of the current execution request.
      * @return The reuqestId.
      */
     virtual const std::string GetRequestID() const = 0;

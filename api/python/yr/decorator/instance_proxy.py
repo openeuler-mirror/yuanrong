@@ -471,6 +471,7 @@ class InstanceProxy:
             class_method = state[constants.CLASS_METHOD]
         function_name = state[constants.FUNC_NAME] if constants.FUNC_NAME in state else ""
         need_order = state[constants.NEED_ORDER] if constants.NEED_ORDER in state else False
+        is_async = state[constants.IS_ASYNC] if constants.IS_ASYNC in state else False
         save_real_instance_id(state[constants.INSTANCE_ID], need_order)
         return cls(instance_id=state[constants.INSTANCE_ID],
                    class_descriptor=utils.ObjectDescriptor(state[constants.MODULE_NAME], state[constants.CLASS_NAME],
@@ -478,7 +479,8 @@ class InstanceProxy:
                    class_methods=class_method,
                    base_cls=state[constants.BASE_CLS],
                    function_id="",
-                   need_order=need_order)
+                   need_order=need_order,
+                   is_async=is_async)
 
     def serialization_(self, is_cross_language: False):
         """
@@ -496,6 +498,7 @@ class InstanceProxy:
 
         info_[constants.NEED_ORDER] = self.need_order
         info_[constants.BASE_CLS] = self._base_cls
+        info_[constants.IS_ASYNC] = self._is_async
         self._class_descriptor.to_dict()
         state = {**info_, **self._class_descriptor.to_dict()}
         global_runtime.get_runtime().wait([self.instance_id], 1, -1)

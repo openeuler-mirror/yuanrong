@@ -71,6 +71,8 @@ dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
 prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
 dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
 memory_detection_interval:,oom_kill_enable:,oom_kill_control_limit:,oom_consecutive_detection_count:,\
+user_log_auto_flush_interval_ms:,user_log_buffer_flush_threshold:,\
+user_log_rolling_size_limit_mb:,user_log_rolling_file_count_limit:,\
 fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,disable_nc_check,\
 runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,local_ip:,\
 etcd_table_prefix:,etcd_target_name_override:,\
@@ -359,6 +361,12 @@ ENCRYPT_RUNTIME_PUBLIC_KEY_CONTEXT=""
 ENCRYPT_RUNTIME_PRIVATE_KEY_CONTEXT=""
 ENCRYPT_DS_PUBLIC_KEY_CONTEXT=""
 
+#unser log config
+USER_LOG_AUTO_FLUSH_INTERVAL_MS=10000
+USER_LOG_BUFFER_FLUSH_THRESHOLD=1048576
+USER_LOG_MAX_ROLLING_FILE_SIZE_MB=100
+USER_LOG_MAX_ROLLING_LOG_FILE_NUM=100
+
 LOG_EXPIRATION_ENABLE="true"
 LOG_EXPIRATION_TIME_THRESHOLD=7200   # 2 hours in seconds
 LOG_EXPIRATION_CLEANUP_INTERVAL=600  # 10 minutes in seconds
@@ -422,6 +430,10 @@ function usage() {
   echo -e "     --runtime_std_rolling_enable                        enable rolling log for runtime std log, depends on logrotate (default false)"
   echo -e "     --enable_separated_redirect_runtime_std             enable to redirect standard output of runtime separated. which does not support rotation & compress etc. {runtimeID}.out {runtimeID}.err"
   echo -e "     --user_log_export_mode                              user log export mode. options: file(export to file)/std(export to std), (default file)"
+  echo -e "     --user_log_auto_flush_interval_ms                   Interval in milliseconds for auto flushing user logs"
+  echo -e "     --user_log_buffer_flush_threshold                   Threshold for flushing user log buffer"
+  echo -e "     --user_log_rolling_size_limit_mb                    Maximum size limit (in MB) for a single user log file"
+  echo -e "     --user_log_rolling_file_count_limit                 Maximum number of user log files to retain"
   echo -e "     --ds_log_level                                      data system log level, options: DEBUG/INFO/WARN/ERROR (default INFO)"
   echo -e "     --ds_log_path                                       log subdirectory for data system"
   echo -e "     --ds_log_rolling_max_size                           rolling log max size for data system, unit: MB (default 40)"
@@ -645,6 +657,10 @@ function parse_opt() {
     --runtime_std_rolling_enable) RUNTIME_STD_ROLLING_ENABLE=$2 && shift 2 ;;
     --enable_separated_redirect_runtime_std) SEPARATED_REDIRECT_RUNTIME_STD=$2 && shift 2 ;;
     --user_log_export_mode) USER_LOG_EXPORT_MODE=$2 && shift 2 ;;
+    --user_log_auto_flush_interval_ms) USER_LOG_AUTO_FLUSH_INTERVAL_MS=$2 && shift 2 ;;
+    --user_log_buffer_flush_threshold) USER_LOG_BUFFER_FLUSH_THRESHOLD=$2 && shift 2 ;;
+    --user_log_rolling_size_limit_mb) USER_LOG_MAX_ROLLING_FILE_SIZE_MB=$2 && shift 2 ;;
+    --user_log_rolling_file_count_limit) USER_LOG_MAX_ROLLING_LOG_FILE_NUM=$2 && shift 2 ;;
     --ds_log_level) DS_LOG_LEVEL_STR=$2 && shift 2 ;;
     --ds_log_path) DS_LOG_PATH=$2 && shift 2 ;;
     --ds_log_rolling_max_size) DS_LOG_ROLLING_MAX_SIZE=$2 && shift 2 ;;
@@ -1520,6 +1536,8 @@ function export_config() {
   export DS_MAX_CLIENT_NUM DS_MEMORY_RECLAMATION_TIME_SECOND
   export IS_PROTOMSG_TO_RUNTIME MASSIF_ENABLE MASTER_USED_DS_PORT STS_CONFIG
   export BLOCK CUSTOM_RESOURCES LABELS SEPARATED_REDIRECT_RUNTIME_STD USER_LOG_EXPORT_MODE
+  export USER_LOG_AUTO_FLUSH_INTERVAL_MS USER_LOG_BUFFER_FLUSH_THRESHOLD
+  export USER_LOG_MAX_ROLLING_FILE_SIZE_MB USER_LOG_MAX_ROLLING_LOG_FILE_NUM
   export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK
   export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT

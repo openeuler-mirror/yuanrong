@@ -39,6 +39,47 @@ __server_name = None
 __user = None
 
 
+class FunctionName:
+    """Function name components"""
+
+    def __init__(self, raw_name: str, version: str = "latest"):
+        self.raw_name = raw_name
+        self.type = "0"
+        self.service = None
+        self.name = None
+        self.version = version
+        self.parse()
+
+    def __str__(self):
+        return f"{self.service}@{self.name}:{self.version}"
+
+    def parse(self):
+        """Parse function name into components"""
+        name_part = self.raw_name
+        if ":" in self.raw_name:
+            name_part, version_part = self.raw_name.split(":", 1)
+            self.version = version_part
+        if "@" in name_part:
+            parts = name_part.split("@")
+            if len(parts) == 3:
+                self.type = parts[0]
+                self.service = parts[1]
+                self.name = parts[2]
+            elif len(parts) == 2:
+                self.service = parts[0]
+                self.name = parts[1]
+            else:
+                raise ValueError(f"Invalid function name format: {self.raw_name}")
+
+    def full_name(self):
+        """Get full function name"""
+        return f"{self.type}@{self.service}@{self.name}:{self.version}"
+
+    def full_name_no_version(self):
+        """Get full function name without version"""
+        return f"{self.type}@{self.service}@{self.name}"
+
+
 class HTTPClient:
     """HTTP client with mutual TLS authentication support"""
 
@@ -221,25 +262,7 @@ class YRContext:
 def get_name_from_info(function_info):
     name = function_info.get("name")
     version = function_info.get("versionNumber")
-    if name.startswith("0@"):
-        name = name.split("@", 1)[1]
-        return f"{name}:{version}"
-    elif name.startswith("0-"):
-        name = name.split("-", 1)[1]
-        return f"{name}:{version}"
-    else:
-        return f"{name}:{version}"
-
-
-def build_function_name(function_name, version="latest"):
-    if len(function_name.split(":")) == 1:
-        function_name = f"{function_name}:{version}"
-    if len(function_name.split("@")) == 3:
-        return function_name
-    elif len(function_name.split("-")) == 3:
-        return function_name
-    else:
-        return f"0@{function_name}"
+    return FunctionName(name, version)
 
 
 def deploy_function(function_json, user):
@@ -291,8 +314,7 @@ def delete_function(function_name, user):
         ca_cert=__ca_cert,
         server_name=__server_name,
     )
-    function_name, version = function_name.split(":")
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber={version}"
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -314,8 +336,7 @@ def query_function(function_name, user=None):
     if function_name is None:
         url = f"http://{__metaservice_address}/serverless/v1/functions"
     else:
-        function_name, version = function_name.split(":")
-        url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}?versionNumber={version}"
+        url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -337,7 +358,7 @@ def publish_function(function_name, publish_json, user=None):
         ca_cert=__ca_cert,
         server_name=__server_name,
     )
-    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name}/versions"
+    url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}/versions"
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -435,9 +456,7 @@ def invoke_function(function_name, payload, user=None, timeout=30):
         ca_cert=__ca_cert,
         server_name=__server_name,
     )
-    if function_name.startswith("0@"):
-        function_name = function_name[2:]
-    url = f"http://{__server_address}/{user}/{function_name.replace('@', '/')}"
+    url = f"http://{__server_address}/{user}/{str(function_name).replace('@', '/')}"
     resp = http_client.request(url, payload, method="POST")
     if resp["success"]:
         return True, resp["data"]
@@ -581,7 +600,7 @@ yrcli download {package_key} to download this package."""
             print("function name is required to deploy function.")
             sys.exit(1)
         version = "latest" if function_json.get("kind", "faas") == "faas" else "$latest"
-        name = build_function_name(name, version)
+        name = FunctionName(name, version)
         query_ret, function_info = query_function(name, __user)
         if query_ret and not update:
             print(f"function {name} already exists, use --update to update it.")
@@ -617,11 +636,9 @@ def publish(function_name, version):
         sys.exit(1)
     if ":" in function_name:
         version = function_name.split(":")[1]
-    function_name = build_function_name(function_name, version)
+    function_name = FunctionName(function_name, version)
     publish_json = {}
-    query_ret, function_info = query_function(
-        function_name.split(":")[0] + ":latest", __user
-    )
+    query_ret, function_info = query_function(function_name, __user)
     if not query_ret:
         print(f"function not found: {function_name}")
         sys.exit(1)
@@ -629,7 +646,7 @@ def publish(function_name, version):
     publish_json["kind"] = function_info.get("kind", "faas")
     if version:
         publish_json["versionNumber"] = version
-    ret = publish_function(function_name.split(":")[0], publish_json, __user)
+    ret = publish_function(function_name, publish_json, __user)
     if ret[0]:
         print(f"succeed to publish function: {ret[1]}")
     else:
@@ -639,7 +656,7 @@ def publish(function_name, version):
 @cli.command()
 @click.option("-f", "--function-name", required=True, type=str, default=None)
 def query(function_name):
-    function_name = build_function_name(function_name)
+    function_name = FunctionName(function_name)
     ret, resp = query_function(function_name, __user)
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
@@ -652,7 +669,7 @@ def list():
     ret, resp = query_function(None, __user)
     if ret and len(resp) > 0:
         for function in resp:
-            print(f"{function['name']}:{function['versionNumber']}")
+            print(f"{function['name'][2:]}:{function['versionNumber']}")
     else:
         print(f"user {__user} has no function.")
 
@@ -660,9 +677,9 @@ def list():
 @cli.command()
 @click.option("-f", "--function-name", required=True, type=str, default=None)
 @click.option("--no-clear-package", is_flag=True, default=False)
-@click.option("-v", "--version", required=False, type=str, default=None)
+@click.option("-v", "--version", required=False, type=str, default="latest")
 def delete(function_name, no_clear_package, version):
-    function_name = build_function_name(function_name, version)
+    function_name = FunctionName(function_name, version)
     if not no_clear_package:
         ret, function_info = query_function(function_name, __user)
         if not ret:
@@ -674,7 +691,7 @@ def delete(function_name, no_clear_package, version):
             with YRContext(__server_address, __ds_address):
                 yr.kv_del(key)
             print(f"succeed to del package {code_path}")
-    ret, resp = delete_function(function_name, __user)
+    ret, _ = delete_function(function_name, __user)
     if not ret:
         print(f"function not found.")
     else:
@@ -709,7 +726,7 @@ def download(package):
 @click.option("--payload", required=False, type=str, default=None)
 @click.option("--timeout", required=False, type=int, default=30)
 def invoke(function_name, payload, timeout):
-    function_name = build_function_name(function_name)
+    function_name = FunctionName(function_name)
     if payload:
         payload_dict = json.loads(payload)
     else:
@@ -737,7 +754,8 @@ def invoke(function_name, payload, timeout):
 )
 @click.option(
     "--sdk",
-    is_flag=True, default=False,
+    is_flag=True,
+    default=False,
     help="sdk language",
 )
 @click.option("--no-rootfs", is_flag=True, default=False, help="Deploy without rootfs")

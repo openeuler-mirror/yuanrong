@@ -24,7 +24,7 @@ import java.util.ArrayList;
 
 public class TestJobExecutor {
     @Test
-    public void testGetJobInfo() {
+    public void testGetJobInfo() throws Exception {
         RuntimeEnv runtimeEnv = new RuntimeEnv();
         runtimeEnv.setPackages("test-packages");
         runtimeEnv.setPackageManager("pip3.9");
@@ -37,16 +37,21 @@ public class TestJobExecutor {
 
         boolean isException = false;
         JobExecutor jobExecutor;
+        YRJobParam yrJobParam = new YRJobParam();
+        yrJobParam.setJobName("test-job");
+        yrJobParam.setRuntimeEnv(runtimeEnv);
+        yrJobParam.setEntryPoint(testEntryPointWithWrongValue);
 
         try {
-            jobExecutor = new JobExecutor("test-job", runtimeEnv, testEntryPointWithWrongValue, "test-affinity");
+            jobExecutor = new JobExecutor(yrJobParam);
         } catch (YRException e) {
             isException = true;
         }
         Assert.assertFalse(isException);
 
+        yrJobParam.setEntryPoint(testEntryPoint);
         try {
-            jobExecutor = new JobExecutor("test-job", runtimeEnv, testEntryPoint, "test-affinity");
+            jobExecutor = new JobExecutor(yrJobParam);
             jobExecutor.getJobInfo(true);
         } catch (YRException e) {
             isException = true;
@@ -54,7 +59,7 @@ public class TestJobExecutor {
         Assert.assertFalse(isException);
 
         try {
-            jobExecutor = new JobExecutor("test-job", runtimeEnv, testEntryPoint, "test-affinity");
+            jobExecutor = new JobExecutor(yrJobParam);
             jobExecutor.stop();
             jobExecutor.getJobInfo(false);
         } catch (YRException e) {

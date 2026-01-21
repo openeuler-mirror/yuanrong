@@ -17,6 +17,7 @@
 package com.yuanrong.runtime.server;
 
 import com.yuanrong.Entrypoint;
+import com.yuanrong.utils.RuntimeUtils;
 
 /**
  * There is no real server right now, but in order to adapt to the old
@@ -48,6 +49,15 @@ public class RuntimeServer {
 
         String runtimeId = args[1];
         RuntimeLogger.initLogger(runtimeId);
+
+        // If YR_SEED_FILE is set, read the specified file to block.
+        RuntimeUtils.readSeedFile();
+
+        // Get and set the environment variables from the env file of `YR_ENV_FILE`.
+        // Since Java cannot set global environment variables, write into the global properties.
+        // If System.getEnv fails, then execute System.getProperty.
+        RuntimeUtils.loadEnvFromFile(System.getenv("YR_ENV_FILE"));
+
         Entrypoint.runtimeEntrypoint(args);
     }
 }

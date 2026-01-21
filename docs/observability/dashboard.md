@@ -7,7 +7,15 @@ openYuanrong 提供了可视化的 dashboard，用于查看集群和函数实例
 要访问 dashboard，需要在部署 openYuanrong 集群主节点时，加上 *`--enable_dashboard=true`* 参数以及依赖项参数。使用 dashboard 全量功能，主节点的部署命令如下：
 
 ```bash
-yr start --master --enable_dashboard=true --enable_collector=true --enable_separated_redirect_runtime_std=true --prometheus_address={prometheus_ip}:{prometheus_port} --enable_metrics=true --metrics_config_file={file_name}.json --port_policy=FIX
+# 根据实际情况替换 {} 中的信息
+yr start --master \
+--enable_dashboard=true \
+--enable_collector=true \
+--enable_separated_redirect_runtime_std=true \
+--prometheus_address={prometheus ip}:{prometheus port} \
+--enable_metrics=true \
+--metrics_config_file={absolute file path} \
+--port_policy=FIX
 ```
 
 您可参考[部署参数表](../deploy/deploy_processes/parameters.md)按需裁剪不需要的功能。
@@ -29,8 +37,12 @@ Cluster master info:
 部署从节点无需 `enable_dashboard` 和 `prometheus_address` 参数，其他参数按需配置，参考如下命令：
 
 ```bash
-# 使用前一步骤打印的主节点信息替换引号中的内容。
-yr start --enable_collector=true --enable_separated_redirect_runtime_std=true --enable_metrics=true --metrics_config_file={file_name}.json --master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashbaord_port:9080,"
+# 使用前一步骤打印的主节点信息替换引号中的内容，根据实际情况替换 {} 中的信息
+yr start --enable_collector=true \
+--enable_separated_redirect_runtime_std=true \
+--enable_metrics=true \
+--metrics_config_file={absolute file path} \
+--master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:32379,global_scheduler_port:22770,ds_master_port:12123,etcd_peer_port:32380,bus-proxy:22772,bus:22773,ds-worker:31501,dashbaord_port:9080,"
 ```
 
 ## 页面介绍

@@ -27,14 +27,6 @@ public class demo {
   
     requestID (String)：可用于唯一标识一个请求，通常用于日志中追踪单个请求的链路。
 
-#### int getRemainingTimeInMilliSeconds()
-
-获取从当前时间到超时时间的剩余时间。
-
-- 返回：
-
-    remainingTime (int)：从当前时间到超时时间的剩余时间。
-
 #### String getUserData(String key)
 
 获取环境变量和加密环境变量的方法。
@@ -55,14 +47,6 @@ public class demo {
   
     functionName (Sring)：函数自身的名称。
 
-#### int getRunningTimeInSeconds()
-
-获取分配给函数运行的时间，当超过指定时间时，函数的运行将被强制停止。
-
-- 返回：
- 
-    runningTime (int)：分配给函数运行的时间。
-
 #### int getMemorySize()
 
 获取分配给运行中函数的内存大小。
@@ -78,14 +62,6 @@ public class demo {
 - 返回：
  
     cpuNumber (int)：函数 CPU 数量。单位：m，1C=1000m。
-
-#### String getRequestID()
-
-获取 requestID。
-
-- 返回：
-
-    requestID (String): request id。
 
 #### String getInstanceLabel()
 

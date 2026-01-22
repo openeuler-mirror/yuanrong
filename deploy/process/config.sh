@@ -73,6 +73,7 @@ etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
 runtime_metrics_config:,\
+log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
 help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
 \"rolling\": {\"maxsize\": {{logRollingMaxSize}},\"maxfiles\": {{logRollingMaxFiles}},\"retentionDays\": {{logRollingRetentionDays}}}, \
@@ -335,6 +336,11 @@ ENCRYPT_RUNTIME_PUBLIC_KEY_CONTEXT=""
 ENCRYPT_RUNTIME_PRIVATE_KEY_CONTEXT=""
 ENCRYPT_DS_PUBLIC_KEY_CONTEXT=""
 
+LOG_EXPIRATION_ENABLE="true"
+LOG_EXPIRATION_TIME_THRESHOLD=7200   # 2 hours in seconds
+LOG_EXPIRATION_CLEANUP_INTERVAL=600  # 10 minutes in seconds
+LOG_EXPIRATION_MAX_FILE_COUNT=256
+
 function usage() {
   echo -e "General Options:"
   echo -e "     -a, --ip_address                                    node ip address"
@@ -396,6 +402,10 @@ function usage() {
   echo -e "     --ds_log_rolling_max_files                          rolling log max files for data system (default 32)"
   echo -e "     --ds_log_monitor_enable                             enable data system log monitor(default false)"
   echo -e "     --etcd_log_path                                     log subdirectory for etcd"
+  echo -e "     --log_expiration_enable                             enable log expiration (default true)"
+  echo -e "     --log_expiration_time_threshold                     log expiration time threshold, unit second (default 432000, 5 days)"
+  echo -e "     --log_expiration_cleanup_interval                   log expiration cleanup interval, unit second (default 600, 10 minutes)"
+  echo -e "     --log_expiration_max_file_count                     log expiration max file count (default 256)"
   echo -e "Function System Options:"
   echo -e "     --min_instance_cpu_size                             instance min CPU size in request allowed (unit:1/1000 core, default 300)"
   echo -e "     --min_instance_memory_size                          instance min memory size in request allowed (unit:MB, default 128)"
@@ -596,6 +606,10 @@ function parse_opt() {
     --ds_log_rolling_max_files) DS_LOG_ROLLING_MAX_FILES=$2 && shift 2 ;;
     --ds_log_monitor_enable) DS_LOG_MONITOR_ENABLE=$2 && shift 2 ;;
     --etcd_log_path) ETCD_LOG_PATH=$2 && shift 2 ;;
+    --log_expiration_enable) LOG_EXPIRATION_ENABLE=$2 && shift 2 ;;
+    --log_expiration_time_threshold) LOG_EXPIRATION_TIME_THRESHOLD=$2 && shift 2 ;;
+    --log_expiration_cleanup_interval) LOG_EXPIRATION_CLEANUP_INTERVAL=$2 && shift 2 ;;
+    --log_expiration_max_file_count) LOG_EXPIRATION_MAX_FILE_COUNT=$2 && shift 2 ;;
     --fs_health_check_timeout) FS_HEALTH_CHECK_TIMEOUT=$2 && shift 2 ;;
     --fs_health_check_retry_times) FS_HEALTH_CHECK_RETRY_TIMES=$2 && shift 2 ;;
     --fs_health_check_retry_interval) FS_HEALTH_CHECK_RETRY_INTERVAL=$2 && shift 2 ;;
@@ -1460,6 +1474,8 @@ function export_config() {
   export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER
   # uds
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
+  # log expiration
+  export LOG_EXPIRATION_ENABLE LOG_EXPIRATION_CLEANUP_INTERVAL LOG_EXPIRATION_TIME_THRESHOLD LOG_EXPIRATION_MAX_FILE_COUNT
 }
 
 function main() {

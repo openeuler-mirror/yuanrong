@@ -133,9 +133,9 @@ public class FaaSHandler implements HandlerIntf {
 
     private static final int ARGS_MINIMUM_LENGTH = 2;
 
-    private static final int USER_EVENT_MAX_SIZE = 6 * 1024 * 1024;
+    private static final int USER_EVENT_MAX_SIZE = 10 * 1024 * 1024;
 
-    private static final int RESPONSE_MAX_SIZE = 6 * 1024 * 1024;
+    private static final int RESPONSE_MAX_SIZE = 10 * 1024 * 1024;
 
     private static final String INVALID_ARGS_EXCEPTION = "faas get args invalid";
 
@@ -655,8 +655,8 @@ public class FaaSHandler implements HandlerIntf {
 
         int respLength = resultJson.getBytes(StandardCharsets.UTF_8).length;
         if (respLength > RESPONSE_MAX_SIZE) {
-            response.setBody(String.format(Locale.ROOT, "response body size %d exceeds the limit of 6291456",
-                respLength));
+            response.setBody(String.format(Locale.ROOT, "response body size %d exceeds the limit of %d",
+                respLength, RESPONSE_MAX_SIZE));
             response.setInnerCode(String.valueOf(RESPONSE_EXCEED_LIMIT.getCode()));
             resultJson = GSON.toJson(response);
         }

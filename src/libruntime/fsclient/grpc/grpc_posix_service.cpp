@@ -71,7 +71,7 @@ ErrorInfo GrpcPosixService::Start()
         ParseIpAddr(Config::Instance().POSIX_LISTEN_ADDR(), ip, port);
         listeningIpAddr = ip;
     }
-    uint32_t maxGrpcSize = Config::Instance().MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
+    uint32_t maxGrpcSize = Config::Instance().YR_MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
     builder.AddListeningPort(listeningIpAddr + ":" + std::to_string(selfPort), this->GetCreds(), &listeningPort);
     builder.RegisterService(this);
     builder.SetMaxReceiveMessageSize(maxGrpcSize);

@@ -17,7 +17,9 @@
 package logmanager
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"net/http"
 
 	"github.com/gin-gonic/gin"

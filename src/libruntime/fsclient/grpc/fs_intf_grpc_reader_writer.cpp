@@ -63,7 +63,7 @@ void FSIntfGrpcReaderWriter::SingleWrite(MessageInfo &msgInfo)
     auto msg = std::move(msgInfo.msg);
     auto callback = std::move(msgInfo.callback);
     ErrorInfo err;
-    uint32_t maxGrpcSize = Config::Instance().MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
+    uint32_t maxGrpcSize = Config::Instance().YR_MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
     if (msg->ByteSizeLong() > maxGrpcSize) {
         auto message = "Failed to send GRPC message (message ID: " + msg->messageid() +
                        "), the message size (" + std::to_string(msg->ByteSizeLong()) +
@@ -93,7 +93,7 @@ void FSIntfGrpcReaderWriter::BatchWrite(std::queue<FSIntfGrpcReaderWriter::Messa
 {
     auto batchs = std::make_shared<BatchStreamingMessage>();
     std::vector<std::function<void(bool, ErrorInfo)>> callbacks;
-    static uint32_t maxGrpcSize = Config::Instance().MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
+    static uint32_t maxGrpcSize = Config::Instance().YR_MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
     size_t totalSize = 0;
     while (!msgInfos.empty()) {
         auto &msg = msgInfos.front();

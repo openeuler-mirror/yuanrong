@@ -126,7 +126,7 @@ public:                                                \
     CONFIG_DECLARE(uint32_t, YR_HTTP_CONNECTION_NUM, 10);
     CONFIG_DECLARE(bool, YR_LOG_COMPRESS, true);
     CONFIG_DECLARE(std::string, HOST_IP, "");
-    CONFIG_DECLARE(uint16_t, MAX_GRPC_SIZE, 10);  // value could be 1-500 MB
+    CONFIG_DECLARE(uint16_t, YR_MAX_GRPC_SIZE, 10);  // value could be 1-500 MB
     CONFIG_DECLARE(uint64_t, GRACEFUL_SHUTDOWN_TIME, 60);
     CONFIG_DECLARE(uint64_t, STREAM_RECEIVE_LIMIT, 0);
     CONFIG_DECLARE(bool, ENABLE_METRICS, false);

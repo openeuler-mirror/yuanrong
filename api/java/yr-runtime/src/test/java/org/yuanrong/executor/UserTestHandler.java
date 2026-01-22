@@ -87,7 +87,7 @@ public class UserTestHandler {
     public String largeResponse(TestRequestEvent event, Context context) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 1024 * 1024; i++) {
-            sb.append("aaaaaa");
+            sb.append("aaaaaaaaaa");
         }
         return sb.toString();
     }

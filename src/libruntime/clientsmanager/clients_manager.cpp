@@ -166,7 +166,7 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctio
     grpc::ChannelArguments args;
     std::shared_ptr<grpc::Channel> channel;
     ErrorInfo err;
-    uint32_t maxGrpcSize = Config::Instance().MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
+    uint32_t maxGrpcSize = Config::Instance().YR_MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
     args.SetInt(GRPC_ARG_INITIAL_RECONNECT_BACKOFF_MS, RECONNECT_BACKOFF_INTERVAL);
     args.SetInt(GRPC_ARG_MIN_RECONNECT_BACKOFF_MS, RECONNECT_BACKOFF_INTERVAL);
     args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, MAX_RECONNECT_BACKOFF_INTERVAL);

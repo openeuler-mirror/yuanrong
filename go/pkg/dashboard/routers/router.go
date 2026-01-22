@@ -20,7 +20,7 @@ package routers
 import (
 	"github.com/gin-gonic/gin"
 
-    "yuanrong.org/kernel/pkg/common/job"
+	"yuanrong.org/kernel/pkg/common/job"
 	"yuanrong.org/kernel/pkg/dashboard/flags"
 	"yuanrong.org/kernel/pkg/dashboard/handlers"
 	"yuanrong.org/kernel/pkg/dashboard/logmanager"
@@ -45,8 +45,9 @@ const (
 
 	clusterStatusPath = "/cluster_status"
 
-	logsListPath = "/logs/list"
-	logsPath     = "/logs"
+	logsListPath     = "/logs/list"
+	logsPath         = "/logs"
+	logsDownloadPath = "/logs/download"
 )
 
 // SetRouter function for set routs
@@ -84,14 +85,14 @@ func SetRouter() *gin.Engine {
 		rayServeGroup.DELETE(serveAppPath, handlers.ServeDelHandler)
 	}
 
-    jobGroup := r.Group(job.PathGroupJobs)
-    {
-        jobGroup.POST("", handlers.SubmitJobHandler)
-        jobGroup.GET("", handlers.ListJobsHandler)
-        jobGroup.GET(job.PathGetJobs, handlers.GetJobInfoHandler)
-        jobGroup.DELETE(job.PathDeleteJobs, handlers.DeleteJobHandler)
-        jobGroup.POST(job.PathStopJobs, handlers.StopJobHandler)
-    }
+	jobGroup := r.Group(job.PathGroupJobs)
+	{
+		jobGroup.POST("", handlers.SubmitJobHandler)
+		jobGroup.GET("", handlers.ListJobsHandler)
+		jobGroup.GET(job.PathGetJobs, handlers.GetJobInfoHandler)
+		jobGroup.DELETE(job.PathDeleteJobs, handlers.DeleteJobHandler)
+		jobGroup.POST(job.PathStopJobs, handlers.StopJobHandler)
+	}
 
 	apiGroup := r.Group(apiPath)
 	{
@@ -100,6 +101,7 @@ func SetRouter() *gin.Engine {
 
 		apiGroup.GET(logsListPath, logmanager.ListLogsHandler)
 		apiGroup.GET(logsPath, logmanager.ReadLogHandler)
+		apiGroup.GET(logsDownloadPath, logmanager.DownloadLogHandler)
 	}
 
 	return r

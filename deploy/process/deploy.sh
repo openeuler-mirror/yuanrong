@@ -502,6 +502,10 @@ function start_function_proxy() {
 }
 
 function start_function_agent() {
+  if [ "X${FUNCTION_PROXY_MERGE_PROCESS_ENABLE^^}" == "XTRUE" ]; then
+    log_info "function_proxy_merge_process_enable is true, function_agent will be started by function_proxy, skip starting function_agent separately"
+    return 0
+  fi
   update_data_plane_port "function_agent_port runtime_init_port"
   FUNCTION_AGENT_PORT=${data_port_table["function_agent_port"]}
   RUNTIME_INIT_PORT=${data_port_table["runtime_init_port"]}

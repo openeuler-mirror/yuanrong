@@ -64,7 +64,7 @@ runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,r
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
 etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key_file:,etcd_ca_file:,\
 local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_store:,enable_persistence:,enable_jemalloc:,enable_inherit_env:,\
-etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,\
+etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
 max_priority:,enable_preemption:,kill_process_timeout_seconds:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,prometheus_address:,\
@@ -188,6 +188,7 @@ META_SERVICE_PORT=31111
 PROMETHEUS_ADDRESS=""
 METRICS_COLLECTOR_TYPE="proc"
 MERGE_PROCESS_ENABLE="true"
+FUNCTION_PROXY_MERGE_PROCESS_ENABLE="false"
 RUNTIME_HEARTBEAT_ENABLE=true
 RUNTIME_HEARTBEAT_TIMEOUT_MS=100000
 RUNTIME_MAX_HEARTBEAT_TIMEOUT_TIMES=18
@@ -215,7 +216,6 @@ SCHEDULE_RELAXED=-1
 ENABLE_PREEMPTION=false
 FUNCTION_PROXY_UNREGISTER_WHILE_STOP=true
 MAX_PRIORITY=0
-RUNTIME_METRICS_CONFIG="false"
 # Use snlib to adapt old or new runtime params
 if [ -d "${BASE_DIR}/../../runtime/service/cpp/snlib" ]; then
   IS_PROTOMSG_TO_RUNTIME=false
@@ -452,6 +452,7 @@ function usage() {
   echo -e "     --function_master_litebus_thread                    function master litebus thread count(default 20)"
   echo -e "     --function_proxy_litebus_thread                     function proxy litebus thread count(default 20)"
   echo -e "     --function_agent_alias                              function agent alias(default empty)"
+  echo -e "     --function_proxy_merge_process_enable               enable function proxy merge process mode(default false)"
   echo -e "     --enable_print_perf                                 function proxy enable to print perf info"
   echo -e "     --enable_dashboard                                  for to enable dashboard(default false)"
   echo -e "     --enable_collector                                  for to enable collector(default false)"
@@ -571,6 +572,7 @@ function parse_opt() {
     -o|--master_info_output) MASTER_INFO_OUT_FILE=$2 && shift 2 ;;
     -w|--ds_worker_unique_enable) DS_WORKER_UNIQUE_ENABLE=true && shift 1 ;;
     -f|--function_proxy_unique_enable) FUNCTION_PROXY_UNIQUE_ENABLE=true && shift 1 ;;
+    --function_proxy_merge_process_enable) FUNCTION_PROXY_MERGE_PROCESS_ENABLE=true && shift 2 ;;
     -e|--enable_multi_master) ENABLE_MULTI_MASTER=true && shift 1 ;;
     -h|--help) usage && exit 0 ;;
     --master) ENABLE_MASTER="true" && shift 1 ;;
@@ -1454,7 +1456,7 @@ function export_config() {
   export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
-  export MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
+  export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
   export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE
   export GLOBAL_SCHEDULER_PORT METRICS_COLLECTOR_TYPE ETCD_PROXY_ENABLE
   export RUNTIME_METRICS_CONFIG

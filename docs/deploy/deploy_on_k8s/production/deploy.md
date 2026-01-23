@@ -142,6 +142,8 @@ meta-service-587d5fc6db-p5wh7                                     1/1     Runnin
 minio-884b9bdb6-bc2bj                                             1/1     Running   0          2m56s   10.x.x.216     dggphis18023   <none>           <none>
 ```
 
+参考[在 K8s 集群中运行函数服务](example-project-function-k8s-service)进一步验证部署结果。
+
 openYuanrong 日志默认开启并挂载到 K8s 节点上。其中 data worker 组件日志路径为 `/home/sn/datasystem/logs/`，其他组件日志路径为 `/var/paas/sys/log/cff/default/componentlogs`，函数实例 runtime 日志路径为 `/var/paas/sys/log/cff/default/servicelogs`，函数实例用户日志路径为 `/var/paas/sys/log/cff/default/processrouters/stdlogs`。如果部署失败，可通过日志分析原因。
 
 ## 自定义 Pod 资源池

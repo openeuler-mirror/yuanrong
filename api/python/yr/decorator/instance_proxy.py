@@ -260,7 +260,7 @@ class InstanceCreator:
                     or not global_runtime.get_runtime().is_object_existing_in_local(self._code_ref.id)
             ):
                 serialized_object = Serialization().serialize(self.__user_class__)
-                if len(serialized_object) <= 1024:
+                if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", self.__user_class__.__qualname__)
                 else:

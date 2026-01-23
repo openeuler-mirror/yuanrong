@@ -26,7 +26,7 @@ from yr.err_type import ErrorInfo, ErrorCode
 from yr.libruntime_pb2 import FunctionMeta
 
 import yr
-from yr import log
+from yr import log, runtime_holder
 from yr.common import constants
 from yr.ds_tensor_client_manager import get_tensor_client
 
@@ -72,22 +72,28 @@ class ObjectRef:
         self._enable_tensor_transport = enable_tensor_transport
         self.npu_obj_ids = []
         self.instance_id = ""
-        global_runtime = yr.runtime_holder.global_runtime.get_runtime()
+        global_runtime = runtime_holder.global_runtime.get_runtime()
         if need_incre and global_runtime and exception is None:
             global_runtime.increase_global_reference([self._id])
 
     def __del__(self):
-        global_runtime = yr.runtime_holder.global_runtime.get_runtime()
-        if self._need_decre and global_runtime:
-            global_runtime.decrease_global_reference([self._id])
-        if self._enable_tensor_transport and len(self.npu_obj_ids) != 0:
-            ds_tensor_client = get_tensor_client()
-            ds_tensor_client.dev_delete(self.npu_obj_ids)
-            # In future versions, this step will no longer be required
-            if len(self.instance_id) != 0 and global_runtime:
-                opts = yr.InvokeOptions()
-                opts.is_delete_remote_tensor = True
-                global_runtime.invoke_instance(FunctionMeta(), self.instance_id, self.npu_obj_ids, opts, 1)
+        try:
+            if runtime_holder is None:
+                return
+            global_runtime = runtime_holder.global_runtime.get_runtime()
+            if self._need_decre and global_runtime:
+                global_runtime.decrease_global_reference([self._id])
+            if self._enable_tensor_transport and len(self.npu_obj_ids) != 0:
+                ds_tensor_client = get_tensor_client()
+                ds_tensor_client.dev_delete(self.npu_obj_ids)
+                # In future versions, this step will no longer be required
+                if len(self.instance_id) != 0 and global_runtime:
+                    opts = yr.InvokeOptions()
+                    opts.is_delete_remote_tensor = True
+                    global_runtime.invoke_instance(FunctionMeta(), self.instance_id, self.npu_obj_ids, opts, 1)
+        except (AttributeError, TypeError, NameError):
+            # 忽略模块清理时的属性访问错误
+            pass
 
     def __copy__(self):
         return self
@@ -211,7 +217,7 @@ class ObjectRef:
         Args:
             callback (Callable): User callback.
         """
-        yr.runtime_holder.global_runtime.get_runtime().set_get_callback(self.id, callback)
+        runtime_holder.global_runtime.get_runtime().set_get_callback(self.id, callback)
 
     def get(self, timeout: int = constants.DEFAULT_GET_TIMEOUT) -> Any:
         """This function is used to retrieve an object.
@@ -231,7 +237,7 @@ class ObjectRef:
         if timeout <= constants.MIN_TIMEOUT_LIMIT and timeout != constants.NO_LIMIT:
             raise ValueError("Parameter 'timeout' should be greater than 0 or equal to -1 (no timeout)")
 
-        objects = yr.runtime_holder.global_runtime.get_runtime().get([self.id], timeout, False)
+        objects = runtime_holder.global_runtime.get_runtime().get([self.id], timeout, False)
         result_str = objects[0]
 
         try:

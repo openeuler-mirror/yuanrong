@@ -237,7 +237,7 @@ class FunctionProxy:
                         self._code_ref.id
                         )):
                 serialized_object = Serialization().serialize(func)
-                if len(serialized_object) <= 1024:
+                if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", func.__qualname__)
                 self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)

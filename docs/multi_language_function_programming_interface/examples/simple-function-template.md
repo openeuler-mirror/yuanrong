@@ -765,6 +765,8 @@
 
 ## 函数服务示例工程
 
+### 在主机集群中运行函数服务
+
 参考[配置支持函数服务](deploy-processes-config-support-faas)确保您部署的 openYuanrong 集群支持运行函数服务。在所有节点创建相同的代码包目录，例如 `/opt/mycode/service`，用于存放构建生成的可执行函数代码。
 
 :::::{tab-set}
@@ -1250,3 +1252,150 @@
 
 ::::
 :::::
+
+(example-project-function-K8s-service)=
+
+### 在 K8s 集群中运行函数服务
+
+如果在部署时已经创建资源池，可跳过这个步骤。
+创建 create_pool.json 文件，内容如下:
+
+```json
+{
+    "pools": [
+        {
+            "id": "pool-600-512",
+            "size": 1,
+            "group": "rg1",
+            "reuse": false,
+            "resources": {
+                "limits": {
+                    "cpu": "600m",
+                    "memory": "512Mi"
+                },
+                "requests": {
+                    "cpu": "600m",
+                    "memory": "512Mi"
+                }
+            }
+        }
+    ]
+}
+```
+    
+使用 curl 工具创建资源池，参数含义详见[API 说明](../../deploy/deploy_on_k8s/api/create_pod_pool.md)：
+
+```bash
+META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 IP}:31182>
+curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type: application/json' -d @create_pool.json
+```
+    
+返回结果格式如下。
+    
+```json
+{
+  "code":0,
+  "message": "",
+  "result": {
+    "failed_pools": null
+  }
+}
+``` 
+
+1. 准备示列代码
+
+    新建如下内容文件 demo.py。
+
+    ```python
+    import datetime
+    # 函数执行入口，每次请求都会执行，其中event参数为JSON格式
+    def handler(event, context):
+        print("received request,event content:", event)
+
+        response = ""
+        try:
+            name = event.get("name")
+            # 获取配置的环境变量，环境变量在注册和更新函数时设置
+            show_date = context.getUserData("show_date")
+            if show_date is not None:
+                response = "hello " + name + ",today is " + datetime.date.today().strftime('%Y-%m-%d')
+            else:
+                response = "hello " + name
+        except Exception as e:
+            print(e)
+            response = "please enter your name,for example:{'name':'yuanrong'}"
+    
+        return response
+
+    # 函数初始化入口，函数实例启动时执行一次
+    def init(context):
+        print("function instance initialization completed")
+    
+    # 函数退出入口，函数实例被销毁时执行一次
+    def pre_stop():
+        print("function instance is being destroyed")    
+    ```
+
+    打包成demo.zip 并使用 [Minio 客户端](../../reference/development-tools.md)上传到MinIO。
+        
+    ```bash
+    zip demo.zip demo.py
+    # 上传到s3上面
+    mc mb mys3/demo-bucket
+    mc cp ./demo.zip mys3/demo-bucket/demo.zip
+    ```
+
+2. 注册函数
+
+    新建如下内容文件 create_func.json。
+
+    ```json
+     {
+        "name": "0@myService@python-demo",
+        "handler": "demo.my_handler",
+        "extendedHandler":{"initializer":"demo.init","pre_stop":"demo.pre_stop"},
+          "environment":{"show_date":"true"},
+          "runtime": "python3.9",
+          "cpu": 600,
+          "memory": 512,
+          "timeout": 30,
+          "currentNum": "100",
+          "kind" : "faas",
+          "storageType": "s3",
+          "s3CodePath": {
+            "bucketId": "mys3/demo-bucket",
+            "objectId": "demo.zip",
+            "bucketUrl": "http://{Your MinIO Address:9000}"
+          }  
+     }
+    ```
+     
+    通过 curl 工具注册函数，参数含义详见 [API 说明](../api/function_service/register_function.md)：
+        
+    ```bash 
+    META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 IP}:31182>
+    curl -X POST -i ${META_SERVCICE_ENDPOINT}/serverless/v1/functions \
+            -H 'Content-Type: application/json' -H 'x-storage-type: local' \
+            -d @create_func.json
+        
+    ```
+        
+    结果格式如下， 记录 ` functionVersionUrn ` 字段的值用于调用， 这里对应 ` sn:cn:yrk:12345678901234561234567890123456:function:0@myService@python-demo:latest `
+        
+    ```json
+    {"code":0,"message":"SUCCESS","function":{"id":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@python-demo:latest","createTime":"2026-01-20 01:57:36.938 UTC","updateTime":"","functionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@python-demo","name":"0@myService@python-demo","tenantId":"12345678901234561234567890123456","businessId":"yrk","productId":"","reversedConcurrency":0,"description":"","tag":null,"functionVersionUrn":"sn:cn:yrk:12345678901234561234567890123456:function:0@myService@python-demo:latest","revisionId":"20260120015736938","codeSize":0,"extendedHandler":{"initializer":"demo.init","pre_stop":"demo.pre_stop"},"codeSha256":"","bucketId":"mys3/demo-bucket","objectId":"demo.zip","handler":"demo.my_handler","layers":null,"cpu":600,"memory":512,"runtime":"python3.9","timeout":30,"versionNumber":"latest","versionDesc":"latest","environment":{"show_date":"true"},"customResources":null,"statefulFlag":0,"lastModified":"","Published":"2016-01-20 01:57:36.936 UTC","minInstance":1,"maxInstance":100,"concurrentNum":100,"funcLayer":[],"status":"","instanceNum":0,"device":{},"created":""}}
+    ```
+
+3. 调用服务
+
+    使用 curl 工具调用函数，参数含义详见 [API 说明](../api/function_service/function_invocation.md)： 
+    
+    ```bash
+    FRONTEND_ENDPOINT=<frontend 组件的终端节点，默认为：http://{主节点 ip}:8888`>
+    #设置 functionVersionUrn 环境变量，根据之前创建函数返回的functionVersionUrn
+    curl -H "Content-type: application/json" -X POST \
+         -i ${FRONTEND_ENDPOINT}/serverless/v1/functions/${functionVersionUrn}/invocations \
+         -d {\"name\":\"openyuanrong\"}
+    ```
+    
+    结果输出: "hello yuanrong,today is 2026-01-20"

@@ -46,6 +46,7 @@ ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
 enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,\
 enable_meta_service:,meta_service_port:,\
+enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
 function_proxy_grpc_port:,global_scheduler_port:,runtime_init_port:,\
 function_agent_litebus_thread:,function_master_litebus_thread:,function_proxy_litebus_thread:,\
@@ -58,6 +59,7 @@ curve_key_path:,runtime_ds_auth_enable:,runtime_ds_encrypt_enable:,runtime_ds_co
 ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_storage_auth_enable:,\
 is_partial_watch_instances:,\
 ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,meta_service_ssl_enable:,\
+iam_ssl_enable:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
 etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key_file:,etcd_ca_file:,\
@@ -228,6 +230,10 @@ ENABLE_COLLECTOR="false"
 
 ENABLE_META_STORE="false"
 ENABLE_META_SERVICE="false"
+ENABLE_IAM_SERVER="false"
+IAM_SERVER_PORT=31112
+IAM_TOKEN_EXPIRED_TIME_SPAN=86400
+IAM_CREDENTIAL_TYPE="token"
 ENABLE_PERSISTENCE="false"
 META_STORE_MODE="local"
 META_STORE_EXCLUDED_KEYS=","
@@ -300,6 +306,9 @@ SCC_ENABLE="false"
 SSL_ENABLE="false"
 FRONTEND_SSL_ENABLE="false"
 META_SERVICE_SSL_ENABLE="false"
+# iam ssl config - when IAM_SSL_ENABLE=true or SSL_ENABLE=true, iam_server will enable mTLS
+# certificate paths are reused from global SSL_BASE_PATH, SSL_ROOT_FILE, SSL_CERT_FILE, SSL_KEY_FILE
+IAM_SSL_ENABLE="false"
 SSL_ROOT_FILE="ca.crt"
 SSL_CERT_FILE="module.crt"
 SSL_KEY_FILE="module.key"
@@ -448,6 +457,10 @@ function usage() {
   echo -e "     --enable_collector                                  for to enable collector(default false)"
   echo -e "     --enable_meta_service                               for to enable meta service(default false)"
   echo -e "     --meta_service_port                                 meta_service port (default 31111)"
+  echo -e "     --enable_iam_server                                 for to enable iam server(default false)"
+  echo -e "     --iam_server_port                                   iam_server port (default 31112)"
+  echo -e "     --iam_token_expired_time_span                       iam token expired time span in seconds, 0 means never expire (default 86400)"
+  echo -e "     --iam_credential_type                               iam credential type: token or ak_sk (default token)"
   echo -e "     --enable_meta_store                                 for to enable meta store(default false)"
   echo -e "     --enable_persistence                                enable meta store to persist into etcd (default false)"
   echo -e "     --meta_store_max_flush_concurrency                  max flush concurrency for meta store backup(default 1000)"
@@ -524,6 +537,7 @@ function usage() {
   echo -e "     --ssl_enable                                        ssl enabled, options: true/false (default false)"
   echo -e "     --frontend_ssl_enable                               frontend ssl enabled, options: true/false (default false)"
   echo -e "     --meta_service_ssl_enable                           meta_service ssl enabled, options: true/false (default false)"
+  echo -e "     --iam_ssl_enable                                    iam_server mTLS enabled independently, options: true/false (default false). Note: iam_server mTLS is also enabled when global ssl_enable=true"
   echo -e "     --ssl_root_file                                     ssl root ca file name, default is ca.crt"
   echo -e "     --ssl_cert_file                                     ssl module cert file name, default is module.crt"
   echo -e "     --ssl_key_file                                      ssl module key file name, default is module.key"
@@ -618,6 +632,10 @@ function parse_opt() {
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
     --enable_meta_service) ENABLE_META_SERVICE=$2 && shift 2 ;;
+    --enable_iam_server) ENABLE_IAM_SERVER=$2 && shift 2 ;;
+    --iam_server_port) IAM_SERVER_PORT=$2 && port_policy_table["iam_server_port"]="FIX" && shift 2 ;;
+    --iam_token_expired_time_span) IAM_TOKEN_EXPIRED_TIME_SPAN=$2 && shift 2 ;;
+    --iam_credential_type) IAM_CREDENTIAL_TYPE=$2 && shift 2 ;;
     --meta_servce_port) META_SERVICE_PORT=$2 && port_policy_table["meta_service_port"]="FIX" && shift 2 ;;
     --min_instance_cpu_size) MIN_INSTANCE_CPU_SIZE=$2 && shift 2 ;;
     --min_instance_memory_size) MIN_INSTANCE_MEMORY_SIZE=$2 && shift 2 ;;
@@ -714,6 +732,7 @@ function parse_opt() {
     --ssl_enable) SSL_ENABLE=$2 && shift 2 ;;
     --frontend_ssl_enable) FRONTEND_SSL_ENABLE=$2 && shift 2 ;;
     --meta_service_ssl_enable) META_SERVICE_SSL_ENABLE=$2 && shift 2 ;;
+    --iam_ssl_enable) IAM_SSL_ENABLE=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;
     --ssl_cert_file) SSL_CERT_FILE=$2 && shift 2 ;;
     --ssl_key_file) SSL_KEY_FILE=$2 && shift 2 ;;

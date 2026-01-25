@@ -459,6 +459,13 @@ function start_control_plane() {
   if ! restart_control_plane_component "function_master" $CONTROL_PLANE_RETRY_TIMES; then
     return 98
   fi
+  # iam_server
+  if [ "X${ENABLE_IAM_SERVER}" = "Xtrue" ] || [ "X${ENABLE_IAM_SERVER}" = "XTRUE" ]; then
+    log_info "Deploying iam_server..."
+    if ! restart_control_plane_component "iam_server" $CONTROL_PLANE_RETRY_TIMES; then
+      return 98
+    fi
+  fi
   return 0
 }
 
@@ -560,6 +567,20 @@ function start_meta_service() {
   ret_code=$?
   if [ ${ret_code} -eq 0 ]; then
     check_and_set_component_checklist "meta_service" $META_SERVICE_PID
+  fi
+  return ${ret_code}
+}
+
+function start_iam_server() {
+  if [ "X${ENABLE_IAM_SERVER}" != "Xtrue" ] && [ "X${ENABLE_IAM_SERVER}" != "XTRUE" ]; then
+    return 0
+  fi
+  update_control_plane_port "iam_server_port"
+  IAM_SERVER_PORT=${control_port_table["iam_server_port"]}
+  install_function_system "iam_server"
+  ret_code=$?
+  if [ ${ret_code} -eq 0 ]; then
+    check_and_set_component_checklist "iam_server" $IAM_SERVER_PID
   fi
   return ${ret_code}
 }
@@ -683,7 +704,7 @@ function restart_component() {
        restart_agent_runtime_accessor
      fi
     ;;
-  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service)
+  function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service|iam_server)
     restart_module "$1"
     ;;
   etcd)
@@ -704,6 +725,7 @@ function restart_component() {
     terminate_process ${pid_table["faas_frontend"]}
     terminate_process ${pid_table["function_scheduler"]}
     terminate_process ${pid_table["meta_service"]}
+    terminate_process ${pid_table["iam_server"]}
     start_control_plane
     ;;
   *)

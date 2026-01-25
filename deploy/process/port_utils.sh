@@ -35,6 +35,11 @@ function init_control_plane_port() {
   # function master
   control_port_table["global_scheduler_port"]=${GLOBAL_SCHEDULER_PORT}
   update_control_plane_port "global_scheduler_port"
+  # iam server
+  if [ "X${ENABLE_IAM_SERVER}" = "Xtrue" ]; then
+    control_port_table["iam_server_port"]=${IAM_SERVER_PORT}
+    update_control_plane_port "iam_server_port"
+  fi
 }
 
 function update_control_plane_port() {

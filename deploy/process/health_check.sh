@@ -40,6 +40,9 @@ function health_check() {
     function_master)
         function_system_health_check "$2" "${GLOBAL_SCHEDULER_PORT}" "global-scheduler"
         ;;
+    iam_server)
+        function_system_health_check "$2" "${IAM_SERVER_PORT}" "iam-server"
+        ;;
     ds_worker|ds_master)
         data_system_health_check "$1" "$2"
         ;;

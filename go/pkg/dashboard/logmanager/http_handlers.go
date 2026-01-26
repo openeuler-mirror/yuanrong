@@ -17,7 +17,9 @@
 package logmanager
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -92,6 +94,39 @@ func ListLogsHandler(ctx *gin.Context) {
 //		@Failure		500		{object}	models.DashboardErrorResponse	"some internal error, need to check log"
 //		@Router			/api/logs [get]
 func ReadLogHandler(ctx *gin.Context) {
+	query, err := bindLogQuery(ctx)
+	if err != nil {
+		return
+	}
+	streamLogHandler(ctx, query, false)
+}
+
+// DownloadLogHandler function for download log
+//
+//		@Summary		download log file (INTERNAL ONLY)
+//		@Description	return log file (use a stream)
+//		@Produce		octet-stream
+//	 @Tags           logs,internal
+//		@Param			filename query		string					        false	"query params"
+//		@Success		200		 {file}	    binary  						"success"
+//		@Failure		400		 {object}	models.DashboardErrorResponse	"invalid parameter"
+//		@Failure		500		 {object}	models.DashboardErrorResponse	"some internal error, need to check log"
+//		@Router			/api/logs/download [get]
+func DownloadLogHandler(ctx *gin.Context) {
+	query, err := bindLogQuery(ctx)
+	if err != nil {
+		return
+	}
+	ctx.Header("Content-Type", "application/octet-stream")
+	ctx.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", query.Filename))
+	ctx.Header("Transfer-Encoding", "chunked") // 关键：设置分块传输
+	ctx.Header("X-Content-Type-Options", "nosniff")
+	query.StartLine = 0
+	query.EndLine = math.MaxUint32
+	streamLogHandler(ctx, query, true)
+}
+
+func bindLogQuery(ctx *gin.Context) (readLogQuery, error) {
 	log.GetLogger().Infof("receive read log request %#v", ctx.Request)
 	if managerSingleton == nil {
 		log.GetLogger().Errorf("!! manager is nil !! this should never happened !!")
@@ -99,7 +134,7 @@ func ReadLogHandler(ctx *gin.Context) {
 			Message: "unexpected error",
 			Data:    nil,
 		})
-		return
+		return readLogQuery{}, errors.New("manager is nil, this should never happened")
 	}
 	query := readLogQuery{}
 	err := ctx.BindQuery(&query)
@@ -109,8 +144,12 @@ func ReadLogHandler(ctx *gin.Context) {
 			Message: fmt.Sprintf("query binding failed: %s", err.Error()),
 			Data:    nil,
 		})
-		return
+		return query, err
 	}
+	return query, nil
+}
+
+func streamLogHandler(ctx *gin.Context, query readLogQuery, shouldFlush bool) {
 	log.GetLogger().Infof("readlog handler get log query: %#v", query.Filename)
 	log.GetLogger().Infof("DB right now: %#v", managerSingleton.GetLogEntries())
 	logEntries := managerSingleton.LogDB.Query(logDBQuery{
@@ -131,7 +170,7 @@ func ReadLogHandler(ctx *gin.Context) {
 	entry := logEntries.FindFirst()
 
 	wait := make(chan struct{})
-	go streamResponse(ctx, outLog, wait)
+	go streamResponse(ctx, outLog, wait, shouldFlush)
 	publishCollectRequest(ctx, entry, outLog, query)
 	<-wait
 }
@@ -165,7 +204,7 @@ func publishCollectRequest(ctx *gin.Context, entry *LogEntry, outLog chan<- *log
 	}
 }
 
-func streamResponse(ctx *gin.Context, outLog <-chan *logservice.ReadLogResponse, wait chan struct{}) {
+func streamResponse(ctx *gin.Context, outLog <-chan *logservice.ReadLogResponse, wait chan struct{}, shouldFlush bool) {
 	defer close(wait)
 	for {
 		select {
@@ -182,6 +221,9 @@ func streamResponse(ctx *gin.Context, outLog <-chan *logservice.ReadLogResponse,
 			if err != nil {
 				log.GetLogger().Warnf("failed to write resp, err: %s", err.Error())
 				return
+			}
+			if shouldFlush {
+				ctx.Writer.Flush()
 			}
 		}
 	}

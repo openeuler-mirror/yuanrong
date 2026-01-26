@@ -16,6 +16,7 @@
 
 from datetime import datetime
 import os
+import uuid
 import shutil
 import sys
 import subprocess
@@ -212,7 +213,7 @@ class HTTPClient:
             )
 
             return {
-                "success": True,
+                "success": response.status_code == 200,
                 "status_code": response.status_code,
                 "data": result,
                 "headers": dict(response.headers),
@@ -415,7 +416,7 @@ def install_requirements(requirements_file, target_dir):
 
 def package(backend, code_path, format):
     real_code_path = os.path.realpath(code_path)
-    file_name = f"code-{datetime.now().strftime('%Y%m%d%H%M')}"
+    file_name = f"code-{uuid.uuid4().hex}"
     archive_file = os.path.join("/tmp", file_name)
     if format == "zip":
         shutil.make_archive(archive_file, format, real_code_path)

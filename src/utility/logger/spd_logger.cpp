@@ -236,8 +236,10 @@ void SpdLogger::InitAsyncThread(const LogParam &logParam)
     static std::once_flag onceflag;
     std::call_once(onceflag, [logParam]() {
         try {
-            yr_spdlog::init_thread_pool(static_cast<size_t>(logParam.maxAsyncQueueSize),
-                                        static_cast<size_t>(logParam.asyncThreadCount));
+            if (!yr_spdlog::thread_pool()) {
+                yr_spdlog::init_thread_pool(static_cast<size_t>(logParam.maxAsyncQueueSize),
+                                            static_cast<size_t>(logParam.asyncThreadCount));
+            }
             yr_spdlog::flush_every(std::chrono::seconds(logParam.logBufSecs));
         } catch (const yr_spdlog::spdlog_ex &ex) {
             std::cout << "failed to init logger thread pool:" << ex.what() << std::endl << std::flush;

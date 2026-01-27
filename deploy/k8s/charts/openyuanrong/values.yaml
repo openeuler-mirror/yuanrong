@@ -410,7 +410,7 @@ global:
     # If true, bootstrap will start system function, need create secret(localauth) before deploy
     secretKeyEnable: false
     # Posix max grpc size (MB)
-    maxGrpcSize: 4
+    maxGrpcSize: 11
     # If true, function proxy will listen on functionProxyGrpcPort, and accept driver's request
     driverEnable: true
     # Timeout between function-system components, default 60000 (ms)

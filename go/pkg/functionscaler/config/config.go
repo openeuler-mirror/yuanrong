@@ -43,7 +43,9 @@ const (
 	defaultDockerRootPath           = "/var/lib/docker"
 	defaultFaasschedulerSTScertPath = "/opt/certs/HMSClientCloudAccelerateService/" +
 		"HMSCaaSYuanRongWorkerManager/HMSCaaSYuanRongWorkerManager.ini"
-	defaultPredictGroupWindow = 15 * 60 * 1000
+	defaultPredictGroupWindow      = 15 * 60 * 1000
+	defaultDataSystemTimeoutMs     = 60000
+	defaultUploadDataSystemTimeout = 10
 )
 
 var (
@@ -119,6 +121,7 @@ func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 			log.GetLogger().Errorf("failed to set env of %s, err: %s", sts.EnvSTSEnable, err.Error())
 			return err
 		}
+		GlobalConfig.SystemAuthConfig = sts.DecryptSystemAuthConfig(GlobalConfig.RawStsConfig.SensitiveConfigs.Auth)
 	}
 	if len(GlobalConfig.Scenario) == 0 {
 		GlobalConfig.Scenario = types.ScenarioWiseCloud
@@ -132,6 +135,12 @@ func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 	err = setServiceAccountJwt(GlobalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to set serviceaccount jwt config %s", err.Error())
+	}
+	if GlobalConfig.DataSystemConfig.InitTimeoutMs <= 0 {
+		GlobalConfig.DataSystemConfig.InitTimeoutMs = defaultDataSystemTimeoutMs
+	}
+	if GlobalConfig.DataSystemConfig.UploadTTLSec <= 0 {
+		GlobalConfig.DataSystemConfig.UploadTTLSec = defaultUploadDataSystemTimeout
 	}
 	return nil
 }
@@ -192,6 +201,13 @@ func InitEtcd(stopCh <-chan struct{}) error {
 	if err := etcd3.InitMetaEtcdClient(GlobalConfig.MetaETCDConfig, GlobalConfig.AlarmConfig, stopCh); err != nil {
 		return fmt.Errorf("faaSScheduler failed to init metadata etcd: %s", err.Error())
 	}
+	if len(GlobalConfig.DataSystemEtcd.Servers) != 0 {
+		if err := etcd3.InitDataSystemEtcdClient(GlobalConfig.DataSystemEtcd, GlobalConfig.AlarmConfig, stopCh); err != nil {
+			return fmt.Errorf("faaSFrontend failed to init dataSystemEtcd etcd: %s", err.Error())
+		}
+		log.GetLogger().Infof("init dataSystemEtcd success")
+	}
+
 	return nil
 }
 

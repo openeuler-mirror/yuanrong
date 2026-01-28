@@ -25,18 +25,27 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
+
 	"yuanrong.org/kernel/runtime/libruntime/api"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/localauth"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
+	"yuanrong.org/kernel/pkg/common/faas_common/statuscode"
 	commonTls "yuanrong.org/kernel/pkg/common/faas_common/tls"
 	"yuanrong.org/kernel/pkg/functionscaler"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
+	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 )
+
+var isShutDown atomic.Bool = atomic.Bool{}
 
 const (
 	defaultReadBufferSize     = 1 * 1024
@@ -44,6 +53,11 @@ const (
 	defaultServerTimeout      = 900 * time.Second
 	invokePath                = "/invoke"
 )
+
+// SetShutDownStatus -
+func SetShutDownStatus() {
+	isShutDown.Store(true)
+}
 
 // StartHTTPServer -
 func StartHTTPServer(errChan chan<- error) (*fasthttp.Server, error) {
@@ -55,7 +69,7 @@ func StartHTTPServer(errChan chan<- error) (*fasthttp.Server, error) {
 		WriteTimeout:       defaultServerTimeout,
 		MaxRequestBodySize: defaultMaxRequestBodySize,
 	}
-	if config.GlobalConfig.HTTPSConfig.HTTPSEnable {
+	if config.GlobalConfig.HTTPSConfig != nil && config.GlobalConfig.HTTPSConfig.HTTPSEnable {
 		if err := commonTls.InitTLSConfig(*config.GlobalConfig.HTTPSConfig); err != nil {
 			return nil, fmt.Errorf("init HTTPS config error: %s", err.Error())
 		}
@@ -70,7 +84,7 @@ func StartHTTPServer(errChan chan<- error) (*fasthttp.Server, error) {
 	return fastServer, nil
 }
 func getTLSConfig() *tls.Config {
-	if !config.GlobalConfig.HTTPSConfig.HTTPSEnable {
+	if config.GlobalConfig.HTTPSConfig == nil || !config.GlobalConfig.HTTPSConfig.HTTPSEnable {
 		return nil
 	}
 	tlsConfig := commonTls.GetClientTLSConfig()
@@ -86,8 +100,8 @@ func startServer(httpServer *fasthttp.Server) error {
 		log.GetLogger().Errorf("failed to get pod ip, pod ip is %s", podIP)
 		return errors.New("failed to get pod ip")
 	}
-	serverAddr := fmt.Sprintf("%s:%s", podIP, config.GlobalConfig.ModuleConfig.ServicePort)
-	if config.GlobalConfig.HTTPSConfig.HTTPSEnable {
+	serverAddr := fmt.Sprintf("%s:%s", podIP, selfregister.GetFaaSSchedulerHttpPort())
+	if config.GlobalConfig.HTTPSConfig != nil && config.GlobalConfig.HTTPSConfig.HTTPSEnable {
 		log.GetLogger().Infof("start to listen the https request on addr: %s", serverAddr)
 		if err := fastHTTPListenAndServeTLS(serverAddr, httpServer); err != nil {
 			log.GetLogger().Errorf("failed to start the HTTPS server: %s", err.Error())
@@ -142,34 +156,41 @@ func auth(ctx *fasthttp.RequestCtx) error {
 		return nil
 	}
 	sign := string(ctx.Request.Header.Peek(constant.HeaderAuthorization))
-	timestamp := string(ctx.Request.Header.Peek(constant.HeaderAuthTimestamp))
-	err := localauth.AuthCheckLocally(config.GlobalConfig.LocalAuth.AKey, config.GlobalConfig.LocalAuth.SKey, sign,
-		timestamp, config.GlobalConfig.LocalAuth.Duration)
-	if err != nil {
-		return err
+	if strings.HasPrefix(sign, localauth.AuthPrefixHmacSha256) {
+		return localauth.VerifySignWithHmacSha256(ctx, config.GlobalConfig.SystemAuthConfig.AccessKey,
+			config.GlobalConfig.SystemAuthConfig.SecretKey)
 	}
-	return nil
+	timestamp := string(ctx.Request.Header.Peek(constant.HeaderAuthTimestamp))
+	return localauth.AuthCheckLocally(config.GlobalConfig.LocalAuth.AKey, config.GlobalConfig.LocalAuth.SKey, sign,
+		timestamp, config.GlobalConfig.LocalAuth.Duration)
 }
 
 func invokeHandler(ctx *fasthttp.RequestCtx) {
 	traceID := string(ctx.Request.Header.Peek(constant.HeaderTraceID))
+	logger := log.GetLogger().With(zap.Any("traceId", traceID))
+	if isShutDown.Load() {
+		ctx.SetStatusCode(http.StatusOK)
+		ctx.Response.Header.Set(constant.HeaderInnerCode, strconv.Itoa(statuscode.ErrFinalized))
+		logger.Errorf("scheduler is in shutdown pharse")
+		return
+	}
 	reqBody := ctx.Request.Body()
 	var args []api.Arg
 	err := json.Unmarshal(reqBody, &args)
 	if err != nil {
 		ctx.SetStatusCode(http.StatusInternalServerError)
-		log.GetLogger().Errorf("unmarshl request body error, err %s", err.Error())
+		logger.Errorf("unmarshl request body error, err %s", err.Error())
 		return
 	}
 	if functionscaler.GetGlobalScheduler() == nil {
 		ctx.SetStatusCode(http.StatusInternalServerError)
-		log.GetLogger().Errorf("scheduler is nil")
+		logger.Errorf("scheduler is nil")
 		return
 	}
 	respBody, err := functionscaler.GetGlobalScheduler().ProcessInstanceRequestLibruntime(args, traceID)
 	if err != nil {
 		ctx.SetStatusCode(http.StatusInternalServerError)
-		log.GetLogger().Errorf("marshl response body, err %s", err.Error())
+		logger.Errorf("marshl response body, err %s", err.Error())
 		return
 	}
 	ctx.SetStatusCode(http.StatusOK)

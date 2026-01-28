@@ -171,16 +171,16 @@ func (fr *FunctionRegistry) buildFuncSpec(etcdKey string, etcdValue []byte,
 		return nil
 	}
 	funcMetaInfo.ExtendedMetaData.UserAgency = fr.userAgencyRegistry.GetUserAgencyByFuncMeta(funcMetaInfo)
-	funcSpec := fr.createOrUpdateFuncSpec(funcKey, funcMetaInfo)
+	funcSpec := createOrUpdateFuncSpec(fr.funcSpecs[funcKey], funcKey, funcMetaInfo)
 	funcSpec.FuncSecretName = utils.GenerateStsSecretName(etcdKey)
 	return funcSpec
 }
 
-func (fr *FunctionRegistry) createOrUpdateFuncSpec(funcKey string,
+func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey string,
 	funcMetaInfo *commonTypes.FunctionMetaInfo) *types.FunctionSpecification {
 	commonUtils.SetFuncMetaDynamicConfEnable(funcMetaInfo)
-	funcSpec, exist := fr.funcSpecs[funcKey]
-	if !exist {
+	var funcSpec *types.FunctionSpecification
+	if oldFuncSpec == nil {
 		funcCtx, cancelFunc := context.WithCancel(context.TODO())
 		funcSpec = &types.FunctionSpecification{
 			FuncCtx:    funcCtx,
@@ -198,6 +198,7 @@ func (fr *FunctionRegistry) createOrUpdateFuncSpec(funcKey string,
 			ExtendedMetaData: funcMetaInfo.ExtendedMetaData,
 		}
 	} else {
+		funcSpec = oldFuncSpec
 		funcSpec.FuncMetaSignature = commonUtils.GetFuncMetaSignature(funcMetaInfo,
 			config.GlobalConfig.RawStsConfig.StsEnable)
 		funcSpec.FuncMetaData = funcMetaInfo.FuncMetaData
@@ -240,6 +241,9 @@ func (fr *FunctionRegistry) FinishEtcdList() {
 func (fr *FunctionRegistry) EtcdList() []*types.FunctionSpecification {
 	client := etcd3.GetMetaEtcdClient()
 	if client == nil {
+		return nil
+	}
+	if client.Client == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), etcd3.DurationContextTimeout)

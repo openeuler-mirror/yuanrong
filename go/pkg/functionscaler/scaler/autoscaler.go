@@ -43,6 +43,7 @@ var (
 
 // AutoScaler will scales instance automatically based on calculation upon instance metrics
 type AutoScaler struct {
+	enable           atomic.Bool
 	metricsCollector metrics.Collector
 	funcKeyWithRes   string
 	scaleUpWindow    time.Duration
@@ -61,7 +62,6 @@ type AutoScaler struct {
 	autoScaleUpFlag bool
 	// autoScaleDownFlag tells if auto scale up process is running
 	autoScaleDownFlag bool
-	enable            bool
 	checkReqNumFunc   func() int
 	scaleUpHandler    ScaleUpHandler
 	scaleDownHandler  ScaleDownHandler
@@ -94,7 +94,7 @@ func NewAutoScaler(funcKeyWithRes string, metricsCollector metrics.Collector, ch
 		checkReqNumFunc:    checkReqNumFunc,
 		scaleUpHandler:     scaleUpHandler,
 		scaleDownHandler:   scaleDownHandler,
-		enable:             false,
+		enable:             atomic.Bool{},
 		scaleUpTriggerCh:   make(chan struct{}, 1),
 		scaleDownTriggerCh: make(chan struct{}, 1),
 		stopCh:             make(chan struct{}),
@@ -112,6 +112,7 @@ func NewAutoScaler(funcKeyWithRes string, metricsCollector metrics.Collector, ch
 
 // SetEnable will configure the enable of scaler
 func (as *AutoScaler) SetEnable(enable bool) {
+	as.enable.Store(enable)
 }
 
 // TriggerScale will trigger scale

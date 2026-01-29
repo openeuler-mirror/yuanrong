@@ -214,6 +214,7 @@ class HTTPClient:
 
             return {
                 "success": response.status_code == 200,
+                "error": result,
                 "status_code": response.status_code,
                 "data": result,
                 "headers": dict(response.headers),
@@ -447,7 +448,9 @@ def package(backend, code_path, format):
     return real_code_path, package_key
 
 
-def invoke_function(function_name, payload, user=None, timeout=30):
+def invoke_function(function_name, payload, headers=None, user=None, timeout=30):
+    if headers is None:
+        headers = {}
     http_client = HTTPClient(
         timeout=timeout,
         client_cert=__client_cert,
@@ -456,7 +459,7 @@ def invoke_function(function_name, payload, user=None, timeout=30):
         server_name=__server_name,
     )
     url = f"http://{__server_address}/{user}/{str(function_name).replace('@', '/')}"
-    resp = http_client.request(url, payload, method="POST")
+    resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         return True, resp["data"]
     else:
@@ -724,13 +727,19 @@ def download(package):
 @click.option("-f", "--function-name", required=True, type=str, default=None)
 @click.option("--payload", required=False, type=str, default=None)
 @click.option("--timeout", required=False, type=int, default=30)
-def invoke(function_name, payload, timeout):
+@click.option("--header", required=False, type=str, multiple=True)
+def invoke(function_name, payload, timeout, header):
+    headers = {}
+    for i in range(len(header)):
+        if ":" in header[i]:
+            key, value = header[i].split(":", 1)
+            headers[key.strip()] = value.strip()
     function_name = FunctionName(function_name)
     if payload:
         payload_dict = json.loads(payload)
     else:
         payload_dict = {}
-    ret, resp = invoke_function(function_name, payload_dict, __user, timeout)
+    ret, resp = invoke_function(function_name, payload_dict, headers=headers, user=__user, timeout=timeout)
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:

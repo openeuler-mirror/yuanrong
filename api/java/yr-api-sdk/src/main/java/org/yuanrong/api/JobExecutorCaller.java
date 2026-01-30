@@ -25,6 +25,7 @@ import org.yuanrong.errorcode.ModuleCode;
 import org.yuanrong.exception.YRException;
 import org.yuanrong.exception.LibRuntimeException;
 import org.yuanrong.exception.handler.traceback.StackTraceUtils;
+import org.yuanrong.function.YRFunc1;
 import org.yuanrong.function.YRFunc4;
 import org.yuanrong.jni.LibRuntime;
 import org.yuanrong.jobexecutor.JobExecutor;

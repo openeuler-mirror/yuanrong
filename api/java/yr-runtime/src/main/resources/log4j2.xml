@@ -23,8 +23,6 @@ DEBUG > TRACE > ALL -->
         </RollingFile>
         <Async name="AsyncRollingFileLog">
             <AppenderRef ref="RollingFileLog" />
-            <AppenderRef ref="RollingFileLogWarn" />
-            <AppenderRef ref="RollingFileLogError" />
         </Async>
     </appenders>
     <loggers>

@@ -1178,8 +1178,8 @@ void InvokeAdaptor::CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, cons
     } else {
         bool isConsumeRetryTime = false;
         if (!NeedRetry(static_cast<ErrorCode>(resp.code()), spec, isConsumeRetryTime)) {
-            YRLOG_ERROR("create instance failed, start set error, req id is {}, instance id is {}", spec->requestId,
-                        instanceId);
+            YRLOG_ERROR("create instance failed, start set error, req id is {}, instance id is {}, code is {}, msg is {}",
+                        spec->requestId, instanceId, resp.code(), resp.message());
             memStore->SetInstanceId(spec->returnIds[0].id, instanceId);
             ProcessErr(spec, ErrorInfo(static_cast<ErrorCode>(resp.code()), ModuleCode::CORE, resp.message(), true));
         } else {

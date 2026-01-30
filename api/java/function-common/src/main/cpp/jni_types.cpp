@@ -1520,6 +1520,7 @@ jobject JNIErrorCode::FromCc(JNIEnv *env, const YR::Libruntime::ErrorCode &error
         {YR::Libruntime::ErrorCode::ERR_EXTENSION_META_ERROR, 1008},
         {YR::Libruntime::ErrorCode::ERR_INSTANCE_SUB_HEALTH, 1009},
         {YR::Libruntime::ErrorCode::ERR_GROUP_SCHEDULE_FAILED, 1010},
+        {YR::Libruntime::ErrorCode::ERR_FUNCTION_META_NOT_FOUND, 1015},
         {YR::Libruntime::ErrorCode::ERR_USER_CODE_LOAD, 2001},
         {YR::Libruntime::ErrorCode::ERR_USER_FUNCTION_EXCEPTION, 2002},
         {YR::Libruntime::ErrorCode::ERR_REQUEST_BETWEEN_RUNTIME_BUS, 3001},

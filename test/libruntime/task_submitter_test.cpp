@@ -831,15 +831,26 @@ TEST_F(TaskSubmitterTest, HandleFailInvokeIsDelayScaleDownTest)
 {
     NotifyRequest req;
     req.set_code(common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_TRUE(TaskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
+    ASSERT_TRUE(taskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
     req.set_code(common::ErrorCode::ERR_INSTANCE_NOT_FOUND);
-    ASSERT_FALSE(TaskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
+    ASSERT_FALSE(taskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
     req.set_code(common::ErrorCode::ERR_INSTANCE_EXITED);
-    ASSERT_FALSE(TaskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
+    ASSERT_FALSE(taskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
     req.set_code(common::ErrorCode::ERR_INSTANCE_EVICTED);
-    ASSERT_FALSE(TaskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
+    ASSERT_FALSE(taskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
     req.set_code(common::ErrorCode::ERR_USER_FUNCTION_EXCEPTION);
-    ASSERT_FALSE(TaskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
+    ASSERT_FALSE(taskSubmitter->HandleFailInvokeIsDelayScaleDown(req, ErrorInfo()));
+}
+
+TEST_F(TaskSubmitterTest, SendEventInfoSignalAndInvokeTest)
+{
+    std::string srcInstanceId = "testSrcInstanceId";
+    std::string instanceId = "testInstanceId";
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->opts.device = YR::Libruntime::Device{.name = "deviceName", .batch_size = 1};
+    spec->functionMeta.apiType = libruntime::ApiType::Faas;
+    auto resource = GetRequestResource(spec);
+    ASSERT_NO_THROW(taskSubmitter->SendEventInfoSignalAndInvoke(srcInstanceId, instanceId, resource, spec));
 }
 }  // namespace test
 }  // namespace YR

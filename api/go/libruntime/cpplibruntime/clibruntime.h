@@ -152,6 +152,7 @@ typedef struct tagCLibruntimeConfig {
     char *dsPublicKeyContextPath;
     int maxConcurrencyCreateNum;
     char enableSigaction;
+    char enableEvent;
 } CLibruntimeConfig;
 
 typedef struct tagCInvokeArg {

@@ -224,6 +224,7 @@ struct InstanceInfo {
     std::shared_ptr<YR::utility::Timer> scaleDownTimer ABSL_GUARDED_BY(mtx);
     int64_t claimTime = 0 ABSL_GUARDED_BY(mtx);
     bool needReacquire = false ABSL_GUARDED_BY(mtx);
+    bool forceInvoke = false ABSL_GUARDED_BY(mtx);
     mutable absl::Mutex mtx;
 };
 
@@ -232,6 +233,12 @@ struct CreatingInsInfo {
     int64_t startTime ABSL_GUARDED_BY(mtx);
     mutable absl::Mutex mtx;
     CreatingInsInfo(const std::string &id = "", int64_t time = 0) : instanceId(id), startTime(time) {}
+};
+
+struct InstanceSummary {
+    std::string instanceId;
+    std::string leaseId;
+    bool forceInvoke = false;
 };
 
 struct RequestResource {

@@ -702,6 +702,7 @@ func Init(conf config.Config) error {
 		dsPublicKeyContextPath:          cDsPublicKeyContextPath,
 		maxConcurrencyCreateNum:         cMaxConcurrencyCreateNum,
 		enableSigaction:                 C.char(btoi(conf.EnableSigaction)),
+		enableEvent:                     C.char(btoi(conf.EnableEvent)),
 	}
 	cErr := C.CInit(&cConf)
 	code := int(cErr.code)

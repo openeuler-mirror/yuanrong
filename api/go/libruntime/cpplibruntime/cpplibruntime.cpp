@@ -460,6 +460,7 @@ CErrorInfo CInit(CLibruntimeConfig *config)
     librtCfg.funcExecSubmitHook = FuncExecSubmitHook;
     librtCfg.maxConcurrencyCreateNum = config->maxConcurrencyCreateNum;
     librtCfg.enableSigaction = config->enableSigaction;
+    librtCfg.enableEvent = config->enableEvent != 0;
     auto err = LibruntimeManager::Instance().Init(librtCfg);
     return ErrorInfoToCError(err);
 }

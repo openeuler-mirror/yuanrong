@@ -337,6 +337,8 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         [this, req, metaData]() {
             std::function<void()> handler = [this, req, metaData]() {
                 threadLocalTraceId = req->Immutable().traceid();
+                threadLocalRequestId = req->Immutable().requestid();
+                threadLocalInstanceId = req->Immutable().senderid();
                 auto startTime = std::chrono::high_resolution_clock::now();
                 std::vector<std::string> objectsInDs;
                 auto res = Call(req->Immutable(), metaData, librtConfig->libruntimeOptions, objectsInDs);
@@ -473,6 +475,7 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, this, _1);
     handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, this, _1);
     handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, this, _1);
+    handlers.event = std::bind(&InvokeAdaptor::EventHandler, this, _1);
     if (librtConfig->libruntimeOptions.healthCheckCallback) {
         handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
     }
@@ -506,9 +509,10 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     if (functionName.empty()) {
         functionName = Config::Instance().FUNCTION_NAME();
     }
-    auto err = this->fsClient->Start(ipAddr, port, handlers, clientType, this->librtConfig->isDriver, security,
-                                     clientsMgr, runtimeContext.GetJobId(), instanceId, this->librtConfig->runtimeId,
-                                     functionName, std::bind(&InvokeAdaptor::SubscribeAll, this));
+    auto err =
+        this->fsClient->Start(ipAddr, port, handlers, clientType, this->librtConfig->isDriver, security, clientsMgr,
+                              runtimeContext.GetJobId(), instanceId, this->librtConfig->runtimeId, functionName,
+                              std::bind(&InvokeAdaptor::SubscribeAll, this), this->librtConfig->enableEvent);
     if (err.OK()) {
         return std::make_pair(this->fsClient->GetServerVersion(), err);
     }
@@ -794,10 +798,8 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
             notifyPayload.ParseFromString(payload);
             if (notifyPayload.has_instancetermination()) {
                 this->RemoveInsMetaInfo(notifyPayload.instancetermination().instanceid());
-            } else if (notifyPayload.has_functionmasterevent()) {
-                if (functionMasterClient_) {
-                    this->functionMasterClient_->UpdateActiveMaster(notifyPayload.functionmasterevent().address());
-                }
+            } else if (notifyPayload.has_functionmasterevent() && functionMasterClient_) {
+                this->functionMasterClient_->UpdateActiveMaster(notifyPayload.functionmasterevent().address());
             }
             break;
         }
@@ -822,9 +824,9 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 resp.set_code(static_cast<common::ErrorCode>(err.Code()));
                 YRLOG_WARN("execute accelerate callback err code: {}, msg: {}", fmt::underlying(err.Code()), err.Msg());
                 resp.set_message(err.Msg());
-            } else {
-                resp.set_message(outputHandle.ToJson());
+                break;
             }
+            resp.set_message(outputHandle.ToJson());
             break;
         }
         case libruntime::Signal::UpdateScheduler: {
@@ -840,10 +842,10 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 YRLOG_INFO("recv faascheduler update signal, but parse failed");
                 resp.set_code(static_cast<common::ErrorCode>(err.Code()));
                 resp.set_message(err.Msg());
-            } else {
-                this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
-                                                             schedulerInfo.schedulerInstanceList);
+                break;
             }
+            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
+                                                         schedulerInfo.schedulerInstanceList);
             break;
         }
         case libruntime::Signal::GetInstance: {
@@ -855,6 +857,20 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 resp.set_code(::common::ErrorCode::ERR_NONE);
                 resp.set_message(serializedMeta);
             }
+            break;
+        }
+        case libruntime::Signal::UpdateEventInfo: {
+            YRLOG_INFO("recv UpdateEventInfo signal");
+            const std::string &payload = req.payload();
+            EventPayload eventPayload;
+            if (!eventPayload.ParseFromString(payload) || eventPayload.serverip().empty() ||
+                eventPayload.serverport() == 0 || eventPayload.serverinstanceid().empty()) {
+                resp.set_code(::common::ErrorCode::ERR_PARAM_INVALID);
+                resp.set_message("Failed to parse event payload");
+                break;
+            }
+            fsClient->UpdateEventServerInfo(eventPayload.serverip(), eventPayload.serverport(),
+                                            eventPayload.serverinstanceid());
             break;
         }
         default: {
@@ -879,6 +895,15 @@ HeartbeatResponse InvokeAdaptor::HeartbeatHandler(const HeartbeatRequest &req)
         }
     }
     return resp;
+}
+
+void InvokeAdaptor::EventHandler(const std::shared_ptr<EventMessageSpec> &req)
+{
+    if (librtConfig->enableEvent) {
+        this->memStore->AddEventData(req->Immutable().requestid(), req->Immutable().message());
+    } else {
+        YRLOG_WARN("enableEvent is false, skip event handler");
+    }
 }
 
 ErrorInfo InvokeAdaptor::ParseCancelReqInfo(const SignalRequest &req, CancelReqInfo &cancelReqInfo)
@@ -2201,6 +2226,22 @@ bool InvokeAdaptor::IsHealth()
         return false;
     }
     return fsClient->IsHealth();
+}
+
+ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
+                                          const std::string &instanceId)
+{
+    if (requestId.empty() || instanceId.empty()) {
+        YRLOG_DEBUG("requestId or instanceId is empty, requestId is {}, instanceId is {}", requestId, instanceId);
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "requestId or instanceId is empty");
+    }
+    auto eventMessageSpec = std::make_shared<EventMessageSpec>();
+    auto &eventRst = eventMessageSpec->Mutable();
+    eventRst.set_requestid(requestId);
+    eventRst.set_instanceid(instanceId);
+    eventRst.set_message(streamMessage);
+    fsClient->EventAsync(eventMessageSpec);
+    return ErrorInfo();
 }
 
 }  // namespace Libruntime

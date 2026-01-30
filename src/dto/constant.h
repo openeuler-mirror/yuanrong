@@ -32,6 +32,7 @@ const int RECONNECT_TIMES = 450;
 const int INTERVAL_TIME = 2;
 const int DEFAULT_INSTANCE_RANGE_NUM = -1;
 const int DEFAULT_INSTANCE_RANGE_STEP = 2;
+const int EVENT_SIGNAL_TIMEOUT_SECOND = 10;
 const std::string RESOURCE = "Resource";
 const std::string INSTANCE = "Instance";
 const std::string PREFERRED = "PreferredAffinity";
@@ -45,5 +46,8 @@ const std::string LABEL_DOES_NOT_EXIST = "LabelDoesNotExist";
 const std::string AFFINITYSCOPE_POD = "POD";
 const std::string AFFINITYSCOPE_NODE = "NODE";
 const std::string DEFAULT_YR_NAMESPACE = "yr_defalut_namespace";
+const std::string EVENT_EOF = "yuanrong_event_EOF";
+const std::string INSTANCE_REQUIREMENT_ACCEPT = "accept";
+const std::string INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM = "text/event-stream";
 }  // namespace Libruntime
 }  // namespace YR

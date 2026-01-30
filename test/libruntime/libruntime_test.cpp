@@ -1113,6 +1113,18 @@ TEST_F(LibruntimeTest, WaitAndGetAsyncTest)
     ASSERT_EQ(getFut.get().OK(), true);
 }
 
+TEST_F(LibruntimeTest, GetEventTest)
+{
+    YR::Libruntime::GetEventCallback callback = [](const std::shared_ptr<DataObject>& dataObj,
+                                                           const ErrorInfo& err,
+                                                           void* userData) {
+        YRLOG_DEBUG("GetEvent callback is called");
+    };
+    std::string objectId = "testObjectId";
+    void* userData = nullptr;
+    EXPECT_NO_THROW(lr->GetEvent(objectId, callback, userData));
+}
+
 TEST_F(LibruntimeTest, GetGroupInstanceIdsTest)
 {
     ASSERT_EQ(lr->GetGroupInstanceIds("objId", 100).empty(), true);
@@ -1313,5 +1325,25 @@ TEST_F(LibruntimeTest, KillAsyncTest)
     EXPECT_EQ(status, std::future_status::ready);
     EXPECT_TRUE(f.get().OK());
 }
+
+TEST_F(LibruntimeTest, GetRequestAndInstanceIDTest)
+{
+    threadLocalRequestId = "req123";
+    threadLocalInstanceId = "inst456";
+
+    auto result = lr->GetRequestAndInstanceID();
+
+    EXPECT_EQ(result.first, "req123");
+    EXPECT_EQ(result.second, "inst456");
+
+    threadLocalRequestId.clear();
+    threadLocalInstanceId.clear();
+
+    result = lr->GetRequestAndInstanceID();
+
+    EXPECT_TRUE(result.first.empty());
+    EXPECT_TRUE(result.second.empty());
+}
+
 }  // namespace test
 }  // namespace YR

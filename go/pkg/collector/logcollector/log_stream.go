@@ -86,8 +86,11 @@ type streamProducerInterface interface {
 func getStreamClient() streamClientInterface {
 	getStreamClientOnce.Do(func() {
 		arguments := dsCommon.ConnectArguments{
-			Host: common.CollectorConfigs.IP,
-			Port: common.CollectorConfigs.DatasystemPort,
+			Host:             common.CollectorConfigs.IP,
+			Port:             common.CollectorConfigs.DatasystemPort,
+			ClientPublicKey:  common.CollectorConfigs.DatasystemClientPublicKey,
+			ClientPrivateKey: []byte(common.CollectorConfigs.DatasystemClientPrivateKey),
+			ServerPublicKey:  common.CollectorConfigs.DatasystemServerPublicKey,
 		}
 		streamClient = wrappedStreamClient{
 			StreamClient: stream.CreateClient(arguments),

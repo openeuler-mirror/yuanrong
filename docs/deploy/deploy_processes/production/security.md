@@ -474,7 +474,8 @@ cp -ar ca.crt client.crt client.key server.key server.crt ${WorkSpace}/cert/prom
     --runtime_ds_encrypt_enable=true --ds_component_auth_enable=true \
     --etcd_auth_type=TLS --etcd_ssl_base_path=${WorkSpace}/cert/etcd \
     --cache_storage_auth_type=ZMQ --cache_storage_auth_enable=true \
-    --enable_dashboard=true --enable_collector=true --enable_separated_redirect_runtime_std=true \
+    --enable_dashboard=true --enable_faas_frontend=true \
+    --enable_collector=true --enable_separated_redirect_runtime_std=true \
     --prometheus_address=prometheus_ip:prometheus_port \
     --prometheus_ssl_enable=true --prometheus_ssl_base_path=${WorkSpace}/cert/prometheus \
     --enable_metrics=true --metrics_config_file={absolute file path} --npu_collection_mode=all \

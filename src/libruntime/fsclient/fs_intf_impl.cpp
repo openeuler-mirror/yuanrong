@@ -318,7 +318,7 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
     auto traceId = std::make_shared<std::string>(req.traceid());
     auto designatedInstanceID = req.designatedinstanceid();
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Create", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
+        "Create", *traceId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
     auto respCallback = [this, reqId, funcName, traceId, createRespCallback, span](
                             const StreamingMessage &createResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
@@ -398,7 +398,7 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
     auto traceId = std::make_shared<std::string>(req->Immutable().traceid());
     auto funcName = std::make_shared<std::string>(req->Immutable().function());
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Invoke", {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
+        "Invoke", *traceId, "", {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
     auto respCallback = [this, callback, reqId, instanceId, traceId, span](
                             const StreamingMessage &invokeResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
@@ -584,7 +584,7 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
         reqId = YR::utility::IDGenerator::GenRequestId();
     }
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Kill", {{"requestID", reqId}, {"instanceID", req.instanceid()}, {"signal", req.signal()}});
+        "Kill", reqId, "", {{"requestID", reqId}, {"instanceID", req.instanceid()}, {"signal", req.signal()}});
     auto respCallback = [callback, reqId, span](const StreamingMessage &killResp, ErrorInfo status,
                                                 std::function<void(bool)> needEraseWiredReq) {
         YRLOG_DEBUG("Receive kill response, request ID:{}", reqId);

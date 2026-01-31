@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	clients v1.0.0
-	yuanrong.org/kernel/pkg/common v1.0.0
+	github.com/agiledragon/gomonkey v2.0.1+incompatible
 	github.com/agiledragon/gomonkey/v2 v2.11.0
 	github.com/asaskevich/govalidator/v11 v11.0.1-0.20250122183457-e11347878e23
 	github.com/fsnotify/fsnotify v1.7.0
@@ -110,7 +110,6 @@ require (
 
 replace (
 	clients => ../datasystem/output/sdk/go
-	yuanrong.org/kernel/pkg/common => ./pkg/common
 	github.com/agiledragon/gomonkey => github.com/agiledragon/gomonkey v2.0.1+incompatible
 	github.com/asaskevich/govalidator/v11 => github.com/asaskevich/govalidator/v11 v11.0.1-0.20250122183457-e11347878e23
 	github.com/fsnotify/fsnotify => github.com/fsnotify/fsnotify v1.7.0

@@ -24,6 +24,56 @@
 namespace YR {
 namespace Libruntime {
 
+constexpr uint32_t TRACE_ID_LENGTH = 32;
+constexpr uint32_t SPAN_ID_LENGTH = 16;
+constexpr uint32_t TRACE_ID_BUF_LENGTH = 16;
+constexpr uint32_t SPAN_ID_BUF_LENGTH = 8;
+
+static inline bool IsHexDecimal(const std::string &str)
+{
+    return std::all_of(str.begin(), str.end(), ::isxdigit);
+}
+
+static void TraceIdStrToArr(std::string traceID, uint8_t (&arr)[TRACE_ID_BUF_LENGTH])
+{
+    // cut trace id prefix job-xxxxxxxx-trace-
+    (void)traceID.erase(std::remove(traceID.begin(), traceID.end(), '-'), traceID.end());
+    if (traceID.size() < TRACE_ID_LENGTH) {
+        (void)traceID.insert(0, TRACE_ID_LENGTH - traceID.size(), '0');
+    }
+    traceID = traceID.substr(traceID.size() - TRACE_ID_LENGTH, TRACE_ID_LENGTH);
+    if (!IsHexDecimal(traceID)) {
+        return;
+    }
+    if (traceID.length() != TRACE_ID_LENGTH && traceID.length() != (TRACE_ID_LENGTH - 1)) {
+        YRLOG_WARN("invalid length: {}, traceID: {}", traceID.length(), traceID);
+        return;
+    }
+    YRLOG_DEBUG("load trace id: {} string to buffer array", traceID);
+    int pivot = 0;
+    // convert each 2 digits to 1 trace id element
+    for (size_t i = 0; i < traceID.length(); i += 2) {
+        std::string sub = traceID.substr(i, 2);
+        int value = std::stoi(sub, nullptr, 16);
+        arr[pivot++] = uint8_t(value);
+    }
+}
+
+static void SpanIdStrToArr(const std::string &spanID, uint8_t (&arr)[SPAN_ID_BUF_LENGTH])
+{
+    if (spanID.length() != SPAN_ID_LENGTH && spanID.length() != (SPAN_ID_LENGTH - 1)) {
+        YRLOG_WARN("invalid length: {}, spanID: {}", spanID.length(), spanID);
+        return;
+    }
+    int pivot = 0;
+    // convert each 2 digits to 1 span id element
+    for (size_t i = 0; i < spanID.length(); i += 2) {
+        std::string sub = spanID.substr(i, 2);
+        int value = std::stoi(sub, nullptr, 16);
+        arr[pivot++] = uint8_t(value);
+    }
+}
+
 TraceAdapter::~TraceAdapter() noexcept
 {
 }
@@ -170,6 +220,49 @@ std::unique_ptr<opentelemetry::sdk::trace::SpanExporter> TraceAdapter::InitOtlpG
     opentelemetry::exporter::otlp::OtlpGrpcExporterOptions options;
     options.endpoint = conf.endpoint;
     return opentelemetry::exporter::otlp::OtlpGrpcExporterFactory::Create(options);
+}
+
+opentelemetry::trace::StartSpanOptions TraceAdapter::BuildOptWithParent(const std::string &traceID,
+                                                                         const std::string &spanID)
+{
+    YRLOG_DEBUG("build options with parent, traceID: {}, spanID: {}", traceID, spanID);
+
+    opentelemetry::trace::StartSpanOptions options;
+    if (!traceID.empty()) {
+        uint8_t traceIdArr[TRACE_ID_BUF_LENGTH] = {};
+        uint8_t spanIdArr[SPAN_ID_BUF_LENGTH] = {};
+
+        TraceIdStrToArr(traceID, traceIdArr);
+        opentelemetry::trace::TraceId optlTraceId(traceIdArr);
+        if (spanID.empty()) {
+            spanIdArr[SPAN_ID_BUF_LENGTH - 1] = 0x01;
+            YRLOG_DEBUG("spanID is empty, set root span");
+        } else {
+            SpanIdStrToArr(spanID, spanIdArr);
+        }
+        opentelemetry::trace::SpanId optlSpanId(spanIdArr);
+        opentelemetry::trace::SpanContext spanContext(optlTraceId, optlSpanId, {}, false);
+
+        YRLOG_DEBUG("option is valid({})", spanContext.IsValid());
+
+        options.parent = spanContext;
+    } else {
+        YRLOG_DEBUG("traceID is empty");
+    }
+
+    options.start_steady_time = opentelemetry::common::SteadyTimestamp(std::chrono::steady_clock::now());
+    return options;
+}
+
+OtelSpan TraceAdapter::StartSpan(
+    const std::string &name,
+    const std::string &traceID,
+    const std::string &spanID,
+    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs)
+{
+    YRLOG_DEBUG("start span with traceID and spanID, name: {}, traceID: {}, spanID: {}", name, traceID, spanID);
+    auto options = BuildOptWithParent(traceID, spanID);
+    return StartSpan(name, attrs, options);
 }
 }
 }

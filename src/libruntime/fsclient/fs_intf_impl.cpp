@@ -318,7 +318,7 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
     auto traceId = std::make_shared<std::string>(req.traceid());
     auto designatedInstanceID = req.designatedinstanceid();
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Create", *traceId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
+        "Create", *reqId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
     auto respCallback = [this, reqId, funcName, traceId, createRespCallback, span](
                             const StreamingMessage &createResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
@@ -398,7 +398,7 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
     auto traceId = std::make_shared<std::string>(req->Immutable().traceid());
     auto funcName = std::make_shared<std::string>(req->Immutable().function());
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Invoke", *traceId, "", {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
+        "Invoke", *reqId, "", {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
     auto respCallback = [this, callback, reqId, instanceId, traceId, span](
                             const StreamingMessage &invokeResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {

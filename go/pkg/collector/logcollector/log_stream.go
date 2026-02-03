@@ -19,6 +19,7 @@ package logcollector
 import (
 	"bufio"
 	"bytes"
+	"clients/stream"
 	"errors"
 	"io"
 	"os"
@@ -28,7 +29,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	dsCommon "clients/common"
-	"clients/stream"
 
 	"yuanrong.org/kernel/pkg/collector/common"
 	"yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/logservice"
@@ -51,9 +51,9 @@ const (
 )
 
 var limitedRetryCode = map[int]struct{}{
-	tryAgain:               struct{}{},
-	rpcUnavailable:         struct{}{},
-	streamDeleteInProgress: struct{}{},
+	tryAgain:               {},
+	rpcUnavailable:         {},
+	streamDeleteInProgress: {},
 }
 
 var (
@@ -74,7 +74,8 @@ type wrappedStreamClient struct {
 }
 
 func (w *wrappedStreamClient) CreateProducerInterface(streamName string, delayFlushTimeMs int64, pageSize int64,
-	maxStreamSize uint64, autoCleanup bool) (streamProducerInterface, dsCommon.Status) {
+	maxStreamSize uint64, autoCleanup bool,
+) (streamProducerInterface, dsCommon.Status) {
 	return w.CreateProducer(streamName, delayFlushTimeMs, pageSize, maxStreamSize, autoCleanup)
 }
 
@@ -86,8 +87,11 @@ type streamProducerInterface interface {
 func getStreamClient() streamClientInterface {
 	getStreamClientOnce.Do(func() {
 		arguments := dsCommon.ConnectArguments{
-			Host: common.CollectorConfigs.IP,
-			Port: common.CollectorConfigs.DatasystemPort,
+			Host:             common.CollectorConfigs.IP,
+			Port:             common.CollectorConfigs.DatasystemPort,
+			ClientPublicKey:  common.CollectorConfigs.DatasystemClientPublicKey,
+			ClientPrivateKey: []byte(common.CollectorConfigs.DatasystemClientPrivateKey),
+			ServerPublicKey:  common.CollectorConfigs.DatasystemServerPublicKey,
 		}
 		streamClient = wrappedStreamClient{
 			StreamClient: stream.CreateClient(arguments),
@@ -116,7 +120,8 @@ type LogStreamPublisher struct {
 
 // NewLogStreamPublisher creates a new log stream publisher
 func NewLogStreamPublisher(streamName string, item *logservice.LogItem, absoluteFilename string) (*LogStreamPublisher,
-	error) {
+	error,
+) {
 	client := getStreamClient()
 	if client == nil {
 		return nil, errors.New("failed to get stream client")
@@ -271,7 +276,8 @@ func (p *LogStreamPublisher) publish(watcher *fsnotify.Watcher, event fsnotify.E
 }
 
 func handleFileUpdates(watcher *fsnotify.Watcher, publisher *LogStreamPublisher, done chan bool,
-	item *logservice.LogItem) {
+	item *logservice.LogItem,
+) {
 	defer close(done)
 	defer publisher.producer.Close()
 	defer watcher.Close()

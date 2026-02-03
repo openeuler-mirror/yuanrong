@@ -76,6 +76,10 @@ const (
 	// DelegateNodeAffinityPolicyAggregation -
 	DelegateNodeAffinityPolicyAggregation = "aggregation"
 
+	// todo zhouyu tongbu  agentrun
+	// DelegateNetworkConfig -
+	DelegateNetworkConfig = "DELEGATE_NETWORK_CONFIG"
+
 	// InstanceLifeCycle -
 	InstanceLifeCycle = "lifecycle"
 	// InstanceLifeCycleDetached -
@@ -93,4 +97,7 @@ const (
 	BusinessTypeTypeNote = "BUSINESS_TYPE_NOTE"
 	// FaasInvokeTimeout is function exec timeout
 	FaasInvokeTimeout = "INVOKE_TIMEOUT"
+	// todo zhouyu tongbu  agentrun
+	// ImagePullSecrets image pull secrets
+	ImagePullSecrets = "IMAGE_PULL_SECRETS"
 )

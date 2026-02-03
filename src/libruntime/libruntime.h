@@ -52,6 +52,7 @@ namespace YR {
 namespace Libruntime {
 using WaitAsyncCallback = std::function<void(const std::string &, const ErrorInfo &, void *userData)>;
 using GetAsyncCallback = std::function<void(std::shared_ptr<DataObject>, const ErrorInfo &, void *userData)>;
+using GetEventCallback = std::function<void(std::shared_ptr<DataObject>, const ErrorInfo &, void *userData)>;
 using FiberEventNotify = EventNotify<boost::fibers::mutex, boost::fibers::condition_variable>;
 using FunctionLog = ::libruntime::FunctionLog;
 const int DEFAULT_TIMEOUT = 60;       // second
@@ -446,6 +447,14 @@ public:
       @param userData user-defined data to pass to the callback
      */
     virtual void GetAsync(const std::string &objectId, GetAsyncCallback callback, void *userData);
+
+    /*!
+      @brief Asynchronously get the value of an object
+      @param objectId the ID of the object to get
+      @param callback the callback function to be called when the value is retrieved
+      @param userData user-defined data to pass to the callback
+     */
+    virtual void GetEvent(const std::string &objectId, GetEventCallback callback, void *userData);
 
     /*!
       @brief Start a loop to receive and process requests
@@ -1065,6 +1074,11 @@ public:
     virtual bool IsHealth();
 
     virtual bool IsDsHealth();
+
+    virtual ErrorInfo StreamWrite(const std::string &streamMessage, const std::string &requestId,
+                                  const std::string &instanceId);
+
+    virtual std::pair<std::string, std::string> GetRequestAndInstanceID();
 
     std::pair<ErrorInfo, std::string> GetNodeId(void);
 

@@ -40,16 +40,19 @@ type CertConfig struct {
 
 // CollectorConfig -
 type CollectorConfig struct {
-	CollectorID          string
-	IP                   string
-	Port                 string
-	Address              string
-	ManagerAddress       string
-	DatasystemPort       int
-	LogRoot              string
-	UserLogPath          string
-	EtcdConfig           etcd3.EtcdConfig
-	FunctionSystemConfig CertConfig
+	CollectorID                string
+	IP                         string
+	Port                       string
+	Address                    string
+	ManagerAddress             string
+	DatasystemPort             int
+	DatasystemClientPublicKey  string
+	DatasystemClientPrivateKey string
+	DatasystemServerPublicKey  string
+	LogRoot                    string
+	UserLogPath                string
+	EtcdConfig                 etcd3.EtcdConfig
+	FunctionSystemConfig       CertConfig
 }
 
 var (
@@ -100,6 +103,12 @@ func registerCmdArgs(rootCmd *cobra.Command) {
 		"manager address to register collector")
 	rootCmd.Flags().IntVarP(&CollectorConfigs.DatasystemPort, "datasystem_port", "", 0,
 		"datasystem port to publish stream logs")
+	rootCmd.Flags().StringVarP(&CollectorConfigs.DatasystemClientPublicKey, "datasystem_client_public_key", "", "",
+		"datasystem client public key to connect datasystem")
+	rootCmd.Flags().StringVarP(&CollectorConfigs.DatasystemClientPrivateKey, "datasystem_client_private_key", "", "",
+		"datasystem client private key to connect datasystem")
+	rootCmd.Flags().StringVarP(&CollectorConfigs.DatasystemServerPublicKey, "datasystem_server_public_key", "", "",
+		"datasystem server public key to connect datasystem")
 	rootCmd.Flags().StringVarP(&CollectorConfigs.LogRoot, "log_root", "", "", "the default root path of all logs")
 	rootCmd.Flags().StringVarP(&CollectorConfigs.UserLogPath, "user_log_path", "", "",
 		"optional; specified only if user log is in other directory than log root path")

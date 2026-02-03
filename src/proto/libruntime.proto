@@ -69,6 +69,7 @@ enum Signal {
     UpdateSchedulerHash = 72;
     ErasePendingThread = 73;
     GetInstance = 74;
+    UpdateEventInfo = 75;
 }
 
 enum SubscriptionType {

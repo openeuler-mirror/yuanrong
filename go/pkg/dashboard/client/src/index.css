@@ -73,3 +73,8 @@
 .color-blue {
     color: #1476ff;
 }
+
+.menu {
+    max-width: 80% !important;
+    min-width: 80% !important;
+}

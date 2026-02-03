@@ -156,6 +156,8 @@ struct InvokeOptions {
 
     bool trafficLimited;
 
+    bool forceInvoke = false;
+
     InstanceRange instanceRange;
 
     ResourceGroupOptions resourceGroupOpts;
@@ -199,6 +201,7 @@ struct FunctionMeta {
     std::string tensorTransportTarget = "";
     bool enableTensorTransport = false;
     std::vector<char> code;
+    
     bool IsServiceApiType()
     {
         return (apiType == libruntime::ApiType::Faas or apiType == libruntime::ApiType::Serve);
@@ -258,6 +261,14 @@ struct Credential {
     std::string ak;
     std::string sk;
     std::string dk;
+};
+
+struct OwnerSchedulerInfo {
+    std::string schedulerInstanceID;
+    int retryTimes = 0;
+    int maxRetryTimes = 3; // 单个scheduler实例重试3次
+    int currentRetryTimeSpent = 0;
+    int maxRetryTimeSpent = 5000; // Owner节点总重试时间最大5s
 };
 }  // namespace Libruntime
 }  // namespace YR

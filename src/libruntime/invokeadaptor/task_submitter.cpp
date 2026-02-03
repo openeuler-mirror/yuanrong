@@ -44,6 +44,7 @@ const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
 const int64_t IDLE_TIMER_INTERNAL = 10;
 const int DEFALUT_CANCEL_DELAY_TIME = 5;  // second
 const int ERASE_DELAY_TIME = 30;
+const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
 using namespace YR::utility;
 using json = nlohmann::json;
 
@@ -213,16 +214,11 @@ bool TaskSubmitter::HandleFailInvokeIsDelayScaleDown(const NotifyRequest &req, c
     YRLOG_INFO("check if invoke is abnormal notify request code {} requestid {}", fmt::underlying(req.code()),
                req.requestid());
     if (req.code() == common::ErrorCode::ERR_INSTANCE_NOT_FOUND ||
-        req.code() == common::ErrorCode::ERR_INSTANCE_EXITED || req.code() == common::ErrorCode::ERR_INSTANCE_EVICTED) {
+        req.code() == common::ErrorCode::ERR_INSTANCE_EXITED || req.code() == common::ErrorCode::ERR_INSTANCE_EVICTED ||
+        req.code() == common::ErrorCode::ERR_USER_FUNCTION_EXCEPTION) {
         return false;
     }
-    if (req.code() == common::ErrorCode::ERR_INNER_SYSTEM_ERROR && err.IsTimeout()) {
-        return true;
-    }
-    if (req.code() < ::common::ErrorCode::ERR_USER_CODE_LOAD) {
-        return true;
-    }
-    return false;
+    return true;
 }
 
 void TaskSubmitter::HandleFailInvokeNotify(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> spec,
@@ -617,8 +613,8 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
             });
         return false;
     }
-    auto [instanceId, leaseId] = insManagers[invokeSpec->functionMeta.apiType]->GetAvailableIns(resource);
-    if (instanceId.empty()) {
+    auto summary = insManagers[invokeSpec->functionMeta.apiType]->GetAvailableIns(resource);
+    if (summary.instanceId.empty()) {
         atomicLock.unlock();
         YRLOG_DEBUG("invoke request {} can not be scheduled", requestId);
         bool needCreate = insManagers[invokeSpec->functionMeta.apiType]->ScaleUp(invokeSpec, requestQueueSize);
@@ -627,12 +623,78 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
     this->EraseFaasCancelTimer(requestId);
     requestQueue->Pop();
     atomicLock.unlock();
-    invokeSpec->invokeInstanceId = instanceId;
-    invokeSpec->invokeLeaseId = leaseId;
-    invokeSpec->requestInvoke->Mutable().set_instanceid(instanceId);
+    invokeSpec->invokeInstanceId = summary.instanceId;
+    invokeSpec->invokeLeaseId = summary.leaseId;
+    invokeSpec->requestInvoke->Mutable().set_instanceid(summary.instanceId);
+    if (summary.forceInvoke) {
+        auto invokeOptions = invokeSpec->requestInvoke->Mutable().mutable_invokeoptions();
+        auto customTag = invokeOptions->mutable_customtag();
+        customTag->insert({"ENABLE_FORCE_INVOKE", ""});
+    }
     invokeSpec->instanceRoute = memoryStore->GetInstanceRoute(invokeSpec->returnIds[0].id);
+    // 如果开启eventstream功能，调用kill signal 把grpc server的ip和端口写入payload
+    if (libRuntimeConfig->enableEvent) {
+        auto it = resource.opts.invokeLabels.find(INSTANCE_REQUIREMENT_ACCEPT);
+        // 如果forceinvoke的是一个sse调用，由于signal无法通知到一个正在优雅退出的实例,这里会卡住，当前没有这个场景
+        if (it != resource.opts.invokeLabels.end() && it->second == INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM) {
+            if (summary.forceInvoke) {
+                memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
+                NotifyRequest fake;
+                fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
+                fake.set_message("sse request fails when instance is gracefully shutting down.");
+                fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
+                HandleInvokeNotify(fake, ErrorInfo());
+                return false;
+            }
+            YRLOG_DEBUG("start to send eventInfo signal, instanceId is {}", requestId);
+            SendEventInfoSignalAndInvoke(libRuntimeConfig->instanceId, summary.instanceId, resource, invokeSpec);
+            return false;
+        }
+    }
     SendInvokeReq(resource, invokeSpec);
     return false;
+}
+
+void TaskSubmitter::SendEventInfoSignalAndInvoke(const std::string &srcInstanceId, const std::string &instanceId,
+                                                 const RequestResource &resource,
+                                                 const std::shared_ptr<InvokeSpec> &invokeSpec)
+{
+    EventPayload eventPayload;
+    eventPayload.set_serverip(fsClient->GetEventServerIP());
+    eventPayload.set_serverport(fsClient->GetEventServerPort());
+    eventPayload.set_serverinstanceid(srcInstanceId);
+    std::string payload;
+    eventPayload.SerializeToString(&payload);
+
+    KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    killReq.set_instanceid(instanceId);
+    killReq.set_payload(std::move(payload));
+    killReq.set_signal(libruntime::Signal::UpdateEventInfo);
+
+    // 回调中执行invoke，保证signal时序先于invoke
+    auto weakThis = weak_from_this();
+    this->fsClient->KillAsync(
+        killReq, [weakThis, resource, invokeSpec, instanceId](KillResponse killRsp, const ErrorInfo &err) -> void {
+            if (killRsp.code() != common::ERR_NONE) {
+                YRLOG_ERROR("Failed to receive eventInfo signal response, instance id is {}, err is: {}", instanceId,
+                            killRsp.message());
+            } else {
+                YRLOG_DEBUG("Success to receive eventInfo signal response.");
+            }
+            if (auto thisPtr = weakThis.lock(); thisPtr) {
+                if (err.IsTimeout()) {
+                    thisPtr->memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
+                    NotifyRequest fake;
+                    fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
+                    fake.set_message("sse request signal timeout, requestId: " + invokeSpec->requestId);
+                    fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
+                    thisPtr->HandleInvokeNotify(fake, err);
+                    return;
+                }
+                thisPtr->SendInvokeReq(resource, invokeSpec);
+            }
+        }, EVENT_SIGNAL_TIMEOUT_SECOND);
 }
 
 bool TaskSubmitter::CancelAndScheOtherRes(const RequestResource &resource)

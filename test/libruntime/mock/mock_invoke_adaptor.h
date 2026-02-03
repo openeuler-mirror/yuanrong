@@ -74,6 +74,9 @@ public:
 
     MOCK_METHOD1(EraseFsIntf, void(const std::string &id));
     MOCK_METHOD0(IsHealth, bool());
+    MOCK_METHOD3(StreamWriteEvent,
+                 ErrorInfo(const std::string &streamMessage, const std::string &requestId,
+                           const std::string &instanceId));
 };
 }  // namespace Libruntime
 }  // namespace YR

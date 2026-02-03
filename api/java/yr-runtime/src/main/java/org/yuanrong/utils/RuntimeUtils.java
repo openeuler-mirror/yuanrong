@@ -48,7 +48,7 @@ public class RuntimeUtils {
     public static List<String> convertArgListToStringList(List<ByteBuffer> argList) {
         List<String> args = new ArrayList<>();
         for (ByteBuffer arg : argList) {
-            Charset charset = StandardCharsets.UTF_8;
+            Charset charset = Charset.forName("UTF-8");
             args.add(charset.decode(arg).toString());
         }
         return args;

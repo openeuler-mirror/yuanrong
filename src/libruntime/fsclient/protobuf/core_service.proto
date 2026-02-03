@@ -225,3 +225,15 @@ message KillResponse {
   common.ErrorCode code    = 1;
   string           message = 2;
 }
+
+message EventRequest {
+  string           requestID  = 1;
+  string           message    = 2;
+  string           instanceID = 3;
+}
+
+message EventPayload {
+  string           serverIp         = 1;
+  int32            serverPort       = 2;
+  string           serverInstanceId = 3;
+}

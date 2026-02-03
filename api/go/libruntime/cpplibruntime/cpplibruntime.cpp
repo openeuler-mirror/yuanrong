@@ -460,6 +460,7 @@ CErrorInfo CInit(CLibruntimeConfig *config)
     librtCfg.funcExecSubmitHook = FuncExecSubmitHook;
     librtCfg.maxConcurrencyCreateNum = config->maxConcurrencyCreateNum;
     librtCfg.enableSigaction = config->enableSigaction;
+    librtCfg.enableEvent = config->enableEvent != 0;
     auto err = LibruntimeManager::Instance().Init(librtCfg);
     return ErrorInfoToCError(err);
 }
@@ -652,6 +653,9 @@ static InvokeOptions BuildInvokeOptions(CInvokeOptions *cInvokeOpts)
     }
     if (cInvokeOpts->trafficLimited != 0) {
         invokeOpts.trafficLimited = true;
+    }
+    if (cInvokeOpts->forceInvoke != 0) {
+        invokeOpts.forceInvoke = true;
     }
     for (int i = 0; i < cInvokeOpts->size_invokeLabels; i++) {
         invokeOpts.invokeLabels.emplace(cInvokeOpts->invokeLabels[i].key, cInvokeOpts->invokeLabels[i].value);
@@ -907,6 +911,26 @@ void CWaitAsync(char *objectId, void *userData)
             auto cErr = ErrorInfoToCError(err);
             auto cObjectId = const_cast<char *>(objId.c_str());
             GoWaitAsyncCallback(cObjectId, &cErr, userData);
+        },
+        userData);
+}
+
+void CGetEvent(char *objectId, void *userData)
+{
+    auto [lrt, err] = getLibRuntime();
+    if (!err.OK()) {
+        return;  // 以后把报错抛出去
+    }
+    lrt->GetEvent(
+        objectId,
+        [](std::shared_ptr<DataObject> data, const ErrorInfo &err, void *userData) {
+            auto cErr = ErrorInfoToCError(err);
+            CBuffer cBuf = {0};
+            if (err.OK()) {
+                cErr = ErrorInfoToCError(ToCBuffer(data->data, &cBuf));
+            }
+            auto cObjectId = const_cast<char *>(data->id.c_str());
+            GoGetEventCallback(cObjectId, cBuf, &cErr, userData);
         },
         userData);
 }

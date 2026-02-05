@@ -28,6 +28,7 @@ const std::string REMOTE_CLIENT_ID_KEY_NEW = "X-Remote-Client-Id";
 const std::string TRACE_ID_KEY = "traceId";
 const std::string TENANT_ID_KEY = "tenantId";
 const std::string TENANT_ID_KEY_NEW = "X-Tenant-Id";
+const std::string X_AUTH_TOKEN = "X-Auth";
 
 using json = nlohmann::json;
 using YR::utility::NotificationUtility;
@@ -49,12 +50,13 @@ ErrorInfo ClientBuffer::Seal(const std::unordered_set<std::string> &nestedIds)
     return gwClient->PosixObjPut(req);
 }
 
-ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout)
+ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout, const std::string &authToken)
 {
     if (init_) {
         return ErrorInfo();
     }
     this->httpClient_ = std::move(httpClient);
+    this->authToken_ = authToken;
     return Init("", 0, connectTimeout);
 }
 
@@ -977,6 +979,9 @@ std::unordered_map<std::string, std::string> GwClient::BuildHeaders(const std::s
     if (!tenantId.empty()) {
         headers.emplace(TENANT_ID_KEY, tenantId);
         headers.emplace(TENANT_ID_KEY_NEW, tenantId);
+    }
+    if (!authToken_.empty()) {
+        headers.emplace(X_AUTH_TOKEN, authToken_);
     }
     return headers;
 }

@@ -193,6 +193,7 @@ class Config:
     #: The first instance of each log message is always immediately printed. However, subsequent log
     #: messages of the same pattern are buffered for up to five seconds and printed in batch.
     dedup_logs: bool = True
+    auth_token: str = ""
 
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)

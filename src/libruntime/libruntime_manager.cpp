@@ -238,6 +238,9 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
                                               std::shared_ptr<Libruntime> &librt)
 {
     SetClusterAccessInfo(librtConfig);
+    if (!Config::Instance().AUTH_TOKEN().empty()) {
+        librtConfig->authToken = Config::Instance().AUTH_TOKEN();
+    }
     if (librtConfig->ns.empty()) {
         librtConfig->ns = DEFAULT_YR_NAMESPACE;
     }
@@ -307,7 +310,7 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             return err;
         }
         auto gwClient = std::make_shared<GwClient>(librtConfig->functionIds[librtConfig->selfLanguage], handlers);
-        gwClient->Init(httpClient, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
+        gwClient->Init(httpClient, Config::Instance().DS_CONNECT_TIMEOUT_SEC(), librtConfig->authToken);
         auto fsClient = std::make_shared<FSClient>(gwClient);
         DatasystemClients dsClients{gwClient, gwClient, gwClient, gwClient};
         return librt->Init(fsClient, dsClients);

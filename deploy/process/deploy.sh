@@ -586,6 +586,8 @@ function start_iam_server() {
   if [ ${ret_code} -eq 0 ]; then
     check_and_set_component_checklist "iam_server" $IAM_SERVER_PID
   fi
+  IAM_SERVER_ADDRESS="${IP_ADDRESS}:${IAM_SERVER_PORT}"
+  export IAM_SERVER_ADDRESS
   return ${ret_code}
 }
 

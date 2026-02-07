@@ -68,8 +68,8 @@
     +import os
     +import torch
     +
-    +from datasystem.hetero_client import HeteroClient, Blob, DeviceBlobList
-    +from datasystem.ds_tensor_client import DsTensorClient
+    +from yr.datasystem.hetero_client import HeteroClient, Blob, DeviceBlobList
+    +from yr.datasystem.ds_tensor_client import DsTensorClient
     +from torch_npu.npu import current_device
     +from vllm.distributed.parallel_state import (
     +    get_tp_group, get_ep_group, get_pp_group

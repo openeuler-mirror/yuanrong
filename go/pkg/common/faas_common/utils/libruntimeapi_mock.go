@@ -160,11 +160,6 @@ func (f *FakeLibruntimeSdkClient) QueryGlobalConsumersNum(streamName string) (ui
 	return 0, nil
 }
 
-// GetActiveMasterAddr for getting active master address
-func (f *FakeLibruntimeSdkClient) GetActiveMasterAddr() string {
-	return "mockMasterAddr"
-}
-
 // SetTraceID -
 func (f *FakeLibruntimeSdkClient) SetTraceID(traceID string) {
 	return

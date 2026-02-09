@@ -2246,5 +2246,10 @@ ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, cons
     return ErrorInfo();
 }
 
+std::string InvokeAdaptor::GetActiveMasterAddr()
+{
+    return functionMasterClient_->GetActiveMasterAddr();
+}
+
 }  // namespace Libruntime
 }  // namespace YR

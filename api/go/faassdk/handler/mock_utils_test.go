@@ -251,6 +251,10 @@ func (m *mockLibruntimeClient) IsDsHealth() bool {
 	return true
 }
 
+func (m *mockLibruntimeClient) GetActiveMasterAddr() string {
+	return "mockMasterAddr"
+}
+
 // Append -
 func (p *PatchSlice) Append(patches PatchSlice) {
 	if len(patches) > 0 {

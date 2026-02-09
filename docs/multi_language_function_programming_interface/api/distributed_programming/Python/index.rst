@@ -27,8 +27,13 @@ Stateful & Stateless Function API
    :toctree: generated/
 
    yr.invoke
+   yr.StatelessFunction
+   yr.StatelessFunction.invoke
    yr.FunctionProxy
+   yr.FunctionProxy.invoke
    yr.instance
+   yr.StatefulInstanceCreator
+   yr.StatefulInstance
    yr.InstanceProxy
    yr.method
    yr.MethodProxy

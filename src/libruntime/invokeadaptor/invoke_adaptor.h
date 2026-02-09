@@ -184,6 +184,7 @@ public:
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
     ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
                                const std::string &instanceId);
+    std::string GetActiveMasterAddr();
 
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);

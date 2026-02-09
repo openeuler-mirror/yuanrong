@@ -279,6 +279,10 @@ func (m *mockLibruntimeClient) IsDsHealth() bool {
 	return true
 }
 
+func (m *mockLibruntimeClient) GetActiveMasterAddr() string {
+	return "mockMasterAddr"
+}
+
 // FakeLogger -
 type FakeLogger struct{}
 

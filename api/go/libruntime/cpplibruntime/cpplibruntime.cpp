@@ -1759,6 +1759,15 @@ int CIsDsHealth()
     return 0;
 }
 
+char* CGetActiveMasterAddr()
+{
+    auto [lrt, err] = getLibRuntime();
+    if (!err.OK()) {
+        return "";
+    }
+    return CString(lrt->GetActiveMasterAddr());
+}
+
 #ifdef __cplusplus
 }
 #endif

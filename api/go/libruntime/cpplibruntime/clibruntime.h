@@ -489,6 +489,7 @@ extern CErrorInfo CDelArrayByStateStore(CStateStorePtr stateStorePtr, char **cKe
 extern CCredential CGetCredential();
 extern int CIsHealth();
 extern int CIsDsHealth();
+char* CGetActiveMasterAddr();
 #ifdef __cplusplus
 }
 #endif

@@ -197,7 +197,7 @@ std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTableByHttpClient(std::s
     c->SubmitInvokeRequest(
         POST, GLOBAL_QUERY_RESOURCE_GROUP_TABLE, headers, body, reqId,
         [res, reqId, asyncNotify, isExit](const std::string &result, const boost::beast::error_code &errorCode,
-                                   const uint statusCode) {
+                                          const uint statusCode) {
             if (*isExit) {
                 return;
             }
@@ -240,7 +240,7 @@ std::pair<ErrorInfo, QueryNamedInsResponse> GetNamedInstancesByHttpClient(std::s
     c->SubmitInvokeRequest(
         GET, INSTANCE_MANAGER_QUERY_NAMED_INSTANCES, headers, body, reqId,
         [resp, asyncNotify, reqId, isExit](const std::string &result, const boost::beast::error_code &errorCode,
-                                    const uint statusCode) {
+                                           const uint statusCode) {
             if (*isExit) {
                 return;
             }
@@ -501,6 +501,16 @@ void FMClient::CleanActiveMaster()
         activeMasterHttpClient_->Stop();
     }
     activeMasterHttpClient_ = nullptr;
+}
+
+std::string FMClient::GetActiveMasterAddr()
+{
+    if (auto errInfo = ActivateMasterClientIfNeed(); !errInfo.OK()) {
+        YRLOG_WARN("failed to get active master address, err: {}", errInfo.Msg());
+        return "";
+    }
+    std::lock_guard<std::mutex> activeMasterLock(activeMasterMu_);
+    return activeMasterAddr_;
 }
 
 }  // namespace Libruntime

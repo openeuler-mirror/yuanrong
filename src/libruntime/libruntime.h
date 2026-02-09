@@ -1086,6 +1086,8 @@ public:
 
     std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
 
+    std::string GetActiveMasterAddr();
+
 private:
     std::pair<RetryInfo, std::vector<std::shared_ptr<Buffer>>> GetBuffersWithoutWait(
         const std::vector<std::string> &ids, int timeoutMS);

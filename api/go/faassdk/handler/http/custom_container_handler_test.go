@@ -283,6 +283,10 @@ func (f *fakeSDKClient) IsDsHealth() bool {
 	return true
 }
 
+func (f *fakeSDKClient) GetActiveMasterAddr() string {
+	return "fakeMasterAddr"
+}
+
 func newFuncSpec() *types.FuncSpec {
 	return &types.FuncSpec{
 		FuncMetaData: types.FuncMetaData{

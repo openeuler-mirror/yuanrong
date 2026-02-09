@@ -14,8 +14,5 @@
    streaming-mapreduce
    monte-carlo-pi
    reinforcement-learning-maze
-<<<<<<< HEAD
-=======
    cross_language_invoke
->>>>>>> 53b20bb591dc9a9d7a2fc7be654c42b7c6ba5f1d
 ```

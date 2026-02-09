@@ -254,3 +254,8 @@ func (l *libruntimeSDKImpl) IsHealth() bool {
 func (l *libruntimeSDKImpl) IsDsHealth() bool {
 	return clibruntime.IsDsHealth()
 }
+
+// GetActiveMasterAddr for getting active master address
+func (l *libruntimeSDKImpl) GetActiveMasterAddr() string {
+	return clibruntime.GetActiveMasterAddr()
+}

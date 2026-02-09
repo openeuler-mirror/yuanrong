@@ -906,3 +906,9 @@ class FunctionGroupHandler:
             for method_name, _ in self._class_methods.items():
                 method_proxy = getattr(self, method_name)
                 method_proxy.set_rpc_broadcast_mq(self.rpc_broadcast_mq)
+
+
+# Gradual migration: StatefulInstance and StatefulInstanceCreator are the new preferred names
+# InstanceProxy and InstanceCreator are kept for backward compatibility
+StatefulInstance = InstanceProxy
+StatefulInstanceCreator = InstanceCreator

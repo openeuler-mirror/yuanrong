@@ -1954,5 +1954,10 @@ std::string Libruntime::GetNameSpace()
     return this->config->ns;
 }
 
+std::string Libruntime::GetActiveMasterAddr()
+{   
+    return this->invokeAdaptor->GetActiveMasterAddr();
+}
+
 }  // namespace Libruntime
 }  // namespace YR

@@ -73,6 +73,7 @@ public:
     void UpdateActiveMaster(const std::string activeMasterAddr);
     void CleanActiveMaster();
     void RemoveActiveMaster();
+    std::string GetActiveMasterAddr();
 
 private:
     std::shared_ptr<HttpClient> InitCtxAndHttpClient(void);

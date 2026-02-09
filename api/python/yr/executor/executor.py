@@ -63,6 +63,38 @@ class Executor:
         return HANDLER.shutdown(grace_period_second)
 
     @staticmethod
+    def before_snapshot() -> ErrorInfo:
+        """
+        Trigger snapshot preparation hook before taking snapshot.
+
+        This method is called by libruntime before creating a snapshot.
+        It invokes the user-defined __yr_before_snapshot__ method if present.
+
+        Returns:
+            ErrorInfo: Error information if hook execution failed.
+
+        Raises:
+            RuntimeError: If the instance has not been initialized.
+        """
+        return HANDLER.before_snapshot()
+
+    @staticmethod
+    def after_snapstart() -> ErrorInfo:
+        """
+        Trigger snapshot recovery hook after restoring from snapshot.
+
+        This method is called by libruntime after restoring from a snapshot.
+        It invokes the user-defined __yr_after_snapstart__ method if present.
+
+        Returns:
+            ErrorInfo: Error information if hook execution failed.
+
+        Raises:
+            RuntimeError: If the instance has not been initialized.
+        """
+        return HANDLER.after_snapstart()
+
+    @staticmethod
     def load_handler():
         """
         Determine the execution type based on the INIT_HANDLER environment variable.

@@ -45,3 +45,27 @@ class HandlerIntf(ABC):
         Raises:
             RuntimeError: If the instance has not been initialized.
         """
+
+    @abstractmethod
+    def before_snapshot(self) -> ErrorInfo:
+        """
+        Trigger snapshot preparation hook before taking snapshot.
+        
+        This method is called by libruntime before creating a snapshot.
+        It invokes the user-defined __yr_before_snapshot__ method if present.
+        
+        Returns:
+            ErrorInfo: Error information if hook execution failed.
+        """
+
+    @abstractmethod
+    def after_snapstart(self) -> ErrorInfo:
+        """
+        Trigger snapshot recovery hook after restoring from snapshot.
+        
+        This method is called by libruntime after restoring from a snapshot.
+        It invokes the user-defined __yr_after_snapstart__ method if present.
+        
+        Returns:
+            ErrorInfo: Error information if hook execution failed.
+        """

@@ -68,9 +68,11 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                              ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
             ctx->set_verify_mode(ssl::verify_peer);
-            ctx->load_verify_file(librtCfg->verifyFilePath);
-            ctx->use_certificate_chain_file(librtCfg->certificateFilePath);
-            ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);
+            if (librtCfg->verifyFilePath.empty()) {
+                ctx->set_default_verify_paths();
+            } else {
+                ctx->load_verify_file(librtCfg->verifyFilePath);
+            }
             for (uint32_t i = 0; i < maxConnSize_; i++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx, librtCfg->serverName));
             }

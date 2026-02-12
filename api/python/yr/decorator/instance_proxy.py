@@ -383,6 +383,74 @@ class InstanceCreator:
 
         return InstanceOptionWrapper()
 
+    def snapstart(self, checkpoint_id: str) -> "InstanceProxy":
+        """
+        Start a new instance from a checkpoint snapshot.
+
+        This class method creates a new instance by restoring from a previously created snapshot.
+        The new instance will have the same state as when the snapshot was taken.
+
+        Args:
+            checkpoint_id (str): The checkpoint ID returned by a previous snapshot() call.
+                Format: {instanceID}-{functionID}-{uuid}
+
+        Returns:
+            InstanceProxy: A new instance proxy for the restored instance.
+
+        Raises:
+            RuntimeError: If the checkpoint does not exist or restore operation fails.
+
+        Example:
+            >>> import yr
+            >>> yr.init()
+            >>>
+            >>> @yr.instance
+            ... class Counter:
+            ...     def __init__(self):
+            ...         self.value = 0
+            ...
+            ...     def increment(self):
+            ...         self.value += 1
+            ...         return self.value
+            ...
+            ...     def __yr_after_snapstart__(self):
+            ...         print(f\"Restored with value={self.value}\")
+            ...
+            >>> # Create instance and snapshot
+            >>> ins = Counter.invoke()
+            >>> yr.get(ins.increment.invoke())  # value = 1
+            >>> checkpoint_id = ins.snapshot(leave_running=False)
+            >>>
+            >>> # Restore from snapshot using the class
+            >>> restored_ins = Counter.snapstart(checkpoint_id)
+            >>> result = yr.get(restored_ins.increment.invoke())  # value = 2
+            >>> print(f\"Value after restore: {result}\")
+            >>>
+            >>> yr.finalize()
+        """
+        _logger.info("Starting instance from snapshot: %s", checkpoint_id)
+
+        new_instance_id = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+
+        # Create a new InstanceProxy for the restored instance
+        restored_proxy = InstanceProxy(
+            instance_id=new_instance_id,
+            class_descriptor=self.__user_class_descriptor__,
+            class_methods=self.__user_class_methods__,
+            base_cls=self.__base_cls__,
+            function_id="",
+            need_order=self.__invoke_options__.need_order,
+            group_name="",
+            is_async=self.__is_async__,
+            instance_name=self.__invoke_options__.name,
+            namespace=self.__invoke_options__.namespace,
+            code_ref=self._code_ref
+        )
+
+        _logger.info("Instance restored from snapshot %s: %s",
+                     checkpoint_id, new_instance_id)
+        return restored_proxy
+
 
 class InstanceProxy:
     """
@@ -603,6 +671,134 @@ class InstanceProxy:
         if method_name in self._method_descriptor:
             return self._method_descriptor[method_name].is_generator
         return False
+
+    def snapshot(self, leave_running: bool = False) -> str:
+        """
+        Create instance snapshot.
+
+        This method triggers a snapshot of the current instance state,
+        sending signal 18 (INSTANCE_SNAPSHOT_SIGNAL) through the Kill interface.
+        The snapshot can be used later to restore the instance to this exact state.
+
+        Args:
+            leave_running (bool, optional): Whether to keep the instance running after snapshot.
+                - If True: Instance continues running after snapshot (online snapshot)
+                - If False: Instance will be terminated after snapshot (offline snapshot)
+                Default to ``False``.
+
+        Returns:
+            str: The checkpoint ID that uniquely identifies this snapshot.
+                Format: {instanceID}-{functionID}-{uuid}
+
+        Raises:
+            RuntimeError: If the instance is not active or snapshot operation fails.
+
+        Example:
+            >>> import yr
+            >>> yr.init()
+            >>>
+            >>> @yr.instance
+            ... class MyInstance:
+            ...     def __init__(self):
+            ...         self.counter = 0
+            ...
+            ...     def increment(self):
+            ...         self.counter += 1
+            ...
+            ...     def __yr_before_snapshot__(self):
+            ...         print(f"Preparing snapshot, counter={self.counter}")
+            ...
+            >>> ins = MyInstance.invoke()
+            >>> yr.get(ins.increment.invoke())
+            >>> checkpoint_id = ins.snapshot(leave_running=False)
+            >>> print(f"Snapshot created: {checkpoint_id}")
+            >>>
+            >>> yr.finalize()
+        """
+        if not self.is_activate():
+            raise RuntimeError(f"Instance {self.instance_id} is not active")
+
+        _logger.info("Creating snapshot for instance %s, leave_running=%s",
+                     self.instance_id, leave_running)
+
+        checkpoint_id = global_runtime.get_runtime().snapshot_instance(
+            self.instance_id, leave_running)
+
+        if not leave_running:
+            self.__instance_activate__ = False
+
+        _logger.info("Snapshot created for instance %s: %s",
+                     self.instance_id, checkpoint_id)
+        return checkpoint_id
+
+    def snapstart(self, checkpoint_id: str) -> "InstanceProxy":
+        """
+        Start a new instance from a snapshot.
+
+        This method creates a new instance by restoring from a previously created snapshot,
+        sending signal 19 (INSTANCE_SNAPSTART_SIGNAL) through the Kill interface.
+        The new instance will have the same state as when the snapshot was taken.
+
+        Args:
+            checkpoint_id (str): The checkpoint ID returned by the snapshot() method.
+                Format: {instanceID}-{functionID}-{uuid}
+
+        Returns:
+            InstanceProxy: A new instance proxy for the restored instance.
+
+        Raises:
+            RuntimeError: If the checkpoint does not exist or restore operation fails.
+
+        Example:
+            >>> import yr
+            >>> yr.init()
+            >>>
+            >>> @yr.instance
+            ... class MyInstance:
+            ...     def __init__(self):
+            ...         self.counter = 0
+            ...
+            ...     def increment(self):
+            ...         self.counter += 1
+            ...         return self.counter
+            ...
+            ...     def __yr_after_snapstart__(self):
+            ...         print(f"Instance restored, counter={self.counter}")
+            ...
+            >>> # Create instance and snapshot
+            >>> ins = MyInstance.invoke()
+            >>> yr.get(ins.increment.invoke())  # counter = 1
+            >>> checkpoint_id = ins.snapshot(leave_running=False)
+            >>>
+            >>> # Restore from snapshot
+            >>> restored_ins = MyInstance.snapstart(checkpoint_id)
+            >>> result = yr.get(restored_ins.increment.invoke())  # counter = 2
+            >>> print(f"Counter after restore: {result}")
+            >>>
+            >>> yr.finalize()
+        """
+        _logger.info("Starting instance from snapshot: %s", checkpoint_id)
+
+        new_instance_id = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+
+        # Create a new InstanceProxy for the restored instance
+        restored_proxy = InstanceProxy(
+            instance_id=new_instance_id,
+            class_descriptor=self._class_descriptor,
+            class_methods=self._class_methods,
+            base_cls=self._base_cls,
+            function_id=self._function_id,
+            need_order=self.need_order,
+            group_name=self.group_name,
+            is_async=self._is_async,
+            instance_name=self._instance_name,
+            namespace=self._ns,
+            code_ref=self._code_ref
+        )
+
+        _logger.info("Instance restored from snapshot %s: %s",
+                     checkpoint_id, new_instance_id)
+        return restored_proxy
 
 
 @register_pack_hook

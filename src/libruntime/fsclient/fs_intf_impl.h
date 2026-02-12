@@ -336,6 +336,25 @@ inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &message
     return streamMsg;
 }
 
+inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &messageId,
+                                                      const PrepareSnapResponse &msg)
+{
+    auto streamMsg = std::make_shared<StreamingMessage>();
+    streamMsg->mutable_preparesnaprsp()->CopyFrom(msg);
+    streamMsg->set_messageid(messageId);
+    return streamMsg;
+}
+
+template <>
+inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &messageId,
+                                                      const SnapStartedResponse &msg)
+{
+    auto streamMsg = std::make_shared<StreamingMessage>();
+    streamMsg->mutable_snapstartedrsp()->CopyFrom(msg);
+    streamMsg->set_messageid(messageId);
+    return streamMsg;
+}
+
 struct WiredRequest : public std::enable_shared_from_this<WiredRequest> {
     WiredRequest() = default;
     WiredRequest(std::function<void(StreamingMessage, ErrorInfo, std::function<void(bool)>)> cb,
@@ -545,6 +564,7 @@ public:
     void RemoveInsRtIntf(const std::string &instanceId) override;
     bool IsHealth() override;
     int GetSelfPort() const;
+    ErrorInfo ReconnectProxyClient(const std::string &fsIp, int fsPort) override;
 
 protected:
     void Write(const std::shared_ptr<StreamingMessage> &msg, std::function<void(ErrorInfo)> callback = nullptr);
@@ -598,13 +618,14 @@ private:
 
     template <typename RespType>
     void TryDirectWriteResponse(const std::string messageId, const std::string remote, const RespType &resp,
-                                const bool existObjInDs = false);
-
+        const bool existObjInDs = false);
     void RecvCallRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvNotifyRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvCheckpointRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvRecoverRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvShutdownRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
+    void RecvPrepareSnapRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
+    void RecvSnapStartedRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvSignalRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvHeartbeatRequest(const std::string &, const std::shared_ptr<StreamingMessage> &);
     void RecvCreateOrInvokeResponse(const std::string &, const std::shared_ptr<StreamingMessage> &);

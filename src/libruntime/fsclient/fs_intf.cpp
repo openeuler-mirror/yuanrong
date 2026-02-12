@@ -17,9 +17,11 @@
 #include "fs_intf.h"
 
 #include <algorithm>
+#include <fstream>
 
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
+#include "src/libruntime/utils/utils.h"
 namespace YR {
 namespace Libruntime {
 FSIntf::FSIntf(const FSIntfHandlers &handlers) : handlers(handlers)
@@ -251,6 +253,66 @@ void FSIntf::HandleShutdownRequest(const ShutdownRequest &req, ShutdownCallBack 
                 auto resp = this->handlers.shutdown(req);
                 callback(resp);
                 status.SetShutdown();
+            }
+        },
+        "");
+}
+
+void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnapCallBack callback)
+{
+    this->checkpointRecoverExecutor.Handle(
+        [this, req, callback]() {
+            YRLOG_DEBUG("Handling PrepareSnap request");
+            if (this->handlers.prepareSnap) {
+                auto resp = this->handlers.prepareSnap(req);
+                callback(resp);
+            } else {
+                YRLOG_WARN("PrepareSnap handler not registered");
+                PrepareSnapResponse resp;
+                resp.set_code(common::ERR_INNER_SYSTEM_ERROR);
+                resp.set_message("PrepareSnap handler not registered");
+                callback(resp);
+            }
+            // Read checkpoint file to verify snapshot readiness
+            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_ENV_FILE();
+            if (!checkpointFile.empty()) {
+                YRLOG_INFO("ready to checkpoint. {}", checkpointFile);
+                std::ifstream file(checkpointFile);
+                file.peek();  // Trigger actual read() syscall
+                YRLOG_INFO("restore from checkpoint. {}", checkpointFile);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+            // Refresh environment after snapshot restore
+            if (this->handlers.refreshEnv) {
+                YRLOG_INFO("calling refreshEnv callback");
+                this->handlers.refreshEnv();
+            }
+            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
+            // Rebuild proxy connection with updated fsIp and fsPort from environment
+            auto info = ParseIpAddr(Config::Instance().YR_SERVER_ADDRESS());
+            YRLOG_INFO("Rebuilding proxy connection with fsIp: {}, fsPort: {}", info.ip, info.port);
+            auto reconnErr = this->ReconnectProxyClient(info.ip, info.port);
+            if (!reconnErr.OK()) {
+                YRLOG_ERROR("Failed to rebuild proxy connection: {}", reconnErr.CodeAndMsg());
+            }
+        },
+        "");
+}
+
+void FSIntf::HandleSnapStartedRequest(const SnapStartedRequest &req, SnapStartedCallBack callback)
+{
+    this->checkpointRecoverExecutor.Handle(
+        [this, req, callback]() {
+            YRLOG_DEBUG("Handling SnapStarted request");
+            if (this->handlers.snapStarted) {
+                auto resp = this->handlers.snapStarted(req);
+                callback(resp);
+            } else {
+                YRLOG_WARN("SnapStarted handler not registered");
+                SnapStartedResponse resp;
+                resp.set_code(common::ERR_INNER_SYSTEM_ERROR);
+                resp.set_message("SnapStarted handler not registered");
+                callback(resp);
             }
         },
         "");

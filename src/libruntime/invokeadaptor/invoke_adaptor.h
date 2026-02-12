@@ -115,6 +115,9 @@ public:
 
     virtual ErrorInfo Kill(const std::string &instanceId, const std::string &payload, int signal);
 
+    virtual std::pair<ErrorInfo, KillResponse> KillWithResponse(const std::string &instanceId,
+                                                                 const std::string &payload, int signal);
+
     virtual void KillAsync(const std::string &instanceId, const std::string &payload, int signal);
     virtual void KillAsyncCB(const std::string &instanceId, const std::string &payload, int signal,
                              std::function<void(const ErrorInfo &err)> cb);
@@ -159,6 +162,8 @@ public:
     void CallHandler(const std::shared_ptr<CallMessageSpec> &req);
     CheckpointResponse CheckpointHandler(const CheckpointRequest &req);
     RecoverResponse RecoverHandler(const RecoverRequest &req);
+    PrepareSnapResponse PrepareSnapHandler(const PrepareSnapRequest &req);
+    SnapStartedResponse SnapStartedHandler(const SnapStartedRequest &req);
 
     void CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec> spec);
     virtual std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> GetInstance(const std::string &name,

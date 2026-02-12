@@ -176,6 +176,8 @@ public:                                                \
     CONFIG_DECLARE(std::string, NODE_ID, "");  // allow http access to function scheduler
     CONFIG_DECLARE(std::string, YR_JWT_TOKEN, "");  // allow http access to function scheduler
 
+    CONFIG_DECLARE(std::string, YR_ENV_FILE, ""); // environment variable file path
+    CONFIG_DECLARE(std::string, YR_SEED_FILE, ""); // environment seed file path
 public:
     bool IsRunModeStandalone()
     {

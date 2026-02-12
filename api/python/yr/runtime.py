@@ -373,6 +373,23 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def snapshot_instance(self, instance_id: str, leave_running: bool = False) -> str:
+        """
+        Create instance snapshot with signal 18
+        :param instance_id: instance id to snapshot
+        :param leave_running: whether to keep instance running after snapshot
+        :return: checkpointID
+        """
+
+    @abstractmethod
+    def snapstart_instance(self, checkpoint_id: str) -> str:
+        """
+        Start instance from snapshot with signal 19
+        :param checkpoint_id: checkpoint id to restore from
+        :return: new instance id
+        """
+
+    @abstractmethod
     def exit(self) -> None:
         """
         exit current instance. only support in runtime.

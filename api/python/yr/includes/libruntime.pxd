@@ -212,6 +212,9 @@ cdef extern from "src/libruntime/libruntime_options.h" nogil:
         (CErrorInfo(const string & checkpointId, shared_ptr[CBuffer] & data)) checkpointCallback
         (CErrorInfo(shared_ptr[CBuffer] & data)) recoverCallback
         (CErrorInfo(uint64_t gracePeriodSeconds)) shutdownCallback
+        (CErrorInfo()) prepareSnapCallback
+        (CErrorInfo()) snapStartedCallback
+        (void()) refreshEnvCallback
         (CErrorInfo(int sigNo, shared_ptr[CBuffer] & payload)) signalCallback
         (CErrorInfo(const CAccelerateMsgQueueHandle & intputHandle, CAccelerateMsgQueueHandle & outputHandle)) accelerateCallback
 
@@ -315,6 +318,11 @@ cdef extern from "src/proto/libruntime.pb.h" nogil:
         UPDATEFRONTEND "libruntime::Signal::UpdateFrontend"
         UPDATESCHEDULER "libruntime::Signal::UpdateScheduler"
         CANCEL "libruntime::Signal::Cancel"
+
+cdef extern from "src/libruntime/fsclient/protobuf/common.pb.h" nogil:
+    cdef enum CSnapType "common::SnapType":
+        DUMPSTATE "common::SnapType::DUMPSTATE"
+        SNAPSHOT "common::SnapType::SNAPSHOT"
 
 cdef extern from "src/dto/device.h" nogil:
     cdef cppclass CDevice "YR::Libruntime::Device":
@@ -426,6 +434,13 @@ cdef extern from "src/dto/invoke_options.h" nogil:
 
     cdef cppclass CInstanceOptions "YR::Libruntime::InstanceOptions":
         bool needOrder
+
+    cdef cppclass CSnapOptions "YR::Libruntime::SnapOptions":
+        CSnapType type
+        bool leaveRunning
+
+    cdef cppclass CSnapStartOptions "YR::Libruntime::SnapStartOptions":
+        CSnapType type
 
     cdef cppclass CUInt64CounterData "YR::Libruntime::UInt64CounterData":
         string name
@@ -670,6 +685,8 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         void Exit()
         CErrorInfo Kill(const string & instanceId, int sigNo)
         void GroupTerminate(const string & groupName)
+        pair[CErrorInfo, string] Snapshot(const string & instanceId, const CSnapOptions & snapOpts)
+        pair[CErrorInfo, string] Snapstart(const string & checkpointId, const CSnapStartOptions & snapStartOpts)
         string GetRealInstanceId(const string & objectId)
         void SaveRealInstanceId(const string & objectId, const string & instanceId, const CInstanceOptions & opts)
         void Finalize()

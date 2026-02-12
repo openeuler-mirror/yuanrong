@@ -474,6 +474,11 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     handlers.checkpoint = std::bind(&InvokeAdaptor::CheckpointHandler, this, _1);
     handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, this, _1);
     handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, this, _1);
+    handlers.prepareSnap = std::bind(&InvokeAdaptor::PrepareSnapHandler, this, _1);
+    handlers.snapStarted = std::bind(&InvokeAdaptor::SnapStartedHandler, this, _1);
+    if (librtConfig->libruntimeOptions.refreshEnvCallback) {
+        handlers.refreshEnv = librtConfig->libruntimeOptions.refreshEnvCallback;
+    }
     handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, this, _1);
     handlers.event = std::bind(&InvokeAdaptor::EventHandler, this, _1);
     if (librtConfig->libruntimeOptions.healthCheckCallback) {
@@ -962,6 +967,50 @@ ShutdownResponse InvokeAdaptor::ShutdownHandler(const ShutdownRequest &req)
         resp.set_message(err.Msg());
     }
 
+    return resp;
+}
+
+PrepareSnapResponse InvokeAdaptor::PrepareSnapHandler(const PrepareSnapRequest &req)
+{
+    PrepareSnapResponse resp;
+    YRLOG_INFO("Received PrepareSnap request, preparing for snapshot");
+
+    // Call user-provided callback if registered
+    if (librtConfig->libruntimeOptions.prepareSnapCallback) {
+        auto errorInfo = librtConfig->libruntimeOptions.prepareSnapCallback();
+        if (!errorInfo.OK()) {
+            YRLOG_ERROR("PrepareSnap callback failed: code={}, msg={}", fmt::underlying(errorInfo.Code()),
+                       errorInfo.Msg());
+            resp.set_code(static_cast<common::ErrorCode>(errorInfo.Code()));
+            resp.set_message(errorInfo.Msg());
+            return resp;
+        }
+    }
+
+    resp.set_code(common::ERR_NONE);
+    resp.set_message("PrepareSnap completed successfully");
+    return resp;
+}
+
+SnapStartedResponse InvokeAdaptor::SnapStartedHandler(const SnapStartedRequest &req)
+{
+    SnapStartedResponse resp;
+    YRLOG_INFO("Received SnapStarted request, runtime has been restored from snapshot");
+
+    // Call user-provided callback if registered
+    if (librtConfig->libruntimeOptions.snapStartedCallback) {
+        auto errorInfo = librtConfig->libruntimeOptions.snapStartedCallback();
+        if (!errorInfo.OK()) {
+            YRLOG_ERROR("SnapStarted callback failed: code={}, msg={}", fmt::underlying(errorInfo.Code()),
+                       errorInfo.Msg());
+            resp.set_code(static_cast<common::ErrorCode>(errorInfo.Code()));
+            resp.set_message(errorInfo.Msg());
+            return resp;
+        }
+    }
+
+    resp.set_code(common::ERR_NONE);
+    resp.set_message("SnapStarted handled successfully");
     return resp;
 }
 
@@ -1645,6 +1694,47 @@ ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &
         errInfo = WaitAndCheckResp(killFuture, instanceId, g_killTimeout);
     }
     return errInfo;
+}
+
+std::pair<ErrorInfo, KillResponse> InvokeAdaptor::KillWithResponse(const std::string &instanceId,
+                                                                     const std::string &payload, int signal)
+{
+    invokeOrderMgr->ClearInsOrderMsg(instanceId, signal);
+    KillResponse emptyResponse;
+    if (instanceId.empty()) {
+        return {ErrorInfo(YR::Libruntime::ERR_INSTANCE_ID_EMPTY, YR::Libruntime::ModuleCode::RUNTIME,
+                         "instance id is empty."), emptyResponse};
+    }
+    YRLOG_DEBUG("start kill instance with response, instance id is {}, signal is {}", instanceId, signal);
+    KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    killReq.set_instanceid(instanceId);
+    killReq.set_payload(payload);
+    killReq.set_signal(signal);
+
+    auto killPromise = std::make_shared<std::promise<KillResponse>>();
+    std::shared_future<KillResponse> killFuture = killPromise->get_future().share();
+    this->fsClient->KillAsync(
+        killReq, [killPromise](KillResponse rsp, const ErrorInfo &err) -> void { killPromise->set_value(rsp); });
+
+    int timeout = (signal == libruntime::Signal::killInstanceSync) ? NO_TIMEOUT : g_killTimeout;
+    if (timeout != NO_TIMEOUT) {
+        auto status = killFuture.wait_for(std::chrono::milliseconds(timeout));
+        if (status != std::future_status::ready) {
+            YRLOG_ERROR("Request timeout, failed to kill instance with instanceId: {}", instanceId);
+            return {ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME,
+                             "Request timeout, failed to kill instance with instanceId: " + instanceId), emptyResponse};
+        }
+    }
+
+    KillResponse rsp = killFuture.get();
+    if (rsp.code() != common::ERR_NONE) {
+        YRLOG_ERROR("Failed to kill instance: {}, err is: {}", instanceId, rsp.message());
+        return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::CORE,
+                         "Failed to kill instance: " + instanceId + " , err is : " + rsp.message()), rsp};
+    }
+    YRLOG_DEBUG("Succeeded to receive kill instance response, instance id is {}", instanceId);
+    return {ErrorInfo(ErrorCode::ERR_OK, rsp.message()), rsp};
 }
 
 void InvokeAdaptor::KillAsync(const std::string &instanceId, const std::string &payload, int signal)

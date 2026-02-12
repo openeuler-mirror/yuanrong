@@ -426,6 +426,23 @@ public:
     virtual void KillAsync(const std::string &instanceId, int sigNo, std::function<void(const ErrorInfo &err)> cb);
 
     /*!
+      @brief 对指定函数实例创建快照
+      @param instanceId 指定的函数实例 ID
+      @param snapOpts 快照选项，包括是否保持实例运行状态
+      @return pair<ErrorInfo, string> 错误信息和 checkpointID
+     */
+    virtual std::pair<ErrorInfo, std::string> Snapshot(const std::string &instanceId, const SnapOptions &snapOpts);
+
+    /*!
+      @brief 从快照恢复函数实例
+      @param checkpointId 快照 ID
+      @param snapStartOpts 快照启动选项（预留用于未来扩展调度选项等）
+      @return pair<ErrorInfo, string> 错误信息和新的实例 ID
+     */
+    virtual std::pair<ErrorInfo, std::string> Snapstart(const std::string &checkpointId,
+                                                         const SnapStartOptions &snapStartOpts);
+
+    /*!
       @brief 结束当前上下文
       @param isDriver 如果设置为 True，将会退出当前任务对应的所有函数实例
       @throw Exception if the finalize operation fails

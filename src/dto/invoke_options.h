@@ -25,6 +25,8 @@
 #include "src/libruntime/stacktrace/stack_trace_info.h"
 #include "src/libruntime/utils/constants.h"
 #include "src/proto/libruntime.pb.h"
+#include "src/libruntime/fsclient/protobuf/core_service.pb.h"
+#include "src/libruntime/fsclient/protobuf/common.pb.h"
 
 namespace YR {
 namespace Libruntime {
@@ -255,6 +257,16 @@ struct AlarmInfo {
     long endsAt = DEFAULT_ALARM_TIMESTAMP;
     long timeout = DEFAULT_ALARM_TIMEOUT;
     std::unordered_map<std::string, std::string> customOptions;
+};
+
+struct SnapOptions {
+    common::SnapType type = common::SnapType::SNAPSHOT;
+    bool leaveRunning = false;
+};
+
+struct SnapStartOptions {
+    common::SnapType type = common::SnapType::SNAPSHOT;
+    // Reserved for future use - can add SchedulingOptions later
 };
 
 struct Credential {

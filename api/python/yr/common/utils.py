@@ -783,3 +783,8 @@ def load_env_from_file(env_file_path: str):
     if loaded_count > 0:
         _logger.debug(
             f"Loaded {loaded_count} environment variables from {env_file_path}")
+
+def refresh_env():
+    """Refresh environment variables from YR_ENV_FILE."""
+    env_file_path = os.environ.get("YR_ENV_FILE", "")
+    load_env_from_file(env_file_path)

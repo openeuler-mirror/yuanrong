@@ -99,7 +99,7 @@ class ClusterModeRuntime(Runtime):
         """
         serialized_object = Serialization().serialize(obj)
         return self.libruntime.put(serialized_object, create_param)
-    
+
     def put_serialized(self, serialized_object) -> str:
         """
         Put data to ds
@@ -316,6 +316,23 @@ class ClusterModeRuntime(Runtime):
         :return: None
         """
         self.libruntime.terminate_group(group_name)
+
+    def snapshot_instance(self, instance_id: str, leave_running: bool = False) -> str:
+        """
+        Create instance snapshot with signal 18
+        :param instance_id: instance id to snapshot
+        :param leave_running: whether to keep instance running after snapshot
+        :return: checkpointID
+        """
+        return self.libruntime.snapshot_instance(instance_id, leave_running)
+
+    def snapstart_instance(self, checkpoint_id: str) -> str:
+        """
+        Start instance from snapshot with signal 19
+        :param checkpoint_id: checkpoint id to restore from
+        :return: new instance id
+        """
+        return self.libruntime.snapstart_instance(checkpoint_id)
 
     def exit(self) -> None:
         """

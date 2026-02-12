@@ -55,9 +55,9 @@ class Executor:
             grace_period_second (int): The time to wait for the instance to shutdown gracefully.
         Returns:
             The result of the shutdown function.
-        Raises:
-            RuntimeError: If the instance has not been initialized.
         """
+        if HANDLER is None:
+            return ErrorInfo()
         return HANDLER.shutdown(grace_period_second)
 
     @staticmethod

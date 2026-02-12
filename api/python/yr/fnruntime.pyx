@@ -882,7 +882,7 @@ cdef CErrorInfo accelerate_execute_callback(const CAccelerateMsgQueueHandle & in
         try:
             return accelerate_execute_callback_internal(input_handle, return_handle)
         except Exception as e:
-            log.get_logger().debug(str(e))
+            _logger.debug(str(e))
             return CErrorInfo(CErrorCode.ERR_INNER_SYSTEM_ERROR, CModuleCode.RUNTIME, str(e))
 
 cdef CErrorInfo function_execute_callback(const CFunctionMeta & functionMeta, const CInvokeType invokeType,

@@ -19,6 +19,7 @@ import asyncio
 import functools
 import json
 from concurrent.futures import Future
+import logging
 from typing import Any, Union
 
 from yr.exception import YRInvokeError, YRError, GeneratorFinished
@@ -26,9 +27,11 @@ from yr.err_type import ErrorInfo, ErrorCode
 from yr.libruntime_pb2 import FunctionMeta
 
 import yr
-from yr import log, runtime_holder
+from yr import runtime_holder
 from yr.common import constants
 from yr.ds_tensor_client_manager import get_tensor_client
+
+_logger = logging.getLogger(__name__)
 
 
 def _set_future_helper(
@@ -243,7 +246,7 @@ class ObjectRef:
         try:
             obj = json.loads(result_str)
         except json.decoder.JSONDecodeError:
-            log.get_logger().warning(f"Failed to decode the result with object ID [{self.id}] using 'json.loads'."
+            _logger.warning(f"Failed to decode the result with object ID [{self.id}] using 'json.loads'."
                                      f"result string: {result_str}")
             obj = result_str
         return obj

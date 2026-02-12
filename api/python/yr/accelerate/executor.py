@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 import uuid
 import inspect
 import traceback
@@ -22,6 +23,8 @@ from typing import Dict, Tuple, Optional
 from yr import log
 from yr.accelerate.shm_broadcast import MessageQueue, ResponseStatus, STOP_EVENT
 from yr.executor.instance_manager import InstanceManager
+
+_logger = logging.getLogger(__name__)
 
 ACCELERATE_WORKER = None
 
@@ -45,7 +48,7 @@ class Worker:
             executor = getattr(instance, method)
             return executor(*args, **kwargs)
         except Exception as e:
-            log.get_logger().debug(f"Error executing method {method}.")
+            _logger.debug(f"Error executing method {method}.")
             raise e
 
     @staticmethod
@@ -76,26 +79,26 @@ class Worker:
         except Exception as e:
             msg = (f"Error executing method {method}. "
                    f"This might cause deadlock in distributed execution. e: {e}")
-            log.get_logger().debug(msg)
+            _logger.debug(msg)
             raise e
 
     def worker_busy_loop_sync(self):
         """Sync busy loop for Worker"""
-        log.get_logger().debug(f"start to run loop sync")
+        _logger.debug(f"start to run loop sync")
         while True:
             if STOP_EVENT.is_set():
                 break
             task_id, method, args, kwargs = self.rpc_broadcast_mq.dequeue()
-            log.get_logger().debug(f"start to execute member function: {method}, task id: {task_id}")
+            _logger.debug(f"start to execute member function: {method}, task id: {task_id}")
             try:
                 output = self.execute_method(method, *args, **kwargs)
             except Exception as e:
                 exc_output = traceback.format_exc()
-                log.get_logger().debug(
+                _logger.debug(
                     f"failed to execute member function: {method}, task id: {task_id}, err: {str(e)}")
                 self.worker_response_mq.enqueue((ResponseStatus.FAILURE, (task_id, exc_output)))
                 continue
-            log.get_logger().debug(f"success to execute member function: {method}, task id: {task_id}")
+            _logger.debug(f"success to execute member function: {method}, task id: {task_id}")
             self.worker_response_mq.enqueue((ResponseStatus.SUCCESS, (task_id, output)))
 
     def start(self):
@@ -115,7 +118,7 @@ class Worker:
         while True:
             task_id, method, args, kwargs = await (self.rpc_broadcast_mq.
                                                    dequeue_async())
-            log.get_logger().debug(f"start to execute member function: {method}, task id: {task_id}")
+            _logger.debug(f"start to execute member function: {method}, task id: {task_id}")
             self.tasks[task_id] = asyncio.create_task(
                 self.execute_method_wrapper(task_id, method,
                                             args, kwargs))
@@ -124,7 +127,7 @@ class Worker:
 
     async def worker_busy_loop_async(self):
         """Async busy loop for Worker"""
-        log.get_logger().debug(f"start to run loop async")
+        _logger.debug(f"start to run loop async")
         self.with_unfinished_tasks_event = asyncio.Event()
         self.tasks: Dict[uuid.UUID, asyncio.Task] = {}
         self._input_loop_unshielded = asyncio.create_task(self.create_task_from_input_mq())
@@ -138,7 +141,7 @@ class Worker:
             done, _ = await asyncio.wait(self.tasks.values(), return_when=asyncio.FIRST_COMPLETED)
             for done_task in done:
                 _, (task_id, _) = done_task.result()
-                log.get_logger().debug(f"finish to execute task, task id: {task_id}")
+                _logger.debug(f"finish to execute task, task id: {task_id}")
                 del self.tasks[task_id]
             for done_task in done:
                 await self.worker_response_mq.enqueue_async(done_task.result())

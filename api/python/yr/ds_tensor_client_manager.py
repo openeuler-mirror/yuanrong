@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 
 from yr import log
@@ -31,6 +32,8 @@ except ImportError as e:
     data_system_import = False
     _import_error = e
 _global_tensor_client = None
+
+_logger = logging.getLogger(__name__)
 
 
 def _inspect_data_system_address():
@@ -52,7 +55,7 @@ def get_tensor_client():
         return _global_tensor_client
 
     ds_worker_addr = _inspect_data_system_address()
-    log.get_logger().info(
+    _logger.info(
         f"start get ds tensor client, ds address is {ds_worker_addr}, current device id is {current_device()}")
     if ds_worker_addr.find(":") == -1:
         raise ValueError(

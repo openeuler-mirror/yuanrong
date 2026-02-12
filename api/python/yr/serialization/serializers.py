@@ -15,6 +15,7 @@
 # limitations under the License.
 """Serializers"""
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -38,7 +39,7 @@ _EXT_TYPE_CODE = 101
 _DEFAULT_PROTOCAL = 4
 global_thread_local = threading.local()
 global_thread_local.object_refs = set()
-
+_logger = logging.getLogger(__name__)
 
 def pop_local_object_refs():
     """pop local object refs"""
@@ -92,7 +93,7 @@ class MessagePackSerializer:
         try:
             msgpack_data = msgpack.dumps(obj, default=_default, use_bin_type=True, strict_types=True)
         except ValueError as err:
-            log.get_logger().warning("Failed to uses msgpack.dumps object %s, dumps its index instead. %s", type(obj),
+            _logger.warning("Failed to uses msgpack.dumps object %s, dumps its index instead. %s", type(obj),
                                      err_to_str(err))
             msgpack_data = msgpack.dumps(_default(obj), default=_default, use_bin_type=True, strict_types=True)
 
@@ -153,7 +154,7 @@ class PySerializer:
                 return PySerializer._serialize_to_pickle5(value)
             return PySerializer._serialize_to_pickle4(value)
         except Exception as err:
-            log.get_logger().error("Failed to serialize value with PickleSerializer. %s", err_to_str(err))
+            _logger.error("Failed to serialize value with PickleSerializer. %s", err_to_str(err))
             pop_local_object_refs()
             raise err
 
@@ -190,14 +191,14 @@ class PySerializer:
         try:
             in_band, buffers = unpack_pickle5_buffers(serialized_data)
         except ValueError as err:
-            log.get_logger().error("Failed to unpack pickle5 buffers. %s", err_to_str(err))
+            _logger.error("Failed to unpack pickle5 buffers. %s", err_to_str(err))
             raise err
         try:
             if len(buffers) > 0:
                 return cloudpickle.loads(in_band, buffers=buffers)
             return cloudpickle.loads(in_band)
         except cloudpickle.pickle.PicklingError as err:
-            log.get_logger().error("Failed to load inband data. %s", err_to_str(err))
+            _logger.error("Failed to load inband data. %s", err_to_str(err))
             raise err
         except EOFError as e:
             raise ValueError("EOFError") from e
@@ -208,7 +209,7 @@ class PySerializer:
         try:
             return cloudpickle.loads(serialized_data)
         except cloudpickle.pickle.PicklingError as err:
-            log.get_logger().error("Failed to load serialized data. %s", err_to_str(err))
+            _logger.error("Failed to load serialized data. %s", err_to_str(err))
             raise err
         except EOFError as e:
             raise ValueError("EOFError") from e

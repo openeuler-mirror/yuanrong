@@ -171,6 +171,7 @@ public:                                                \
     CONFIG_DECLARE(int, FUNCTION_SCHEDULER_GRPC_PORT, 23770); // allow scheduler to interact with runtime
     CONFIG_DECLARE(int, FUNCTION_SCHEDULER_HTTP_PORT, 23771);  // allow http access to function scheduler
     CONFIG_DECLARE(std::string, NODE_ID, "");  // allow http access to function scheduler
+    CONFIG_DECLARE(std::string, AUTH_TOKEN, "");  // allow http access to function scheduler
 
 public:
     bool IsRunModeStandalone()

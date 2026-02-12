@@ -131,7 +131,7 @@ func createInstanceForKernel(request createInstanceRequest) (instance *types.Ins
 	delete(invokeOpts.CustomResources, resourcesMemory)
 	instanceID, createErr = globalSdkClient.CreateInstance(funcMeta, args, invokeOpts)
 	if createErr != nil {
-		logger.Errorf("failed to create instance, error info is %#v", createErr)
+		logger.Errorf("failed to create instance, error info is %s", createErr)
 		createErr = generateSnErrorFromKernelError(createErr)
 		return
 	}

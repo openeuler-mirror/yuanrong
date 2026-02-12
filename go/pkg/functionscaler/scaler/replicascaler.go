@@ -207,7 +207,7 @@ func (rs *ReplicaScaler) handleScale() {
 	scaleNum := rs.targetRsvInsNum - rs.currentRsvInsNum
 	rs.logger.Infof("parameters for handle scale of function targetRsvInsNum %d currentRsvInsNum %d "+
 		"pendingRsvInsNum %d scaleNum %d", rs.targetRsvInsNum, rs.currentRsvInsNum, rs.pendingRsvInsNum, scaleNum)
-	if !enable || config.GlobalConfig.DisableReplicaScaler {
+	if scaleNum >= 0 && (!enable || config.GlobalConfig.DisableReplicaScaler) {
 		rs.logger.Warnf("replicaScaler disable, targetNum is %d, currentNum is %d, pendingNum is %d",
 			rs.targetRsvInsNum, rs.currentRsvInsNum, rs.pendingRsvInsNum)
 		rs.RUnlock()

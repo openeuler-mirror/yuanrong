@@ -200,7 +200,7 @@ def init(conf: Config = None) -> ClientInfo:
 
     msg = f"Succeeded to init YR, jobID is {ConfigManager().job_id}"
     if not conf.is_driver:
-        log.get_logger().info(msg)
+        _logger.info(msg)
     else:
         _logger.info(msg)
 

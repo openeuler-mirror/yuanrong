@@ -18,11 +18,11 @@
 
 from dataclasses import dataclass, field
 import json
+import logging
 import os
 import re
 from typing import Tuple, Union, Dict, List
 
-from yr import log
 from yr.config import InvokeOptions as YRInvokeOptions
 from yr.common import constants
 from yr.common.constants import META_PREFIX
@@ -53,6 +53,8 @@ FAAS_FUNCTION_RETURN_NUM = 1
 ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION = "RUNTIME_SERVICE_FUNC_VERSION"
 
 _RUNTIME_MAX_RESP_BODY_SIZE = 6 * 1024 * 1024
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
@@ -213,26 +215,26 @@ def _check_payload(payload: Union[str, dict]) -> str:
     """
     if not isinstance(payload, (str, dict)):
         msg = f"Invalid type({type(payload)}) of payload, 'str' or 'dict' is expected."
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise TypeError(msg)
 
     if isinstance(payload, str):
         if payload == 'null':
             msg = f"Invalid value of payload: {payload}, it should not be equal to 'null'."
-            log.get_logger().error(msg)
+            _logger.error(msg)
             raise ValueError(msg)
         try:
             json.loads(payload)
         except Exception as err:
             msg = f"Invalid payload: {payload}, it is not JSON deserializable."
-            log.get_logger().error(msg)
+            _logger.error(msg)
             raise TypeError(msg) from err
     else:
         payload = json.dumps(payload)
 
     if len(payload) > _RUNTIME_MAX_RESP_BODY_SIZE:
         msg = f"Event size[{len(payload)}] after serialization should not be larger than {_RUNTIME_MAX_RESP_BODY_SIZE}."
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise ValueError(msg)
     return payload
 
@@ -254,7 +256,7 @@ def _check_function_name(function_name: str) -> Tuple[str, str]:
     """
     if not isinstance(function_name, str):
         msg = f"Invalid type({type(function_name)}) of parameter 'function_name', 'str' is expected."
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise TypeError(msg)
 
     names = function_name.split(':', SPLIT_NUM_OF_FUNC_ID)
@@ -290,7 +292,7 @@ def _get_service_name_from_env():
     if current_func_id is None:
         msg = ("Failed to get service name of the function from environment key-value pairs. "
                f"key: {ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION}")
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise RuntimeError(msg)
     names = current_func_id.split(FUNCTION_NAME_SEPERATOR)
 
@@ -298,10 +300,10 @@ def _get_service_name_from_env():
         msg = (f"Invalid Environment value({current_func_id}) of key "
                f"'{ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION}', "
                f"it should contain seperator '{FUNCTION_NAME_SEPERATOR}'")
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise ValueError(msg)
 
-    log.get_logger().debug(f"Succeeded to get service name '{names[SPLIT_NUM_OF_FUNC_ID]}'.")
+    _logger.debug(f"Succeeded to get service name '{names[SPLIT_NUM_OF_FUNC_ID]}'.")
     return names[SPLIT_NUM_OF_FUNC_ID]
 
 
@@ -323,7 +325,7 @@ def _check_reg_length(name: str, pattern: str, length_limit: int):
             msg = f"Length of '{name}'({name_length}) is larger than the limitation {length_limit}"
         else:
             msg = f"'{name}' does not match regular expression {pattern}"
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise ValueError(msg)
 
 

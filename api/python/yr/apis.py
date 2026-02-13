@@ -133,6 +133,7 @@ def _get_from_env(conf):
         conf.verify_file_path = os.environ.get("YR_VERIFY_FILE", "")
     if conf.server_name == "":
         conf.server_name = os.environ.get("YR_SERVER_NAME", "")
+    conf.log_dir = os.environ.get("YR_LOG_DIR", "")
     return conf
 
 def _auto_get_cluster_access_info(conf):

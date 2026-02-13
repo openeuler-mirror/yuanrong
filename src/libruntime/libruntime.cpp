@@ -1319,6 +1319,7 @@ std::pair<ErrorInfo, std::string> Libruntime::Snapshot(const std::string &instan
     // Construct protobuf SnapOptions message
     ::core_service::SnapOptions protoSnapOpts;
     protoSnapOpts.set_type(snapOpts.type);
+    protoSnapOpts.set_ttl(snapOpts.ttl);
     protoSnapOpts.set_leaverunning(snapOpts.leaveRunning);
 
     // Serialize protobuf message to string

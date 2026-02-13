@@ -261,6 +261,7 @@ struct AlarmInfo {
 
 struct SnapOptions {
     common::SnapType type = common::SnapType::SNAPSHOT;
+    int32_t ttl = -1;  // seconds
     bool leaveRunning = false;
 };
 

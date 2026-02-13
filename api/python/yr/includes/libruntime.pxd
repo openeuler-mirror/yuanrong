@@ -437,6 +437,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
 
     cdef cppclass CSnapOptions "YR::Libruntime::SnapOptions":
         CSnapType type
+        int32_t ttl
         bool leaveRunning
 
     cdef cppclass CSnapStartOptions "YR::Libruntime::SnapStartOptions":

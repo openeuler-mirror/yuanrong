@@ -58,7 +58,7 @@ ds_master_port:,\
 curve_key_path:,runtime_ds_auth_enable:,runtime_ds_encrypt_enable:,runtime_ds_connect_timeout:,\
 ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_storage_auth_enable:,\
 is_partial_watch_instances:,\
-ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,meta_service_ssl_enable:,\
+ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,frontend_client_auth_type:,meta_service_ssl_enable:,\
 iam_ssl_enable:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
@@ -322,6 +322,7 @@ SSL_BASE_PATH=""
 SCC_ENABLE="false"
 SSL_ENABLE="false"
 FRONTEND_SSL_ENABLE="false"
+FRONTEND_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_SSL_ENABLE="false"
 # iam ssl config - when IAM_SSL_ENABLE=true or SSL_ENABLE=true, iam_server will enable mTLS
 # certificate paths are reused from global SSL_BASE_PATH, SSL_ROOT_FILE, SSL_CERT_FILE, SSL_KEY_FILE
@@ -577,6 +578,7 @@ function usage() {
   echo -e "     --ssl_base_path                                     ssl base path, configure absolute path"
   echo -e "     --ssl_enable                                        ssl enabled, options: true/false (default false)"
   echo -e "     --frontend_ssl_enable                               frontend ssl enabled, options: true/false (default false)"
+  echo -e "     --frontend_client_auth_type                         frontend client authentication type, options: RequireAndVerifyClientCert/NoClientCert (default RequireAndVerifyClientCert)"
   echo -e "     --meta_service_ssl_enable                           meta_service ssl enabled, options: true/false (default false)"
   echo -e "     --iam_ssl_enable                                    iam_server mTLS enabled independently, options: true/false (default false). Note: iam_server mTLS is also enabled when global ssl_enable=true"
   echo -e "     --ssl_root_file                                     ssl root ca file name, default is ca.crt"
@@ -781,6 +783,7 @@ function parse_opt() {
     --ssl_base_path) SSL_BASE_PATH=$2 && shift 2 ;;
     --ssl_enable) SSL_ENABLE=$2 && shift 2 ;;
     --frontend_ssl_enable) FRONTEND_SSL_ENABLE=$2 && shift 2 ;;
+    --frontend_client_auth_type) FRONTEND_CLIENT_AUTH_TYPE=$2 && shift 2 ;;
     --meta_service_ssl_enable) META_SERVICE_SSL_ENABLE=$2 && shift 2 ;;
     --iam_ssl_enable) IAM_SSL_ENABLE=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;

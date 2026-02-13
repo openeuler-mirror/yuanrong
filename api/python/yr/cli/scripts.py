@@ -40,6 +40,8 @@ __client_key = None
 __ca_cert = None
 __server_name = None
 __user = None
+__client_auth_type = "mutual"  # "mutual" or "one-way"
+__jwt_token = None
 
 
 class FunctionName:
@@ -84,7 +86,7 @@ class FunctionName:
 
 
 class HTTPClient:
-    """HTTP client with mutual TLS authentication support"""
+    """HTTP client with TLS authentication support (mutual or one-way) and JWT token"""
 
     def __init__(
         self,
@@ -94,6 +96,8 @@ class HTTPClient:
         ca_cert: Optional[str] = None,
         verify: bool = False,
         server_name: Optional[str] = None,
+        client_auth_type: str = "mutual",  # "mutual" or "one-way"
+        jwt_token: Optional[str] = None,
     ):
         self.timeout = timeout
         self.session = requests.Session()
@@ -102,6 +106,8 @@ class HTTPClient:
         self.ca_cert = ca_cert
         self.verify = verify
         self.server_name = server_name
+        self.client_auth_type = client_auth_type
+        self.jwt_token = jwt_token
 
     def request(
         self,
@@ -126,6 +132,9 @@ class HTTPClient:
             "Content-Type": "application/json",
             "User-Agent": "DeploymentScript/1.0",
         }
+        # Add JWT token if provided
+        if self.jwt_token:
+            default_headers["X-Auth"] = self.jwt_token
         if headers:
             default_headers.update(headers)
 
@@ -133,12 +142,15 @@ class HTTPClient:
         logging.debug(f"headers: {json.dumps(default_headers, indent=2)}")
         logging.debug(f"body: {json.dumps(data, indent=2, ensure_ascii=False)}")
 
-        # Configure certificates
+        # Configure certificates based on client_auth_type
         cert = None
-        if self.client_cert and self.client_key:
-            cert = (self.client_cert, self.client_key)
-        elif self.client_cert:
-            cert = self.client_cert
+        if self.client_auth_type == "mutual":
+            # Mutual TLS: Use client certificate
+            if self.client_cert and self.client_key:
+                cert = (self.client_cert, self.client_key)
+            elif self.client_cert:
+                cert = self.client_cert
+        # For "one-way" TLS, cert remains None (only verify server)
 
         verify = self.ca_cert if self.ca_cert else self.verify
         if url.startswith("http://") and verify:
@@ -274,6 +286,8 @@ def deploy_function(function_json, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
     )
     url = f"http://{__metaservice_address}/serverless/v1/functions"
     headler = {}
@@ -296,6 +310,8 @@ def update_function(function_json, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
     )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{name}"
     headler = {}
@@ -315,6 +331,8 @@ def delete_function(function_name, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
     )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
     headler = {}
@@ -334,6 +352,8 @@ def query_function(function_name, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
     )
     if function_name is None:
         url = f"http://{__metaservice_address}/serverless/v1/functions"
@@ -352,6 +372,26 @@ def query_function(function_name, user=None):
         return False, resp
 
 
+def query_instances(user=None):
+    """Query instance list for a specific tenant"""
+    http_client = HTTPClient(
+        timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    tenant_id = user if user else "default"
+    url = f"http://{__server_address}/api/instances?tenant_id={tenant_id}"
+    resp = http_client.request(url, {}, method="GET")
+    if resp["success"]:
+        return True, resp["data"].get("instances", [])
+    else:
+        return False, resp
+
+
 def publish_function(function_name, publish_json, user=None):
     http_client = HTTPClient(
         timeout=30,
@@ -359,6 +399,8 @@ def publish_function(function_name, publish_json, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
     )
     url = f"http://{__metaservice_address}/serverless/v1/functions/{function_name.full_name_no_version()}/versions"
     headler = {}
@@ -459,6 +501,8 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         client_key=__client_key,
         ca_cert=__ca_cert,
         server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
     )
     url = f"http://{__server_address}/{user}/{str(function_name).replace('@', '/')}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
@@ -514,6 +558,21 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
     envvar="YR_SERVER_NAME",
     help="Server name for certificate verification (SNI)",
 )
+@click.option(
+    "--client-auth-type",
+    required=False,
+    type=click.Choice(["mutual", "one-way"], case_sensitive=False),
+    default="mutual",
+    envvar="YR_CLIENT_AUTH_TYPE",
+    help="TLS client authentication type: 'mutual' for mTLS (default), 'one-way' for server-only verification",
+)
+@click.option(
+    "--jwt-token",
+    required=False,
+    type=str,
+    envvar="YR_JWT_TOKEN",
+    help="JWT token for API authentication (sent in X-Auth header)",
+)
 @click.option("--log-level", required=False, type=str, default="INFO")
 @click.option("--user", required=False, type=str, default="default")
 @click.version_option(package_name="openyuanrong-sdk")
@@ -525,6 +584,8 @@ def cli(
     client_key,
     ca_cert,
     server_name,
+    client_auth_type,
+    jwt_token,
     log_level,
     user,
 ):
@@ -552,6 +613,12 @@ def cli(
     if server_name:
         global __server_name
         __server_name = server_name
+    if client_auth_type:
+        global __client_auth_type
+        __client_auth_type = client_auth_type.lower()
+    if jwt_token:
+        global __jwt_token
+        __jwt_token = jwt_token
     if user:
         global __user
         __user = user
@@ -669,13 +736,58 @@ def query(function_name):
 
 
 @cli.command()
-def list():
-    ret, resp = query_function(None, __user)
-    if ret and len(resp) > 0:
-        for function in resp:
-            print(f"{function['name'][2:]}:{function['versionNumber']}")
-    else:
-        print(f"user {__user} has no function.")
+@click.argument(
+    "resource_type",
+    type=click.Choice(
+        [
+            "function",
+            "functions",
+            "func",
+            "fun",
+            "instance",
+            "instances",
+            "inst",
+            "ins",
+        ],
+        case_sensitive=False,
+    ),
+    default="function",
+    required=False,
+)
+def list(resource_type):
+    """List functions or instances
+
+    Examples:
+        yrcli list                  # List functions (default)
+        yrcli list function         # List functions
+        yrcli list instance         # List instances
+    """
+    if resource_type in ("instance", "instances", "inst", "ins"):
+        # List instances
+        ret, resp = query_instances(__user)
+        if ret and len(resp) > 0:
+            print(
+                f"{'Instance ID':<40} {'Function':<30} {'Status':<15} {'Node IP':<15}"
+            )
+            print("-" * 100)
+            for instance in resp:
+                instance_id = instance.get("instanceID", "N/A")
+                function_name = instance.get("function", "N/A")
+                status = instance.get("instanceStatus", {}).get("msg", "N/A")
+                node_ip = instance.get("nodeIP", "N/A")
+                print(
+                    f"{instance_id:<40} {function_name:<30} {status:<15} {node_ip:<15}"
+                )
+        else:
+            print(f"user {__user} has no instance.")
+    elif resource_type in ("function", "functions", "func", "fun"):
+        # List functions (default)
+        ret, resp = query_function(None, __user)
+        if ret and len(resp) > 0:
+            for function in resp:
+                print(f"{function['name'][2:]}:{function['versionNumber']}")
+        else:
+            print(f"user {__user} has no function.")
 
 
 @cli.command()
@@ -1048,13 +1160,17 @@ def exec(stdin, tty, verify_server, instance, command):
         print("\nDisconnected", file=sys.stderr)
 
 
-@cli.command("runtime_main", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@cli.command(
+    "runtime_main",
+    context_settings=dict(ignore_unknown_options=True, allow_extra_args=True),
+)
 def runtime_main():
     """Start the runtime main process
-    
+
     All unknown options will be ignored, allowing the command to run without errors.
-    """    
+    """
     from yr.main.yr_runtime_main import main as yr_runtime_main
+
     yr_runtime_main()
 
 

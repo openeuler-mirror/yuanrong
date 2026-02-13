@@ -1925,10 +1925,11 @@ cdef class Fnruntime:
                 f"failed to kill instance sync, "
                 f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
 
-    def snapshot_instance(self, instance_id: str, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
         """
         Create instance snapshot
         :param instance_id: instance id to snapshot
+        :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
         :return: checkpointID
         """
@@ -1938,6 +1939,7 @@ cdef class Fnruntime:
             CSnapOptions snap_opts
 
         snap_opts.type = CSnapType.SNAPSHOT
+        snap_opts.ttl = ttl
         snap_opts.leaveRunning = leave_running
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()

@@ -672,7 +672,7 @@ class InstanceProxy:
             return self._method_descriptor[method_name].is_generator
         return False
 
-    def snapshot(self, leave_running: bool = False) -> str:
+    def snapshot(self, ttl: int = -1, leave_running: bool = False) -> str:
         """
         Create instance snapshot.
 
@@ -681,6 +681,7 @@ class InstanceProxy:
         The snapshot can be used later to restore the instance to this exact state.
 
         Args:
+            ttl (int, optional): Time-to-live for the snapshot in seconds. Default is 600 seconds.
             leave_running (bool, optional): Whether to keep the instance running after snapshot.
                 - If True: Instance continues running after snapshot (online snapshot)
                 - If False: Instance will be terminated after snapshot (offline snapshot)
@@ -722,7 +723,7 @@ class InstanceProxy:
                      self.instance_id, leave_running)
 
         checkpoint_id = global_runtime.get_runtime().snapshot_instance(
-            self.instance_id, leave_running)
+            self.instance_id, ttl, leave_running)
 
         if not leave_running:
             self.__instance_activate__ = False

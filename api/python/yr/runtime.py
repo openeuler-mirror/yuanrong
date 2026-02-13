@@ -373,10 +373,11 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def snapshot_instance(self, instance_id: str, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
         """
         Create instance snapshot with signal 18
         :param instance_id: instance id to snapshot
+        :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
         :return: checkpointID
         """

@@ -79,17 +79,17 @@
 
         **博客**
         ^^^
-        - `把集群变“单机”（下）——openYuanrong核心架构设计解析 <https://www.openeuler.openatom.cn/zh/blog/20260131-openYuanrong_02/20260131-openYuanrong_02.html >`_
-        - `把集群变“单机”（上）——openYuanrong核心技术理念解析 <https://www.openeuler.openatom.cn/zh/blog/20260128-openYuanrong/20260128-openYuanrong.html >`_
+        - `把集群变“单机”（下）——openYuanrong核心架构设计解析 <https://www.openeuler.openatom.cn/zh/blog/20260131-openYuanrong_02/20260131-openYuanrong_02.html>`_
+        - `把集群变“单机”（上）——openYuanrong核心技术理念解析 <https://www.openeuler.openatom.cn/zh/blog/20260128-openYuanrong/20260128-openYuanrong.html>`_
         
-        `openEuler 官网博客 <https://www.openeuler.openatom.cn/zh/interaction/blog-list/ >`_ 标签栏搜索 openYuanrong 查看更多。
+        `openEuler 官网博客 <https://www.openeuler.openatom.cn/zh/interaction/blog-list/>`_ 标签栏搜索 openYuanrong 查看更多。
 
     .. grid-item-card::
 
         **新版本发布**
         ^^^
         v0.7.0 已发布，新增支持 k8s 部署和 spring 微服务兼容，以及分布式调度/缓存等功能。       
-        `Release note & Package <https://gitcode.com/openeuler/yuanrong/releases/v0.7.0 >`_ 查看更多。
+        `Release note & Package <https://gitcode.com/openeuler/yuanrong/releases/v0.7.0>`_ 查看更多。
 
 .. raw:: html
 

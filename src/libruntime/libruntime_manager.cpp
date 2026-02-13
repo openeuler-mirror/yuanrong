@@ -238,8 +238,8 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
                                               std::shared_ptr<Libruntime> &librt)
 {
     SetClusterAccessInfo(librtConfig);
-    if (!Config::Instance().AUTH_TOKEN().empty()) {
-        librtConfig->authToken = Config::Instance().AUTH_TOKEN();
+    if (!Config::Instance().YR_JWT_TOKEN().empty()) {
+        librtConfig->authToken = Config::Instance().YR_JWT_TOKEN();
     }
     if (librtConfig->ns.empty()) {
         librtConfig->ns = DEFAULT_YR_NAMESPACE;

@@ -146,7 +146,7 @@ async def read_websocket(ws, should_exit):
 
 async def run_client(
     host, port, instance=None, command=None, tty=None, stdin=None, rows=None, cols=None, user=None,
-    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True
+    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None
 ):
     # 获取当前终端的实际尺寸作为默认值
     if rows is None or cols is None:
@@ -177,6 +177,8 @@ async def run_client(
         query_params.append(f"cols={cols}")
     if user:
         query_params.append(f"tenant_id={quote(user)}")
+    if token:
+        query_params.append(f"token={quote(token)}")
 
     query_string = "&".join(query_params)
     

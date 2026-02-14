@@ -45,8 +45,9 @@ const (
 
 	clusterStatusPath = "/cluster_status"
 
-	logsListPath = "/logs/list"
-	logsPath     = "/logs"
+	logsListPath     = "/logs/list"
+	logsPath         = "/logs"
+	logsDownloadPath = "/logs/download"
 )
 
 // SetRouter function for set routs
@@ -86,7 +87,6 @@ func SetRouter() *gin.Engine {
 
 	jobGroup := r.Group(job.PathGroupJobs)
 	{
-		// jobs
 		jobGroup.POST("", handlers.SubmitJobHandler)
 		jobGroup.GET("", handlers.ListJobsHandler)
 		jobGroup.GET(job.PathGetJobs, handlers.GetJobInfoHandler)
@@ -101,6 +101,7 @@ func SetRouter() *gin.Engine {
 
 		apiGroup.GET(logsListPath, logmanager.ListLogsHandler)
 		apiGroup.GET(logsPath, logmanager.ReadLogHandler)
+		apiGroup.GET(logsDownloadPath, logmanager.DownloadLogHandler)
 	}
 
 	return r

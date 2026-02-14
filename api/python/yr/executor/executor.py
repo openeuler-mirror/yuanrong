@@ -16,10 +16,10 @@
 
 """executor"""
 
+import logging
 import threading
 from typing import List, Tuple
 
-from yr import log
 from yr.common.utils import get_environment_variable
 from yr.err_type import ErrorCode, ErrorInfo, ModuleCode
 from yr.executor.function_handler import FunctionHandler
@@ -33,6 +33,8 @@ _LOCK = threading.Lock()
 INIT_HANDLER = "INIT_HANDLER"
 ACTOR_HANDLER_MODULE_NAME = "yrlib_handler"
 FAAS_HANDLER_MODULE_NAME = "faas_executor"
+
+_logger = logging.getLogger(__name__)
 
 
 class Executor:
@@ -55,9 +57,9 @@ class Executor:
             grace_period_second (int): The time to wait for the instance to shutdown gracefully.
         Returns:
             The result of the shutdown function.
-        Raises:
-            RuntimeError: If the instance has not been initialized.
         """
+        if HANDLER is None:
+            return ErrorInfo()
         return HANDLER.shutdown(grace_period_second)
 
     @staticmethod
@@ -112,7 +114,7 @@ class Executor:
                 result_list = [faas_call_handler(self.args)]
             else:
                 msg = f"invalid invoke type {self.invoke_type}"
-                log.get_logger().warning(msg)
+                _logger.warning(msg)
                 error_info = ErrorInfo(ErrorCode.ERR_EXTENSION_META_ERROR, ModuleCode.RUNTIME, msg)
         except RuntimeError as err:
             error_info = ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME, f"{err}")

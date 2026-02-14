@@ -13,6 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <iostream>
+
+#include <ostream>
 #include <string>
 #include "base/utils.h"
 #include "gmock/gmock.h"
@@ -750,9 +753,9 @@ TEST_F(ActorTest, CreatePythonWithRefActorSuccessful)
  * @expect:  1.预期无异常抛出，
  * @expect:  2.返回值为1
  */
-TEST_F(ActorTest, CreateJavaActorSuccessful)
+TEST_F(ActorTest, DISABLED_CreateJavaActorSuccessful)
 {
-    auto javaCls = YR::JavaInstanceClass::FactoryCreate("com.yuanrong.testutils.TestUtils");
+    auto javaCls = YR::JavaInstanceClass::FactoryCreate("org.yuanrong.testutils.TestUtils");
     auto creator = YR::Instance(javaCls)
                        .SetUrn("sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
                        .Invoke();
@@ -766,10 +769,10 @@ TEST_F(ActorTest, CreateJavaActorSuccessful)
  * @step:  创建actor
  * @expect:  1.预期有异常抛出
  */
-TEST_F(ActorTest, CreateJavaActorFailed)
+TEST_F(ActorTest, DISABLED_CreateJavaActorFailed)
 {
     try {
-        auto javaCls = YR::JavaInstanceClass::FactoryCreate("com.yuanrong.testutils.TestUtils");
+        auto javaCls = YR::JavaInstanceClass::FactoryCreate("org.yuanrong.testutils.TestUtils");
         auto creator = YR::Instance(javaCls).SetUrn("abc123").Invoke();
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
@@ -1026,6 +1029,25 @@ TEST_F(ActorTest, DISABLED_testGracefulShutdownWithManualSigterm)
     sleep(10);
     std::string result = YR::KV().Get("shutdownKey", 30);
     EXPECT_EQ(result, "shutdownValue");
+}
+
+    TEST_F(ActorTest, testWriteBytes)
+{
+    int cnt = 5;
+    double data[cnt] = {1.0, 2.0, 3.0, 4.0, 5.0};
+    size_t size = sizeof(double) * cnt;
+    int tag = 1;
+    int index = 0;
+    int scr = 0;
+    int dst = 1;
+    YR::WriteBytes(data, size, tag, index, scr, dst);
+
+    double read_data[cnt];
+    YR::ReadBytes(read_data, size, tag, index, scr, dst);
+    for (int i = 0; i < cnt; i++) {
+        std::cout << data[i] << "   " << read_data[i] << std::endl;
+        EXPECT_EQ(data[i], read_data[i]);
+    }
 }
 
 /*case

@@ -22,8 +22,13 @@ Python
    :maxdepth: 1
 
    yr.invoke
+   yr.StatelessFunction
+   yr.StatelessFunction.invoke
    yr.FunctionProxy
+   yr.FunctionProxy.invoke
    yr.instance
+   yr.StatefulInstanceCreator
+   yr.StatefulInstance
    yr.InstanceProxy
    yr.method
    yr.MethodProxy
@@ -199,20 +204,30 @@ Python
 
    * - :doc:`yr.invoke`
      - 定义一个无状态函数。
+   * - :doc:`yr.StatelessFunction`
+     - 无状态函数句柄（推荐），使用它执行调用。
+   * - :doc:`yr.StatelessFunction.invoke`
+     - 执行被装饰的远程函数调用（StatelessFunction 版本）。
    * - :doc:`yr.FunctionProxy`
-     - 无状态函数句柄，使用它执行调用。
+     - 无状态函数句柄（已弃用，请使用 StatelessFunction），使用它执行调用。
+   * - :doc:`yr.FunctionProxy.invoke`
+     - 执行被装饰的远程函数调用。
    * - :doc:`yr.instance`
      - 定义一个有状态函数。
+   * - :doc:`yr.StatefulInstanceCreator`
+     - 用于创建有状态函数实例（推荐）。
+   * - :doc:`yr.StatefulInstance`
+     - 有状态函数实例的句柄（推荐），用于终止实例等操作。
+   * - :doc:`yr.InstanceCreator`
+     - 用于创建有状态函数实例（已弃用，请使用 StatefulInstanceCreator）。
    * - :doc:`yr.InstanceProxy`
-     - 有状态函数实例的句柄，用于终止实例等操作。
+     - 有状态函数实例的句柄（已弃用，请使用 StatefulInstance），用于终止实例等操作。
    * - :doc:`yr.method`
      - 定义有状态函数的方法。
    * - :doc:`yr.MethodProxy`
      - 有状态函数实例的方法句柄，使用它执行调用。
    * - :doc:`yr.get_instance`
      - 根据具名实例的 `name` 和 `namespace` 获取实例句柄。
-   * - :doc:`yr.InstanceCreator`
-     - 用于创建有状态函数实例。
    * - :doc:`yr.cancel`
      - 取消无状态函数调用。
    * - :doc:`yr.exit`

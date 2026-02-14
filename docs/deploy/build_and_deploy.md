@@ -1,6 +1,6 @@
-# 部署 openYuanrong 应用
+# 部署 openYuanrong 作业类应用
 
-本章节向您介绍如何构建应用并在 openYuanrong 集群中部署。
+本章节向您介绍如何构建使用单机程序分布式并行化接口开发的作业类应用并在 openYuanrong 集群中部署。
 
 ## 环境依赖
 
@@ -110,7 +110,7 @@ pom.xml 文件参考：
     <dependencies>
         <dependency>
             <!-- 修改版本号为您实际使用版本 -->
-            <groupId>com.yuanrong</groupId>
+            <groupId>org.yuanrong</groupId>
             <artifactId>yr-api-sdk</artifactId>
             <version>1.0.0</version>
         </dependency>

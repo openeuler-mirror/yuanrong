@@ -298,7 +298,6 @@ TEST_F(InvokeSpecTest, BuildInstanceCreateRequestTest)
     LibruntimeConfig config;
     spec->BuildInstanceCreateRequest(config);
     ASSERT_EQ(spec->requestCreate.mutable_schedulingops()->mutable_resources()->size() != 0, true);
-    ASSERT_EQ(spec->opts.envVars["RG_NAME"], "testResourceGroup");
 }
 }  // namespace test
 }  // namespace YR

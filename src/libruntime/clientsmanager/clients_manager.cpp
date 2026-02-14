@@ -41,7 +41,8 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::GetFsConn(c
 
 std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::NewFsConn(const std::string &ip, int port,
                                                                                std::shared_ptr<Security> security,
-                                                                               const std::string &dstInstance)
+                                                                               const std::string &dstInstance,
+                                                                               bool isKeepAlive)
 {
     auto addr = GetIpAddr(ip, port);
     bool uds = false;
@@ -50,7 +51,7 @@ std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::NewFsConn(c
         addr = YR::utility::Join({YR::Libruntime::Config::Instance().YR_DPOSIX_UDS(), "fs.sock"}, "/");
         YRLOG_INFO("Use dposix uds path {} to connect function proxy", addr);
     }
-    auto [res, error] = InitFunctionSystemConn(uds, addr, security);
+    auto [res, error] = InitFunctionSystemConn(uds, addr, security, isKeepAlive);
     if (!error.OK()) {
         return std::make_pair(nullptr, error);
     }
@@ -161,24 +162,31 @@ ErrorInfo ClientsManager::ReleaseHttpClient(const std::string &ip, int port)
     httpClientsReferCounter[addr]--;
     if (httpClientsReferCounter[addr] == 0) {
         httpClientsReferCounter.erase(addr);
-        httpClients.erase(addr);
+        if (auto it = httpClients.find(addr); it != httpClients.end()) {
+            it->second->Stop();
+            httpClients.erase(addr);
+        }
     }
     return ErrorInfo();
 }
 
 std::pair<std::shared_ptr<grpc::Channel>, ErrorInfo> ClientsManager::InitFunctionSystemConn(
-    bool uds, std::string target, std::shared_ptr<Security> security)
+    bool uds, std::string target, std::shared_ptr<Security> security, bool isKeepAlive)
 {
     grpc::ChannelArguments args;
     std::shared_ptr<grpc::Channel> channel;
     ErrorInfo err;
-    uint32_t maxGrpcSize = Config::Instance().MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
+    uint32_t maxGrpcSize = Config::Instance().YR_MAX_GRPC_SIZE() * SIZE_MEGA_BYTES;
     args.SetInt(GRPC_ARG_INITIAL_RECONNECT_BACKOFF_MS, RECONNECT_BACKOFF_INTERVAL);
     args.SetInt(GRPC_ARG_MIN_RECONNECT_BACKOFF_MS, RECONNECT_BACKOFF_INTERVAL);
     args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, MAX_RECONNECT_BACKOFF_INTERVAL);
     args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, maxGrpcSize);
     args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, maxGrpcSize);
     args.SetInt(GRPC_ARG_ENABLE_HTTP_PROXY, Config::Instance().YR_ENABLE_HTTP_PROXY() ? 1 : 0);
+    if (!isKeepAlive) {
+        args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, GRPC_KEEPALIVE_TIME_MS);
+        args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, GRPC_KEEPALIVE_TIMEOUT_MS);
+    }
     if (security != nullptr) {
         std::string serverNameOverride;
         (void)security->GetFunctionSystemConnectionMode(serverNameOverride);
@@ -233,6 +241,8 @@ std::pair<DatasystemClients, ErrorInfo> ClientsManager::InitDatasystemClient(
         if (!ak.empty() && !sk.Empty()) {
             connectOptions.accessKey = ak;
             connectOptions.secretKey = sk;
+        } else {
+            connectOptions.token = token;
         }
     }
     std::string tenantId = Config::Instance().YR_TENANT_ID();

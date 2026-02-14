@@ -16,6 +16,7 @@
 
 """Faas executor, an adapter between posix and faas"""
 import json
+import logging
 import os
 import time
 import traceback
@@ -42,24 +43,26 @@ _RUNTIME_MAX_RESP_BODY_SIZE = 6 * 1024 * 1024
 _SHUTDOWN_CHECK_INTERVAL = 0.1
 requestQueue = queue.Queue(maxsize=1000)
 
+_logger = logging.getLogger(__name__)
+
 
 def faas_init_handler(posix_args: List[Any]) -> str:
     """faas init handler"""
-    log.get_logger().debug("Started to call FaaS init handler.")
+    _logger.debug("Started to call FaaS init handler.")
     try:
         context_meta = parse_faas_param(posix_args[_INDEX_META_DATA])
         load_context_meta(context_meta)
     except TypeError as e:
         err_msg = f"faas init request args undefined: {repr(e)}, traceback: {traceback.format_exc()}"
-        log.get_logger().error(err_msg)
+        _logger.error(err_msg)
         raise RuntimeError(transform_init_response_to_str(err_msg, FaasErrorCode.INIT_FUNCTION_FAIL)) from e
     except json.decoder.JSONDecodeError as e:
         err_msg = f"faas init request args json decode error: {repr(e)}, traceback: {traceback.format_exc()}"
-        log.get_logger().error(err_msg)
+        _logger.error(err_msg)
         raise RuntimeError(transform_init_response_to_str(err_msg, FaasErrorCode.INIT_FUNCTION_FAIL)) from e
     except Exception as e:
         err_msg = f"faaS failed to load context and user logger, err: {repr(e)}, traceback: {traceback.format_exc()}"
-        log.get_logger().error(err_msg)
+        _logger.error(err_msg)
         raise RuntimeError(transform_init_response_to_str(err_msg, FaasErrorCode.INIT_FUNCTION_FAIL)) from e
     code_path = CodeManager().get_code_path(constants.KEY_USER_INIT_ENTRY)
     if code_path == "":
@@ -82,23 +85,23 @@ def faas_init_handler(posix_args: List[Any]) -> str:
     except Exception as err:
         err_msg = f"Fail to run user init handler. err: {repr(err)}. traceback: {traceback.format_exc()}"
         error_code = FaasErrorCode.INIT_FUNCTION_FAIL
-        log.get_logger().exception(err_msg)
+        _logger.exception(err_msg)
     finally:
         UserLogManager().shutdown()
     if error_code != FaasErrorCode.NONE_ERROR:
         raise RuntimeError(transform_init_response_to_str(err_msg, error_code))
-    log.get_logger().info("Succeeded to call FaaS user init handler: [%s]", context_meta['funcMetaData']['handler'])
+    _logger.info("Succeeded to call FaaS user init handler: [%s]", context_meta['funcMetaData']['handler'])
     return transform_init_response_to_str("success", FaasErrorCode.NONE_ERROR)
 
 
 def faas_call_handler(posix_args: List[Any]) -> str:
     """faas call handler"""
-    log.get_logger().info("Faas call handler called.")
+    _logger.info("Faas call handler called.")
     user_code = CodeManager().load(constants.KEY_USER_CALL_ENTRY)
     error_code = FaasErrorCode.NONE_ERROR
     if user_code is None:
         err_msg = "faas executor find empty user call code"
-        log.get_logger().error(err_msg)
+        _logger.error(err_msg)
         error_code = FaasErrorCode.INIT_FUNCTION_FAIL
         return transform_call_response_to_str(err_msg, error_code)
     event = parse_faas_param(posix_args[_INDEX_CALL_USER_EVENT])
@@ -118,7 +121,7 @@ def faas_call_handler(posix_args: List[Any]) -> str:
             except ValueError as err:
                 err_msg = f'failed to loads event body err: {err}'
                 error_code = FaasErrorCode.ENTRY_EXCEPTION
-                log.get_logger().error(err_msg)
+                _logger.error(err_msg)
                 return transform_call_response_to_str(err_msg, error_code)
         if event is None:
             event = {}
@@ -134,12 +137,12 @@ def faas_call_handler(posix_args: List[Any]) -> str:
         requestQueue.put(1)
         result = user_code(event, context)
     except SystemExit as exit_error:
-        log.get_logger().exception("Fail to run user call handler. err: %s. traceback: %s",
+        _logger.exception("Fail to run user call handler. err: %s. traceback: %s",
                                    exit_error, traceback.format_exc())
         result = f"Fail to run user call handler. err: user code sys.exit()."
         error_code = FaasErrorCode.ENTRY_EXCEPTION
     except Exception as err:
-        log.get_logger().exception("Fail to run user call handler. err: %s. traceback: %s",
+        _logger.exception("Fail to run user call handler. err: %s. traceback: %s",
                                    err, traceback.format_exc())
         result = f"Fail to run user call handler. err: {err}."
         error_code = FaasErrorCode.ENTRY_EXCEPTION
@@ -152,23 +155,23 @@ def faas_call_handler(posix_args: List[Any]) -> str:
         # Can be RecursionError, RuntimeError, UnicodeError, MemoryError, etc...
         err_msg = f"Fail to stringify user call result. " \
                   f"err: {err}. traceback: {traceback.format_exc()}"
-        log.get_logger().exception(err_msg)
+        _logger.exception(err_msg)
         raise RuntimeError(err_msg) from err
     finally:
         UserLogManager().shutdown()
-    log.get_logger().info("Succeeded to call FaaS user call handler: [%s]", os.environ.get(
+    _logger.info("Succeeded to call FaaS user call handler: [%s]", os.environ.get(
         "RUNTIME_HANDLER", "handler name Not found in environment"))
     return result_str
 
 
 def faas_shutdown_handler(grace_period_second) -> ErrorInfo:
     """faas shutdown handler"""
-    log.get_logger().info("start shutdown user function")
+    _logger.info("start shutdown user function")
     user_code = CodeManager().load(constants.KEY_USER_SHUT_DOWN_ENTRY)
     error_info = ErrorInfo(ErrorCode.ERR_OK, ModuleCode.RUNTIME_KILL, "user function shutdown ok")
     if user_code is None:
         err_msg = "can not find shutdown entry."
-        log.get_logger().warning(err_msg)
+        _logger.warning(err_msg)
     else:
         @timeout(int(os.getenv("PRE_STOP_TIMEOUT")))
         def _invoke_with_timeout(_code):
@@ -179,15 +182,15 @@ def faas_shutdown_handler(grace_period_second) -> ErrorInfo:
             if requestQueue.empty():
                 exit_loop = False
                 try:
-                    log.get_logger().info("start exec user shutdown code")
+                    _logger.info("start exec user shutdown code")
                     _invoke_with_timeout(user_code)
                 except TimeoutError as err:
                     err_msg = f"Fail to run user shutdown  handler. err: {err}. traceback: {traceback.format_exc()}"
-                    log.get_logger().exception(err_msg)
+                    _logger.exception(err_msg)
                     error_info = ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME, err_msg)
                 except BaseException as err:
                     err_msg = f"Fail to run  user shutdown handler. err: {err}. traceback: {traceback.format_exc()}"
-                    log.get_logger().exception(err_msg)
+                    _logger.exception(err_msg)
                     error_info = ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME, err_msg)
             else:
                 time.sleep(_SHUTDOWN_CHECK_INTERVAL)
@@ -205,7 +208,7 @@ def transform_call_response_to_str(response, status_code: FaasErrorCode):
         try:
             json.dumps(response)
         except TypeError as err:
-            log.get_logger().exception("result is not JSON serializable, err: %s", err)
+            _logger.exception("result is not JSON serializable, err: %s", err)
             result[key_for_body] = f"failed to convert the result to a JSON string, err:{err}"
             status_code = FaasErrorCode.FUNCTION_RESULT_INVALID
         else:

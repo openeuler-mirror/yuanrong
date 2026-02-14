@@ -65,6 +65,8 @@ type LibruntimeAPI interface {
 	GDecreaseRef(objectIDs []string, remoteClientID ...string) ([]string, error)
 	GDecreaseRefRaw(objectIDs []string, remoteClientID ...string) ([]string, error)
 	GetAsync(objectID string, cb GetAsyncCallback)
+	GetEvent(objectID string, cb GetEventCallback)
+	DeleteGetEventCallback(objectID string)
 
 	GetFormatLogger() FormatLogger
 
@@ -73,6 +75,7 @@ type LibruntimeAPI interface {
 	UpdateSchdulerInfo(schedulerName string, schedulerId string, option string)
 	IsHealth() bool
 	IsDsHealth() bool
+	GetActiveMasterAddr() string
 }
 
 // KvClient -

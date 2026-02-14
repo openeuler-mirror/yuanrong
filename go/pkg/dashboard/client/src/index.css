@@ -62,6 +62,19 @@
     margin-left: 20px;
 }
 
+.no-block {
+    display: inline-block;
+}
+
+.no-border {
+    border: none !important;
+}
+
 .color-blue {
     color: #1476ff;
+}
+
+.menu {
+    max-width: 80% !important;
+    min-width: 80% !important;
 }

@@ -101,7 +101,7 @@ void Glob(const std::string &pathPattern, std::vector<std::string> &paths)
             return;
         default:
             globfree(&result);
-            YRLOG_WARN("failed to glob files, pattern: {}, errno: {}, errmsg: {}", pathPattern, ret, StrErr(ret));
+            YRLOG_DEBUG("failed to glob files, pattern: {}, errno: {}, errmsg: {}", pathPattern, ret, StrErr(ret));
             return;
     }
 

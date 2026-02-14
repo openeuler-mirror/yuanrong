@@ -77,12 +77,12 @@ function get_hostname() {
 }
 
 function get_ip_list() {
-    if [ "$(command -v ip)" ]; then
-          ip addr show | grep inet | grep -vw "127.0.0.1" | grep -vw "172.17.0.1" | grep -v inet6 | awk '{print $2}' | cut -f1 -d '/'
+    if [ "$(command -v python3)" ]; then
+        python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM);s.connect(('8.8.8.8', 80));print(s.getsockname()[0]);"
     elif [ "$(command -v ifconfig)" ]; then
         ifconfig | grep inet | grep -vw "127.0.0.1" | grep -vw "172.17.0.1" | grep -v inet6 | awk '{print $2}'
-    elif [ "$(command -v python3)" ]; then
-        python3 -c "import socket; print('\n'.join(set(e[4][0] for e in socket.getaddrinfo(socket.gethostname(), None))));"
+    elif [ "$(command -v ip)" ]; then
+        ip addr show | grep inet | grep -vw "127.0.0.1" | grep -vw "172.17.0.1" | grep -v inet6 | awk '{print $2}' | cut -f1 -d '/'
     else
         die "cannot get host ip, need \"ip\" or \"ifconfig\" or \"python3\""
     fi
@@ -110,27 +110,20 @@ function get_ip_auto() {
     fi
 }
 
-function get_machine_ips() {
+function check_ip_exist() {
+    local ip_address=$1
     if [ "$(command -v ip)" ]; then
-        ip addr show | grep inet | grep -v inet6 | awk '{print $2}' | cut -f1 -d '/'
+        ip addr show | grep inet | grep -v inet6 | awk '{print $2}' | grep -w "${ip_address}" &>/dev/null
+        return $?
     elif [ "$(command -v ifconfig)" ]; then
-        ifconfig | grep inet | grep -v inet6 | awk '{print $2}' | cut -f2 -d:
+        ifconfig | grep inet | grep -v inet6 | awk '{print $2}' | grep -w "${ip_address}" &>/dev/null
+        return $?
     elif [ "$(command -v python3)" ]; then
-        python3 -c "import socket; print('\n'.join(set(e[4][0] for e in socket.getaddrinfo(socket.gethostname(), None))));"
+        python3 -c "import socket; sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM);sock.bind((\"${ip_address}\", 0));sock.close();" &>/dev/null
+        return $?
     else
         die "cannot get host ip, need \"ip\" or \"ifconfig\" or \"python3\""
     fi
-}
-
-function check_ip_exist() {
-  local ip_address=$1
-  local machine_ips=$(get_machine_ips)
-  for machine_ip in ${machine_ips}; do
-    if [ "X${machine_ip}" == "X${ip_address}" ]; then
-      return 0
-    fi
-  done
-  return 1
 }
 
 # please install libxml2 first

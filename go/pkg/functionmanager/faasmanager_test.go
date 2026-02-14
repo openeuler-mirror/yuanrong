@@ -19,7 +19,6 @@ package functionmanager
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"plugin"
 	"reflect"
@@ -30,24 +29,28 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	v1 "k8s.io/api/apps/v1"
-	k8serror "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/kubernetes"
-
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/informers"
+	testing2 "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 	"yuanrong.org/kernel/runtime/libruntime/api"
+
 	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/etcd3"
+	"yuanrong.org/kernel/pkg/common/faas_common/k8sclient"
 	commonType "yuanrong.org/kernel/pkg/common/faas_common/types"
 	mockUtils "yuanrong.org/kernel/pkg/common/faas_common/utils"
+	"yuanrong.org/kernel/pkg/functionmanager/registry"
 	"yuanrong.org/kernel/pkg/functionmanager/state"
 	"yuanrong.org/kernel/pkg/functionmanager/types"
-	"yuanrong.org/kernel/pkg/functionmanager/utils"
-	"yuanrong.org/kernel/pkg/functionmanager/vpcmanager"
 )
 
-type KvMock struct {
-}
+type KvMock struct{}
 
 func (k *KvMock) Put(ctx context.Context, key, val string, opts ...clientv3.OpOption) (*clientv3.PutResponse, error) {
 	// TODO implement me
@@ -65,7 +68,8 @@ func (k *KvMock) Delete(ctx context.Context, key string, opts ...clientv3.OpOpti
 }
 
 func (k *KvMock) Compact(ctx context.Context, rev int64, opts ...clientv3.CompactOption) (*clientv3.CompactResponse,
-	error) {
+	error,
+) {
 	// TODO implement me
 	panic("implement me")
 }
@@ -83,6 +87,9 @@ func (k *KvMock) Txn(ctx context.Context) clientv3.Txn {
 func TestNewFaaSManager(t *testing.T) {
 	defer gomonkey.ApplyFunc(state.Update, func(value interface{}, tags ...string) {
 	}).Reset()
+	defer gomonkey.ApplyFunc(registry.StartWatchEvent, func(vpcEventCh chan types.VPCEvent, stopCh chan struct{}, informer informers.GenericInformer) {
+		return
+	}).Reset()
 	type args struct {
 		sdkClient api.LibruntimeAPI
 		stopCh    chan struct{}
@@ -93,69 +100,13 @@ func TestNewFaaSManager(t *testing.T) {
 		wantErr     bool
 		patchesFunc mockUtils.PatchesFunc
 	}{
-		{"case1 failed to plugin open", args{}, true, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(plugin.Open, func(path string) (*plugin.Plugin, error) {
-					return nil, errors.New("plugin open error")
-				}),
-			})
-			return patches
-		}},
-		{"case2 InitVpcPlugin error", args{}, true, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(plugin.Open, func(path string) (*plugin.Plugin, error) {
-					return &plugin.Plugin{}, nil
-				}),
-				gomonkey.ApplyFunc((*vpcmanager.PluginVPC).InitVpcPlugin, func(_ *vpcmanager.PluginVPC) error {
-					return errors.New("InitVpcPlugin error")
-				}),
-			})
-			return patches
-		}},
-		{"case3 InitKubeClient error", args{}, true, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(plugin.Open, func(path string) (*plugin.Plugin, error) {
-					return &plugin.Plugin{}, nil
-				}),
-				gomonkey.ApplyFunc((*vpcmanager.PluginVPC).InitVpcPlugin, func(_ *vpcmanager.PluginVPC) error {
-					return nil
-				}),
-				gomonkey.ApplyFunc(utils.InitKubeClient, func() error {
-					return errors.New("InitKubeClient error")
-				}),
-			})
-			return patches
-		}},
-		{"case3 InitKubeClient error", args{}, true, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(plugin.Open, func(path string) (*plugin.Plugin, error) {
-					return &plugin.Plugin{}, nil
-				}),
-				gomonkey.ApplyFunc((*vpcmanager.PluginVPC).InitVpcPlugin, func(_ *vpcmanager.PluginVPC) error {
-					return nil
-				}),
-				gomonkey.ApplyFunc(utils.InitKubeClient, func() error {
-					return errors.New("InitKubeClient error")
-				}),
-			})
-			return patches
-		}},
 		{"case4 succeed to NewFaaSManager", args{}, false, func() mockUtils.PatchSlice {
 			patches := mockUtils.InitPatchSlice()
 			patches.Append(mockUtils.PatchSlice{
 				gomonkey.ApplyFunc(plugin.Open, func(path string) (*plugin.Plugin, error) {
 					return &plugin.Plugin{}, nil
 				}),
-				gomonkey.ApplyFunc((*vpcmanager.PluginVPC).InitVpcPlugin, func(_ *vpcmanager.PluginVPC) error {
-					return nil
-				}),
-				gomonkey.ApplyFunc(utils.InitKubeClient, func() error {
-					return nil
-				}),
+				gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }),
 			})
 			return patches
 		}},
@@ -176,13 +127,8 @@ func TestNewFaaSManager(t *testing.T) {
 func TestManager_ProcessSchedulerRequest(t *testing.T) {
 	defer gomonkey.ApplyFunc(state.Update, func(value interface{}, tags ...string) {
 	}).Reset()
-	pullTriggerBytes, _ := json.Marshal(types.PullTriggerRequestInfo{PodName: "sn/trigger/test"})
-	reportBytes, _ := json.Marshal(types.ReportInfo{PatPodName: "pat1", InstanceID: "abc"})
-	deleteBytes, _ := json.Marshal(types.DeleteInfo{InstanceID: "abc"})
-	deleteTriggerBytes, _ := json.Marshal(types.PullTriggerDeleteInfo{PodName: "sn/trigger/test"})
 	type fields struct {
 		patKeyList        map[string]map[string]struct{}
-		VpcPlugin         vpcmanager.PluginVPC
 		vpcMutex          sync.Mutex
 		remoteClientLease map[string]*leaseTimer
 		remoteClientList  map[string]struct{}
@@ -198,145 +144,79 @@ func TestManager_ProcessSchedulerRequest(t *testing.T) {
 		want        int
 		patchesFunc mockUtils.PatchesFunc
 	}{
-		{"case1 succeed to requestOpCreate", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpCreate)}, &api.Arg{Data: []byte("")},
-				&api.Arg{Data: []byte("")}}},
-			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc((*vpcmanager.PluginVPC).CreateVpcResource,
-					func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-						return types.NATConfigure{PatPodName: "pat1"}, nil
-					}),
-			})
-			return patches
-		}},
-		{"case2 succeed to requestOpCreateTrigger", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpCreateTrigger)}, &api.Arg{Data: pullTriggerBytes},
-				&api.Arg{Data: []byte("")}}},
-			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc((*vpcmanager.PluginVPC).CreateVpcResource,
-					func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-						return types.NATConfigure{PatPodName: "pat1"}, nil
-					}),
-				gomonkey.ApplyFunc(utils.GetDeployByK8S,
-					func(k8sClient kubernetes.Interface, deployName string) (*v1.Deployment, error) {
-						return nil, errors.New("errors")
-					}),
-				gomonkey.ApplyFunc(k8serror.IsNotFound, func(err error) bool {
-					return true
-				}),
-				gomonkey.ApplyFunc(utils.GetKubeClient, func() kubernetes.Interface {
-					return &kubernetes.Clientset{}
-				}),
-				gomonkey.ApplyFunc(utils.CreateDeployByK8S,
-					func(k8sClient kubernetes.Interface, deploy *v1.Deployment) error {
-						return nil
-					}),
-			})
-			return patches
-		}},
-		{"case3 succeed to requestOpReport", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpReport)}, &api.Arg{Data: reportBytes},
-				&api.Arg{Data: []byte("")}}},
-			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{})
-			return patches
-		}},
-		{"case4 succeed to requestOpDelete", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpDelete)}, &api.Arg{Data: deleteBytes},
-				&api.Arg{Data: []byte("")}}},
-			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{})
-			return patches
-		}},
-		{"case5 succeed to requestOpDeleteTrigger", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpDeleteTrigger)}, &api.Arg{Data: deleteTriggerBytes},
-				&api.Arg{Data: []byte("")}}},
-			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{
-				gomonkey.ApplyFunc(utils.GetKubeClient, func() kubernetes.Interface {
-					return &kubernetes.Clientset{}
-				}),
-				gomonkey.ApplyFunc(utils.GetDeployByK8S,
-					func(k8sClient kubernetes.Interface, deployName string) (*v1.Deployment, error) {
-						return &v1.Deployment{}, nil
-					}),
-				gomonkey.ApplyFunc(k8serror.IsNotFound, func(err error) bool {
-					return false
-				}),
-				gomonkey.ApplyFunc(utils.DeleteDeployByK8S,
-					func(k8sClient kubernetes.Interface, name string) error {
-						return nil
-					}),
-			})
-			return patches
-		}},
-		{"case6 unknow opt", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpDeleteTrigger)}, &api.Arg{Data: []byte("")}}},
-			constant.UnsupportedOperationErrorCode,
-			func() mockUtils.PatchSlice {
+		{
+			"case7 failed to requestOpNewLease",
+			fields{
+				patKeyList: make(map[string]map[string]struct{}, 1),
+				vpcMutex:   sync.Mutex{}, remoteClientLease: map[string]*leaseTimer{"test-client-ID": nil},
+				remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{},
+			},
+			args{args: []*api.Arg{{Data: []byte(requestOpNewLease)}, {Data: []byte("")}}},
+			constant.UnsupportedOperationErrorCode, func() mockUtils.PatchSlice {
 				patches := mockUtils.InitPatchSlice()
+				patches = append(patches, gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }))
 				return patches
+			},
+		},
+		{
+			"case8 success to requestOpNewLease",
+			fields{
+				patKeyList: make(map[string]map[string]struct{}, 1),
+				vpcMutex:   sync.Mutex{}, remoteClientLease: make(map[string]*leaseTimer, 1),
+				remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{},
+			},
+			args{args: []*api.Arg{
+				{Data: []byte(requestOpNewLease)},
+				{Data: []byte("test-client-ID")},
+				{Data: []byte("")},
 			}},
-		{"case7 failed to requestOpNewLease", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}, remoteClientLease: map[string]*leaseTimer{"test-client-ID": nil},
-			remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpNewLease)}, &api.Arg{Data: []byte("")}}},
-			constant.UnsupportedOperationErrorCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{})
-			return patches
-		}},
-		{"case8 success to requestOpNewLease", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}, remoteClientLease: make(map[string]*leaseTimer, 1),
-			remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpNewLease)}, &api.Arg{Data: []byte("test-client-ID")},
-				&api.Arg{Data: []byte("")}}},
 			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{})
-			return patches
-		}},
-		{"case9 failed to requestOpKeepAlive", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}, remoteClientLease: make(map[string]*leaseTimer, 1),
-			remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpKeepAlive)}, &api.Arg{Data: []byte("test-client-ID")},
-				&api.Arg{Data: []byte("")}}},
+				patches := mockUtils.InitPatchSlice()
+				patches = append(patches, gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, key string) string { return key }))
+				return patches
+			},
+		},
+		{
+			"case9 failed to requestOpKeepAlive",
+			fields{
+				patKeyList: make(map[string]map[string]struct{}, 1),
+				vpcMutex:   sync.Mutex{}, remoteClientLease: make(map[string]*leaseTimer, 1),
+				remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{},
+			},
+			args{args: []*api.Arg{
+				{Data: []byte(requestOpKeepAlive)},
+				{Data: []byte("test-client-ID")},
+				{Data: []byte("")},
+			}},
 			constant.UnsupportedOperationErrorCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{})
-			return patches
-		}},
-		{"case10 success to requestOpKeepAlive", fields{patKeyList: make(map[string]map[string]struct{}, 1),
-			vpcMutex: sync.Mutex{}, remoteClientLease: map[string]*leaseTimer{"test-client-ID": newLeaseTimer(1000)},
-			remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{}},
-			args{args: []*api.Arg{&api.Arg{Data: []byte(requestOpKeepAlive)}, &api.Arg{Data: []byte("test-client-ID")},
-				&api.Arg{Data: []byte("")}}},
+				patches := mockUtils.InitPatchSlice()
+				patches.Append(mockUtils.PatchSlice{})
+				return patches
+			},
+		},
+		{
+			"case10 success to requestOpKeepAlive",
+			fields{
+				patKeyList: make(map[string]map[string]struct{}, 1),
+				vpcMutex:   sync.Mutex{}, remoteClientLease: map[string]*leaseTimer{"test-client-ID": newLeaseTimer(1000)},
+				remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{},
+			},
+			args{args: []*api.Arg{
+				{Data: []byte(requestOpKeepAlive)},
+				{Data: []byte("test-client-ID")},
+				{Data: []byte("")},
+			}},
 			constant.InsReqSuccessCode, func() mockUtils.PatchSlice {
-			patches := mockUtils.InitPatchSlice()
-			patches.Append(mockUtils.PatchSlice{})
-			return patches
-		}},
+				patches := mockUtils.InitPatchSlice()
+				patches.Append(mockUtils.PatchSlice{})
+				return patches
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			patches := tt.patchesFunc()
 			fm := &Manager{
-				patKeyList:        tt.fields.patKeyList,
-				VpcPlugin:         tt.fields.VpcPlugin,
-				vpcMutex:          tt.fields.vpcMutex,
 				remoteClientLease: tt.fields.remoteClientLease,
 				remoteClientList:  tt.fields.remoteClientList,
 				clientMutex:       tt.fields.clientMutex,
@@ -358,14 +238,87 @@ func TestManager_ProcessSchedulerRequest(t *testing.T) {
 	}
 }
 
+func TestManager_ProcessSchedulerRequestLibruntime(t *testing.T) {
+	defer gomonkey.ApplyFunc(state.Update, func(value interface{}, tags ...string) {
+	}).Reset()
+	type fields struct {
+		patKeyList        map[string]map[string]struct{}
+		vpcMutex          sync.Mutex
+		remoteClientLease map[string]*leaseTimer
+		remoteClientList  map[string]struct{}
+		clientMutex       sync.Mutex
+	}
+	type args struct {
+		args []api.Arg
+	}
+	tests := []struct {
+		name        string
+		fields      fields
+		args        args
+		want        int
+		patchesFunc mockUtils.PatchesFunc
+	}{
+		{
+			"case1 failed to requestOpNewLease",
+			fields{
+				patKeyList: make(map[string]map[string]struct{}, 1),
+				vpcMutex:   sync.Mutex{}, remoteClientLease: map[string]*leaseTimer{"test-client-ID": nil},
+				remoteClientList: map[string]struct{}{}, clientMutex: sync.Mutex{},
+			},
+			args{args: []api.Arg{{}, {Data: []byte(requestOpNewLease)}, {Data: []byte("")}}},
+			constant.UnsupportedOperationErrorCode, func() mockUtils.PatchSlice {
+				patches := mockUtils.InitPatchSlice()
+				patches.Append(mockUtils.PatchSlice{})
+				return patches
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patches := tt.patchesFunc()
+			fm := &Manager{
+				remoteClientLease: tt.fields.remoteClientLease,
+				remoteClientList:  tt.fields.remoteClientList,
+				clientMutex:       tt.fields.clientMutex,
+				queue: &queue{
+					cond:       sync.NewCond(&sync.RWMutex{}),
+					dirty:      map[interface{}]struct{}{},
+					processing: map[interface{}]struct{}{},
+				},
+				leaseRenewMinute: 5,
+			}
+			go fm.saveStateLoop()
+			libruntimeClient = &mockUtils.FakeLibruntimeSdkClient{}
+			if got := fm.ProcessSchedulerRequestLibruntime(tt.args.args, ""); !reflect.DeepEqual(got.Code, tt.want) {
+				t.Errorf("ProcessSchedulerRequest() = %v, want %v", got, tt.want)
+			}
+			patches.ResetAll()
+			libruntimeClient = nil
+		})
+	}
+}
+
 func Test_handleRequestOpCreate(t *testing.T) {
 	convey.Convey("ProcessSchedulerRequest-handleRequestOpCreate", t, func() {
-		m := &Manager{
-			patKeyList:       make(map[string]map[string]struct{}),
-			VpcPlugin:        vpcmanager.PluginVPC{},
-			leaseRenewMinute: 5,
+		listKinds := map[schema.GroupVersionResource]string{
+			// Example: MyResource GVK to MyResourceList GVK
+			patGVR: "PatList",
 		}
-		args := []*api.Arg{
+		fakeClient := fake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds)
+		defer gomonkey.ApplyFunc(k8sclient.GetDynamicClient, func() dynamic.Interface {
+			return fakeClient
+		}).Reset()
+		factory := dynamicinformer.NewDynamicSharedInformerFactory(fakeClient, time.Minute)
+		informer := factory.ForResource(patGVR)
+		stopCh := make(chan struct{})
+		go informer.Informer().Run(stopCh)
+		if !cache.WaitForCacheSync(stopCh, informer.Informer().HasSynced) {
+		}
+		m := &Manager{
+			leaseRenewMinute: 5,
+			patLister:        informer.Lister(),
+		}
+		emptyArgs := []*api.Arg{
 			{
 				Type: 0,
 				Data: []byte(requestOpCreate),
@@ -380,202 +333,67 @@ func Test_handleRequestOpCreate(t *testing.T) {
 			},
 		}
 		convey.Convey("failed to create vpc pat pod, error", func() {
-
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
+			response := m.ProcessSchedulerRequest(emptyArgs, "")
+			convey.So(response.Code, convey.ShouldEqual, 6040)
 		})
-
-		convey.Convey("json Marshal error", func() {
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&m.VpcPlugin), "CreateVpcResource",
-				func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-					return types.NATConfigure{}, nil
-				}).Reset()
-			defer gomonkey.ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
-				return nil, errors.New("json marshal error")
-			}).Reset()
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
-		})
-	})
-}
-
-func Test_handleRequestOpCreateTrigger(t *testing.T) {
-	convey.Convey("ProcessSchedulerRequest-handleRequestOpCreateTrigger", t, func() {
-		m := &Manager{
-			patKeyList:       make(map[string]map[string]struct{}),
-			VpcPlugin:        vpcmanager.PluginVPC{},
-			leaseRenewMinute: 5,
-		}
-		args := []*api.Arg{
+		normalArgs := []*api.Arg{
 			{
 				Type: 0,
-				Data: []byte(requestOpCreateTrigger),
+				Data: []byte(requestOpCreate),
 			},
 			{
 				Type: 0,
-				Data: []byte{},
+				Data: []byte("{\"namespace\": \"default\",\"domainID\": \"\",\"projectID\": \"\",\"environmentID\": \"\",\"vpcID\": \"\",\"subnetID\": \"\",\"tenantCidr\": \"\",\"hostVMCidr\": \"\",\"gateway\": \"\",\"securityGroup\": [],\"xrole\": \"\",\"IPV6Enable\": false}"),
 			},
 			{
 				Type: 0,
 				Data: []byte("trace-id"),
 			},
 		}
-		convey.Convey("json.Unmarshal error", func() {
-			defer gomonkey.ApplyFunc(json.Unmarshal, func(data []byte, v interface{}) error {
-				return errors.New("json unmarshal error")
-			}).Reset()
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
-		})
 
-		convey.Convey("invalid pull trigger name", func() {
-			info := &types.PullTriggerRequestInfo{PodName: "podname/invalid"}
-			bytes, _ := json.Marshal(info)
-			args[1].Data = bytes
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
+		convey.Convey("wait pat pod timeout", func() {
+			defaultCreatePatPodTimeout = 1500 * time.Millisecond
+			response := m.ProcessSchedulerRequest(normalArgs, "")
+			convey.So(response.Code, convey.ShouldEqual, 6040)
 		})
-
-		convey.Convey("failed to create pullTrigger vpc pat pod, error", func() {
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&m.VpcPlugin), "CreateVpcResource",
-				func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-					return types.NATConfigure{}, errors.New("failed to create pullTrigger vpc pat pod")
-				}).Reset()
-			info := &types.PullTriggerRequestInfo{PodName: "podname/runtime-manager/valid"}
-			bytes, _ := json.Marshal(info)
-			args[1].Data = bytes
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
-		})
-
-		convey.Convey("failed to Marshal PatPod", func() {
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&m.VpcPlugin), "CreateVpcResource",
-				func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-					return types.NATConfigure{}, nil
-				}).Reset()
-			info := &types.PullTriggerRequestInfo{PodName: "podname/runtime-manager/valid"}
-			bytes, _ := json.Marshal(info)
-			args[1].Data = bytes
-			defer gomonkey.ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {
-				return nil, errors.New("json marshal error")
-			}).Reset()
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
-		})
-
-		convey.Convey("failed to create deploy %s by k8s, error: %s", func() {
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&m.VpcPlugin), "CreateVpcResource",
-				func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-					return types.NATConfigure{}, nil
-				}).Reset()
-			defer gomonkey.ApplyFunc(utils.GetDeployByK8S,
-				func(k8sClient kubernetes.Interface, deployName string) (*v1.Deployment, error) {
-					return &v1.Deployment{}, k8serror.NewNotFound(schema.GroupResource{}, "runtime-manager")
-				}).Reset()
-			defer gomonkey.ApplyFunc(utils.CreateDeployByK8S,
-				func(k8sClient kubernetes.Interface, deploy *v1.Deployment) error {
-					return errors.New("create deploy error")
-				}).Reset()
-			info := &types.PullTriggerRequestInfo{PodName: "podname/runtime-manager/valid"}
-			bytes, _ := json.Marshal(info)
-			args[1].Data = bytes
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
-		})
-
-		convey.Convey("success", func() {
-			defer gomonkey.ApplyMethod(reflect.TypeOf(&m.VpcPlugin), "CreateVpcResource",
-				func(_ *vpcmanager.PluginVPC, requestData []byte) (types.NATConfigure, error) {
-					return types.NATConfigure{}, nil
-				}).Reset()
-			defer gomonkey.ApplyFunc(utils.GetDeployByK8S,
-				func(k8sClient kubernetes.Interface, deployName string) (*v1.Deployment, error) {
-					return &v1.Deployment{}, nil
-				}).Reset()
-			info := &types.PullTriggerRequestInfo{PodName: "podname/runtime-manager/valid"}
-			bytes, _ := json.Marshal(info)
-			args[1].Data = bytes
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request.Code, convey.ShouldEqual, 6030)
-		})
-	})
-}
-
-func Test_handleRequestOpReport(t *testing.T) {
-	convey.Convey("handleRequestOpReport", t, func() {
-		m := &Manager{
-			patKeyList:       make(map[string]map[string]struct{}),
-			VpcPlugin:        vpcmanager.PluginVPC{},
-			leaseRenewMinute: 5,
-		}
-		args := []*api.Arg{
-			{
-				Type: 0,
-				Data: []byte(requestOpReport),
-			},
-			{
-				Type: 0,
-				Data: []byte{},
-			},
-			{
-				Type: 0,
-				Data: []byte("trace-id"),
-			},
-		}
-		convey.Convey("failed to unmarshal report info", func() {
-			defer gomonkey.ApplyFunc(json.Unmarshal, func(data []byte, v interface{}) error {
-				return errors.New("json unmarshal error")
-			}).Reset()
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request, convey.ShouldBeNil)
-		})
-
-		convey.Convey("", func() {
-			report := &types.ReportInfo{PatPodName: "test"}
-			bytes, _ := json.Marshal(report)
-			args[1].Data = bytes
-			m.patKeyList["test"] = make(map[string]struct{})
-			request := m.ProcessSchedulerRequest(args, "")
-			convey.So(request.Message, convey.ShouldEqual, "succeed add pat list")
-		})
-	})
-}
-
-func TestMiscellaneous(t *testing.T) {
-	convey.Convey(" patKeyList  is nil", t, func() {
-		m := &Manager{
-			patKeyList:       nil,
-			leaseRenewMinute: 5,
-		}
-		convey.Convey("addPatList", func() {
-			m.addPatList("123", "456")
-			convey.So(m.patKeyList, convey.ShouldBeNil)
-		})
-		convey.Convey("checkExists", func() {
-			res := m.checkExists("123")
-			convey.So(res, convey.ShouldBeFalse)
-		})
-		convey.Convey("deletePatList", func() {
-			podName, needDeletePat := m.deletePatList("123")
-			convey.So(podName, convey.ShouldEqual, "")
-			convey.So(needDeletePat, convey.ShouldBeFalse)
-		})
-	})
-	convey.Convey("deletePatList", t, func() {
-		defer gomonkey.ApplyFunc(state.Update, func(value interface{}, tags ...string) {
-		}).Reset()
-		m := &Manager{
-			patKeyList: map[string]map[string]struct{}{
-				"patName123": map[string]struct{}{
-					"instanceID123": struct{}{},
+		convey.Convey("pat pod exist", func() {
+			emptyResult := &unstructured.Unstructured{}
+			fakeClient.Invokes(testing2.NewCreateAction(patGVR, "default", &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "patservice.cap.io/v1",
+					"kind":       "Pat",
+					"metadata": map[string]interface{}{
+						"name":      "pat--e3b0c442",
+						"namespace": "default",
+					},
+					"spec": map[string]interface{}{
+						"delegate_role":  "fgs_admin",
+						"environment_id": "sdfase",
+						"require_count":  int64(2),
+						"vpc": map[string]interface{}{
+							"domain_id":    "xxxxx",
+							"gateway":      "182.20.0.1",
+							"host_vm_cidr": "10.1.0.0/18",
+							"project_id":   "xxxxxx",
+							"subnet_id":    "subnet",
+							"tenant_cidr":  "182.20.0.0/14",
+							"vpc_id":       "vpc",
+						},
+					},
+					"status": map[string]interface{}{
+						"pat_pods": []interface{}{
+							map[string]interface{}{
+								"status":       "Active",
+								"pat_pod_name": "pod1",
+							},
+						},
+					},
 				},
-			},
-			leaseRenewMinute: 5,
-		}
-		convey.Convey("deletePatList", func() {
-			podName, needDeletePat := m.deletePatList("instanceID123")
-			convey.So(podName, convey.ShouldEqual, "patName123")
-			convey.So(needDeletePat, convey.ShouldBeTrue)
+			}), emptyResult)
+			time.Sleep(100 * time.Millisecond)
+			defaultCreatePatPodTimeout = 1500 * time.Millisecond
+			response := m.ProcessSchedulerRequest(normalArgs, "")
+			convey.So(response.Code, convey.ShouldEqual, 6030)
 		})
 	})
 }
@@ -583,9 +401,6 @@ func TestMiscellaneous(t *testing.T) {
 func Test_handleLeaseTimeout(t *testing.T) {
 	convey.Convey("handleLeaseTimeout", t, func() {
 		m := &Manager{
-			patKeyList:        make(map[string]map[string]struct{}),
-			VpcPlugin:         vpcmanager.PluginVPC{},
-			vpcMutex:          sync.Mutex{},
 			remoteClientLease: map[string]*leaseTimer{},
 			remoteClientList:  map[string]struct{}{},
 			clientMutex:       sync.Mutex{},
@@ -630,9 +445,6 @@ func Test_handleLeaseTimeout(t *testing.T) {
 func Test_handleDelLease(t *testing.T) {
 	convey.Convey("handleDelLease", t, func() {
 		m := &Manager{
-			patKeyList:        make(map[string]map[string]struct{}),
-			VpcPlugin:         vpcmanager.PluginVPC{},
-			vpcMutex:          sync.Mutex{},
 			remoteClientLease: map[string]*leaseTimer{"test-client-ID": newLeaseTimer(1000)},
 			remoteClientList:  map[string]struct{}{"test-client-ID": {}},
 			clientMutex:       sync.Mutex{},
@@ -688,8 +500,6 @@ func TestManager_handleLeaseEvent(t *testing.T) {
 			defer p.Reset()
 			ch := make(chan struct{})
 			fm := &Manager{
-				patKeyList:        make(map[string]map[string]struct{}, 1),
-				vpcMutex:          sync.Mutex{},
 				remoteClientLease: make(map[string]*leaseTimer),
 				remoteClientList:  map[string]struct{}{},
 				clientMutex:       sync.Mutex{},
@@ -775,8 +585,6 @@ func TestManager_handleLeaseEvent(t *testing.T) {
 		convey.Convey("event is nil", func() {
 			ch := make(chan struct{})
 			fm := &Manager{
-				patKeyList:        make(map[string]map[string]struct{}, 1),
-				vpcMutex:          sync.Mutex{},
 				remoteClientLease: make(map[string]*leaseTimer),
 				remoteClientList:  map[string]struct{}{},
 				clientMutex:       sync.Mutex{},
@@ -796,8 +604,6 @@ func TestManager_handleLeaseEvent(t *testing.T) {
 		convey.Convey("unmarshal failed", func() {
 			ch := make(chan struct{})
 			fm := &Manager{
-				patKeyList:        make(map[string]map[string]struct{}, 1),
-				vpcMutex:          sync.Mutex{},
 				remoteClientLease: make(map[string]*leaseTimer),
 				remoteClientList:  map[string]struct{}{},
 				clientMutex:       sync.Mutex{},
@@ -824,8 +630,6 @@ func TestManager_handleLeaseEvent(t *testing.T) {
 		convey.Convey("error type", func() {
 			ch := make(chan struct{})
 			fm := &Manager{
-				patKeyList:        make(map[string]map[string]struct{}, 1),
-				vpcMutex:          sync.Mutex{},
 				remoteClientLease: make(map[string]*leaseTimer),
 				remoteClientList:  map[string]struct{}{},
 				clientMutex:       sync.Mutex{},
@@ -855,7 +659,6 @@ func TestManager_handleLeaseEvent(t *testing.T) {
 			fm.handleLeaseEvent(event)
 			convey.So(len(fm.remoteClientLease), convey.ShouldEqual, 0)
 		})
-
 	})
 	libruntimeClient = nil
 }
@@ -878,6 +681,10 @@ func TestManager_WatchLeaseEvent(t *testing.T) {
 				}
 			})
 			defer p2.Reset()
+			p4 := gomonkey.ApplyFunc((*etcd3.EtcdClient).AttachAZPrefix, func(_ *etcd3.EtcdClient, str string) string {
+				return str
+			})
+			defer p4.Reset()
 			flag := false
 			p3 := gomonkey.ApplyFunc((*Manager).handleLeaseEvent, func(_ *Manager) {
 				flag = true
@@ -885,8 +692,6 @@ func TestManager_WatchLeaseEvent(t *testing.T) {
 			defer p3.Reset()
 			ch := make(chan struct{})
 			fm := &Manager{
-				patKeyList:        make(map[string]map[string]struct{}, 1),
-				vpcMutex:          sync.Mutex{},
 				remoteClientLease: make(map[string]*leaseTimer),
 				remoteClientList:  map[string]struct{}{},
 				clientMutex:       sync.Mutex{},
@@ -922,8 +727,6 @@ func TestManager_RecoverData(t *testing.T) {
 			})
 			defer p.Reset()
 			fm := &Manager{
-				patKeyList:        make(map[string]map[string]struct{}, 1),
-				vpcMutex:          sync.Mutex{},
 				remoteClientLease: make(map[string]*leaseTimer),
 				remoteClientList:  map[string]struct{}{},
 				clientMutex:       sync.Mutex{},
@@ -938,7 +741,6 @@ func TestManager_RecoverData(t *testing.T) {
 			go fm.saveStateLoop()
 			fm.RecoverData()
 			convey.So(len(fm.remoteClientLease), convey.ShouldEqual, 2)
-			convey.So(len(fm.patKeyList), convey.ShouldEqual, 1)
 		})
 	})
 	libruntimeClient = nil

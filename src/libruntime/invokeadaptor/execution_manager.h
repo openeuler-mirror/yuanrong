@@ -16,7 +16,7 @@
 
 #pragma once
 #include "src/libruntime/fsclient/fs_intf.h"
-#include "src/utility/thread_pool.h"
+#include "src/libruntime/invoke_spec.h"
 #include "boost/asio.hpp"
 
 namespace YR {
@@ -28,6 +28,7 @@ public:
 
     virtual void Handle(const libruntime::InvocationMeta &meta, std::function<void()> &&hdlr,
                         std::string reqId = "") = 0;
+    virtual ErrorInfo CancelInsFunction(const CancelReqInfo &cancalReqInfo) = 0;
     void ErasePendingThread(const std::string &reqId);
     bool isMultipleConcurrency();
     ErrorInfo DoInit(size_t concurrency);

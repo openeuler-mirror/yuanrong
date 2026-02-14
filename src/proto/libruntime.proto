@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package libruntime;
 
-option java_package = "com.yuanrong.libruntime.generated";
+option java_package = "org.yuanrong.libruntime.generated";
 option go_package = "libruntime/clibruntime/generated";
 
 enum InvokeType {
@@ -27,6 +27,7 @@ enum InvokeType {
     CreateInstanceStateless = 2;
     InvokeFunctionStateless = 3;
     GetNamedInstanceMeta = 4;
+    DeleteRemoteTensor = 5;
 }
 
 enum LanguageType {
@@ -43,7 +44,7 @@ enum ApiType {
     Function = 0;
     Faas = 1;
     Posix = 2;
-    Serve = 3; 
+    Serve = 3;
 }
 
 enum Signal {
@@ -68,6 +69,7 @@ enum Signal {
     UpdateSchedulerHash = 72;
     ErasePendingThread = 73;
     GetInstance = 74;
+    UpdateEventInfo = 75;
 }
 
 enum SubscriptionType {
@@ -93,7 +95,9 @@ message FunctionMeta {
     bool isAsync = 13;
     bool isGenerator = 14;
     bool needOrder = 15;
-    bytes code = 16;
+    string tensorTransportTarget = 16;
+    bool enableTensorTransport = 17;
+    bytes code = 18;
 }
 
 message FunctionID {

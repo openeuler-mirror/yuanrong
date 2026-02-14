@@ -76,12 +76,10 @@ function setup_workspace () {
         sed -i "s/[Pp]ython[0-9.]\+/python$short_ver/" \
         ${PYPI_BUILD_DIR}/src/yr/inner/deploy/process/services.yaml
     fi
-
-    if [[ ${PYTHON_VERSION} =~ "Python 3.11" ]]; then
-        find ${PREBUILD_BIN_PATH_YUANRONG} -name ${whl_name} | xargs -I {} unzip {} -d /tmp/pypi_temp/yr/
+    find ${PREBUILD_BIN_PATH_YUANRONG} -name ${whl_name} | xargs -I {} unzip {} -d /tmp/pypi_temp/yr/
+    if [ -d "/tmp/pypi_temp/yr/yr" ]; then
         cp -rf /tmp/pypi_temp/yr/yr/* ${PYPI_BUILD_DIR}/src/yr/
     else
-        find ${PREBUILD_BIN_PATH_YUANRONG} -name ${whl_name} | xargs -I {} unzip {} -d /tmp/pypi_temp/yr/
         cp -rf /tmp/pypi_temp/yr/yr_sdk*.data/purelib/yr/* ${PYPI_BUILD_DIR}/src/yr/
     fi
 

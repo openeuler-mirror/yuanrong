@@ -29,7 +29,7 @@ declare -A port_policy_table
 LONG_OPS_INFO="master,ip_address:,cpu_num:,memory_num:,shared_memory_num:,deploy_path:,master_info_output:,master_info:,\
 services_path:,master_ip:,driver_gateway_enable:,only_check_param,\
 cpu_reserved:,state_storage_type:,system_timeout:,runtime_conn_timeout_s:,\
-status_collect_enable:,status_collect_interval:,enable_trace:,enable_metrics:,metrics_config:,metrics_config_file:,runtime_init_call_timeout_seconds:,custom_resources:,\
+status_collect_enable:,status_collect_interval:,enable_trace:,trace_config:,runtime_trace_config:,enable_metrics:,metrics_config:,metrics_config_file:,runtime_init_call_timeout_seconds:,custom_resources:,\
 labels:,control_plane_port_min:,control_plane_port_max:,data_plane_port_min:,data_plane_port_max:,block:,\
 ds_worker_unique_enable,log_level:,\
 enable_distributed_master,\
@@ -44,7 +44,7 @@ ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
 ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
-enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,enable_function_token_auth:,\
+enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,enable_event:,enable_function_token_auth:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
@@ -58,7 +58,7 @@ ds_master_port:,\
 curve_key_path:,runtime_ds_auth_enable:,runtime_ds_encrypt_enable:,runtime_ds_connect_timeout:,\
 ds_component_auth_enable:,etcd_ssl_base_path:,cache_storage_auth_type:,cache_storage_auth_enable:,\
 is_partial_watch_instances:,\
-ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,meta_service_ssl_enable:,\
+ssl_base_path:,ssl_enable:,ssl_root_file:,ssl_cert_file:,ssl_key_file:,frontend_ssl_enable:,frontend_client_auth_type:,meta_service_ssl_enable:,\
 iam_ssl_enable:,\
 runtime_max_heartbeat_timeout_times:,runtime_port_num:,runtime_recover_enable:,runtime_direct_connection_enable:,runtime_instance_debug_enable:,is_protomsg_to_runtime:,massif_enable:,\
 etcd_mode:,etcd_ip:,etcd_port:,etcd_server_cert_path:,etcd_client_cert_path:,etcd_client_cert_file:,etcd_client_key_file:,\
@@ -67,8 +67,12 @@ local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
 max_priority:,enable_preemption:,kill_process_timeout_seconds:,\
-dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,prometheus_address:,\
+dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
+prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
+dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
 memory_detection_interval:,oom_kill_enable:,oom_kill_control_limit:,oom_consecutive_detection_count:,\
+user_log_auto_flush_interval_ms:,user_log_buffer_flush_threshold:,\
+user_log_rolling_size_limit_mb:,user_log_rolling_file_count_limit:,\
 fs_health_check_retry_times:,fs_health_check_retry_interval:,fs_health_check_timeout:,disable_nc_check,\
 runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,local_ip:,\
 etcd_table_prefix:,etcd_target_name_override:,\
@@ -126,6 +130,8 @@ ONLY_CHECK_PARAM="false"
 STATUS_COLLECT_ENABLE="false"
 STATUS_COLLECT_INTERVAL=300
 ENABLE_TRACE=false
+TRACE_CONFIG=""
+RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
 METRICS_CONFIG_FILE=$(readlink -m '${BASE_DIR}/../../../functionsystem/config/metrics/metrics_config.json')
@@ -186,6 +192,15 @@ DASHBOARD_GRPC_PORT=9081
 COLLECTOR_PORT=9082
 META_SERVICE_PORT=31111
 PROMETHEUS_ADDRESS=""
+PROMETHEUS_SSL_ENABLE="false"
+PROMETHEUS_SSL_BASE_PATH=""
+PROMETHEUS_SSL_ROOT_FILE="ca.crt"
+PROMETHEUS_SSL_CERT_FILE="client.crt"
+PROMETHEUS_SSL_KEY_FILE="client.key"
+DASHBOARD_SSL_ENABLE="false"
+DASHBOARD_SSL_BASE_PATH=""
+DASHBOARD_SSL_CERT_FILE="server.crt"
+DASHBOARD_SSL_KEY_FILE="server.key"
 METRICS_COLLECTOR_TYPE="proc"
 MERGE_PROCESS_ENABLE="true"
 FUNCTION_PROXY_MERGE_PROCESS_ENABLE="false"
@@ -248,6 +263,7 @@ ENABLE_FAAS_FRONTEND="false"
 FAAS_FRONTEND_HTTP_PORT=8888
 FAAS_FRONTEND_GRPC_PORT=31223
 ENABLE_FUNCTION_SCHEDULER="false"
+ENABLE_EVENT="false"
 ENABLE_FUNCTION_TOKEN_AUTH="false"
 # Data System Configuration
 DS_MASTER_IP=""
@@ -259,7 +275,7 @@ DS_SPILL_SIZE_LIMIT=20480
 DS_RPC_THREAD_NUM=32
 DS_NODE_TIMEOUT_S=1800
 DS_HEARTBEAT_INTERVAL_MS=300000
-DS_CLIENT_DEAD_TIMEOUT_S=864000
+DS_CLIENT_DEAD_TIMEOUT_S=60
 DS_NODE_DEAD_TIMEOUT_S=864000
 DS_MAX_CLIENT_NUM=1000
 DS_MEMORY_RECLAMATION_TIME_SECOND=5
@@ -306,6 +322,7 @@ SSL_BASE_PATH=""
 SCC_ENABLE="false"
 SSL_ENABLE="false"
 FRONTEND_SSL_ENABLE="false"
+FRONTEND_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_SSL_ENABLE="false"
 # iam ssl config - when IAM_SSL_ENABLE=true or SSL_ENABLE=true, iam_server will enable mTLS
 # certificate paths are reused from global SSL_BASE_PATH, SSL_ROOT_FILE, SSL_CERT_FILE, SSL_KEY_FILE
@@ -321,7 +338,7 @@ RUNTIME_DS_ENCRYPT_ENABLE="false"
 RUNTIME_DS_CONNECT_TIMEOUT="1800"
 CACHE_STORAGE_AUTH_TYPE="Noauth"
 CACHE_STORAGE_AUTH_ENABLE="false"
-SEPARATED_REDIRECT_RUNTIME_STD="false"
+SEPARATED_REDIRECT_RUNTIME_STD="true"
 USER_LOG_EXPORT_MODE="file"
 # Runtime OOM kill
 MEMORY_DETECTION_INTERVAL="1000"
@@ -345,6 +362,12 @@ STANDBY_KEY_STORE_FILE=""
 ENCRYPT_RUNTIME_PUBLIC_KEY_CONTEXT=""
 ENCRYPT_RUNTIME_PRIVATE_KEY_CONTEXT=""
 ENCRYPT_DS_PUBLIC_KEY_CONTEXT=""
+
+#unser log config
+USER_LOG_AUTO_FLUSH_INTERVAL_MS=10000
+USER_LOG_BUFFER_FLUSH_THRESHOLD=1048576
+USER_LOG_MAX_ROLLING_FILE_SIZE_MB=100
+USER_LOG_MAX_ROLLING_LOG_FILE_NUM=100
 
 LOG_EXPIRATION_ENABLE="true"
 LOG_EXPIRATION_TIME_THRESHOLD=7200   # 2 hours in seconds
@@ -374,6 +397,8 @@ function usage() {
   echo -e "     --status_collect_enable                             enable process status collect, options:true/false(default false)"
   echo -e "     --status_collect_interval                           interval of process status collect, unit second(default 300)"
   echo -e "     --enable_trace                                      enable trace, options:true/false(default false)"
+  echo -e "     --trace_config                                      function system trace config, should be json string"
+  echo -e "     --runtime_trace_config                              runtime trace config, should be json string"
   echo -e "     --enable_metrics                                    enable metrics, options:true/false(default true)"
   echo -e "     --metrics_config                                    metrics config, should be json string"
   echo -e "     --metrics_config_file                               metrics config file path, should be absolute path"
@@ -406,6 +431,10 @@ function usage() {
   echo -e "     --runtime_std_rolling_enable                        enable rolling log for runtime std log, depends on logrotate (default false)"
   echo -e "     --enable_separated_redirect_runtime_std             enable to redirect standard output of runtime separated. which does not support rotation & compress etc. {runtimeID}.out {runtimeID}.err"
   echo -e "     --user_log_export_mode                              user log export mode. options: file(export to file)/std(export to std), (default file)"
+  echo -e "     --user_log_auto_flush_interval_ms                   Interval in milliseconds for auto flushing user logs"
+  echo -e "     --user_log_buffer_flush_threshold                   Threshold for flushing user log buffer"
+  echo -e "     --user_log_rolling_size_limit_mb                    Maximum size limit (in MB) for a single user log file"
+  echo -e "     --user_log_rolling_file_count_limit                 Maximum number of user log files to retain"
   echo -e "     --ds_log_level                                      data system log level, options: DEBUG/INFO/WARN/ERROR (default INFO)"
   echo -e "     --ds_log_path                                       log subdirectory for data system"
   echo -e "     --ds_log_rolling_max_size                           rolling log max size for data system, unit: MB (default 40)"
@@ -430,6 +459,15 @@ function usage() {
   echo -e "     --dashboard_grpc_port                               dashboard grpc port (default 9081)"
   echo -e "     --collector_port                                    collector port (default 9082)"
   echo -e "     --prometheus_address                                prometheus address(default empty, format: prometheus_ip:prometheus_port)"
+  echo -e "     --prometheus_ssl_enable                             prometheus ssl enabled, options: true/false (default false)"
+  echo -e "     --prometheus_ssl_base_path                          prometheus ssl base path, configure absolute path"
+  echo -e "     --prometheus_ssl_root_file                          prometheus ssl root ca file name, default is ca.crt"
+  echo -e "     --prometheus_ssl_cert_file                          prometheus ssl module cert file name, default is client.crt"
+  echo -e "     --prometheus_ssl_key_file                           prometheus ssl module key file name, default is client.key"
+  echo -e "     --dashboard_ssl_enable                              dashboard ssl enabled, options: true/false (default false)"
+  echo -e "     --dashboard_ssl_base_path                           dashboard ssl base path, configure absolute path"
+  echo -e "     --dashboard_ssl_cert_file                           dashboard ssl module cert file name, default is server.crt"
+  echo -e "     --dashboard_ssl_key_file                            dashboard ssl module key file name, default is server.key"
   echo -e "     --metrics_collector_type                            runtime manager metrics collector type (default proc)"
   echo -e "     --port_policy                                       assign port policy, options: RANDOM, FIX(default RANDOM)"
   echo -e "     --runtime_heartbeat_enable                          enable heartbeat between function_proxy and runtime (default true)"
@@ -480,6 +518,7 @@ function usage() {
   echo -e "     --enable_function_scheduler                         enable function scheduler, options:true/false (default false)"
   echo -e "     --enable_function_token_auth                        enable function token auth, options:true/false (default false)"
   echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
+  echo -e "     --enable_event                                      faas frontend enable stream event mode"
   echo -e "     --max_priority                                      schedule max priority (default 0)"
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
@@ -497,7 +536,7 @@ function usage() {
   echo -e "     --ds_node_timeout_s                                 data system master node timeout, unit second(default 1800)"
   echo -e "     --ds_heartbeat_interval_ms                          data system worker heartbeat interval, unit ms(default 300000)"
   echo -e "     --ds_node_dead_timeout_s                            data system master node dead timeout, unit second(default 864000)"
-  echo -e "     --ds_client_dead_timeout_s                          data system master client dead timeout, unit second(default 864000)"
+  echo -e "     --ds_client_dead_timeout_s                          data system master client dead timeout, unit second(default 60)"
   echo -e "     --ds_max_client_num                                 data system worker max client number (default 1000)"
   echo -e "     --ds_memory_reclamation_time_second                 data system worker memory reclamation time, unit second(default 5)"
   echo -e "     --ds_component_auth_enable                          data system component auth enabled(default false)"
@@ -539,6 +578,7 @@ function usage() {
   echo -e "     --ssl_base_path                                     ssl base path, configure absolute path"
   echo -e "     --ssl_enable                                        ssl enabled, options: true/false (default false)"
   echo -e "     --frontend_ssl_enable                               frontend ssl enabled, options: true/false (default false)"
+  echo -e "     --frontend_client_auth_type                         frontend client authentication type, options: RequireAndVerifyClientCert/NoClientCert (default RequireAndVerifyClientCert)"
   echo -e "     --meta_service_ssl_enable                           meta_service ssl enabled, options: true/false (default false)"
   echo -e "     --iam_ssl_enable                                    iam_server mTLS enabled independently, options: true/false (default false). Note: iam_server mTLS is also enabled when global ssl_enable=true"
   echo -e "     --ssl_root_file                                     ssl root ca file name, default is ca.crt"
@@ -593,6 +633,8 @@ function parse_opt() {
     --pull_resource_interval) PULL_RESOURCE_INTERVAL=$2 && shift 2 ;;
     --only_check_param) ONLY_CHECK_PARAM="true" && shift ;;
     --enable_trace) ENABLE_TRACE=$2 && shift 2 ;;
+    --trace_config) TRACE_CONFIG=$2 && shift 2 ;;
+    --runtime_trace_config) RUNTIME_TRACE_CONFIG=$2 && shift 2 ;;
     --enable_metrics) ENABLE_METRICS=$2 && shift 2 ;;
     --metrics_config) METRICS_CONFIG=$2 && shift 2 ;;
     --metrics_config_file) METRICS_CONFIG_FILE=$2 && shift 2 ;;
@@ -618,6 +660,10 @@ function parse_opt() {
     --runtime_std_rolling_enable) RUNTIME_STD_ROLLING_ENABLE=$2 && shift 2 ;;
     --enable_separated_redirect_runtime_std) SEPARATED_REDIRECT_RUNTIME_STD=$2 && shift 2 ;;
     --user_log_export_mode) USER_LOG_EXPORT_MODE=$2 && shift 2 ;;
+    --user_log_auto_flush_interval_ms) USER_LOG_AUTO_FLUSH_INTERVAL_MS=$2 && shift 2 ;;
+    --user_log_buffer_flush_threshold) USER_LOG_BUFFER_FLUSH_THRESHOLD=$2 && shift 2 ;;
+    --user_log_rolling_size_limit_mb) USER_LOG_MAX_ROLLING_FILE_SIZE_MB=$2 && shift 2 ;;
+    --user_log_rolling_file_count_limit) USER_LOG_MAX_ROLLING_LOG_FILE_NUM=$2 && shift 2 ;;
     --ds_log_level) DS_LOG_LEVEL_STR=$2 && shift 2 ;;
     --ds_log_path) DS_LOG_PATH=$2 && shift 2 ;;
     --ds_log_rolling_max_size) DS_LOG_ROLLING_MAX_SIZE=$2 && shift 2 ;;
@@ -632,6 +678,7 @@ function parse_opt() {
     --fs_health_check_retry_times) FS_HEALTH_CHECK_RETRY_TIMES=$2 && shift 2 ;;
     --fs_health_check_retry_interval) FS_HEALTH_CHECK_RETRY_INTERVAL=$2 && shift 2 ;;
     --enable_faas_frontend) ENABLE_FAAS_FRONTEND=$2 && shift 2 ;;
+    --enable_event) ENABLE_EVENT=$2 && shift 2 ;;
     --faas_frontend_http_port) FAAS_FRONTEND_HTTP_PORT=$2 && port_policy_table["faas_frontend_http_port"]="FIX" && shift 2 ;;
     --faas_frontend_grpc_port) FAAS_FRONTEND_GRPC_PORT=$2 && port_policy_table["faas_frontend_grpc_port"]="FIX" && shift 2 ;;
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
@@ -736,6 +783,7 @@ function parse_opt() {
     --ssl_base_path) SSL_BASE_PATH=$2 && shift 2 ;;
     --ssl_enable) SSL_ENABLE=$2 && shift 2 ;;
     --frontend_ssl_enable) FRONTEND_SSL_ENABLE=$2 && shift 2 ;;
+    --frontend_client_auth_type) FRONTEND_CLIENT_AUTH_TYPE=$2 && shift 2 ;;
     --meta_service_ssl_enable) META_SERVICE_SSL_ENABLE=$2 && shift 2 ;;
     --iam_ssl_enable) IAM_SSL_ENABLE=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;
@@ -746,6 +794,15 @@ function parse_opt() {
     --collector_port) COLLECTOR_PORT=$2 && port_policy_table["collector_port"]="FIX" && shift 2 ;;
     --meta_service_port) META_SERVICE_PORT=$2 && port_policy_table["meta_service_port"]="FIX" && shift 2 ;;
     --prometheus_address) PROMETHEUS_ADDRESS=$2 && shift 2 ;;
+    --prometheus_ssl_enable) PROMETHEUS_SSL_ENABLE=$2 && shift 2 ;;
+    --prometheus_ssl_base_path) PROMETHEUS_SSL_BASE_PATH=$2 && shift 2 ;;
+    --prometheus_ssl_root_file) PROMETHEUS_SSL_ROOT_FILE=$2 && shift 2 ;;
+    --prometheus_ssl_cert_file) PROMETHEUS_SSL_CERT_FILE=$2 && shift 2 ;;
+    --prometheus_ssl_key_file) PROMETHEUS_SSL_KEY_FILE=$2 && shift 2 ;;
+    --dashboard_ssl_enable) DASHBOARD_SSL_ENABLE=$2 && shift 2 ;;
+    --dashboard_ssl_base_path) DASHBOARD_SSL_BASE_PATH=$2 && shift 2 ;;
+    --dashboard_ssl_cert_file) DASHBOARD_SSL_CERT_FILE=$2 && shift 2 ;;
+    --dashboard_ssl_key_file) DASHBOARD_SSL_KEY_FILE=$2 && shift 2 ;;
     --schedule_relaxed) SCHEDULE_RELAXED=$2 && shift 2 ;;
     --memory_detection_interval) MEMORY_DETECTION_INTERVAL=$2 && shift 2 ;;
     --oom_kill_enable) OOM_KILL_ENABLE=$2 && shift 2 ;;
@@ -1473,7 +1530,7 @@ function export_config() {
   # etcd
   export ETCD_IP ETCD_PORT ETCD_PEER_PORT ETCD_PROXY_NUMS ETCD_PROXY_NUMS ETCD_PROXY_PORT ETCD_NO_FSYNC
   # trace and metrics
-  export ENABLE_TRACE ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
+  export ENABLE_TRACE TRACE_CONFIG RUNTIME_TRACE_CONFIG ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
   export FUNCTION_AGENT_LITEBUS_THREAD FUNCTION_PROXY_LITEBUS_THREAD FUNCTION_MASTER_LITEBUS_THREAD
   export SYSTEM_TIMEOUT FUNCTION_PROXY_UNIQUE_ENABLE
   export ENABLE_META_STORE ENABLE_PERSISTENCE META_STORE_MODE META_STORE_EXCLUDED_KEYS
@@ -1481,6 +1538,8 @@ function export_config() {
   export DS_MAX_CLIENT_NUM DS_MEMORY_RECLAMATION_TIME_SECOND
   export IS_PROTOMSG_TO_RUNTIME MASSIF_ENABLE MASTER_USED_DS_PORT STS_CONFIG
   export BLOCK CUSTOM_RESOURCES LABELS SEPARATED_REDIRECT_RUNTIME_STD USER_LOG_EXPORT_MODE
+  export USER_LOG_AUTO_FLUSH_INTERVAL_MS USER_LOG_BUFFER_FLUSH_THRESHOLD
+  export USER_LOG_MAX_ROLLING_FILE_SIZE_MB USER_LOG_MAX_ROLLING_LOG_FILE_NUM
   export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK
   export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT
@@ -1489,7 +1548,9 @@ function export_config() {
   export PRIVATE_KEY_PATH CERTIFICATE_FILE_PATH VERIFY_FILE_PATH SSL_BASE_PATH
 
   # dashboard
-  export ENABLE_DASHBOARD DASHBOARD_PORT DASHBOARD_GRPC_PORT PROMETHEUS_ADDRESS
+  export ENABLE_DASHBOARD DASHBOARD_PORT DASHBOARD_GRPC_PORT
+  export PROMETHEUS_ADDRESS PROMETHEUS_SSL_ENABLE PROMETHEUS_SSL_BASE_PATH PROMETHEUS_SSL_ROOT_FILE PROMETHEUS_SSL_CERT_FILE PROMETHEUS_SSL_KEY_FILE
+  export DASHBOARD_SSL_ENABLE DASHBOARD_SSL_BASE_PATH DASHBOARD_SSL_CERT_FILE DASHBOARD_SSL_KEY_FILE
   # collector
   export ENABLE_COLLECTOR COLLECTOR_PORT
   # meta_service

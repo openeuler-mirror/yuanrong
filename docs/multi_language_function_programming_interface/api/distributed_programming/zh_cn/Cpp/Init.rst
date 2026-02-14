@@ -10,7 +10,7 @@ Init
        // 本地模式
        YR::Config conf;
        conf.mode = YR::Config::Mode::LOCAL_MODE;
-       config.threadPoolSize = 10;
+       conf.threadPoolSize = 10;
        YR::Init(conf);
     
     .. code-block:: cpp
@@ -18,7 +18,7 @@ Init
        // 集群模式
        YR::Config conf;
        conf.mode = YR::Config::Mode::LOCAL_MODE;
-       config.threadPoolSize = 10;
+       conf.threadPoolSize = 10;
        YR::Init(conf);
 
     .. note::

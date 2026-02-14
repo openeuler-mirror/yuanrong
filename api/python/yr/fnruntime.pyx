@@ -72,7 +72,7 @@ CLanguageType, CLibruntimeConfig,
 CLibruntimeManager,move,CLibruntime, CGroupOptions,
 CProducerConf, CStreamConsumer,
 CStreamProducer, CSubscriptionConfig,
-CSubscriptionType, 
+CSubscriptionType,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
 CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
@@ -414,6 +414,8 @@ cdef function_meta_from_py(CFunctionMeta & functionMeta, func_meta: FunctionMeta
     functionMeta.initializerCodeId = func_meta.initializerCodeID
     functionMeta.isGenerator = func_meta.isGenerator
     functionMeta.isAsync = func_meta.isAsync
+    functionMeta.tensorTransportTarget = func_meta.tensorTransportTarget
+    functionMeta.enableTensorTransport = func_meta.enableTensorTransport
     functionMeta.code = bytes_to_vector(func_meta.code)
 
 cdef function_meta_from_cpp(const CFunctionMeta & function):
@@ -433,7 +435,9 @@ cdef function_meta_from_cpp(const CFunctionMeta & function):
                              initializerCodeID=function.initializerCodeId.decode(),
                              isGenerator=function.isGenerator,
                              isAsync=function.isAsync,
-                             code=vector_to_bytes(function.code))
+                             code=vector_to_bytes(function.code),
+                             tensorTransportTarget=function.tensorTransportTarget,
+                             enableTensorTransport=function.enableTensorTransport)
     return func_meta
 
 cdef function_group_running_info_from_cpp(const CFunctionGroupRunningInfo & info):
@@ -475,6 +479,8 @@ cdef invoke_type_from_cpp(const CInvokeType & c_invoke_type):
         invoke_type = InvokeType.InvokeFunctionStateless
     elif c_invoke_type == CInvokeType.GET_NAMED_INSTANCE_METADATA:
         invoke_type = InvokeType.GetNamedInstanceMeta
+    elif c_invoke_type == CInvokeType.DELETE_REMOTE_TENSOR:
+        invoke_type = InvokeType.DeleteRemoteTensor
     return invoke_type
 
 cdef parse_rginfo_to_python(cRgInfoUnit: CResourceGroupUnit):
@@ -777,7 +783,7 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
         return error_info_from_py(error_info)
     need_serialize = False
     if func_meta.apiType == ApiType.Function and \
-            invoke_type in (InvokeType.InvokeFunction, InvokeType.InvokeFunctionStateless, InvokeType.GetNamedInstanceMeta):
+            invoke_type in (InvokeType.InvokeFunction, InvokeType.InvokeFunctionStateless, InvokeType.GetNamedInstanceMeta, InvokeType.DeleteRemoteTensor):
         need_serialize = True
     if func_meta.isGenerator and invoke_type in (InvokeType.InvokeFunction, InvokeType.InvokeFunctionStateless):
         generator_id = returnObjects.at(0).get().id.decode()
@@ -876,7 +882,7 @@ cdef CErrorInfo accelerate_execute_callback(const CAccelerateMsgQueueHandle & in
         try:
             return accelerate_execute_callback_internal(input_handle, return_handle)
         except Exception as e:
-            log.get_logger().debug(str(e))
+            _logger.debug(str(e))
             return CErrorInfo(CErrorCode.ERR_INNER_SYSTEM_ERROR, CModuleCode.RUNTIME, str(e))
 
 cdef CErrorInfo function_execute_callback(const CFunctionMeta & functionMeta, const CInvokeType invokeType,
@@ -993,6 +999,7 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     opts.preemptedAllowed = opt.preempted_allowed
     opts.instancePriority = opt.instance_priority
     opts.scheduleTimeoutMs = opt.schedule_timeout_ms
+    opts.isDeleteRemoteTensor = opt.is_delete_remote_tensor
 
 cdef class Producer:
     """
@@ -1007,7 +1014,7 @@ cdef class Producer:
         ...     producer = yr.create_stream_producer("streamName", producer_config)
         ...     # .......
         ...     data = b"hello"
-        ...     element = Element(data=data, id=0)
+        ...     element = yr.Element(data=data, id=0)
         ...     producer.send(element)
         ...     producer.flush()
         ...     producer.close()
@@ -1094,10 +1101,10 @@ cdef class Consumer:
 
     Examples:
         >>> try:
-        ...     config = SubscriptionConfig("subName", SubscriptionType.STREAM)
-        ...     consumer = create_stream_consumer("streamName", config)
+        ...     config = yr.SubscriptionConfig("subName", yr.SubscriptionConfig.subscriptionType.STREAM)
+        ...     consumer = yr.create_stream_consumer("streamName", config)
         ...     # .......
-        ...     elements = consumer.Receive(6000, 1)
+        ...     elements = consumer.receive(6000, 1)
         ... except RuntimeError as exp:
         ...     # .......
         ...     pass
@@ -2550,9 +2557,6 @@ cdef class Fnruntime:
             c_libruntime.get().SetTenantIdWithPriority()
             ret = c_libruntime.get().GetInstance(cname, cns, ctimeout)
         if not ret.second.OK():
-            if ret.second.Code() == CErrorCode.ERR_INSTANCE_NOT_FOUND or ret.second.Code() == CErrorCode.ERR_INSTANCE_EXITED:
-                with nogil:
-                    c_libruntime.get().Kill(cinstanceID, sigNo)
             if ret.second.IsTimeout():
                 raise TimeoutError(ret.second.Msg().decode())
             raise ValueError(
@@ -2627,7 +2631,7 @@ cdef class Fnruntime:
         with nogil:
             ret = CLibruntimeManager.Instance().GetLibRuntime().get().AddReturnObject(c_obj_ids)
         return ret
-    
+
     def create_group(self, group_name: str, group_opts: GroupOptions):
         cdef:
             string c_group_name = group_name.encode()

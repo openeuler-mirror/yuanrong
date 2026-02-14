@@ -300,15 +300,15 @@ struct InvokeOptions {
 
     /*!
      * @var bool preemptedAllowed
-     * @brief 实例是否可以被抢占，仅在优先级场景下(元戎部署的 maxPriority 配置项大于 0 的场景)生效。默认为 false
+     * @brief 实例是否可以被抢占，仅在优先级场景下(openYuanrong 部署的 maxPriority 配置项大于 0 的场景)生效。默认为 false
      */
     bool preemptedAllowed = false;
 
     /*!
      * @var int instancePriority
      * @brief 实例的优先级，数值越大优先级越高，高优先级的实例可以抢占低优先级且被配置为（preemptedAllowed = true）
-     * 的实例。仅在优先级场景下(元戎部署的 maxPriority 配置项大于 0 的场景)生效。instancePriority 的最小值为 0，最
-     * 大值为元戎部署的 maxPriority 配置。默认为 0
+     * 的实例。仅在优先级场景下(openYuanrong 部署的 maxPriority 配置项大于 0 的场景)生效。instancePriority 的最小值为 0，最
+     * 大值为 openYuanrong 部署的 maxPriority 配置。默认为 0
      */
     int instancePriority = 0;
 
@@ -329,7 +329,7 @@ struct InvokeOptions {
         // check retry time
         if (retryTimes > MAX_OPTIONS_RETRY_TIME) {
             std::string msg = "invalid opts retryTimes: " + std::to_string(retryTimes);
-            throw Exception::InvalidParamException(msg);
+            throw YR::Exception::InvalidParamException(msg);
         }
 
         if (retryTimes == 0 && retryChecker != nullptr) {
@@ -342,9 +342,9 @@ struct InvokeOptions {
             std::string msg = "invalid opts instanceRange, min: " + std::to_string(instanceRange.min) +
                               ", max: " + std::to_string(instanceRange.max) +
                               ", please set the min and the max as follows: max = min = -1 or max >= min > 0.";
-            throw Exception::InvalidParamException(msg);
+            throw YR::Exception::InvalidParamException(msg);
         } else if (instanceRange.min <= instanceRange.max && instanceRange.min > 0 && !groupName.empty()) {
-            throw Exception::InvalidParamException(
+            throw YR::Exception::InvalidParamException(
                 "gang scheduling and range scheduling cannot be used at the same time, please select one scheduling to "
                 "set.");
         }

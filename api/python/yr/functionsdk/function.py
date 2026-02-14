@@ -18,11 +18,11 @@
 
 from dataclasses import dataclass, field
 import json
+import logging
 import os
 import re
 from typing import Tuple, Union, Dict, List
 
-from yr import log
 from yr.config import InvokeOptions as YRInvokeOptions
 from yr.common import constants
 from yr.common.constants import META_PREFIX
@@ -54,10 +54,12 @@ ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION = "RUNTIME_SERVICE_FUNC_VERSION"
 
 _RUNTIME_MAX_RESP_BODY_SIZE = 6 * 1024 * 1024
 
+_logger = logging.getLogger(__name__)
+
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
 class InvokeOptions:
-    """faas 调度参数。
+    """function service invoke options
 
     Examples:
         >>> from functionsdk import Function, InvokeOptions
@@ -65,7 +67,7 @@ class InvokeOptions:
         >>>
         >>> def my_handler(event, context)
         >>>     f = Function(context, "hello")
-        >>>     objRef = f.invoke(event)
+        >>>     objRef = f.options(opts).invoke(event)
         >>>     res = objRef.get()
         >>>     return {
         >>>        "statusCode": 200,
@@ -75,12 +77,49 @@ class InvokeOptions:
         >>>             "Content-Type": "application/json"
         >>>         }
     """
+    #: Specify CPU core resources. 
+    # Defaults to the same configuration as service.yaml, 
+    # unit is 1/1000 cpu core, value range [300,16000].
     cpu: int = 0
+
+    #: Specify memory resources. 
+    # Defaults to the same configuration as service.yaml, 
+    # unit is MB, value range [128,65536], default is 500.
     memory: int = 0
+
+    #: Instance concurrency. 
+    # The Value range is [1,1000]. 
+    # The priority of the parameter is higher than that of "concurrency" configured in custom_extensions. 
+    # You are advised to use this parameter for configuration.
     concurrency: int = 100
+
+    #: Specify user-defined resources, such as GPU.
     custom_resources: Dict[str, float] = field(default_factory=dict)
+
+    #: Pod labels are only used in Kubernetes environments. When creating a function instance, 
+    #: pod_labels can accept key-value pairs provided by the user and pass them to the function system.
+    #: After an ActorPattern function instance completes specialization (reaches the Running state), 
+    #: the Scaler will apply the passed-in labels to the POD.
+    #: When an ActorPattern function instance fails or is deleted, 
+    #: the Scaler will set the corresponding labels of the POD to empty (i.e., remove them).
+    #: Constraints:
+    #: The number of labels that can be stored in pod_labels shall not exceed 5.
+    #: Constraints for keys and values in pod_labels:
+    #: Key: Supports uppercase and lowercase letters, numbers, and hyphens. 
+    #: It must be 1–63 characters in length, cannot start or end with a hyphen, and an empty string is not allowed.
+    #: Value: Supports uppercase and lowercase letters, numbers, and hyphens. 
+    #: It must be 1–63 characters in length, cannot start or end with a hyphen, and an empty string is allowed.
+    #: Exceptions:
+    #: When the pod_labels passed in by the user do not meet the constraints, 
+    #: the corresponding exception and error message will be thrown.
     pod_labels: Dict[str, str] = field(default_factory=dict)
+
+    #: Labels that need to be applied to instances for instance affinity
     labels: List[str] = field(default_factory=list)
+
+    #: In cross-function invocation, when a function is called via a 
+    #: specified alias and the alias is a rule-based alias, 
+    #: this parameter is used to set the key-value pair parameters that the rule-based alias depends on.
     alias_params: Dict[str, str] = field(default_factory=dict)
 
 
@@ -101,7 +140,7 @@ class CallReq:
 
 
 class Function:
-    """function sdk"""
+    """Provide cross-function invocation capabilities."""
 
     def __init__(self, function_name: str, context_: Context = None) -> None:
         self.__function_name, self.__function_version = _check_function_name(function_name)
@@ -113,7 +152,8 @@ class Function:
 
     def options(self, invoke_options: InvokeOptions):
         """
-        Set user invoke options
+        Set user invoke options.
+
         Args:
             invoke_options: invoke options for users to set resources
         """
@@ -121,12 +161,14 @@ class Function:
         return self
 
     def invoke(self, payload: Union[str, dict] = None) -> ObjectRef:
-        """调用 faas 函数。
+        """
+        Invoke the function.
+
         Args:
-        payload Union[str, dict]: 被调用 faas 函数的参数
+            payload (Union[str, dict]): Parameters of the invoked function.
 
         Returns:
-            ObjectRef: 此次调用返回数据系统中的对象的 object_ref
+            ObjectRef: Object reference.
 
         Examples:
             >>> from functionsdk import Function, InvokeOptions
@@ -173,26 +215,26 @@ def _check_payload(payload: Union[str, dict]) -> str:
     """
     if not isinstance(payload, (str, dict)):
         msg = f"Invalid type({type(payload)}) of payload, 'str' or 'dict' is expected."
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise TypeError(msg)
 
     if isinstance(payload, str):
         if payload == 'null':
             msg = f"Invalid value of payload: {payload}, it should not be equal to 'null'."
-            log.get_logger().error(msg)
+            _logger.error(msg)
             raise ValueError(msg)
         try:
             json.loads(payload)
         except Exception as err:
             msg = f"Invalid payload: {payload}, it is not JSON deserializable."
-            log.get_logger().error(msg)
+            _logger.error(msg)
             raise TypeError(msg) from err
     else:
         payload = json.dumps(payload)
 
     if len(payload) > _RUNTIME_MAX_RESP_BODY_SIZE:
         msg = f"Event size[{len(payload)}] after serialization should not be larger than {_RUNTIME_MAX_RESP_BODY_SIZE}."
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise ValueError(msg)
     return payload
 
@@ -214,7 +256,7 @@ def _check_function_name(function_name: str) -> Tuple[str, str]:
     """
     if not isinstance(function_name, str):
         msg = f"Invalid type({type(function_name)}) of parameter 'function_name', 'str' is expected."
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise TypeError(msg)
 
     names = function_name.split(':', SPLIT_NUM_OF_FUNC_ID)
@@ -250,7 +292,7 @@ def _get_service_name_from_env():
     if current_func_id is None:
         msg = ("Failed to get service name of the function from environment key-value pairs. "
                f"key: {ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION}")
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise RuntimeError(msg)
     names = current_func_id.split(FUNCTION_NAME_SEPERATOR)
 
@@ -258,10 +300,10 @@ def _get_service_name_from_env():
         msg = (f"Invalid Environment value({current_func_id}) of key "
                f"'{ENV_KEY_RUNTIME_SERVICE_FUNC_VERSION}', "
                f"it should contain seperator '{FUNCTION_NAME_SEPERATOR}'")
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise ValueError(msg)
 
-    log.get_logger().debug(f"Succeeded to get service name '{names[SPLIT_NUM_OF_FUNC_ID]}'.")
+    _logger.debug(f"Succeeded to get service name '{names[SPLIT_NUM_OF_FUNC_ID]}'.")
     return names[SPLIT_NUM_OF_FUNC_ID]
 
 
@@ -283,7 +325,7 @@ def _check_reg_length(name: str, pattern: str, length_limit: int):
             msg = f"Length of '{name}'({name_length}) is larger than the limitation {length_limit}"
         else:
             msg = f"'{name}' does not match regular expression {pattern}"
-        log.get_logger().error(msg)
+        _logger.error(msg)
         raise ValueError(msg)
 
 

@@ -122,12 +122,14 @@ public:                                                \
     CONFIG_DECLARE(std::string, YR_DPOSIX_UDS, "");
     CONFIG_DECLARE(std::string, POSIX_LISTEN_ADDR, "");
     CONFIG_DECLARE(std::string, YR_LOG_PATH, "./");
+    CONFIG_DECLARE(std::string, YR_MASTER_INFO, "");
+    CONFIG_DECLARE(std::string, YR_MASTER_INFO_PATH, "/tmp/yr_sessions/yr_current_master_info");
     CONFIG_DECLARE(uint32_t, YR_MAX_LOG_SIZE_MB, 500);
     CONFIG_DECLARE(uint32_t, YR_MAX_LOG_FILE_NUM, 10);
     CONFIG_DECLARE(uint32_t, YR_HTTP_CONNECTION_NUM, 10);
     CONFIG_DECLARE(bool, YR_LOG_COMPRESS, true);
     CONFIG_DECLARE(std::string, HOST_IP, "");
-    CONFIG_DECLARE(uint16_t, MAX_GRPC_SIZE, 10);  // value could be 1-500 MB
+    CONFIG_DECLARE(uint16_t, YR_MAX_GRPC_SIZE, 11);  // value could be 1-500 MB
     CONFIG_DECLARE(uint64_t, GRACEFUL_SHUTDOWN_TIME, 60);
     CONFIG_DECLARE(uint64_t, STREAM_RECEIVE_LIMIT, 0);
     CONFIG_DECLARE(bool, ENABLE_METRICS, false);
@@ -171,7 +173,7 @@ public:                                                \
     CONFIG_DECLARE(int, FUNCTION_SCHEDULER_GRPC_PORT, 23770); // allow scheduler to interact with runtime
     CONFIG_DECLARE(int, FUNCTION_SCHEDULER_HTTP_PORT, 23771);  // allow http access to function scheduler
     CONFIG_DECLARE(std::string, NODE_ID, "");  // allow http access to function scheduler
-    CONFIG_DECLARE(std::string, AUTH_TOKEN, "");  // allow http access to function scheduler
+    CONFIG_DECLARE(std::string, YR_JWT_TOKEN, "");  // allow http access to function scheduler
 
 public:
     bool IsRunModeStandalone()

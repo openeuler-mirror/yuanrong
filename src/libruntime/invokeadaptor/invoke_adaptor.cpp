@@ -337,6 +337,8 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         [this, req, metaData]() {
             std::function<void()> handler = [this, req, metaData]() {
                 threadLocalTraceId = req->Immutable().traceid();
+                threadLocalRequestId = req->Immutable().requestid();
+                threadLocalInstanceId = req->Immutable().senderid();
                 auto startTime = std::chrono::high_resolution_clock::now();
                 std::vector<std::string> objectsInDs;
                 auto res = Call(req->Immutable(), metaData, librtConfig->libruntimeOptions, objectsInDs);
@@ -359,9 +361,8 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
                     return;
                 });
             };
-            YRLOG_DEBUG("start exec user func, req id is {}, is async {}, func name is {}",
-                        req->Immutable().requestid(), metaData.functionmeta().isasync(),
-                        metaData.functionmeta().functionname());
+            YRLOG_DEBUG("start exec user func, req id is {}, is async {}, function meta is {}",
+                        req->Immutable().requestid(), metaData.functionmeta().isasync(), metaData.DebugString());
             if (metaData.functionmeta().isasync() && !req->Immutable().iscreate()) {
                 fiberPool_->Handle([handler]() mutable { handler(); });
             } else {
@@ -474,6 +475,7 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, this, _1);
     handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, this, _1);
     handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, this, _1);
+    handlers.event = std::bind(&InvokeAdaptor::EventHandler, this, _1);
     if (librtConfig->libruntimeOptions.healthCheckCallback) {
         handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
     }
@@ -507,9 +509,10 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     if (functionName.empty()) {
         functionName = Config::Instance().FUNCTION_NAME();
     }
-    auto err = this->fsClient->Start(ipAddr, port, handlers, clientType, this->librtConfig->isDriver, security,
-                                     clientsMgr, runtimeContext.GetJobId(), instanceId, this->librtConfig->runtimeId,
-                                     functionName, std::bind(&InvokeAdaptor::SubscribeAll, this));
+    auto err =
+        this->fsClient->Start(ipAddr, port, handlers, clientType, this->librtConfig->isDriver, security, clientsMgr,
+                              runtimeContext.GetJobId(), instanceId, this->librtConfig->runtimeId, functionName,
+                              std::bind(&InvokeAdaptor::SubscribeAll, this), this->librtConfig->enableEvent);
     if (err.OK()) {
         return std::make_pair(this->fsClient->GetServerVersion(), err);
     }
@@ -613,6 +616,8 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     functionMeta.apiType = metaData.functionmeta().apitype();
     functionMeta.isGenerator = metaData.functionmeta().isgenerator();
     functionMeta.isAsync = metaData.functionmeta().isasync();
+    functionMeta.enableTensorTransport = metaData.functionmeta().enabletensortransport();
+    functionMeta.tensorTransportTarget = metaData.functionmeta().tensortransporttarget();
     std::string proto_bytes = metaData.functionmeta().code();
     functionMeta.code.assign(proto_bytes.begin(), proto_bytes.end());
     if (functionMeta.apiType != libruntime::ApiType::Function) {
@@ -746,9 +751,27 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
     }
     switch (req.signal()) {
         case libruntime::Signal::Cancel: {
-            auto objIds = requestManager->GetObjIds();
-            Cancel(objIds, true, true);
-            Exit(0, "");
+            if (!req.payload().empty()) {
+                CancelReqInfo cancelReqInfo;
+                auto parseErr = ParseCancelReqInfo(req, cancelReqInfo);
+                if (!parseErr.OK()) {
+                    YRLOG_WARN("failed to parse cancel request payload: {}, error: {}", req.payload(), parseErr.Msg());
+                    resp.set_code(static_cast<common::ErrorCode>(parseErr.Code()));
+                    resp.set_message(parseErr.Msg());
+                    break;
+                }
+                auto cancelErr = this->HandleInsFuncCancel(cancelReqInfo);
+                if (!cancelErr.OK()) {
+                    YRLOG_WARN("failed to cancel request: {}, instanceId: {}, err: {}", cancelReqInfo.requestId,
+                               cancelReqInfo.instanceId, cancelErr.Msg());
+                    resp.set_code(static_cast<common::ErrorCode>(cancelErr.Code()));
+                    resp.set_message(cancelErr.Msg());
+                }
+            } else {
+                auto objIds = requestManager->GetObjIds();
+                Cancel(objIds, true, true);
+                Exit(0, "");
+            }
             break;
         }
         case libruntime::Signal::ErasePendingThread: {
@@ -777,10 +800,8 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
             notifyPayload.ParseFromString(payload);
             if (notifyPayload.has_instancetermination()) {
                 this->RemoveInsMetaInfo(notifyPayload.instancetermination().instanceid());
-            } else if (notifyPayload.has_functionmasterevent()) {
-                if (functionMasterClient_) {
-                    this->functionMasterClient_->UpdateActiveMaster(notifyPayload.functionmasterevent().address());
-                }
+            } else if (notifyPayload.has_functionmasterevent() && functionMasterClient_) {
+                this->functionMasterClient_->UpdateActiveMaster(notifyPayload.functionmasterevent().address());
             }
             break;
         }
@@ -805,9 +826,9 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 resp.set_code(static_cast<common::ErrorCode>(err.Code()));
                 YRLOG_WARN("execute accelerate callback err code: {}, msg: {}", fmt::underlying(err.Code()), err.Msg());
                 resp.set_message(err.Msg());
-            } else {
-                resp.set_message(outputHandle.ToJson());
+                break;
             }
+            resp.set_message(outputHandle.ToJson());
             break;
         }
         case libruntime::Signal::UpdateScheduler: {
@@ -823,10 +844,10 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 YRLOG_INFO("recv faascheduler update signal, but parse failed");
                 resp.set_code(static_cast<common::ErrorCode>(err.Code()));
                 resp.set_message(err.Msg());
-            } else {
-                this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
-                                                             schedulerInfo.schedulerInstanceList);
+                break;
             }
+            this->taskSubmitter->UpdateFaaSSchedulerInfo(schedulerInfo.schedulerFuncKey,
+                                                         schedulerInfo.schedulerInstanceList);
             break;
         }
         case libruntime::Signal::GetInstance: {
@@ -838,6 +859,20 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
                 resp.set_code(::common::ErrorCode::ERR_NONE);
                 resp.set_message(serializedMeta);
             }
+            break;
+        }
+        case libruntime::Signal::UpdateEventInfo: {
+            YRLOG_INFO("recv UpdateEventInfo signal");
+            const std::string &payload = req.payload();
+            EventPayload eventPayload;
+            if (!eventPayload.ParseFromString(payload) || eventPayload.serverip().empty() ||
+                eventPayload.serverport() == 0 || eventPayload.serverinstanceid().empty()) {
+                resp.set_code(::common::ErrorCode::ERR_PARAM_INVALID);
+                resp.set_message("Failed to parse event payload");
+                break;
+            }
+            fsClient->UpdateEventServerInfo(eventPayload.serverip(), eventPayload.serverport(),
+                                            eventPayload.serverinstanceid());
             break;
         }
         default: {
@@ -862,6 +897,28 @@ HeartbeatResponse InvokeAdaptor::HeartbeatHandler(const HeartbeatRequest &req)
         }
     }
     return resp;
+}
+
+void InvokeAdaptor::EventHandler(const std::shared_ptr<EventMessageSpec> &req)
+{
+    if (librtConfig->enableEvent) {
+        this->memStore->AddEventData(req->Immutable().requestid(), req->Immutable().message());
+    } else {
+        YRLOG_WARN("enableEvent is false, skip event handler");
+    }
+}
+
+ErrorInfo InvokeAdaptor::ParseCancelReqInfo(const SignalRequest &req, CancelReqInfo &cancelReqInfo)
+{
+    try {
+        json cancelReqJson = json::parse(req.payload());
+        from_json(cancelReqJson, cancelReqInfo);
+    } catch (std::exception &e) {
+        YRLOG_WARN("failed to parse cancel request payload: {}, error: {}", req.payload(), e.what());
+        std::string msg = "failed to parse cancel request payload: " + std::string(e.what());
+        return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, msg);
+    }
+    return ErrorInfo();
 }
 
 ErrorInfo InvokeAdaptor::ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo)
@@ -1030,7 +1087,6 @@ void InvokeAdaptor::InvokeInstanceFunction(std::shared_ptr<InvokeSpec> spec)
             return;
         }
     }
-    requestManager->PushRequest(spec);
     fsClient->InvokeAsync(spec->requestInvoke, std::bind(&InvokeAdaptor::InvokeNotifyHandler, this, _1, _2),
                           spec->opts.timeout == 0 ? FLAG_OF_REQUEST_NO_TIMEOUT : spec->opts.timeout);
 }
@@ -1266,7 +1322,7 @@ void InvokeAdaptor::HandleReturnedObject(const NotifyRequest &req, const std::sh
             for (size_t j = curPos; j < spec->returnIds.size(); j++) {
                 if (spec->returnIds[j].id == smallObj.id()) {
                     curPos++;
-                    break;
+                    continue;
                 }
                 dsObjs.emplace_back(spec->returnIds[j].id);
                 curPos++;
@@ -1382,8 +1438,78 @@ bool InvokeAdaptor::NeedRetry(ErrorCode code, const std::shared_ptr<const Invoke
 
 ErrorInfo InvokeAdaptor::Cancel(const std::vector<std::string> &objids, bool isForce, bool isRecursive)
 {
+    std::vector<std::string> reqIdVec;
+    for (unsigned int i = 0; i < objids.size(); i++) {
+        std::string requestId = YR::utility::IDGenerator::GetRequestIdFromObj(objids[i]);
+        YRLOG_INFO("Get cancel request id: {} from object id: {}", requestId, objids[i]);
+        reqIdVec.push_back(requestId);
+    }
+    if (reqIdVec.empty()) {
+        YRLOG_INFO("there is no req need cancel, return directly");
+        return ErrorInfo();
+    }
     auto f = std::bind(&InvokeAdaptor::Kill, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-    return taskSubmitter->CancelStatelessRequest(objids, f, isForce, isRecursive);
+    for (size_t i = 0; i < reqIdVec.size(); i++) {
+        auto spec = requestManager->GetRequest(reqIdVec[i]);
+        if (spec == nullptr) {
+            YRLOG_INFO("spec of request: {} not exist, maybe has already finished, no need cancel, skip directly",
+                       reqIdVec[i]);
+            continue;
+        }
+        if (spec->invokeType == libruntime::InvokeType::InvokeFunction) {
+            this->CancelInstanceFunction(spec, f, isForce, isRecursive, objids[i]);
+        } else if (spec->invokeType == libruntime::InvokeType::InvokeFunctionStateless) {
+            taskSubmitter->CancelStatelessRequest(spec, f, isForce, isRecursive, objids[i]);
+        } else {
+            YRLOG_WARN(
+                "cancel request: {} is ignored because invoke type is not InvokeFunction or InvokeFunctionStateless, "
+                "skip directly",
+                reqIdVec[i]);
+        }
+    }
+    return ErrorInfo();
+}
+
+ErrorInfo InvokeAdaptor::CancelInstanceFunction(std::shared_ptr<InvokeSpec> spec, const KillFunc &killCallBack,
+                                                bool isForce, bool isRecursive, const std::string &objId)
+{
+    if (isForce) {
+        YRLOG_WARN("isForce=True is not supported for actor invoke reqeust: {}", spec->requestId);
+        return ErrorInfo();
+    }
+    YRLOG_INFO("start cancel instance invoke request: {}, object id is {}", spec->requestId, objId);
+    requestManager->RemoveRequest(spec->requestId);
+    if (spec->invokeInstanceId != "") {
+        RequestResource resource = GetRequestResource(spec);
+        if (resource.concurrency > MIN_CONCURRENCY) {
+            YRLOG_WARN(
+                "request: {}  has been sent to the runtime, and concurrency is greater than 1.Cancellation is not "
+                "supported, return directly",
+                spec->requestId);
+        }
+        CancelReqInfo cancelReqInfo;
+        cancelReqInfo.requestId = spec->requestId;
+        cancelReqInfo.instanceId = this->librtConfig->runtimeId == "driver"
+                                       ? this->librtConfig->runtimeId + "_" + this->librtConfig->jobId
+                                       : this->librtConfig->runtimeId;
+        json cancelReqJson = cancelReqInfo;
+        std::string cancelPayload = cancelReqJson.dump();
+        killCallBack(spec->invokeInstanceId, cancelPayload, libruntime::Signal::Cancel);
+    }
+    ErrorInfo cancelErr(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                        "invalid get obj, the obj has been cancelled.");
+    memStore->SetError(objId, cancelErr);
+    return  ErrorInfo();
+}
+
+ErrorInfo InvokeAdaptor::HandleInsFuncCancel(const CancelReqInfo &cancelReqInfo)
+{
+    YRLOG_INFO("start cancel instance function, request id is {}, src instance id is {}", cancelReqInfo.requestId,
+               cancelReqInfo.instanceId);
+    if (execMgr) {
+        return this->execMgr->CancelInsFunction(cancelReqInfo);
+    }
+    return ErrorInfo();
 }
 
 void InvokeAdaptor::Exit(const int code, const std::string &message)
@@ -2102,6 +2228,27 @@ bool InvokeAdaptor::IsHealth()
         return false;
     }
     return fsClient->IsHealth();
+}
+
+ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
+                                          const std::string &instanceId)
+{
+    if (requestId.empty() || instanceId.empty()) {
+        YRLOG_DEBUG("requestId or instanceId is empty, requestId is {}, instanceId is {}", requestId, instanceId);
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "requestId or instanceId is empty");
+    }
+    auto eventMessageSpec = std::make_shared<EventMessageSpec>();
+    auto &eventRst = eventMessageSpec->Mutable();
+    eventRst.set_requestid(requestId);
+    eventRst.set_instanceid(instanceId);
+    eventRst.set_message(streamMessage);
+    fsClient->EventAsync(eventMessageSpec);
+    return ErrorInfo();
+}
+
+std::string InvokeAdaptor::GetActiveMasterAddr()
+{
+    return functionMasterClient_->GetActiveMasterAddr();
 }
 
 }  // namespace Libruntime

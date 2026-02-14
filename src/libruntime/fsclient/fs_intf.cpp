@@ -42,6 +42,7 @@ FSIntf::FSIntf(const FSIntfHandlers &handlers) : handlers(handlers)
         this->heartbeatExecutor.Init(HEARTBEAT_THREAD_POOL_SIZE, "fs.heartbeat");
     }
     this->responseReceiver.Init(RESP_RECV_THREAD_POOL_SIZE, "fs.resp_recv");
+    this->eventExecutor.Init(EVENT_THREAD_POOL_SIZE, "fs.event");
 }
 
 FSIntf::~FSIntf()
@@ -63,6 +64,7 @@ void FSIntf::Clear()
     }
     responseReceiver.Shutdown();
     callReceiver.Shutdown();
+    eventExecutor.Shutdown();
     cleared_ = true;
 }
 
@@ -153,7 +155,8 @@ void FSIntf::HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, Call
                                 req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
                 }
             } else {
-                if (!status.WaitInitialized()) {
+                if (!status.WaitInitialized() && req->Immutable().createoptions().find("ENABLE_FORCE_INVOKE") ==
+                                                     req->Immutable().createoptions().end()) {
                     auto [code, msg] = status.GetErrorInfo();
                     resp.set_code(code);
                     resp.set_message(msg);
@@ -192,8 +195,8 @@ void FSIntf::HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCal
         [this, req, callback]() {
             if (ExistProcessingRequestId()) {
                 CheckpointResponse resp;
-                resp.set_code(common::ERR_INNER_SYSTEM_ERROR);
-                resp.set_message("exist processing request, checkpoint error");
+                resp.set_code(common::ERR_INSTANCE_BUSY);
+                resp.set_message("Instance is busy handling requests, checkpoint cannot be performed now.");
                 callback(resp);
                 return;
             }
@@ -299,6 +302,16 @@ void FSIntf::HandleHeartbeatRequest(const HeartbeatRequest &req, HeartbeatCallBa
         [this, req, callback]() {
             auto resp = this->handlers.heartbeat(req);
             callback(resp);
+        },
+        "");
+}
+
+void FSIntf::HandleEventRequest(const std::shared_ptr<EventMessageSpec> &req)
+{
+    this->eventExecutor.Handle(
+        [this, req]() {
+            YRLOG_DEBUG("receive event req, request ID: {}", req->Immutable().requestid());
+            this->handlers.event(req);
         },
         "");
 }

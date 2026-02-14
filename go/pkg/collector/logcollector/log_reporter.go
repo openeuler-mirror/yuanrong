@@ -45,10 +45,10 @@ var reportedLogFiles = struct {
 }
 
 var logFileRegexMap = map[logservice.LogTarget]*regexp.Regexp{
-	logservice.LogTarget_USER_STD: regexp.MustCompile(`^runtime(-[a-z0-9]+)+.(out|err)`),
+	logservice.LogTarget_USER_STD: regexp.MustCompile(`^runtime([-_][a-z0-9]+)+.(out|err)`),
 }
 
-var runtimeRegex = regexp.MustCompile(`runtime(-[a-z0-9]+)+`)
+var runtimeRegex = regexp.MustCompile(`runtime([-_][a-z0-9]+)+`)
 
 func tryReportLog(name string) bool {
 	if item, ok := parseLogFileName(name); ok {

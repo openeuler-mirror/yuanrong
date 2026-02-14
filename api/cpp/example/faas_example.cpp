@@ -13,11 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+//! [faasHandler]
 #include <cstdlib>
 #include <string>
-#include "Function.h"
 #include "Runtime.h"
+#include "Function.h"
 bool flags = false;
 std::string HandleRequest(const std::string &request, Function::Context &context)
 {
@@ -48,10 +48,8 @@ int main(int argc, char *argv[])
 {
     Function::Runtime rt;
     rt.RegisterHandler(HandleRequest);
-    // 有状态函数
-    rt.InitState(InitState);
-    // 初始化函数入口
     rt.RegisterInitializerFunction(Initializer);
     rt.Start(argc, argv);
     return 0;
 }
+//! [faasHandler]

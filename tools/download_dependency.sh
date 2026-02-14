@@ -40,9 +40,9 @@ YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/metrics"
 THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/../thirdparty/"
 RUNTIME_OUTPUT_DIR="${RUNTIME_SRC_DIR}/output"
 MODULES="runtime"
-bash -x ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
+bash ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
 RUNTIME_THIRD_PARTY_CACHE=${RUNTIME_THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/runtime_deps/"}
-DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem-v0.6.0.tar.gz"}
+DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
 METRICS_CACHE=${METRICS_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/metrics.tar.gz"}
 function check_datasystem() {
     # check whether datasystem exist
@@ -95,9 +95,9 @@ function compile_datasystem() {
     bash build.sh -X off
     cd output
     ds_filename=$(ls *.tar.gz)
-    tar -xf $ds_filename -C ${YR_DATASYSTEM_BIN_DIR}/output/
-    mkdir -p ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/
-    tar -xf $ds_filename -C ${YR_FUNCTIONSYSTEM_BIN_DIR}/datasystem/output/ --strip-components=1
+    tar -xf $ds_filename -C ${YR_DATASYSTEM_BIN_DIR}/output/ --strip-components=1
+    mkdir -p ${YR_FUNCTIONSYSTEM_BIN_DIR}/vendor/src
+    cp -a $ds_filename ${YR_FUNCTIONSYSTEM_BIN_DIR}/vendor/src/yr-datasystem.tar.gz
     cp -f ${ds_filename} $RUNTIME_OUTPUT_DIR/
 }
 
@@ -131,7 +131,7 @@ function compile_all(){
     pushd "${THIRD_PARTY_DIR}/boost/"
     chmod -R 700 "${THIRD_PARTY_DIR}/boost/"
     ./bootstrap.sh --without-libraries=python
-    ./b2 cxxflags=-fPIC cflags=-fPIC  link=static install --with-fiber --prefix=${THIRD_PARTY_DIR}/boost
+    ./b2 cxxflags=-fPIC cflags=-fPIC  link=static install --with-fiber --with-atomic --prefix=${THIRD_PARTY_DIR}/boost
     popd
   fi
   if [ ! -d "${THIRD_PARTY_DIR}/openssl/install" ]; then
@@ -167,13 +167,13 @@ function download_cache() {
 if [ "$BUILD_ALL" == "true" ]; then
   cd $RUNTIME_SRC_DIR
   if [ ! -d ${YR_FUNCTIONSYSTEM_BIN_DIR} ]; then
-    git clone https://gitee.com/openeuler/yuanrong-functionsystem.git -b master functionsystem
+    git clone https://gitcode.com/openeuler/yuanrong-functionsystem.git -b master functionsystem
   fi
   if [ ! -d ${YR_DATASYSTEM_BIN_DIR} ]; then
-    git clone https://gitee.com/openeuler/yuanrong-datasystem.git -b master datasystem
+    git clone https://gitcode.com/openeuler/yuanrong-datasystem.git -b master datasystem
   fi
   if [ ! -d ${YR_FRONTEND_SRC_DIR} ]; then
-    git clone https://gitee.com/openeuler/yuanrong-frontend.git -b master ../frontend
+    git clone https://gitcode.com/openeuler/yuanrong-frontend.git -b master ../frontend
   fi
   mkdir -p $RUNTIME_OUTPUT_DIR
   compile_datasystem

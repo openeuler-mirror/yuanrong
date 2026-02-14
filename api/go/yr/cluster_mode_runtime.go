@@ -224,6 +224,12 @@ func (r *ClusterModeRuntime) GDecreaseRefRaw(objectIDs []string, remoteClientID 
 // GetAsync no implement
 func (r *ClusterModeRuntime) GetAsync(objectID string, cb api.GetAsyncCallback) {}
 
+// GetEvent no implement
+func (r *ClusterModeRuntime) GetEvent(objectID string, cb api.GetEventCallback) {}
+
+// DeleteGetEventCallback no implement
+func (r *ClusterModeRuntime) DeleteGetEventCallback(objectID string) {}
+
 // GetFormatLogger no implement
 func (r *ClusterModeRuntime) GetFormatLogger() api.FormatLogger { return nil }
 
@@ -249,4 +255,8 @@ func (r *ClusterModeRuntime) IsHealth() bool {
 // IsDsHealth -
 func (r *ClusterModeRuntime) IsDsHealth() bool {
 	return true
+}
+
+func (r *ClusterModeRuntime) GetActiveMasterAddr() string {
+	return clibruntime.GetActiveMasterAddr()
 }

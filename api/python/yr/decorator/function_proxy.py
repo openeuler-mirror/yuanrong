@@ -201,6 +201,57 @@ class FunctionProxy:
         """
         return self.__original_func__
 
+    def invoke(self, *args, **kwargs):
+        """
+        Execute the decorated function remotely.
+
+        This method triggers the execution of the decorated function on remote workers.
+        The function is executed with the provided arguments and returns an ObjectRef
+        that can be used to retrieve the result.
+
+        Args:
+            *args: Variable arguments to pass to the decorated function.
+            **kwargs: Keyword arguments to pass to the decorated function.
+
+        Returns:
+            ObjectRef or List[ObjectRef]: A reference to the result object(s). 
+            For functions with return_nums=1, returns a single ObjectRef.
+            For functions with return_nums>1, returns a list of ObjectRefs.
+            For generator functions, returns an ObjectRefGenerator.
+            For functions with return_nums=0, returns None.
+
+        Raises:
+            TypeError: If the provided arguments don't match the function signature.
+            RuntimeError: If the function execution fails or runtime is not initialized.
+
+        Examples:
+            >>> import yr
+            >>>
+            >>> yr.init()
+            >>>
+            >>> @yr.invoke
+            ... def add(a, b):
+            ...     return a + b
+            >>>
+            >>> result_ref = add.invoke(1, 2)
+            >>> result = yr.get(result_ref)
+            >>> print(result)  # Output: 3
+            >>>
+            >>> # For functions with multiple return values
+            >>> @yr.invoke(return_nums=2)
+            ... def divmod_func(a, b):
+            ...     return divmod(a, b)
+            >>>
+            >>> quotient_ref, remainder_ref = divmod_func.invoke(10, 3)
+            >>> print(yr.get(quotient_ref))  # Output: 3
+            >>> print(yr.get(remainder_ref))  # Output: 1
+            >>>
+            >>> yr.finalize()
+        """
+        # This is a placeholder method for documentation purposes.
+        # The actual implementation is dynamically assigned in __init__.
+        raise NotImplementedError("This method is dynamically overridden in __init__")
+
     def create_opts_wrapper(self, opts: InvokeOptions):
         """
         Public interface to safely wrap invoke options.
@@ -333,3 +384,8 @@ def make_cross_language_function_proxy(function_name, function_urn, language):
     function_key = utils.get_function_from_urn(function_urn)
 
     return FunctionProxy(None, CrossLanguageInfo(function_name, function_key, language))
+
+
+# Gradual migration: StatelessFunction is the new preferred name
+# FunctionProxy is kept for backward compatibility
+StatelessFunction = FunctionProxy

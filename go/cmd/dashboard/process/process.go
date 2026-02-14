@@ -18,12 +18,16 @@
 package process
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/grpc/pb/logservice"
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
@@ -40,8 +44,30 @@ func StartGrpcServices() {
 	if err != nil {
 		log.GetLogger().Fatalf("failed to listen: %v", err)
 	}
+	var creds credentials.TransportCredentials
+	functionSystemConf := flags.DashboardConfig.FunctionSystemConfig
+	if functionSystemConf.SslEnable {
+		serverCert, err := tls.LoadX509KeyPair(functionSystemConf.CertFile, functionSystemConf.KeyFile)
+		if err != nil {
+			log.GetLogger().Fatalf("failed to load log manager server certificate: %s", err.Error())
+		}
 
-	grpcServer := grpc.NewServer()
+		certPool := x509.NewCertPool()
+		caCert, err := os.ReadFile(functionSystemConf.CaFile)
+		if err != nil {
+			log.GetLogger().Fatalf("failed to load log manager ca certificate: %s", err.Error())
+		}
+		if ok := certPool.AppendCertsFromPEM(caCert); !ok {
+			log.GetLogger().Fatalf("failed to append log manager ca certificate")
+		}
+
+		creds = credentials.NewTLS(&tls.Config{
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    certPool,
+			Certificates: []tls.Certificate{serverCert},
+		})
+	}
+	grpcServer := grpc.NewServer(grpc.Creds(creds))
 	logservice.RegisterLogManagerServiceServer(grpcServer, &logmanager.Server{})
 
 	if err := grpcServer.Serve(lis); err != nil {
@@ -78,8 +104,15 @@ func StartDashboard() {
 		Addr:    flags.DashboardConfig.ServerAddr,
 		Handler: r,
 	}
-	log.GetLogger().Debugf("http://%s is running...", flags.DashboardConfig.ServerAddr)
-	if err := srv.ListenAndServe(); err != nil {
+	sslConfig := flags.DashboardConfig.SslConfig
+	log.GetLogger().Debugf("%s is running...",
+		flags.AddHTTPPrefix(flags.DashboardConfig.ServerAddr, sslConfig.SslEnable))
+	if sslConfig.SslEnable {
+		err = srv.ListenAndServeTLS(sslConfig.CertFile, sslConfig.KeyFile)
+	} else {
+		err = srv.ListenAndServe()
+	}
+	if err != nil {
 		log.GetLogger().Fatalf("srv.ListenAndServe: %s", err.Error())
 	}
 }

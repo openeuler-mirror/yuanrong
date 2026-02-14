@@ -61,7 +61,7 @@ const std::string RECOVER_RETRY_TIMES = "RecoverRetryTimes";
 extern const char *ENABLE_DEBUG_KEY;
 extern const char *ENABLE_DEBUG;
 extern const char *DEBUG_CONFIG_KEY;
-
+using json = nlohmann::json;
 // Suspend-state instance handler retrieval only; pending refactor
 const std::string NAMED_FUNCMETA = "named_funcmeta";
 
@@ -229,6 +229,7 @@ struct InstanceInfo {
     std::shared_ptr<YR::utility::Timer> scaleDownTimer ABSL_GUARDED_BY(mtx);
     int64_t claimTime = 0 ABSL_GUARDED_BY(mtx);
     bool needReacquire = false ABSL_GUARDED_BY(mtx);
+    bool forceInvoke = false ABSL_GUARDED_BY(mtx);
     mutable absl::Mutex mtx;
 };
 
@@ -237,6 +238,12 @@ struct CreatingInsInfo {
     int64_t startTime ABSL_GUARDED_BY(mtx);
     mutable absl::Mutex mtx;
     CreatingInsInfo(const std::string &id = "", int64_t time = 0) : instanceId(id), startTime(time) {}
+};
+
+struct InstanceSummary {
+    std::string instanceId;
+    std::string leaseId;
+    bool forceInvoke = false;
 };
 
 struct RequestResource {
@@ -268,5 +275,13 @@ struct ConcurrencyGroup {
     uint32_t maxConcurrency;
     std::vector<FunctionMeta> metas;
 };
+
+struct CancelReqInfo {
+    std::string requestId;
+    std::string instanceId;
+};
+
+void to_json(nlohmann::json &j, const CancelReqInfo &cancelReqInfo);
+void from_json(const nlohmann::json &j, CancelReqInfo &cancelReqInfo);
 }  // namespace Libruntime
 }  // namespace YR

@@ -56,6 +56,8 @@
 namespace YR {
 namespace Libruntime {
 extern thread_local std::string threadLocalTraceId;
+extern thread_local std::string threadLocalRequestId;
+extern thread_local std::string threadLocalInstanceId;
 using FinalizeCallback = std::function<void()>;
 using DebugBreakpointHook = std::function<void()>;
 using SetTenantIdCallback = std::function<void()>;
@@ -104,7 +106,9 @@ public:
     NotifyResponse NotifyHandler(const NotifyRequest &resp);
 
     virtual ErrorInfo Cancel(const std::vector<std::string> &objids, bool isForce, bool isRecursive);
-
+    virtual ErrorInfo CancelInstanceFunction(std::shared_ptr<InvokeSpec> sepc, const KillFunc &killCallBack,
+                                             bool isForce, bool isRecursive, const std::string &objId);
+    virtual ErrorInfo HandleInsFuncCancel(const CancelReqInfo &cancelReqInfo);
     virtual void Exit(const int code, const std::string &message);
 
     virtual void Finalize(bool isDriver = true);
@@ -178,6 +182,9 @@ public:
     virtual std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResources(void);
     virtual std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTable(const std::string &resourceGroupId);
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
+    ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
+                               const std::string &instanceId);
+    std::string GetActiveMasterAddr();
 
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
@@ -188,10 +195,11 @@ private:
     SignalResponse ExecSignalCallback(const SignalRequest &req);
     ShutdownResponse ShutdownHandler(const ShutdownRequest &req);
     HeartbeatResponse HeartbeatHandler(const HeartbeatRequest &req);
+    void EventHandler(const std::shared_ptr<EventMessageSpec> &req);
     void ExecUserShutdownCallback(uint64_t gracePeriodSec,
                                   const std::shared_ptr<utility::NotificationUtility> &notification);
     ErrorInfo ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo);
-
+    ErrorInfo ParseCancelReqInfo(const SignalRequest &req, CancelReqInfo &cancelReqInfo);
     template <typename ResponseType>
     static ErrorInfo WaitAndCheckResp(std::shared_future<ResponseType> &future, const std::string &instanceId,
                                       const int &timeout);

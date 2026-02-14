@@ -50,6 +50,8 @@ const re2::RE2 POD_LABELS_VALUE_REGEX("^[a-zA-Z0-9]([-a-zA-Z0-9]{0,61}[a-zA-Z0-9
 const std::string DISPATCHER = "dis";
 const size_t NUM_DISPATCHER = 2;
 thread_local std::string threadLocalTraceId;
+thread_local std::string threadLocalRequestId;
+thread_local std::string threadLocalInstanceId;
 
 Libruntime::Libruntime(std::shared_ptr<LibruntimeConfig> librtCfg, std::shared_ptr<ClientsManager> clientsMgr,
                        std::shared_ptr<MetricsAdaptor> metricsAdaptor, std::shared_ptr<Security> security,
@@ -441,6 +443,11 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
     auto spec = std::make_shared<InvokeSpec>(runtimeContext->GetJobId(), funcMeta, returnObjs, std::move(invokeArgs),
                                              libruntime::InvokeType::InvokeFunction, std::move(traceId),
                                              std::move(requestId), instanceId, opts);
+    if (opts.forceInvoke) {
+        auto invokeOptions = spec->requestInvoke->Mutable().mutable_invokeoptions();
+        auto customTag = invokeOptions->mutable_customtag();
+        customTag->insert({"ENABLE_FORCE_INVOKE", ""});
+    }
     err = PreProcessArgs(spec);
     if (err.Code() != ErrorCode::ERR_OK) {
         YRLOG_ERROR("pre process failed, req id: {}, code: {}, message: {}", spec->requestId,
@@ -464,13 +471,17 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
         }
     }
     invokeOrderMgr->Invoke(spec);
+    this->invokeAdaptor->PushInvokeSpec(spec);
     auto func = [this, spec, returnObjs](const ErrorInfo &err) {
         if (err.OK()) {
             invokeOrderMgr->UpdateUnfinishedSeq(spec);
             AddGeneratorReceiver(spec);
             if (PutRefArgToDs(spec)) {
                 auto namedId = spec->GetNamedInstanceId();
-                if (namedId.empty()) {
+                if (spec->opts.isDeleteRemoteTensor) {
+                    spec->invokeInstanceId = spec->instanceId;
+                    spec->invokeType = libruntime::InvokeType::DeleteRemoteTensor;
+                } else if (namedId.empty()) {
                     spec->invokeInstanceId = memStore->GetInstanceId(spec->instanceId);
                 } else {
                     spec->invokeInstanceId = memStore->GetInstanceId(namedId);
@@ -586,6 +597,10 @@ ErrorInfo Libruntime::InvokeByFunctionName(const YR::Libruntime::FunctionMeta &f
     err = PreProcessArgs(spec);
     if (err.Code() != ErrorCode::ERR_OK) {
         return err;
+    }
+    if (this->config->enableEvent) {
+        YRLOG_DEBUG("start to create timer for invocation, req id is {}", requestId);
+        memStore->AddEventTimer(requestId, opts.timeout);
     }
     memStore->AddReturnObject(returnObjs);
     if (!this->config->inCluster) {
@@ -1318,6 +1333,9 @@ void Libruntime::Finalize(bool isDriver)
     if (dsClients.dsStreamStore != nullptr) {
         dsClients.dsStreamStore.reset();
     }
+    if (invokeAdaptor != nullptr) {
+        invokeAdaptor->Finalize(isDriver);
+    }
     if (!config->inCluster) {
         auto err = clientsMgr->ReleaseHttpClient(config->functionSystemIpAddr, config->functionSystemPort);
         if (!err.OK()) {
@@ -1328,10 +1346,6 @@ void Libruntime::Finalize(bool isDriver)
         if (!err.OK()) {
             YRLOG_ERROR("failed to release data system client, message({})", err.Msg());
         }
-    }
-
-    if (invokeAdaptor != nullptr) {
-        invokeAdaptor->Finalize(isDriver);
     }
     // If there are service requirements, the plaintext authentication credential can be stored in the memory. However,
     // the plaintext authentication credential needs to be cleared when an abnormal branch or exit is complete.
@@ -1357,6 +1371,31 @@ void Libruntime::GetAsync(const std::string &objectId, GetAsyncCallback callback
                 dataObj = std::make_shared<DataObject>(0, 0);
                 dataObj->id = objectId;
             }
+            callback(dataObj, err, userData);
+        });
+}
+
+void Libruntime::GetEvent(const std::string &objectId, GetEventCallback callback, void *userData)
+{
+    if (callback == nullptr) {
+        YRLOG_ERROR("GetEventCallback is nullptr");
+        return;
+    }
+    std::string requestId = YR::utility::IDGenerator::GetRequestIdFromObj(objectId);
+    YRLOG_DEBUG("begin to GetEvent, reqId is {}", requestId);
+    this->memStore->AddEventCallbackWithData(
+        requestId, [objectId, callback, userData](const ErrorInfo &err, std::shared_ptr<Buffer> buffer) {
+            YRLOG_DEBUG("begin to excute EventCallbackWithData, objectId is {}", objectId);
+            std::shared_ptr<DataObject> dataObj;
+            if (buffer) {
+                YRLOG_DEBUG("buffer is not null, buffer size is {}", buffer->GetSize());
+                dataObj = std::make_shared<DataObject>(objectId, buffer);
+            } else {
+                dataObj = std::make_shared<DataObject>(0, 0);
+                dataObj->id = objectId;
+            }
+            YRLOG_DEBUG("begin to excute go callback, objectId is {}", objectId);
+
             callback(dataObj, err, userData);
         });
 }
@@ -1768,6 +1807,13 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> Libruntime::GetInstance(const
                                                                            const std::string &nameSpace, int timeoutSec)
 {
     auto [meta, err] = this->invokeAdaptor->GetInstance(name, nameSpace, timeoutSec);
+    if (!err.OK() &&
+        (err.Code() == ErrorCode::ERR_INSTANCE_NOT_FOUND || err.Code() == ErrorCode::ERR_INSTANCE_EXITED)) {
+        auto insId = nameSpace.empty() ? this->config->ns + "-" + name : nameSpace + "-" + name;
+        YRLOG_WARN("instance： {} not exist, need kill directly", insId);
+        this->invokeAdaptor->KillAsync(nameSpace.empty() ? this->config->ns + "-" + name : nameSpace + "-" + name, "",
+                                       libruntime::Signal::KillInstance);
+    }
     if (err.OK() && meta.needOrder) {
         this->invokeOrderMgr->RegisterInstance(nameSpace.empty() ? this->config->ns + "-" + name
                                                                  : nameSpace + "-" + name);
@@ -1876,6 +1922,24 @@ void Libruntime::KillAsync(const std::string &instanceId, int sigNo, std::functi
     this->invokeAdaptor->KillAsyncCB(realInsId, "", sigNo, cb);
 }
 
+ErrorInfo Libruntime::StreamWrite(const std::string &streamMessage, const std::string &requestId,
+                                  const std::string &instanceId)
+{
+    YRLOG_DEBUG("start to write stream event, size of streamMessage is {}, requestId is {}, instanceId is {}",
+                streamMessage.size(), requestId, instanceId);
+    return invokeAdaptor->StreamWriteEvent(streamMessage, requestId, instanceId);
+}
+
+std::pair<std::string, std::string> Libruntime::GetRequestAndInstanceID()
+{
+    if (threadLocalRequestId.empty() || threadLocalInstanceId.empty()) {
+        YRLOG_DEBUG("requestId or instanceId is empty, threadLocalRequestId is {}, threadLocalInstanceId is {}",
+                    threadLocalRequestId, threadLocalInstanceId);
+        return {"", ""};
+    }
+    return {threadLocalRequestId, threadLocalInstanceId};
+}
+
 std::pair<ErrorInfo, std::string> Libruntime::GetNodeId()
 {
     ErrorInfo err;
@@ -1888,6 +1952,11 @@ std::pair<ErrorInfo, std::string> Libruntime::GetNodeId()
 std::string Libruntime::GetNameSpace()
 {
     return this->config->ns;
+}
+
+std::string Libruntime::GetActiveMasterAddr()
+{   
+    return this->invokeAdaptor->GetActiveMasterAddr();
 }
 
 }  // namespace Libruntime

@@ -30,16 +30,20 @@ public:
     virtual ~OrderedExecutionManager() = default;
 
     void Handle(const libruntime::InvocationMeta &meta, std::function<void()> &&hdlr, std::string reqId = "") override;
-
+    ErrorInfo CancelInsFunction(const CancelReqInfo &cancalReqInfo) override;
 private:
-    std::shared_ptr<InvokeReq> ConstructInokeReq(std::function<void()> &&hdlr);
+    std::shared_ptr<InvokeReq> ConstructInokeReq(std::function<void()> &&hdlr, std::string reqId);
     std::shared_ptr<Invoker> ConstructInvoker();
     absl::Mutex mu;
     std::unordered_map<std::string, std::shared_ptr<Invoker>> invokers ABSL_GUARDED_BY(mu);
+    absl::Mutex cancelMu;
+    std::map<std::string, bool> cancelReqs ABSL_GUARDED_BY(cancelMu);
 };
 
 struct InvokeReq {
     std::function<void()> hdlr;
+    std::string reqId;
+    InvokeReq(std::function<void()> hdlr_, std::string reqId_) : hdlr(std::move(hdlr_)), reqId(std::move(reqId_)) {}
 };
 
 struct Invoker {

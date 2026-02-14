@@ -14,8 +14,11 @@
  * limitations under the License.
  */
 
-#include "metrics_adaptor.h"
+#include <dlfcn.h>
+#include <string>
 #include "metrics_context.h"
+#include "metrics_adaptor.h"
+
 
 #include "metrics/api/metric_data.h"
 #include "metrics/api/null.h"
@@ -34,15 +37,31 @@ const char *const PROMETHEUS_PUSH_EXPORTER = "prometheusPushExporter";
 const char *const AOM_ALARM_EXPORTER = "aomAlarmExporter";
 const char *const YR_SSL_PASSPHRASE_KEY = "YR_SSL_PASSPHRASE";
 
+std::string GetSelfSoPath()
+{
+    Dl_info info;
+    if (dladdr((void*)&GetSelfSoPath, &info) == 0) {
+        return "";
+    }
+    std::string path(info.dli_fname);
+    auto pos = path.find_last_of('/');
+    if (pos == std::string::npos) {
+        return "";
+    }
+
+    return path.substr(0, pos);
+}
+
 static std::string GetLibraryPath(const std::string &exporterType)
 {
+    auto path = GetSelfSoPath();
     std::string filePath = "";
     if (exporterType == FILE_EXPORTER) {
-        filePath = Config::Instance().SNUSER_LIB_PATH() + "/libobservability-metrics-file-exporter.so";
+        filePath = path + "/libobservability-metrics-file-exporter.so";
     } else if (exporterType == PROMETHEUS_PUSH_EXPORTER) {
-        filePath = Config::Instance().SNUSER_LIB_PATH() + "/libobservability-prometheus-push-exporter.so";
+        filePath = path + "/libobservability-prometheus-push-exporter.so";
     } else if (exporterType == AOM_ALARM_EXPORTER) {
-        filePath = Config::Instance().SNUSER_LIB_PATH() + "/libobservability-aom-alarm-exporter.so";
+        filePath = path + "/libobservability-aom-alarm-exporter.so";
     }
     YRLOG_INFO("exporter {} get library path: {}", exporterType, filePath);
     return filePath;

@@ -238,6 +238,14 @@ func (f *fakeSDKClient) GetAsync(objectID string, cb api.GetAsyncCallback) {
 	cb([]byte("success"), nil)
 }
 
+func (f *fakeSDKClient) GetEvent(objectID string, cb api.GetEventCallback) {
+	cb([]byte("success"), nil)
+}
+
+func (f *fakeSDKClient) DeleteGetEvent(objectID string) {
+
+}
+
 func (f *fakeSDKClient) GetFormatLogger() api.FormatLogger {
 	//TODO implement me
 	panic("implement me")
@@ -273,6 +281,10 @@ func (f *fakeSDKClient) IsHealth() bool {
 
 func (f *fakeSDKClient) IsDsHealth() bool {
 	return true
+}
+
+func (f *fakeSDKClient) GetActiveMasterAddr() string {
+	return "fakeMasterAddr"
 }
 
 func newFuncSpec() *types.FuncSpec {

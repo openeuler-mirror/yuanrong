@@ -1,4 +1,5 @@
-export YR_SERVER_ADDRESS="127.0.0.1:24051"
+export YR_SERVER_ADDRESS="172.18.0.4:8888"
+export YR_METASERVICE_ADDRESS="172.18.0.4:31111"
 export YR_SERVER_NAME="test"
 export YR_ENABLE_FRONTEND_TLS="true"
 export YR_PRIVATE_KEY_FILE="/home/wyc/code/openyuanrong/cert/yr/module.key"

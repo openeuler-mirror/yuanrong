@@ -175,7 +175,7 @@ struct Config {
     /**
      * @brief Absolute path to openYuanRong function directory (where `service.yaml` resides). Empty by default.
      */
-    std::string workingdir = "";
+    std::string workingDir = "";
     /**
      * @brief Default namespace of this client's function.
      */
@@ -185,10 +185,13 @@ struct Config {
      */
     std::unordered_map<std::string, std::string> customEnvs;
     std::string httpVersion = "";
-    bool autodeploy = false;
+    bool autodeploy = false;    // not in use
+    /**
+     * @brief Tenant ID.
+     */
     std::string tenantId = "";
     bool isLowReliabilityTask = false;
     bool attach = false;
-    bool launchUserBinary = false;
+    bool launchUserBinary = false;  // internal use only, user do not set it.
 };
 }  // namespace YR

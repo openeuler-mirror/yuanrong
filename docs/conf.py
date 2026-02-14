@@ -59,6 +59,9 @@ exclude_patterns = [
     "multi_language_function_programming_interface/api/distributed_programming/C++",
     "multi_language_function_programming_interface/api/distributed_programming/Java",
     "multi_language_function_programming_interface/api/distributed_programming/Python",
+    "multi_language_function_programming_interface/api/function_service/Java",
+    "multi_language_function_programming_interface/api/function_service/Cpp",
+    "multi_language_function_programming_interface/development_guide/function_service/response-stream.md",
 
     ""
 ]
@@ -121,7 +124,8 @@ html_theme_options = {
     """,
     "navbar_start": [
         "navbar-logo",
-        "version-switcher"
+        "version-switcher",
+        "navbar-links"
     ],
     "switcher": {
         "json_url": "https://pages.openeuler.openatom.cn/openyuanrong/docs/versions.json",

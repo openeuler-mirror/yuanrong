@@ -18,6 +18,23 @@
       cpu: 0
       memory: 0
       runtime: python3.9
+      # rootfs:
+      #   runtime: runsc
+      #   type: image
+      #   imageurl: "busybox:latest"
+      #   readonly: true
+      #   mountpoint: /var/task/code
+      # language:
+      #   name: python
+      #   version: 3.9
+      #   type: path
+      #   root: "/home/wyc/code/openyuanrong/example/makeimage/__yuanrong"
+      #   entrypoint: "./usr/local/bin/python3 -m yr.cli.scripts runtime_main"
+      #   executor: "LD_LIBRARY_PATH=./lib/x86_64-linux-gnu/:./lib:./usr/local/lib/ ./usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      #   version: "python3.9"
+      #   env:
+      #       PYTHONPATH: "./usr/local/lib/python3.9/site-packages"
+      #       LD_LIBRARY_PATH: "./usr/local/lib/:./usr/lib/x86_64-linux-gnu/:./usr/lib:./usr/lib64:./lib"
     py310:
       cpu: 0
       memory: 0

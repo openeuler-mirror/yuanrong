@@ -45,12 +45,27 @@ void OrderedExecutionManager::Handle(const libruntime::InvocationMeta &meta, std
 
     int64_t seqNo = meta.invocationsequenceno();
     if (seqNo >= invoker->invokeUnfinishedSeqNo) {
-        invoker->waitingInvokeReqs.insert({seqNo, ConstructInokeReq(std::move(hdlr))});
+        invoker->waitingInvokeReqs.insert({seqNo, ConstructInokeReq(std::move(hdlr), reqId)});
     }
 
     while (!invoker->waitingInvokeReqs.empty() &&
            invoker->invokeUnfinishedSeqNo == invoker->waitingInvokeReqs.begin()->first) {
-        this->DoHandle(std::move(invoker->waitingInvokeReqs.begin()->second->hdlr), reqId);
+        bool isCancel = false;
+        {
+            absl::ReaderMutexLock lock(&cancelMu);
+            if (this->cancelReqs.find(invoker->waitingInvokeReqs.begin()->second->reqId) != this->cancelReqs.end()) {
+                isCancel = true;
+            }
+        }
+        if (isCancel) {
+            YRLOG_WARN("request: {} has been set cancel status, no need exec", reqId);
+            {
+                absl::MutexLock lock(&cancelMu);
+                this->cancelReqs.erase(invoker->waitingInvokeReqs.begin()->second->reqId);
+            }
+        } else {
+            this->DoHandle(std::move(invoker->waitingInvokeReqs.begin()->second->hdlr), reqId);
+        }
         invoker->waitingInvokeReqs.erase(invoker->waitingInvokeReqs.begin());
         ++invoker->invokeUnfinishedSeqNo;
     }
@@ -58,14 +73,37 @@ void OrderedExecutionManager::Handle(const libruntime::InvocationMeta &meta, std
     YRLOG_DEBUG("current invoker {} waiting unfinished sequence No.: {}", invokerId, invoker->invokeUnfinishedSeqNo);
 }
 
-std::shared_ptr<InvokeReq> OrderedExecutionManager::ConstructInokeReq(std::function<void()> &&hdlr)
+std::shared_ptr<InvokeReq> OrderedExecutionManager::ConstructInokeReq(std::function<void()> &&hdlr, std::string reqId)
 {
-    return std::make_shared<InvokeReq>(InvokeReq{std::move(hdlr)});
+    return std::make_shared<InvokeReq>(InvokeReq{std::move(hdlr), reqId});
 }
 
 std::shared_ptr<Invoker> OrderedExecutionManager::ConstructInvoker()
 {
     return std::make_shared<Invoker>();
+}
+
+ErrorInfo OrderedExecutionManager::CancelInsFunction(const CancelReqInfo &cancalReqInfo)
+{
+    auto invokerId = cancalReqInfo.instanceId;
+    std::string reqId = cancalReqInfo.requestId;
+    if (invokerId.empty()) {
+        YRLOG_ERROR("empty invoker id of cancelReqInfo");
+        return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "empty instance id");
+    }
+    {
+        absl::MutexLock lock(&mu);
+        auto it = this->invokers.find(invokerId);
+        if (it == this->invokers.end()) {
+            YRLOG_ERROR("there is no request queue of invoker id: {}", invokerId);
+            return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "invalid instance id");
+        }
+    }
+    {
+        absl::MutexLock lock(&cancelMu);
+        this->cancelReqs[reqId] = true;
+    }
+    return ErrorInfo();
 }
 
 }  // namespace Libruntime

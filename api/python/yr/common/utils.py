@@ -22,6 +22,7 @@ import enum
 import gc
 import inspect
 import json
+import logging
 import os
 import re
 import sys
@@ -54,6 +55,7 @@ _SERIAL_NUM_INDEX = -1
 _REQUEST_ID_SPLIT_LEN = 10  # The request id length, split by "-"
 _JOB_ID_PREFIX = "job-"
 
+_logger = logging.getLogger(__name__)
 
 def create_new_event_loop():
     """
@@ -503,7 +505,7 @@ def get_environment_variable(variable_name: str, default_value: str = None) -> s
             return default_value
 
         raise RuntimeError(f"Environment variable {variable_name} is not set")
-    log.get_logger().debug("Succeed to get environment variable: %s, value: %s", variable_name, value)
+    _logger.debug("Succeed to get environment variable: %s, value: %s", variable_name, value)
     return value
 
 
@@ -691,7 +693,7 @@ def _parse_env_line(line: str, line_num: int, env_file_path: str):
         Tuple of (key, value) if parsing succeeds, None otherwise.
     """
     if '=' not in line:
-        log.get_logger().warning(
+        _logger.warning(
             f"Invalid format in {env_file_path} at line {line_num}: "
             f"expected KEY=VALUE format, got: {line}")
         return None
@@ -699,7 +701,7 @@ def _parse_env_line(line: str, line_num: int, env_file_path: str):
     # Split on first '=' to handle values that contain '='
     parts = line.split('=', 1)
     if len(parts) != 2:
-        log.get_logger().warning(
+        _logger.warning(
             f"Invalid format in {env_file_path} at line {line_num}: "
             f"expected KEY=VALUE format, got: {line}")
         return None
@@ -712,7 +714,7 @@ def _parse_env_line(line: str, line_num: int, env_file_path: str):
     
     # Skip if key is empty
     if not key:
-        log.get_logger().warning(
+        _logger.warning(
             f"Empty key in {env_file_path} at line {line_num}")
         return None
     
@@ -739,7 +741,7 @@ def load_env_from_file(env_file_path: str):
         return
 
     if not os.path.exists(env_file_path):
-        log.get_logger().warning(f"Environment variable file not found: {env_file_path}")
+        _logger.warning(f"Environment variable file not found: {env_file_path}")
         return
 
     loaded_count = 0
@@ -759,10 +761,10 @@ def load_env_from_file(env_file_path: str):
                 os.environ[key] = value
                 loaded_count += 1
     except Exception as e:
-        log.get_logger().error(
+        _logger.error(
             f"Failed to load environment variables from {env_file_path}: {e}")
         return
 
     if loaded_count > 0:
-        log.get_logger().debug(
+        _logger.debug(
             f"Loaded {loaded_count} environment variables from {env_file_path}")

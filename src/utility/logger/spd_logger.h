@@ -64,7 +64,7 @@ private:
     std::string modelName;
     yr_spdlog::level::level_enum logLevel;
     std::vector<yr_spdlog::sink_ptr> sinks;
-    std::atomic<int> logMergeType_{-1};  // -1: default value;0: not merge log;1: merge log
+    std::atomic<int> logMergeType_{0};  // 0: not merge log;1: merge log
     std::unordered_map<std::string, std::string> logPrefixMap_ ABSL_GUARDED_BY(mu_);
     absl::Mutex mu_;
     GetLoggerNameFunc getLoggerNameFunc = nullptr;

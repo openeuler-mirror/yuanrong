@@ -101,9 +101,9 @@ class Gauge(Metrics):
             ...         self.gauge = yr.Gauge(
             ...             name="test",
             ...             description="",
-            ...             unit="ms",
-            ...             labels=self.labels
+            ...             unit="ms"
             ...         )
+            ...         self.gauge.add_labels(self.labels)
             ...         self.gauge.set(50)
             ...         print("Initial labels:", self.labels)
             ...

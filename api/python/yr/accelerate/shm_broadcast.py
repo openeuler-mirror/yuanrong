@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import logging
 import threading
 import time
 import os
@@ -23,8 +24,9 @@ from contextlib import contextmanager, asynccontextmanager
 from typing import Optional
 from enum import IntEnum
 from dataclasses import dataclass
-from yr import log
 import yr
+
+_logger = logging.getLogger(__name__)
 
 STOP_EVENT = threading.Event()
 USE_SCHED_YIELD = ((sys.version_info[:3] >= (3, 11, 1))
@@ -189,7 +191,7 @@ class MessageQueue:
                     sched_yield()
                     if (time.monotonic() - start_time >
                             FCC_RINGBUFFER_WARNING_INTERVAL * n_warning):
-                        log.get_logger().debug(f"wait for a long time, log a message, n_warning: {n_warning}")
+                        _logger.debug(f"wait for a long time, log a message, n_warning: {n_warning}")
                         n_warning += 1
                     if (timeout is not None
                             and time.monotonic() - start_time > timeout):
@@ -230,7 +232,7 @@ class MessageQueue:
 
                     if (time.monotonic() - start_time >
                             FCC_RINGBUFFER_WARNING_INTERVAL * n_warning):
-                        log.get_logger().debug(f"wait for a long time, log a message, n_warning: {n_warning}")
+                        _logger.debug(f"wait for a long time, log a message, n_warning: {n_warning}")
                         n_warning += 1
 
                     continue
@@ -272,7 +274,7 @@ class MessageQueue:
 
                     if (time.monotonic() - start_time >
                             FCC_RINGBUFFER_WARNING_INTERVAL * n_warning):
-                        log.get_logger().debug(f"wait for a long time, log a message, n_warning: {n_warning}")
+                        _logger.debug(f"wait for a long time, log a message, n_warning: {n_warning}")
                         n_warning += 1
 
                     if (timeout is not None
@@ -311,7 +313,7 @@ class MessageQueue:
                 if written_flag and read_count != self.buffer.n_reader:
                     if (time.monotonic() - start_time >
                             FCC_RINGBUFFER_WARNING_INTERVAL * n_warning):
-                        log.get_logger().debug(f"wait for a long time, log a message, n_warning: {n_warning}")
+                        _logger.debug(f"wait for a long time, log a message, n_warning: {n_warning}")
                         n_warning += 1
                     if (timeout is not None
                             and time.monotonic() - start_time > timeout):

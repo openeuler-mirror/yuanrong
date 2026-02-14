@@ -19,18 +19,33 @@
 #include <string>
 
 namespace Function {
+/*!
+ * @class ObjectRef ObjectRef.h "include/faas/ObjectRef.h"
+ *  @brief The ObjectRef class.
+ */
 class ObjectRef {
 public:
+    // not exposed
     ObjectRef(std::string &futureId, std::string &instanceId)
         : objectRefId_(futureId), instanceId_(instanceId), isResultExist_(false)
     {
     }
 
+    // not exposed
     virtual ~ObjectRef() = default;
 
+    // not exposed
     const std::string GetObjectRefId() const;
+    // not exposed
     const std::string GetResult() const;
+    
+    /*!
+     * @brief Get the result of the objectRef.
+     * @return The result of the objectRef.
+     */
     const std::string Get();
+
+    // not exposed
     bool GetResultFlag() const;
 
 private:

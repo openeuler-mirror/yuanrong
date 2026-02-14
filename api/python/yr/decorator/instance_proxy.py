@@ -420,9 +420,14 @@ class InstanceProxy:
                 sig = signature.get_signature(value, ignore_first=not is_bound)
                 return_nums = value.__return_nums__ if hasattr(
                     value, "__return_nums__") else 1
+                tensor_transport_target = value.__tensor_transport_target__ if hasattr(
+                    value, "__tensor_transport_target__") else ""
+                enable_tensor_transport = value.__enable_tensor_transport__ if hasattr(
+                    value, "__enable_tensor_transport__") else False
                 method = MethodProxy(self, self.instance_id,
                                      self._method_descriptor.get(method_name),
-                                     sig, return_nums, function_id, is_async_, self._instance_name, self._ns)
+                                     sig, return_nums, function_id, is_async_, self._instance_name, self._ns,
+                                     tensor_transport_target, enable_tensor_transport)
                 setattr(self, method_name, method)
 
     def __getattr__(self, method_name):
@@ -466,6 +471,7 @@ class InstanceProxy:
             class_method = state[constants.CLASS_METHOD]
         function_name = state[constants.FUNC_NAME] if constants.FUNC_NAME in state else ""
         need_order = state[constants.NEED_ORDER] if constants.NEED_ORDER in state else False
+        is_async = state[constants.IS_ASYNC] if constants.IS_ASYNC in state else False
         save_real_instance_id(state[constants.INSTANCE_ID], need_order)
         return cls(instance_id=state[constants.INSTANCE_ID],
                    class_descriptor=utils.ObjectDescriptor(state[constants.MODULE_NAME], state[constants.CLASS_NAME],
@@ -473,7 +479,8 @@ class InstanceProxy:
                    class_methods=class_method,
                    base_cls=state[constants.BASE_CLS],
                    function_id="",
-                   need_order=need_order)
+                   need_order=need_order,
+                   is_async=is_async)
 
     def serialization_(self, is_cross_language: False):
         """
@@ -491,6 +498,7 @@ class InstanceProxy:
 
         info_[constants.NEED_ORDER] = self.need_order
         info_[constants.BASE_CLS] = self._base_cls
+        info_[constants.IS_ASYNC] = self._is_async
         self._class_descriptor.to_dict()
         state = {**info_, **self._class_descriptor.to_dict()}
         global_runtime.get_runtime().wait([self.instance_id], 1, -1)
@@ -595,7 +603,9 @@ class MethodProxy:
                  function_id="",
                  is_async=False,
                  instance_name="",
-                 namespace=""):
+                 namespace="",
+                 tensor_transport_target="",
+                 enable_tensor_transport=False):
         """
         Initialize the MethodProxy instance.
         """
@@ -608,6 +618,10 @@ class MethodProxy:
         self._is_async = is_async
         self._instance_name = instance_name
         self._ns = namespace
+        self._tensor_transport_target = None
+        self._enable_tensor_transport = False
+        self._tensor_transport_target = tensor_transport_target
+        self._enable_tensor_transport = enable_tensor_transport
         if return_nums < 0 or return_nums > 100:
             raise RuntimeError(f"invalid return_nums: {return_nums}, should be an integer between 0 and 100")
 
@@ -689,8 +703,9 @@ class MethodProxy:
                                  isGenerator=self._method_descriptor.is_generator,
                                  isAsync=self._is_async,
                                  name=self._instance_name,
-                                 ns=self._ns
-                                 )
+                                 ns=self._ns,
+                                 tensorTransportTarget=self._tensor_transport_target,
+                                 enableTensorTransport=self._enable_tensor_transport)
         runtime = global_runtime.get_runtime()
         return_nums = 1 if (self._return_nums == 0 or self._method_descriptor.is_generator) else self._return_nums
         obj_list = runtime.invoke_instance(func_meta=func_meta, instance_id=self._instance_id,
@@ -704,7 +719,7 @@ class MethodProxy:
             return None
         objref_list = []
         for i in obj_list:
-            objref_list.append(ObjectRef(i, need_incre=False))
+            objref_list.append(ObjectRef(i, need_incre=False, enable_tensor_transport=self._enable_tensor_transport))
 
         if self._method_descriptor.is_generator:
             return ObjectRefGenerator(objref_list[0])
@@ -891,3 +906,9 @@ class FunctionGroupHandler:
             for method_name, _ in self._class_methods.items():
                 method_proxy = getattr(self, method_name)
                 method_proxy.set_rpc_broadcast_mq(self.rpc_broadcast_mq)
+
+
+# Gradual migration: StatefulInstance and StatefulInstanceCreator are the new preferred names
+# InstanceProxy and InstanceCreator are kept for backward compatibility
+StatefulInstance = InstanceProxy
+StatefulInstanceCreator = InstanceCreator

@@ -39,40 +39,88 @@ ClientManager::ClientManager(const std::shared_ptr<LibruntimeConfig> &libruntime
     this->work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(
         boost::asio::make_work_guard(*ioc));
     this->maxIocThread = libruntimeConfig->httpIocThreadsNum;
+    // enableMTLS: Enable mutual TLS authentication (both client and server verify each other's certificates)
+    // false = one-way TLS (only verify server certificate), true = mutual TLS (client certificate required)
     this->enableMTLS = libruntimeConfig->enableMTLS;
+    // enableFrontendTLS: Enable TLS encryption for frontend connections
     this->enableFrontendTLS = libruntimeConfig->enableFrontendTLS;
     this->maxConnSize_ = libruntimeConfig->maxConnSize;
+    // enableTLS_: Enable TLS encryption for other connections
     this->enableTLS_ = libruntimeConfig->enableTLS;
 }
 
 ClientManager::~ClientManager()
 {
-    this->work->reset();
-    ioc->stop();
-    for (auto client : clients) {
-        client->Stop();
+    Stop();
+}
+
+void ClientManager::Stop()
+{
+    if (stopped_) {
+        return;
     }
-    for (uint32_t i = 0; i < asyncRunners.size(); i++) {
-        if (this->asyncRunners[i]->get_id() != std::this_thread::get_id()) {
-            this->asyncRunners[i]->join();
+    stopped_ = true;
+    try {
+        this->work->reset();
+        ioc->stop();
+        for (auto client : clients) {
+            client->Stop();
         }
+        for (uint32_t i = 0; i < asyncRunners.size(); i++) {
+            if (this->asyncRunners[i]->get_id() != std::this_thread::get_id()) {
+                this->asyncRunners[i]->join();
+            }
+        }
+    } catch (const std::exception &e) {
+        YRLOG_ERROR("caught exception when stop client manager: {}", e.what());
+    } catch (...) {
+        YRLOG_ERROR("caught unknown exception when stop client manager");
     }
 }
 
 ErrorInfo ClientManager::InitCtxAndIocThread()
 {
     ErrorInfo err;
+    // Configure TLS for frontend connections
     if (enableFrontendTLS) {
         try {
+            // Create TLSv1.2 client SSL context
             auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
+            // Disable insecure SSL/TLS versions (SSLv2, SSLv3, TLSv1.0, TLSv1.1)
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                              ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+            
+            // Configure server certificate verification (required for both one-way and mutual TLS)
             ctx->set_verify_mode(ssl::verify_peer);
+            // verifyFilePath: CA certificate file path for verifying server certificate
             if (librtCfg->verifyFilePath.empty()) {
-                ctx->set_default_verify_paths();
+                ctx->set_default_verify_paths();  // Use system default CA certificate paths
             } else {
-                ctx->load_verify_file(librtCfg->verifyFilePath);
+                ctx->load_verify_file(librtCfg->verifyFilePath);  // Use custom CA certificate
             }
+            
+            // Load client certificate for mutual TLS authentication based on enableMTLS config
+            if (enableMTLS) {
+                // certificateFilePath: Client certificate file path (PEM format)
+                // privateKeyPath: Client private key file path (PEM format)
+                if (!librtCfg->certificateFilePath.empty() && !librtCfg->privateKeyPath.empty()) {
+                    ctx->use_certificate_chain_file(librtCfg->certificateFilePath);  // Load client certificate chain
+                    // privateKeyPaaswd: Password for private key file (if encrypted)
+                    if (librtCfg->privateKeyPaaswd[0] != '\0') {
+                        ctx->set_password_callback(
+                            [this](std::size_t, ssl::context::password_purpose) {
+                                return std::string(this->librtCfg->privateKeyPaaswd);
+                            });
+                    }
+                    ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);  // Load client private key
+                    YRLOG_INFO("Mutual TLS enabled: loaded client certificate and private key");
+                } else {
+                    YRLOG_WARN("Mutual TLS enabled but client certificate or private key path is empty");
+                }
+            } else {
+                YRLOG_INFO("One-way TLS enabled: only verifying server certificate");
+            }
+            
             for (uint32_t i = 0; i < maxConnSize_; i++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx, librtCfg->serverName));
             }
@@ -87,19 +135,45 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
             return err;
         }
     } else if (enableTLS_) {
+        // Configure TLS for non-frontend connections (same configuration logic as frontend)
         auto ctx = std::make_shared<ssl::context>(ssl::context::tlsv12_client);
+        // Disable insecure SSL/TLS versions
         ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                          ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
+        
+        // Configure server certificate verification
         if (librtCfg->verifyFilePath.empty()) {
-            ctx->set_default_verify_paths();
+            ctx->set_default_verify_paths();  // Use system default CA certificate paths
         } else {
-            ctx->load_verify_file(librtCfg->verifyFilePath);
+            ctx->load_verify_file(librtCfg->verifyFilePath);  // Use custom CA certificate
         }
         ctx->set_verify_mode(ssl::verify_peer);
+        
+        // Load client certificate for mutual TLS authentication based on enableMTLS config
+        if (enableMTLS) {
+                if (!librtCfg->certificateFilePath.empty() && !librtCfg->privateKeyPath.empty()) {
+                ctx->use_certificate_chain_file(librtCfg->certificateFilePath);  // Load client certificate chain
+                // Set password callback if private key file is password-protected
+                if (librtCfg->privateKeyPaaswd[0] != '\0') {
+                    ctx->set_password_callback(
+                        [this](std::size_t, ssl::context::password_purpose) {
+                            return std::string(this->librtCfg->privateKeyPaaswd);
+                        });
+                }
+                ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);  // Load client private key
+                YRLOG_INFO("Mutual TLS enabled: loaded client certificate and private key");
+            } else {
+                YRLOG_WARN("Mutual TLS enabled but client certificate or private key path is empty");
+            }
+        } else {
+            YRLOG_INFO("One-way TLS enabled: only verifying server certificate");
+        }
+        
         for (uint32_t i = 0; i < maxConnSize_; i++) {
             this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx, librtCfg->serverName));
         }
     } else {
+        // No TLS encryption, create plain HTTP clients
         for (uint32_t i = 0; i < maxConnSize_; i++) {
             this->clients.emplace_back(std::make_shared<AsyncHttpClient>(this->ioc));
         }
@@ -165,14 +239,14 @@ bool ClientManager::SubmitRequest(const http::verb &method, const std::string &t
         if (!this->clients[i]->SetUnavailable()) {
             continue;
         }
-        YRLOG_DEBUG("httpclient {} is available, will use this client", i);
+        YRLOG_DEBUG("httpclient {} is available, will use this client. requestId: {}", i, *requestId);
         // while the connection idletime exceed setup timeout, the server may close the connection
         // in this situation, client should try to reconnect
         if (!this->clients[i]->IsConnActive()) {
-            YRLOG_DEBUG("httpclient {} is not active, reinit now", i);
-            auto err = this->clients[i]->ReInit();
+            YRLOG_DEBUG("httpclient {} is not active, reinit now. requestId: {}", i, *requestId);
+            auto err = this->clients[i]->ReInit(requestId);
             if (!err.OK()) {
-                YRLOG_DEBUG("httpclient {} is reInit failed, err: {}", i, err.CodeAndMsg());
+                YRLOG_DEBUG("httpclient {} is reInit failed, requestId:{} err: {}", i, *requestId, err.CodeAndMsg());
                 receiver(err.CodeAndMsg(), boost::asio::error::make_error_code(boost::asio::error::connection_reset),
                          HTTP_CONNECTION_ERROR_CODE);
                 this->clients[i]->SetAvailable();

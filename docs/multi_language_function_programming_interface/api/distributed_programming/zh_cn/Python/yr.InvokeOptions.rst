@@ -78,6 +78,8 @@ yr.InvokeOptions
          - 在 FaaS 跨函数调用中，当通过指定的别名调用函数且该别名为规则别名时，此参数用于设置规则别名所依赖的 kv 参数。
        * - :ref:`runtime_env <runtime_env_IO>`
          - 使用 conda、pip、working_dir 和 env_vars 配置 actor/task 的运行时环境。
+       * - :ref:`is_data_affinity <is_data_affinity>`
+         - 实例是否开启数据亲和。
 
     **方法**：
 
@@ -121,4 +123,5 @@ yr.InvokeOptions
     yr.InvokeOptions.runtime_env
     yr.InvokeOptions.__init__ 
     yr.InvokeOptions.check_options_valid
+    yr.InvokeOptions.is_data_affinity
     

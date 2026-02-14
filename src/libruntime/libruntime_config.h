@@ -267,6 +267,7 @@ struct LibruntimeConfig {
     std::string nodeId;
     std::string nodeIp;
     std::string envFile = "";  // Path to environment variable file (.env format: KEY=VALUE, one per line)
+    bool enableEvent = false;
     std::string authToken = "";
 
 private:

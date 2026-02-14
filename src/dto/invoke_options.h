@@ -75,7 +75,7 @@ struct FaasInvokeData {
           functionName(funcName),
           aliAs(inputAliAs),
           traceId(inputTraceId),
-          submitTime(inputSubmitTime){};
+          submitTime(inputSubmitTime) {};
     std::string businessId;
     std::string tenantId;
     std::string srcAppId;
@@ -156,6 +156,8 @@ struct InvokeOptions {
 
     bool trafficLimited;
 
+    bool forceInvoke = false;
+
     InstanceRange instanceRange;
 
     ResourceGroupOptions resourceGroupOpts;
@@ -165,6 +167,8 @@ struct InvokeOptions {
     std::unordered_map<std::string, std::string> envVars;
 
     bool isGetInstance = false;
+
+    bool isDeleteRemoteTensor = false;
 
     std::unordered_map<std::string, std::string> invokeLabels;
 
@@ -194,7 +198,10 @@ struct FunctionMeta {
     bool isAsync = false;
     bool isGenerator = false;
     bool needOrder = false;
+    std::string tensorTransportTarget = "";
+    bool enableTensorTransport = false;
     std::vector<char> code;
+    
     bool IsServiceApiType()
     {
         return (apiType == libruntime::ApiType::Faas or apiType == libruntime::ApiType::Serve);
@@ -255,5 +262,24 @@ struct Credential {
     std::string sk;
     std::string dk;
 };
+
+struct OwnerSchedulerInfo {
+    std::string schedulerInstanceID;
+    int retryTimes = 0;
+    int maxRetryTimes = 3; // 单个scheduler实例重试3次
+    int currentRetryTimeSpent = 0;
+    int maxRetryTimeSpent = 5000; // Owner节点总重试时间最大5s
+};
 }  // namespace Libruntime
 }  // namespace YR
+
+namespace std {
+template <>
+class hash<YR::Libruntime::ResourceGroupOptions> {
+public:
+    size_t operator()(const YR::Libruntime::ResourceGroupOptions &d) const
+    {
+        return std::hash<std::string>()(d.resourceGroupName) ^ std::hash<int>()(d.bundleIndex);
+    }
+};
+}  // namespace std

@@ -35,14 +35,14 @@ import (
 	"yuanrong.org/kernel/pkg/common/faas_common/logger/log"
 )
 
-func TestMockDial(t *testing.T) {
-	Convey("Given a mock dial function", t, func() {
-		patches := gomonkey.ApplyFunc(grpc.Dial, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-			return nil, errors.New("dial failed")
+func TestMockNewClient(t *testing.T) {
+	Convey("Given a mock NewClient function", t, func() {
+		patches := gomonkey.ApplyFunc(grpc.NewClient, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+			return nil, errors.New("NewClient failed")
 		})
 		defer patches.Reset()
 
-		_, err := grpc.Dial("127.0.0.1:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+		_, err := grpc.NewClient("127.0.0.1:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		So(err, ShouldNotBeNil)
 	})
 }
@@ -57,8 +57,8 @@ func TestCollectorClient_Connect(t *testing.T) {
 		}
 
 		Convey("When connecting to the collector successfully", func() {
-			// 模拟 grpc.Dial 成功
-			patches := gomonkey.ApplyFunc(grpc.Dial, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+			// 模拟 grpc.NewClient 成功
+			patches := gomonkey.ApplyFunc(grpc.NewClient, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 				return &grpc.ClientConn{}, nil
 			})
 			defer patches.Reset()
@@ -73,9 +73,9 @@ func TestCollectorClient_Connect(t *testing.T) {
 		})
 
 		Convey("When connecting to the collector fails", func() {
-			// 模拟 grpc.Dial 失败
-			patches := gomonkey.ApplyFunc(grpc.Dial, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-				return nil, errors.New("dial failed")
+			// 模拟 grpc.NewClient 失败
+			patches := gomonkey.ApplyFunc(grpc.NewClient, func(target string, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
+				return nil, errors.New("NewClient failed")
 			})
 			defer patches.Reset()
 			err := client.Connect()

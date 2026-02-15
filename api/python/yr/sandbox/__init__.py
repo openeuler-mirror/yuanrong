@@ -16,6 +16,17 @@
 
 """Sandbox module for isolated code execution."""
 
-from yr.sandbox.sandbox import SandBox, SandBoxInstance, create
+import importlib
 
-__all__ = ['SandBox', 'SandBoxInstance', 'create']
+__all__ = ["SandBox", "SandBoxInstance", "create"]
+
+
+def __getattr__(name):
+	if name in __all__:
+		module = importlib.import_module("yr.sandbox.sandbox")
+		return getattr(module, name)
+	raise AttributeError(f"module 'yr.sandbox' has no attribute '{name}'")
+
+
+def __dir__():
+	return sorted(list(globals().keys()) + __all__)

@@ -1234,8 +1234,9 @@ void InvokeAdaptor::CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, cons
     } else {
         bool isConsumeRetryTime = false;
         if (!NeedRetry(static_cast<ErrorCode>(resp.code()), spec, isConsumeRetryTime)) {
-            YRLOG_ERROR("create instance failed, start set error, req id is {}, instance id is {}, code is {}, msg is {}",
-                        spec->requestId, instanceId, resp.code(), resp.message());
+            YRLOG_ERROR(
+                "create instance failed, start set error, req id is {}, instance id is {}, code is {}, msg is {}",
+                spec->requestId, instanceId, resp.code(), resp.message());
             memStore->SetInstanceId(spec->returnIds[0].id, instanceId);
             ProcessErr(spec, ErrorInfo(static_cast<ErrorCode>(resp.code()), ModuleCode::CORE, resp.message(), true));
         } else {
@@ -1499,7 +1500,7 @@ ErrorInfo InvokeAdaptor::CancelInstanceFunction(std::shared_ptr<InvokeSpec> spec
     ErrorInfo cancelErr(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                         "invalid get obj, the obj has been cancelled.");
     memStore->SetError(objId, cancelErr);
-    return  ErrorInfo();
+    return ErrorInfo();
 }
 
 ErrorInfo InvokeAdaptor::HandleInsFuncCancel(const CancelReqInfo &cancelReqInfo)
@@ -1994,7 +1995,12 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
                                                                               const std::string &nameSpace,
                                                                               int timeoutSec)
 {
-    auto insId = nameSpace.empty() ? this->librtConfig->ns + "-" + name : nameSpace + "-" + name;
+    auto insId = name;
+    if (!nameSpace.empty()) {
+        insId = nameSpace + "-" + name;
+    } else if (!this->librtConfig->ns.empty()) {
+        insId = this->librtConfig->ns + "-" + name;
+    }
     YRLOG_DEBUG("start get instance, instance id is {}", insId);
     if (insId == this->librtConfig->GetInstanceId()) {
         return std::make_pair(

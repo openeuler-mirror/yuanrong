@@ -16,10 +16,12 @@
 
 """Sandbox implementation for isolated code execution."""
 
+import argparse
 import subprocess
 import tempfile
 import os
 from typing import Optional, Dict, Any
+import uuid
 
 import yr
 
@@ -265,3 +267,35 @@ class SandBox:
         except Exception as e:
             # Silently catch exceptions during cleanup to avoid errors in destructor
             pass
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Create a detached sandbox instance"
+    )
+    parser.add_argument(
+        "--name", type=str, default=None, help="Name of the sandbox instance"
+    )
+    args = parser.parse_args()
+
+    yr.init()
+    try:
+        opt = yr.InvokeOptions()
+        opt.custom_extensions["lifecycle"] = "detached"
+        opt.name = args.name
+        opt.namespace = "detached.sandbox"
+        if not opt.name:
+            opt.name = str(uuid.uuid4())
+
+        sandbox = SandBoxInstance.options(opt).invoke()
+        try:
+            workdir = yr.get(sandbox.get_working_dir.invoke())
+            print(f"sandbox created, name={opt.name}, working_dir={workdir}")
+        except Exception:
+            print(f"sandbox create failed, name={opt.name}")
+    finally:
+        yr.finalize()
+
+
+if __name__ == "__main__":
+    main()

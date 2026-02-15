@@ -1833,3 +1833,15 @@ def list_named_instances(all_namespaces: bool = False):
         return [{"name": part.split("-")[1], "namespace": part.split("-")[0]} for part in all_actors]
     ns = get_namespace()
     return [part.split("-")[1] for part in all_actors if part.split("-")[0] == ns]
+
+
+@check_initialized
+def kill_instance(instance_id):
+    """
+    Kill instance by instance id.
+
+    Args:
+        instance_id: The id of the instance to be killed.
+    """
+
+    runtime_holder.global_runtime.get_runtime().terminate_instance_sync(instance_id)

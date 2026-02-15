@@ -59,7 +59,7 @@ from yr.apis import (  # noqa: E402
     query_global_producers_num, query_global_consumers_num, save_state, load_state,
     cpp_function, java_function, go_function, cpp_instance_class, java_instance_class,
     go_instance_class, resources, create_resource_group, remove_resource_group, get_node_ip_address,
-    list_named_instances
+    list_named_instances, kill_instance
 )
 
 from yr.fcc import (  # noqa: E402
@@ -106,5 +106,5 @@ __all__ = [
     "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
     "FunctionProxy", "InstanceCreator", "InstanceProxy", "MethodProxy", "FunctionGroupHandler",
     "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances", "Group",  "GroupOptions",
-    "sandbox",
+    "sandbox", "kill_instance"
 ]

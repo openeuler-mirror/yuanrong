@@ -26,6 +26,7 @@ import logging
 import requests
 from requests.exceptions import RequestException
 from typing import Any, Dict, Optional
+import traceback
 
 import yr
 from yr.cli.exec import run_client
@@ -218,12 +219,12 @@ class HTTPClient:
             )
 
         try:
-            result = response.json() if response.content else {}
+            try:
+                result = response.json() if response.content else {}
+            except ValueError:
+                result =  response.content
 
-            logging.debug(f"response status: {response.status_code}")
-            logging.debug(
-                f"response data: {json.dumps(result, indent=2, ensure_ascii=False)}"
-            )
+            logging.debug(f"response: {response.headers}\n{json.dumps(result, indent=2, ensure_ascii=False)}")
 
             return {
                 "success": response.status_code == 200,
@@ -235,6 +236,7 @@ class HTTPClient:
 
         except RequestException as e:
             logging.debug(f"HTTP failed: {str(e)}")
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e),
@@ -531,7 +533,7 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         return False, resp
 
 
-@click.group(context_settings=dict(help_option_names=['-h', '--help']))
+@click.group(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.option(
     "--server-address",
     required=False,
@@ -645,11 +647,11 @@ def cli(
 
 
 @cli.command()
-@click.argument('command_name', required=False)
+@click.argument("command_name", required=False)
 @click.pass_context
 def help(ctx, command_name):
     """Show help for commands
-    
+
     Examples:
         yrcli help               # Show general help
         yrcli help deploy        # Show help for deploy command
@@ -771,11 +773,25 @@ def publish(function_name, version):
 
 
 @cli.command()
-@click.option("-f", "--function-name", required=False, type=str, default=None, help="Function name to query")
-@click.option("-i", "--instance-id", required=False, type=str, default=None, help="Instance ID to query")
+@click.option(
+    "-f",
+    "--function-name",
+    required=False,
+    type=str,
+    default=None,
+    help="Function name to query",
+)
+@click.option(
+    "-i",
+    "--instance-id",
+    required=False,
+    type=str,
+    default=None,
+    help="Instance ID to query",
+)
 def query(function_name, instance_id):
     """Query function or instance details
-    
+
     Examples:
         yrcli query -f myservice@myfunction:latest       # Query function
         yrcli query -i db6126e0-0000-4000-8000-00faf8d1692b  # Query instance
@@ -783,11 +799,11 @@ def query(function_name, instance_id):
     if function_name and instance_id:
         print("Error: Cannot specify both function-name and instance-id")
         sys.exit(1)
-    
+
     if not function_name and not instance_id:
         print("Error: Must specify either --function-name or --instance-id")
         sys.exit(1)
-    
+
     if function_name:
         # Query function
         function_name = FunctionName(function_name)
@@ -796,7 +812,7 @@ def query(function_name, instance_id):
             print(json.dumps(resp, indent=2, ensure_ascii=False))
         else:
             print(f"function not found: {function_name}")
-    
+
     if instance_id:
         # Query instance
         ret, resp = query_instance(instance_id, __user)
@@ -1248,7 +1264,7 @@ def runtime_main():
 )
 def token_auth(token, iam_address):
     """Authenticate/verify a JWT token
-    
+
     Example:
         yrcli token-auth --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
     """
@@ -1256,16 +1272,18 @@ def token_auth(token, iam_address):
     url = f"http://{iam_address}/iam-server/v1/token/auth"
     headers = {"X-Auth": token}
     resp = http_client.request(url, {}, headers=headers, method="GET")
-    
+
     if resp["success"]:
-        print(json.dumps(resp["data"], indent=2, ensure_ascii=False))
+        print("Token is valid. Authentication successful.")
     else:
         print(f"Token authentication failed: {resp.get('error', 'Unknown error')}")
         sys.exit(1)
 
 
 @cli.command("token-require")
-@click.option("--tenant-id", required=False, type=str, help="Tenant ID for token generation")
+@click.option(
+    "--tenant-id", required=False, type=str, help="Tenant ID for token generation"
+)
 @click.option("--ttl", required=False, type=int, help="Token time-to-live in seconds")
 @click.option("--role", required=False, type=str, help="Role for the token")
 @click.option(
@@ -1277,7 +1295,7 @@ def token_auth(token, iam_address):
 )
 def token_require(tenant_id, ttl, role, iam_address):
     """Request/generate a new JWT token
-    
+
     Example:
         yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id tenant_789 --role viewer
         yrcli token-require --iam-address 127.0.0.1:31112 --tenant-id user --ttl 3600 --role admin
@@ -1291,14 +1309,13 @@ def token_require(tenant_id, ttl, role, iam_address):
         headers["X-TTL"] = str(ttl)
     if role:
         headers["X-Role"] = role
-    
+
     resp = http_client.request(url, {}, headers=headers, method="GET")
-    
+
     if resp["success"]:
-        print(json.dumps(resp["data"], indent=2, ensure_ascii=False))
         # Print token separately for easy copy
-        if "token" in resp["data"]:
-            print(f"\nToken: {resp['data']['token']}")
+        if "X-Auth" in resp["headers"]:
+            print(f"Token: {resp['headers']['X-Auth']}")
     else:
         print(f"Token generation failed: {resp.get('error', 'Unknown error')}")
         sys.exit(1)
@@ -1316,7 +1333,7 @@ def token_require(tenant_id, ttl, role, iam_address):
 )
 def token_abandon(token, tenant_id, iam_address):
     """Abandon/revoke a JWT token
-    
+
     Example:
         yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
         yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." --tenant-id user
@@ -1326,12 +1343,11 @@ def token_abandon(token, tenant_id, iam_address):
     headers = {"X-Auth": token}
     if tenant_id:
         headers["X-Tenant-ID"] = tenant_id
-    
+
     resp = http_client.request(url, {}, headers=headers, method="POST")
-    
+
     if resp["success"]:
         print("Token successfully abandoned/revoked")
-        print(json.dumps(resp["data"], indent=2, ensure_ascii=False))
     else:
         print(f"Token abandonment failed: {resp.get('error', 'Unknown error')}")
         sys.exit(1)

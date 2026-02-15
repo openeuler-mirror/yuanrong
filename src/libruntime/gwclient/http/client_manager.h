@@ -54,7 +54,6 @@ private:
     std::shared_ptr<LibruntimeConfig> librtCfg;
     uint32_t maxIocThread;
     bool enableMTLS;
-    bool enableFrontendTLS;
     bool enableTLS_{false};
     uint32_t maxConnSize_;
     bool stopped_{false};

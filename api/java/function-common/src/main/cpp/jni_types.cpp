@@ -786,7 +786,7 @@ YR::Libruntime::LibruntimeConfig JNILibRuntimeConfig::FromJava(JNIEnv *env, cons
     libConfig.tenantId = JNIString::FromJava(env, static_cast<jstring>(env->CallObjectMethod(meta, jGetTenantId_)));
     libConfig.enableMTLS = static_cast<bool>(env->CallBooleanMethod(meta, jmIsEnableMTLS_));
     libConfig.encryptEnable = static_cast<bool>(env->CallBooleanMethod(meta, jmIsEnableDsEncrypt_));
-    libConfig.enableFrontendTLS = static_cast<bool>(env->CallBooleanMethod(meta, jmIsEnableFrontendTLS_));
+    libConfig.enableTLS = static_cast<bool>(env->CallBooleanMethod(meta, jmIsEnableFrontendTLS_));
     libConfig.dsPublicKeyPath =
         JNIString::FromJava(env, static_cast<jstring>(env->CallObjectMethod(meta, jmGetDsPublicKeyContextPath_)));
     libConfig.runtimePublicKeyPath =

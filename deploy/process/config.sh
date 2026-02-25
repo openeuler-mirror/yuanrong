@@ -34,7 +34,7 @@ labels:,control_plane_port_min:,control_plane_port_max:,data_plane_port_min:,dat
 ds_worker_unique_enable,log_level:,\
 enable_distributed_master,\
 log_root:,fs_log_path:,fs_log_level:,fs_log_compress_enable:,fs_log_rolling_max_size:,fs_log_rolling_max_files:,fs_log_rolling_retention_days:,\
-fs_log_async_log_buf_secs:,fs_log_async_log_max_queue_size:,fs_log_async_log_thread_count:,fs_also_log_to_stderr:,\
+fs_log_async_log_buf_secs:,fs_log_async_log_max_queue_size:,fs_log_async_log_thread_count:,fs_also_log_to_stderr:,log_use_utc_time:,\
 runtime_log_level:,runtime_log_path:,runtime_log_rolling_max_size:,runtime_log_rolling_max_files:,runtime_default_config:,etcd_log_path:,\
 runtime_std_rolling_enable:,\
 ds_log_level:,ds_log_path:,ds_log_rolling_max_size:,ds_log_rolling_max_files:,\
@@ -84,7 +84,7 @@ help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
 \"rolling\": {\"maxsize\": {{logRollingMaxSize}},\"maxfiles\": {{logRollingMaxFiles}},\"retentionDays\": {{logRollingRetentionDays}}}, \
 \"async\": {\"logBufSecs\": {{logAsyncBufSecs}},\"maxQueueSize\": {{logAsyncMaxQueueSize}},\"threadCount\": {{logAsyncThreadCount}}}, \
-\"alsologtostderr\": {{logAlsologtostderr}}}"
+\"alsologtostderr\": {{logAlsologtostderr}}, \"useUtcTime\": {{logUseUtcTime}}}"
 FAAS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\"}"
 LOG_ROTATE_CONFIG="{{logConfigPath}}/runtime-*.out {{logConfigPath}}/runtime-*.err {
     size {{logRollingMaxSize}}M
@@ -159,6 +159,7 @@ FS_LOG_ASYNC_LOG_MAX_QUEUE_SIZE=51200
 FS_LOG_ASYNC_LOG_THREAD_COUNT=1
 FS_ALSO_LOG_TO_STDERR=false
 FS_LOG_ROLLING_RETENTION_DAYS=30
+YR_LOG_USE_UTC_TIME=false
 RUNTIME_LOG_PATH=""
 RUNTIME_LOG_LEVEL="INFO"
 RUNTIME_LOG_ROLLING_MAX_SIZE=40
@@ -424,6 +425,7 @@ function usage() {
   echo -e "     --fs_log_async_log_max_queue_size                   async log max queue size (default 51200)"
   echo -e "     --fs_log_async_log_thread_count                     async log thread count (default 1)"
   echo -e "     --fs_also_log_to_stderr                             log to stderr for function system(default false)"
+  echo -e "     --log_use_utc_time                                  use UTC time for log, options: true/false (default false)"
   echo -e "     --runtime_log_path                                  log subdirectory for runtime"
   echo -e "     --runtime_log_level                                 runtime log level"
   echo -e "     --runtime_log_rolling_max_size                      rolling log max size for runtime, unit: MB (default 40)"
@@ -653,6 +655,7 @@ function parse_opt() {
     --fs_log_async_log_max_queue_size) FS_LOG_ASYNC_LOG_MAX_QUEUE_SIZE=$2 && shift 2 ;;
     --fs_log_async_log_thread_count) FS_LOG_ASYNC_LOG_THREAD_COUNT=$2 && shift 2 ;;
     --fs_also_log_to_stderr) FS_ALSO_LOG_TO_STDERR=$2 && shift 2 ;;
+    --log_use_utc_time) YR_LOG_USE_UTC_TIME=$2 && shift 2 ;;
     --runtime_log_level) RUNTIME_LOG_LEVEL=$2 && shift 2 ;;
     --runtime_log_path) RUNTIME_LOG_PATH=$2 && shift 2 ;;
     --runtime_log_rolling_max_size) RUNTIME_LOG_ROLLING_MAX_SIZE=$2 && shift 2 ;;
@@ -1342,6 +1345,7 @@ function process_log_config() {
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logAsyncMaxQueueSize\}\}/$FS_LOG_ASYNC_LOG_MAX_QUEUE_SIZE}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logAsyncThreadCount\}\}/$FS_LOG_ASYNC_LOG_THREAD_COUNT}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logAlsologtostderr\}\}/$FS_ALSO_LOG_TO_STDERR}"
+  FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logUseUtcTime\}\}/$YR_LOG_USE_UTC_TIME}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logConfigPath\}\}/$FS_LOG_PATH}"
   log_info "function system log config: ${FS_LOG_CONFIG}"
 
@@ -1561,6 +1565,8 @@ function export_config() {
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
   # log expiration
   export LOG_EXPIRATION_ENABLE LOG_EXPIRATION_CLEANUP_INTERVAL LOG_EXPIRATION_TIME_THRESHOLD LOG_EXPIRATION_MAX_FILE_COUNT
+  # log UTC time configuration for yuanrong runtime
+  export YR_LOG_USE_UTC_TIME
 }
 
 function main() {

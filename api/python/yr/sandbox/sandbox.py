@@ -292,6 +292,7 @@ def main():
         help="Namespace for the sandbox instance",
     )
     args = parser.parse_args()
+    os.environ.pop("YR_WORKING_DIR", None)
 
     cfg = yr.Config()
     cfg.in_cluster = True
@@ -300,9 +301,12 @@ def main():
         opt = yr.InvokeOptions()
         opt.custom_extensions["lifecycle"] = "detached"
         opt.idle_timeout = 60 * 60 * 24 * 7
+        opt.cpu = 1000
+        opt.memory = 2048
         opt.name = args.name
         opt.namespace = args.namespace
         if not opt.name:
+            import uuid
             opt.name = str(uuid.uuid4())
 
         sandbox = SandBoxInstance.options(opt).invoke()

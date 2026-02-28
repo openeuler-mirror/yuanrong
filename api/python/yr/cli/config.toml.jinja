@@ -16,9 +16,6 @@ meta_service = false
 function_scheduler = false
 
 [mode.agent]
-etcd = false
-ds_master = false
-function_master = false
 ds_worker = true
 function_proxy = true
 function_agent = true
@@ -251,7 +248,7 @@ LD_PRELOAD = "" # for jemalloc use
 
 [function_master.args]
 ip = "{{ values.function_master.ip }}:{{ values.function_master.global_scheduler_port }}"
-{% if values.meta_store.enable and values.meta_store.mode != "passthrough" %}
+{% if values.meta_store.enable and values.meta_store.mode == "local" %}
 meta_store_address = "{{ values.function_master.ip }}:{{ values.function_master.global_scheduler_port }}"
 {% else %}
 meta_store_address = "{{ etcd_cluster }}"
@@ -273,9 +270,9 @@ schedule_plugins = '''{{ values.fs.schedule_plugins }}'''
 schedule_relaxed = -1
 max_priority = 0
 enable_preemption = false
-enable_meta_store = false
+enable_meta_store = {{ 'true' if values.meta_store.enable else 'false' }}
 enable_persistence = false
-meta_store_mode = "local"
+meta_store_mode = "{{ values.meta_store.mode }}"
 meta_store_excluded_keys = ","
 election_mode = "{{ 'etcd' if values.etcd.enable_multi_master else 'standalone' }}"
 services_path = "{{ values.yr_package_path }}/cli/services.yaml"
@@ -309,7 +306,7 @@ LD_PRELOAD = "" # for jemalloc use
 
 [function_proxy.args]
 ip = "{{ values.function_proxy.ip }}"
-{% if values.meta_store.enable and values.meta_store.mode != "passthrough" %}
+{% if values.meta_store.enable %}
 meta_store_address = "{{ values.function_master.ip }}:{{ values.function_master.global_scheduler_port }}"
 {% else %}
 meta_store_address = "{{ etcd_cluster }}"
@@ -330,8 +327,8 @@ schedule_plugins = '''{{ values.fs.schedule_plugins }}'''
 schedule_relaxed = -1
 max_priority = 0
 enable_preemption = false
-enable_meta_store = false
-meta_store_mode = "local"
+enable_meta_store = {{ 'true' if values.meta_store.enable else 'false' }}
+meta_store_mode = "{{ values.meta_store.mode }}"
 meta_store_excluded_keys = ","
 election_mode = "{{ 'etcd' if values.etcd.enable_multi_master else 'standalone' }}"
 ssl_enable = "{{ 'true' if values.fs.tls.enable else 'false' }}"

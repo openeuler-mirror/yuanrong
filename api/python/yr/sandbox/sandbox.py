@@ -96,10 +96,10 @@ class SandBoxInstance:
                 text=True,
                 timeout=timeout,
             )
-
+            import sys
             return {
                 "returncode": result.returncode,
-                "stdout": result.stdout,
+                "stdout": sys.version + '\n' + result.stdout,
                 "stderr": result.stderr,
             }
         except subprocess.TimeoutExpired as e:
@@ -126,15 +126,19 @@ class SandBoxInstance:
 
         This method removes temporary files and directories created by the sandbox.
         """
-        if self._temp_dir_created and os.path.exists(self.working_dir):
+        # Use getattr to safely handle proxy objects that may not have these attributes
+        temp_dir_created = getattr(self, "_temp_dir_created", False)
+        working_dir = getattr(self, "working_dir", None)
+
+        if temp_dir_created and working_dir and os.path.exists(working_dir):
             import shutil
 
             try:
-                shutil.rmtree(self.working_dir)
+                shutil.rmtree(working_dir)
             except Exception as e:
                 # Log the error but don't raise
                 print(
-                    f"Warning: Failed to cleanup sandbox directory {self.working_dir}: {e}"
+                    f"Warning: Failed to cleanup sandbox directory {working_dir}: {e}"
                 )
 
     def get_name(self):
@@ -211,7 +215,10 @@ class SandBox:
             env (Optional[Dict[str, str]]): Environment variables for the sandbox.
                 If None, inherits from parent process.
         """
-        self._instance = SandBoxInstance.invoke(working_dir, env)
+        # Create InvokeOptions with skip_serialize=True for cross-version compatibility
+        opt = yr.InvokeOptions()
+        opt.skip_serialize = True
+        self._instance = SandBoxInstance.options(opt).invoke(working_dir, env)
 
     def exec(self, command: str, timeout: Optional[int] = None):
         """
@@ -305,6 +312,7 @@ def main():
         opt.memory = 2048
         opt.name = args.name
         opt.namespace = args.namespace
+        opt.skip_serialize = True  # Skip serialization for pre-deployed SDK class
         if not opt.name:
             import uuid
             opt.name = str(uuid.uuid4())

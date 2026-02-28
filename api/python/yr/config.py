@@ -601,6 +601,12 @@ class InvokeOptions:
 
     is_delete_remote_tensor: bool = False
 
+    #: Whether to skip serializing the instance class code.
+    #: Set to ``True`` for pre-deployed classes (e.g., SDK built-in classes)
+    #: to avoid cross-version serialization issues.
+    #: Default: ``False``.
+    skip_serialize: bool = False
+
     def check_options_valid(self):
         """
         Check whether the options are valid.

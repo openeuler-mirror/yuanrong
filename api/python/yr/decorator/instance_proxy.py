@@ -99,6 +99,9 @@ class InstanceCreator:
         DerivedInstanceCreator.__qualname__ = name
         self = DerivedInstanceCreator.__new__(DerivedInstanceCreator)
         self.__user_class__ = user_class
+        # Save original class info for skip_serialize mode (after self is assigned)
+        self.__original_class_name__ = user_class.__name__
+        self.__original_qualname__ = user_class.__qualname__
         if invoke_options is not None:
             self.__invoke_options__ = invoke_options
         else:
@@ -226,9 +229,14 @@ class InstanceCreator:
         return self._invoke(name=name, args=args, kwargs=kwargs)
 
     def _inner_create_instance(self, invoke_options, function_id, name, args_list, group_info):
+        # For skip_serialize mode, use original class name instead of YRInstance(...) wrapper name
+        class_name = self.__user_class_descriptor__.class_name
+        if getattr(invoke_options, "skip_serialize", False) and hasattr(self, "__original_class_name__"):
+            class_name = self.__original_class_name__
+
         func_meta = FunctionMeta(functionID=function_id,
                                  moduleName=self.__user_class_descriptor__.module_name,
-                                 className=self.__user_class_descriptor__.class_name,
+                                 className=class_name,
                                  functionName=self.__user_class_descriptor__.function_name,
                                  language=self.__user_class_descriptor__.target_language,
                                  codeID=self._code_ref.id if self._code_ref is not None else "",
@@ -255,7 +263,8 @@ class InstanceCreator:
         invoke_options.check_options_valid()
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
         with self._lock:
-            if not is_cross_invoke and (
+            # Skip serialization for pre-deployed classes when skip_serialize=True
+            if not is_cross_invoke and not getattr(invoke_options, "skip_serialize", False) and (
                     self._code_ref is None
                     or not global_runtime.get_runtime().is_object_existing_in_local(self._code_ref.id)
             ):
@@ -267,6 +276,10 @@ class InstanceCreator:
                     self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
                     _logger.info("[Reference Counting] put code with id = %s, className = %s",
                              self._code_ref.id, self.__user_class_descriptor__.class_name)
+            elif getattr(invoke_options, "skip_serialize", False):
+                # For pre-deployed classes, skip serialization
+                class_path = f"{self.__user_class__.__module__}.{self.__user_class__.__qualname__}"
+                _logger.debug("[Reference Counting] skip serialization for pre-deployed class: %s", class_path)
         # __init__ existed when user-defined
         if self.__user_class_methods__ is not None and '__init__' in self.__user_class_methods__:
             sig = signature.get_signature(self.__user_class_methods__.get('__init__'),

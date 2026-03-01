@@ -40,7 +40,10 @@ yuanrong:
 dashboard:
 	cd go && bash build.sh && cd -
 
-all: frontend datasystem functionsystem dashboard yuanrong
+all: frontend datasystem functionsystem yuanrong dashboard
 	@echo "Build completed!"
 	@echo "Copying outputs to output/..."
-	bash build.sh -P -l /tmp/bazelcache
+	mkdir -p output
+	cp frontend/output/yr-frontend*.tar.gz output/
+	cp datasystem/output/yr-datasystem*.tar.gz output/
+	cp functionsystem/output/yr-functionsystem*.tar.gz output/

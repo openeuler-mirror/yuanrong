@@ -52,7 +52,6 @@ example/custom_runtime/worker/yuanrong
 outputapi/python/build/
 api/python/dist/
 api/python/*.egg-info/
-datasystem/
 go/output/
 go/pkg/dashboard/client/dist/
 go/pkg/dashboard/client/node_modules/
@@ -66,4 +65,3 @@ scripts/package/.build/
 # thirdparty
 thirdparty/
 go/pkg/mod/
-/functionsystem/

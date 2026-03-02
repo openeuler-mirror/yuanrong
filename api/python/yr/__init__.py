@@ -21,6 +21,9 @@ import os
 import ctypes
 
 for so_path in [
+    "librpc_option_protos.so",
+    "libprotobuf.so.25.5.0",
+    "libabseil_dll.so.2407.0.0",
     "libsecurec.so",  # securec must before libdatasystem
     "libtbb.so.2",
     "libssl.so.1.1",
@@ -29,6 +32,7 @@ for so_path in [
     "libcrypto.so.1.1",
     "libaddress_sorting.so.42.0.0",
     "libdatasystem.so",
+    "libcommon_flags.so",
     "libspdlog.so.1.12.0",
     "libyrlogs.so",
     "liblitebus.so.0.0.1",

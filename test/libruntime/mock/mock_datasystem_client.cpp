@@ -473,7 +473,7 @@ Status HeteroClient::DevSubscribe(const std::vector<std::string> &keys, const st
 {
     std::promise<Status> promise;
     auto future = promise.get_future().share();
-    std::shared_ptr<AclRtEventWrapper> event;
+    std::shared_ptr<DeviceRtEventWrapper> event;
     Future f(future, event, "obj1");
     futureVec.emplace_back(f);
     return Status::OK();
@@ -484,7 +484,7 @@ Status HeteroClient::DevPublish(const std::vector<std::string> &keys, const std:
 {
     std::promise<Status> promise;
     auto future = promise.get_future().share();
-    std::shared_ptr<AclRtEventWrapper> event;
+    std::shared_ptr<DeviceRtEventWrapper> event;
     Future f(future, event, "obj1");
     futureVec.emplace_back(f);
     return Status::OK();

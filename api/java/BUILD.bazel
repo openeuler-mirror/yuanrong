@@ -343,6 +343,10 @@ genrule(
     NATIVE_LIB=$$(echo $$NATIVE_LIB $(locations //:grpc_strip))
     NATIVE_LIB=$$(echo $$NATIVE_LIB $(locations //api/java/function-common/src/main/cpp:libruntime_lib_jni.so))
     LIB_REQUIRED=(
+        "libcommon_flags.so"
+        "librpc_option_protos.so"
+        "libprotobuf.so.25.5.0"
+        "libabseil_dll.so.2407.0.0"
         "libtbb.so.2"
         "libds-spdlog.so.1.12.0"
         "libzmq.so.5.2.5"

@@ -21,7 +21,7 @@ openYuanrong 支持立即导出（immediatelyExport）和批量导出（batchExp
 
 ### 导出器
 
-openYuanrong 支持文件导出器（fileExporter）和 [Prometheus](https://prometheus.io/){target="_blank"} 导出器（prometheusPushExporter）两种。
+openYuanrong 支持文件导出器（fileExporter）、[Prometheus](https://prometheus.io/){target="_blank"} 导出器（prometheusPushExporter）和 [OpenTelemetry](https://opentelemetry.io/){target="_blank"} 导出器（opentelemetryExporter）三种。
 
 导出器包含以下配置：
 
@@ -43,7 +43,7 @@ openYuanrong 支持文件导出器（fileExporter）和 [Prometheus](https://pro
     | contentType | 指标内容形式，可选以下两种之一。 <br>`STANDARD`: 标准格式，保留所有信息。<br>`LABELS`: 标签模式，仅保留指标标签。| 可选，默认为标准模式。 |
 
   - prometheusPushExporter 导出器初始化参数：
-  
+
     | 初始化参数          | 说明                                  | 约束               |
     |-------------------|------------------------------------ |------------------|
     | ip                | prometheus push gateway 地址。         | 必填 例: `127.0.0.1` |
@@ -51,12 +51,17 @@ openYuanrong 支持文件导出器（fileExporter）和 [Prometheus](https://pro
     | heartbeatUrl      | prometheus push gateway 心跳地址。       | 必填 例: `/healthy` |
     | heartbeatInterval | prometheus push gateway 心跳间隔 单位（ms）。 | 必填  例:  `5000`     |
 
+  - opentelemetryExporter 导出器初始化参数：
+
+    | 初始化参数          | 说明                                  | 约束               |
+    |-------------------|------------------------------------ |------------------|
+    | endpoint          | OTLP 接收端 URL。                        | 必填 例: `http://localhost:4318/v1/metrics` |
 (metrics-config-example)=
 
 ### 配置示例
 
 以下是两个指标配置文件示例。
- 
+
 - 配置立即上报和批量上报两种导出模式，使用文件导出器导出指标。
 
   ```json
@@ -144,6 +149,37 @@ openYuanrong 支持文件导出器（fileExporter）和 [Prometheus](https://pro
                   "port": 9091,
                   "heartbeatUrl": "/healthy",
                   "heartbeatInterval": 5000
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+  ```
+
+- 配置批量上报导出模式，使用 OpenTelemetry 导出器导出指标到 otel-collector。
+
+  ```json
+  {
+    "backends": [
+      {
+        "batchExport": {
+          "name": "otel-collector",
+          "enable": true,
+          "exporters": [
+            {
+              "opentelemetryExporter": {
+                "enable": true,
+                "enabledInstruments": ["yr_node_cpu_usage", "yr_node_memory_usage", "yr_etcd_alarm"],
+                "batchSize": 100,
+                "batchIntervalSec": 5,
+                "failureQueueMaxSize": 100,
+                "failureDataDir": "/home/sn/metrics/failure",
+                "failureDataFileMaxCapacity": 20,
+                "initConfig": {
+                  "endpoint": "http://localhost:4318/v1/metrics"
                 }
               }
             }

@@ -191,7 +191,8 @@ void SpdLogger::RegisterLogger(const LogParam &logParam, const std::string &logg
     if (logMergeType_.load() == LOG_MERGE_TYPE) {
         pattern = "%L%m%d %H:%M:%S.%f %t %s:%#] %P,%!]%v";
     }
-    logger->set_pattern(pattern, yr_spdlog::pattern_time_type::utc);  // log with international UTC time
+    auto timeType = logParam.useUtcTime ? yr_spdlog::pattern_time_type::utc : yr_spdlog::pattern_time_type::local;
+    logger->set_pattern(pattern, timeType);
 
     yr_spdlog::register_logger(logger);
 }

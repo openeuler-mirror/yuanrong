@@ -34,7 +34,7 @@ labels:,control_plane_port_min:,control_plane_port_max:,data_plane_port_min:,dat
 ds_worker_unique_enable,log_level:,\
 enable_distributed_master,\
 log_root:,fs_log_path:,fs_log_level:,fs_log_compress_enable:,fs_log_rolling_max_size:,fs_log_rolling_max_files:,fs_log_rolling_retention_days:,\
-fs_log_async_log_buf_secs:,fs_log_async_log_max_queue_size:,fs_log_async_log_thread_count:,fs_also_log_to_stderr:,\
+fs_log_async_log_buf_secs:,fs_log_async_log_max_queue_size:,fs_log_async_log_thread_count:,fs_also_log_to_stderr:,log_use_utc_time:,\
 runtime_log_level:,runtime_log_path:,runtime_log_rolling_max_size:,runtime_log_rolling_max_files:,runtime_default_config:,etcd_log_path:,\
 runtime_std_rolling_enable:,\
 ds_log_level:,ds_log_path:,ds_log_rolling_max_size:,ds_log_rolling_max_files:,\
@@ -81,12 +81,13 @@ ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossl
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
 runtime_metrics_config:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
+enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,\
 meta_service_address:,\
 help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
 \"rolling\": {\"maxsize\": {{logRollingMaxSize}},\"maxfiles\": {{logRollingMaxFiles}},\"retentionDays\": {{logRollingRetentionDays}}}, \
 \"async\": {\"logBufSecs\": {{logAsyncBufSecs}},\"maxQueueSize\": {{logAsyncMaxQueueSize}},\"threadCount\": {{logAsyncThreadCount}}}, \
-\"alsologtostderr\": {{logAlsologtostderr}}}"
+\"alsologtostderr\": {{logAlsologtostderr}}, \"useUtcTime\": {{logUseUtcTime}}}"
 FAAS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\"}"
 LOG_ROTATE_CONFIG="{{logConfigPath}}/runtime-*.out {{logConfigPath}}/runtime-*.err {
     size {{logRollingMaxSize}}M
@@ -133,6 +134,10 @@ STATUS_COLLECT_ENABLE="false"
 STATUS_COLLECT_INTERVAL=300
 ENABLE_TRACE=false
 TRACE_CONFIG=""
+ENABLE_TRAEFIK_REGISTRY=false
+TRAEFIK_DOMAIN=""
+TRAEFIK_ETCD_PREFIX="traefik"
+TRAEFIK_LEASE_TTL=300000
 RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
@@ -161,6 +166,7 @@ FS_LOG_ASYNC_LOG_MAX_QUEUE_SIZE=51200
 FS_LOG_ASYNC_LOG_THREAD_COUNT=1
 FS_ALSO_LOG_TO_STDERR=false
 FS_LOG_ROLLING_RETENTION_DAYS=30
+YR_LOG_USE_UTC_TIME=false
 RUNTIME_LOG_PATH=""
 RUNTIME_LOG_LEVEL="INFO"
 RUNTIME_LOG_ROLLING_MAX_SIZE=40
@@ -184,6 +190,7 @@ DRIVER_GATEWAY_ENABLE="false"
 FUNCTION_AGENT_PORT=58866
 FUNCTION_PROXY_PORT=22772
 FUNCTION_PROXY_GRPC_PORT=22773
+FUNCTION_PROXY_EXEC_GRPC_PORT=22774
 LOCAL_IP=""
 ENABLE_DPOSIX_UDS=false
 DPOSIX_UDS_PATH=""
@@ -428,6 +435,7 @@ function usage() {
   echo -e "     --fs_log_async_log_max_queue_size                   async log max queue size (default 51200)"
   echo -e "     --fs_log_async_log_thread_count                     async log thread count (default 1)"
   echo -e "     --fs_also_log_to_stderr                             log to stderr for function system(default false)"
+  echo -e "     --log_use_utc_time                                  use UTC time for log, options: true/false (default false)"
   echo -e "     --runtime_log_path                                  log subdirectory for runtime"
   echo -e "     --runtime_log_level                                 runtime log level"
   echo -e "     --runtime_log_rolling_max_size                      rolling log max size for runtime, unit: MB (default 40)"
@@ -457,6 +465,7 @@ function usage() {
   echo -e "     --function_agent_port                               function agent port (default 58866)"
   echo -e "     --function_proxy_port                               function proxy port (default 22772)"
   echo -e "     --function_proxy_grpc_port                          function proxy port for driver (default 22773)"
+  echo -e "     --function_proxy_exec_grpc_port                     session gRPC port for ExecStream (default 22774)"
   echo -e "     --global_scheduler_port                             global scheduler port (default 22770)"
   echo -e "     --runtime_init_port                                 runtime init port (default 21006)"
   echo -e "     --dashboard_port                                    dashboard port (default 9080)"
@@ -659,6 +668,7 @@ function parse_opt() {
     --fs_log_async_log_max_queue_size) FS_LOG_ASYNC_LOG_MAX_QUEUE_SIZE=$2 && shift 2 ;;
     --fs_log_async_log_thread_count) FS_LOG_ASYNC_LOG_THREAD_COUNT=$2 && shift 2 ;;
     --fs_also_log_to_stderr) FS_ALSO_LOG_TO_STDERR=$2 && shift 2 ;;
+    --log_use_utc_time) YR_LOG_USE_UTC_TIME=$2 && shift 2 ;;
     --runtime_log_level) RUNTIME_LOG_LEVEL=$2 && shift 2 ;;
     --runtime_log_path) RUNTIME_LOG_PATH=$2 && shift 2 ;;
     --runtime_log_rolling_max_size) RUNTIME_LOG_ROLLING_MAX_SIZE=$2 && shift 2 ;;
@@ -702,6 +712,7 @@ function parse_opt() {
     --function_agent_port) FUNCTION_AGENT_PORT=$2 && port_policy_table["function_agent_port"]="FIX" && shift 2 ;;
     --function_proxy_port) FUNCTION_PROXY_PORT=$2 && port_policy_table["function_proxy_port"]="FIX" && shift 2 ;;
     --function_proxy_grpc_port) FUNCTION_PROXY_GRPC_PORT=$2 && port_policy_table["function_proxy_grpc_port"]="FIX" && shift 2 ;;
+    --function_proxy_exec_grpc_port) FUNCTION_PROXY_EXEC_GRPC_PORT=$2 && port_policy_table["function_proxy_exec_grpc_port"]="FIX" && shift 2 ;;
     --runtime_init_port) RUNTIME_INIT_PORT=$2 && port_policy_table["runtime_init_port"]="FIX" && shift 2 ;;
     --global_scheduler_port) GLOBAL_SCHEDULER_PORT=$2 && port_policy_table["global_scheduler_port"]="FIX" && shift 2 ;;
     --metrics_collector_type) METRICS_COLLECTOR_TYPE=$2 && shift 2 ;;
@@ -728,6 +739,10 @@ function parse_opt() {
     --local_schedule_plugins) LOCAL_SCHEDULE_PLUGINS=$2 && shift 2 ;;
     --domain_schedule_plugins) DOMAIN_SCHEDULE_PLUGINS=$2 && shift 2 ;;
     --enable_print_perf) ENABLE_PRINT_PERF=$2 && shift 2 ;;
+    --enable_traefik_registry) ENABLE_TRAEFIK_REGISTRY=$2 && shift 2 ;;
+    --traefik_domain) TRAEFIK_DOMAIN=$2 && shift 2 ;;
+    --traefik_etcd_prefix) TRAEFIK_ETCD_PREFIX=$2 && shift 2 ;;
+    --traefik_lease_ttl) TRAEFIK_LEASE_TTL=$2 && shift 2 ;;
     --enable_meta_store) ENABLE_META_STORE=$2 && shift 2 ;;
     --enable_dashboard) ENABLE_DASHBOARD=$2 && shift 2 ;;
     --enable_collector) ENABLE_COLLECTOR=$2 && shift 2 ;;
@@ -929,6 +944,7 @@ function check_number_input() {
   check_port_range "function_agent_port" $FUNCTION_AGENT_PORT
   check_port_range "function_proxy_port" $FUNCTION_PROXY_PORT
   check_port_range "function_proxy_grpc_port" $FUNCTION_PROXY_GRPC_PORT
+  check_port_range "function_proxy_exec_grpc_port" $FUNCTION_PROXY_EXEC_GRPC_PORT
   check_port_range "global_scheduler_port" $GLOBAL_SCHEDULER_PORT
   check_port_range "ds_master_port" $DS_MASTER_PORT
   check_port_range "ds_worker_port" $DS_WORKER_PORT
@@ -1350,6 +1366,7 @@ function process_log_config() {
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logAsyncMaxQueueSize\}\}/$FS_LOG_ASYNC_LOG_MAX_QUEUE_SIZE}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logAsyncThreadCount\}\}/$FS_LOG_ASYNC_LOG_THREAD_COUNT}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logAlsologtostderr\}\}/$FS_ALSO_LOG_TO_STDERR}"
+  FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logUseUtcTime\}\}/$YR_LOG_USE_UTC_TIME}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logConfigPath\}\}/$FS_LOG_PATH}"
   log_info "function system log config: ${FS_LOG_CONFIG}"
 
@@ -1521,7 +1538,7 @@ function export_config() {
   export LOG_ROOT DS_LOG_PATH ETCD_LOG_PATH STD_LOG_SUFFIX CPU_RESERVED_FOR_DS_WORKER MAX_INSTANCE_CPU_SIZE MAX_INSTANCE_MEMORY_SIZE
   export DS_LOG_ROLLING_MAX_SIZE DS_LOG_ROLLING_MAX_FILES DS_RPC_THREAD_NUM DS_CLIENT_DEAD_TIMEOUT_S DS_NODE_DEAD_TIMEOUT_S
   export RUNTIME_LOG_PATH RUNTIME_LOG_LEVEL DS_LOG_LEVEL_STR MIN_INSTANCE_CPU_SIZE MIN_INSTANCE_MEMORY_SIZE
-  export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT
+  export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT FUNCTION_PROXY_EXEC_GRPC_PORT
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
   export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
@@ -1539,6 +1556,7 @@ function export_config() {
   export ETCD_IP ETCD_PORT ETCD_PEER_PORT ETCD_PROXY_NUMS ETCD_PROXY_NUMS ETCD_PROXY_PORT ETCD_NO_FSYNC
   # trace and metrics
   export ENABLE_TRACE TRACE_CONFIG RUNTIME_TRACE_CONFIG ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
+  export ENABLE_TRAEFIK_REGISTRY TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL
   export FUNCTION_AGENT_LITEBUS_THREAD FUNCTION_PROXY_LITEBUS_THREAD FUNCTION_MASTER_LITEBUS_THREAD
   export SYSTEM_TIMEOUT FUNCTION_PROXY_UNIQUE_ENABLE
   export ENABLE_META_STORE ENABLE_PERSISTENCE META_STORE_MODE META_STORE_EXCLUDED_KEYS
@@ -1569,6 +1587,8 @@ function export_config() {
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
   # log expiration
   export LOG_EXPIRATION_ENABLE LOG_EXPIRATION_CLEANUP_INTERVAL LOG_EXPIRATION_TIME_THRESHOLD LOG_EXPIRATION_MAX_FILE_COUNT
+  # log UTC time configuration for yuanrong runtime
+  export YR_LOG_USE_UTC_TIME
 }
 
 function main() {

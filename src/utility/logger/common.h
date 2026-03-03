@@ -49,6 +49,7 @@ struct LogParam {
     bool withLogPrefix = false;
     bool onlyStdout = false;
     std::string loggerId;
+    bool useUtcTime = false;  // default local time, consistent with common/logs config
 };
 }  // namespace utility
 }  // namespace YR

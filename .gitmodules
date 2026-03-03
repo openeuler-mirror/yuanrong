@@ -1,0 +1,9 @@
+[submodule "frontend"]
+	path = frontend
+	url = git@gitcode.com:yuchaow/yuanrong-frontend.git
+[submodule "functionsystem"]
+	path = functionsystem
+	url = git@gitcode.com:yuchaow/yuanrong-functionsystem.git
+[submodule "datasystem"]
+	path = datasystem
+	url = git@gitcode.com:openeuler/yuanrong-datasystem.git

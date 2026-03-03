@@ -170,6 +170,11 @@ class CodeManager:
         throw error if module not exists
         return None if module exists but entry not exists
         """
+        # For SDK built-in modules (starting with 'yr.'), use direct import
+        # instead of file path loading to support cross-version compatibility
+        if module_name.startswith("yr."):
+            code_dir = None
+
         _logger.debug("get python code [%s] from local file [%s/%s.py]",
                                entry_name, code_dir, module_name)
         code_key = module_name + "%%" + entry_name if code_key == "" else code_key
@@ -179,6 +184,15 @@ class CodeManager:
 
         module = self.__load_module(code_dir, module_name)
         code = getattr(module, entry_name, None)
+
+        # Handle YRInstance proxy objects - extract the original user class
+        # When a class is decorated with @yr.instance, it gets wrapped in a proxy
+        # For skip_serialize mode, we need the original unwrapped class
+        if code is not None and hasattr(code, "_InstanceCreator__user_class__"):
+            code = code._InstanceCreator__user_class__
+        elif code is not None and hasattr(code, "__user_class__"):
+            code = code.__user_class__
+
         if code is None:
             msg = f"Failed to import function {entry_name} from {module_name}"
             _logger.error(msg)

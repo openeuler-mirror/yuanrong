@@ -329,6 +329,7 @@ type FunctionMetaInfo struct {
 	ResourceMetaData ResourceMetaData `json:"resourceMetaData" valid:",optional"`
 	InstanceMetaData InstanceMetaData `json:"instanceMetaData" valid:",optional"`
 	ExtendedMetaData ExtendedMetaData `json:"extendedMetaData" valid:",optional"`
+	RootfsSpecMeta   RootfsSpecMeta   `json:"rootfs" valid:",optional"`
 }
 
 // FuncMetaData define meta data of functions
@@ -369,6 +370,24 @@ type FuncMetaData struct {
 	StateConfig         StateConfig       `json:"stateConfig" valid:",optional"`
 	BusinessType        string            `json:"businessType" valid:"optional"`
 	AutoScaleConfig     AutoScaleConfig   `json:"autoScaleConfig" valid:"optional"`
+}
+
+type RootfsStorageInfo struct {
+	Endpoint  string `json:"endpoint" valid:",optional"`
+	Bucket    string `json:"bucket" valid:",optional"`
+	Object    string `json:"object" valid:",optional"`
+	AccessKey string `json:"accessKey" valid:",optional"`
+	SecretKey string `json:"secretKey" valid:",optional"`
+}
+
+type RootfsSpecMeta struct {
+	Runtime     string            `json:"runtime" valid:",optional"`
+	Type        string            `json:"type" valid:",optional"`
+	ImageURL    string            `json:"imageurl" valid:",optional"`
+	Path        string            `json:"path" valid:",optional"`
+	ReadOnly    bool              `json:"readonly" valid:",optional"`
+	StorageInfo RootfsStorageInfo `json:"storageInfo" valid:",optional"`
+	MountPoint  string            `json:"mountpoint" valid:",optional"`
 }
 
 // StateConfig ConsistentWithInstance- The lifecycle is consistent with that of the instance.

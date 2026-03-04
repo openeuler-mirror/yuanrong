@@ -197,6 +197,7 @@ func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey st
 			ResourceMetaData: funcMetaInfo.ResourceMetaData,
 			InstanceMetaData: funcMetaInfo.InstanceMetaData,
 			ExtendedMetaData: funcMetaInfo.ExtendedMetaData,
+			RootfsSpecMeta:   funcMetaInfo.RootfsSpecMeta,
 		}
 	} else {
 		funcSpec = oldFuncSpec
@@ -210,6 +211,7 @@ func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey st
 		funcSpec.ResourceMetaData = funcMetaInfo.ResourceMetaData
 		funcSpec.InstanceMetaData = funcMetaInfo.InstanceMetaData
 		funcSpec.ExtendedMetaData = funcMetaInfo.ExtendedMetaData
+		funcSpec.RootfsSpecMeta = funcMetaInfo.RootfsSpecMeta
 	}
 	return funcSpec
 }

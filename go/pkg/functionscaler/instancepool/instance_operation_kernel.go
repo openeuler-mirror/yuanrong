@@ -278,6 +278,18 @@ func prepareSchedulingOptions(funcSpec *types.FunctionSpecification,
 func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOptions *types.SchedulingOptions,
 	createOpt map[string]string, poolLabel string,
 ) api.InvokeOptions {
+	if !isEmptyRootfsSpec(funcSpec.RootfsSpecMeta) {
+		rootfsData, err := json.Marshal(funcSpec.RootfsSpecMeta)
+		if err != nil {
+			log.GetLogger().Warnf("failed to marshal rootfs spec for function %s: %s", funcSpec.FuncKey, err.Error())
+		} else {
+			if createOpt == nil {
+				createOpt = make(map[string]string)
+			}
+			createOpt["rootfs"] = string(rootfsData)
+		}
+	}
+
 	codeEntrys := []string{funcSpec.ExtendedMetaData.Initializer.Handler, funcSpec.FuncMetaData.Handler}
 	if funcSpec.ExtendedMetaData.PreStop.Handler != "" {
 		codeEntrys = append(codeEntrys, funcSpec.ExtendedMetaData.PreStop.Handler)
@@ -296,6 +308,18 @@ func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOption
 		ScheduleTimeoutMs:  constant.KernelScheduleTimeout * time.Second.Milliseconds(),
 	}
 	return invokeOpts
+}
+
+func isEmptyRootfsSpec(rootfs commonTypes.RootfsSpecMeta) bool {
+	if rootfs.Runtime != "" || rootfs.Type != "" || rootfs.ImageURL != "" || rootfs.Path != "" ||
+		rootfs.MountPoint != "" || rootfs.ReadOnly {
+		return false
+	}
+	if rootfs.StorageInfo.Endpoint != "" || rootfs.StorageInfo.Bucket != "" || rootfs.StorageInfo.Object != "" ||
+		rootfs.StorageInfo.AccessKey != "" || rootfs.StorageInfo.SecretKey != "" {
+		return false
+	}
+	return true
 }
 
 func generateScheduleAffinity(scheduleAffinity []api.Affinity, label string) []api.Affinity {

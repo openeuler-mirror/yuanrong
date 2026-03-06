@@ -5,6 +5,9 @@ bazel-*
 .idea
 .clwb
 .ijwb
+.claude
+.specify
+specs/
 external
 api/cpp/example/3rd
 genhtml

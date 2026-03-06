@@ -18,6 +18,7 @@
 
 import asyncio
 import os
+import signal
 import shutil
 import ssl
 import sys
@@ -103,7 +104,11 @@ async def read_stdin(ws, should_exit):
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader(loop=loop)
     protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
-    await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    try:
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    except Exception as e:
+        print(f"Warning: failed to attach stdin pipe: {e}", file=sys.stderr)
+        return
 
     try:
         while not should_exit.is_set():
@@ -113,10 +118,6 @@ async def read_stdin(ws, should_exit):
                     break
                 # 检测 Ctrl+] (ASCII 29) 作为退出信号
                 if b"\x1d" in data:
-                    print(
-                        "\n[Escape sequence detected, disconnecting...]",
-                        file=sys.stderr,
-                    )
                     should_exit.set()
                     break
                 await ws.send(data)
@@ -125,7 +126,7 @@ async def read_stdin(ws, should_exit):
     except Exception:
         pass
     finally:
-        should_exit.set()
+        pass
 
 
 async def read_websocket(ws, should_exit):
@@ -144,6 +145,78 @@ async def read_websocket(ws, should_exit):
         should_exit.set()
 
 
+async def watch_terminal_resize(ws, should_exit):
+    """监听本地终端尺寸变化并发送 resize 消息到 WebSocket"""
+    if not hasattr(signal, "SIGWINCH"):
+        return
+
+    loop = asyncio.get_running_loop()
+    resize_event = asyncio.Event()
+
+    def on_resize(_signum, _frame):
+        loop.call_soon_threadsafe(resize_event.set)
+
+    try:
+        old_handler = signal.getsignal(signal.SIGWINCH)
+        signal.signal(signal.SIGWINCH, on_resize)
+    except Exception:
+        return
+
+    last_size = None
+    try:
+        while not should_exit.is_set():
+            try:
+                await asyncio.wait_for(resize_event.wait(), timeout=0.1)
+            except asyncio.TimeoutError:
+                continue
+
+            resize_event.clear()
+            try:
+                terminal_size = shutil.get_terminal_size()
+            except Exception:
+                continue
+
+            cols = terminal_size.columns
+            rows = terminal_size.lines
+            if cols <= 0 or rows <= 0:
+                continue
+
+            current_size = (cols, rows)
+            if current_size == last_size:
+                continue
+
+            last_size = current_size
+            try:
+                await ws.send(f"RESIZE:{cols}:{rows}")
+            except Exception:
+                should_exit.set()
+                break
+    finally:
+        try:
+            signal.signal(signal.SIGWINCH, old_handler)
+        except Exception:
+            pass
+
+
+async def send_terminal_resize(ws, rows=None, cols=None):
+    """发送终端尺寸到 WebSocket（协议: RESIZE:cols:rows）"""
+    try:
+        if rows is None or cols is None:
+            terminal_size = shutil.get_terminal_size()
+            if rows is None:
+                rows = terminal_size.lines
+            if cols is None:
+                cols = terminal_size.columns
+    except Exception:
+        return
+
+    if rows and cols and rows > 0 and cols > 0:
+        try:
+            await ws.send(f"RESIZE:{cols}:{rows}")
+        except Exception:
+            pass
+
+
 async def run_client(
     host, port, instance=None, command=None, tty=None, stdin=None, rows=None, cols=None, user=None,
     use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None
@@ -156,7 +229,6 @@ async def run_client(
                 rows = terminal_size.lines
             if cols is None:
                 cols = terminal_size.columns
-            print(f"Detected terminal size: {cols}x{rows}", file=sys.stderr)
         except Exception:
             # 如果无法获取，使用服务端默认值
             pass
@@ -188,8 +260,10 @@ async def run_client(
     if query_string:
         uri += f"?{query_string}"
 
-    print(f"Connecting to {uri}...", file=sys.stderr)
-    print("Press Ctrl+] to disconnect", file=sys.stderr)
+    if instance:
+        print(f"Connecting to {instance}...\nPress Ctrl+] to disconnect", file=sys.stderr)
+    else:
+        print("Connecting...\nPress Ctrl+] to disconnect", file=sys.stderr)
     
     # Create SSL context if needed
     ssl_context = None
@@ -210,17 +284,23 @@ async def run_client(
             should_exit = asyncio.Event()
 
             with RawTerminal(sys.stdin.fileno()):
-                # 同时处理输入和输出
-                done, pending = await asyncio.wait(
-                    [
-                        asyncio.create_task(read_stdin(ws, should_exit)),
-                        asyncio.create_task(read_websocket(ws, should_exit)),
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+                if tty and sys.stdin.isatty():
+                    await send_terminal_resize(ws, rows=rows, cols=cols)
 
-                # 取消未完成的任务
-                for task in pending:
+                # 同时处理输入和输出
+                tasks = [
+                    asyncio.create_task(read_stdin(ws, should_exit)),
+                    asyncio.create_task(read_websocket(ws, should_exit)),
+                ]
+                if tty and sys.stdin.isatty():
+                    tasks.append(asyncio.create_task(watch_terminal_resize(ws, should_exit)))
+
+                await should_exit.wait()
+
+                # 结束后取消所有后台任务
+                for task in tasks:
+                    if task.done():
+                        continue
                     task.cancel()
                     try:
                         await task

@@ -81,7 +81,7 @@ ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossl
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
 runtime_metrics_config:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
-enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_tcp_entrypoint:,\
+enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_enable_tls:,\
 meta_service_address:,\
 help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
@@ -138,7 +138,8 @@ ENABLE_TRAEFIK_REGISTRY=false
 TRAEFIK_DOMAIN=""
 TRAEFIK_ETCD_PREFIX="traefik"
 TRAEFIK_LEASE_TTL=300000
-TRAEFIK_TCP_ENTRYPOINT="tcpsecure"
+TRAEFIK_HTTP_ENTRYPOINT="websecure"
+TRAEFIK_ENABLE_TLS="true"
 RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
@@ -744,7 +745,8 @@ function parse_opt() {
     --traefik_domain) TRAEFIK_DOMAIN=$2 && shift 2 ;;
     --traefik_etcd_prefix) TRAEFIK_ETCD_PREFIX=$2 && shift 2 ;;
     --traefik_lease_ttl) TRAEFIK_LEASE_TTL=$2 && shift 2 ;;
-    --traefik_tcp_entrypoint) TRAEFIK_TCP_ENTRYPOINT=$2 && shift 2 ;;
+    --traefik_http_entrypoint) TRAEFIK_HTTP_ENTRYPOINT=$2 && shift 2 ;;
+    --traefik_enable_tls) TRAEFIK_ENABLE_TLS=$2 && shift 2 ;;
     --enable_meta_store) ENABLE_META_STORE=$2 && shift 2 ;;
     --enable_dashboard) ENABLE_DASHBOARD=$2 && shift 2 ;;
     --enable_collector) ENABLE_COLLECTOR=$2 && shift 2 ;;
@@ -1558,7 +1560,7 @@ function export_config() {
   export ETCD_IP ETCD_PORT ETCD_PEER_PORT ETCD_PROXY_NUMS ETCD_PROXY_NUMS ETCD_PROXY_PORT ETCD_NO_FSYNC
   # trace and metrics
   export ENABLE_TRACE TRACE_CONFIG RUNTIME_TRACE_CONFIG ENABLE_METRICS METRICS_CONFIG METRICS_CONFIG_FILE STATUS_COLLECT_ENABLE STATUS_COLLECT_INTERVAL
-  export ENABLE_TRAEFIK_REGISTRY TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL
+  export ENABLE_TRAEFIK_REGISTRY TRAEFIK_DOMAIN TRAEFIK_ETCD_PREFIX TRAEFIK_LEASE_TTL TRAEFIK_HTTP_ENTRYPOINT TRAEFIK_ENABLE_TLS
   export FUNCTION_AGENT_LITEBUS_THREAD FUNCTION_PROXY_LITEBUS_THREAD FUNCTION_MASTER_LITEBUS_THREAD
   export SYSTEM_TIMEOUT FUNCTION_PROXY_UNIQUE_ENABLE
   export ENABLE_META_STORE ENABLE_PERSISTENCE META_STORE_MODE META_STORE_EXCLUDED_KEYS

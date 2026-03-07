@@ -100,6 +100,11 @@ class TestDecorator(TestCase):
         ins1.deserialization_(state)
         self.assertTrue(ins1.need_order)
 
+        mock_runtime.get_real_instance_id.return_value = "real-instance-id-123"
+        mock_runtime.get_real_instance_id.reset_mock()
+        self.assertEqual(ins1.real_id, "real-instance-id-123")
+        mock_runtime.get_real_instance_id.assert_called_once_with(ins1.instance_id)
+
         ins1.terminate()
         self.assertFalse(ins1.is_activate())
 

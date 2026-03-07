@@ -554,6 +554,29 @@ class InstanceProxy:
         """
         return self.__instance_activate__
 
+    @property
+    def real_id(self) -> str:
+        """
+        The real instance ID assigned by the runtime.
+
+        ``instance_id`` is a logical key used internally. This property blocks
+        until the runtime finishes scheduling the actor (default timeout: 30
+        seconds), then resolves it to the physical instance ID.
+
+        Raises:
+            TimeoutError: If the actor is not ready within 30 seconds.
+
+        Returns:
+            The real instance ID. Data type is str.
+
+        Examples:
+            >>> ins = MyActor.invoke()
+            >>> print(ins.real_id)
+        """
+        runtime = global_runtime.get_runtime()
+        runtime.wait([self.instance_id], 1, 30)
+        return runtime.get_real_instance_id(self.instance_id)
+
     def get_function_group_handler(self) -> "FunctionGroupHandler":
         """
         Get the FunctionGroupHandler.

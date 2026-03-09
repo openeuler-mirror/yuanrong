@@ -20,9 +20,72 @@ import argparse
 import subprocess
 import tempfile
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 import yr
+
+if TYPE_CHECKING:
+    from yr.config import PortForwarding
+
+
+def _sanitize_instance_id(instance_id: str) -> str:
+    """Sanitize instance ID to match TraefikRegistry::SanitizeID (C++).
+
+    Rules: @ -> -at-, / . _ -> -, truncate to 200 chars.
+    """
+    result = instance_id
+    pos = 0
+    while True:
+        pos = result.find("@", pos)
+        if pos == -1:
+            break
+        result = result[:pos] + "-at-" + result[pos + 1:]
+        pos += 4
+    result = result.replace("/", "-").replace(".", "-").replace("_", "-")
+    if len(result) > 200:
+        result = result[:200]
+    return result
+
+
+def _get_gateway_host() -> str:
+    """Get Gateway host from YR_GATEWAY_ADDRESS or YR_SERVER_ADDRESS."""
+    host = os.environ.get("YR_GATEWAY_ADDRESS", "").strip()
+    if host:
+        return host
+    addr = os.environ.get("YR_SERVER_ADDRESS", "").strip()
+    return addr
+
+
+def _build_gateway_url(instance_id: str, sandbox_port: int, gateway_host: str, path: str = "") -> str:
+    """Build Gateway HTTP path URL: https://{gateway_host}/{safeID}/{sandbox_port}{path}.
+
+    URL format must match TraefikRegistry::RegisterInstance in function_proxy:
+    - {safeID} is sanitized instance ID (SanitizeID logic)
+    - {sandbox_port} is the original sandbox port
+    - Full path format: /{safeID}/{sandbox_port}
+
+    See: functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp
+    """
+    safe_id = _sanitize_instance_id(instance_id)
+    base = f"https://{gateway_host}/{safe_id}/{sandbox_port}"
+    if path:
+        path = path if path.startswith("/") else f"/{path}"
+        return f"{base}{path}"
+    return base
+
+
+def _print_gateway_urls(instance_id: str, port_forwardings: List["PortForwarding"]) -> None:
+    """Print Gateway URLs for port forwardings after sandbox creation."""
+    if not port_forwardings:
+        return
+    gateway_host = _get_gateway_host()
+    if not gateway_host:
+        print("Warning: cannot print port forwarding URLs: YR_GATEWAY_ADDRESS or YR_SERVER_ADDRESS not set")
+        return
+    print("sandbox created, port forwarding URLs:")
+    for pf in port_forwardings:
+        url = _build_gateway_url(instance_id, pf.port, gateway_host)
+        print(f"  port {pf.port}: {url}")
 
 
 @yr.instance
@@ -155,7 +218,11 @@ class SandBoxInstance:
         self.cleanup()
 
 
-def create(working_dir: Optional[str] = None, env: Optional[Dict[str, str]] = None):
+def create(
+    working_dir: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    port_forwardings: Optional[List["PortForwarding"]] = None,
+):
     """
     Create a new SandBox instance.
 
@@ -166,6 +233,8 @@ def create(working_dir: Optional[str] = None, env: Optional[Dict[str, str]] = No
             If None, a temporary directory will be created.
         env (Optional[Dict[str, str]]): Environment variables for the sandbox.
             If None, inherits from parent process.
+        port_forwardings (Optional[List[PortForwarding]]): Port forwarding rules.
+            If set, Gateway URLs will be printed after creation.
 
     Returns:
         SandBox wrapper instance.
@@ -181,7 +250,7 @@ def create(working_dir: Optional[str] = None, env: Optional[Dict[str, str]] = No
         >>> sandbox.terminate()
         >>> yr.finalize()
     """
-    return SandBox(working_dir, env)
+    return SandBox(working_dir, env, port_forwardings)
 
 
 class SandBox:
@@ -204,7 +273,10 @@ class SandBox:
     """
 
     def __init__(
-        self, working_dir: Optional[str] = None, env: Optional[Dict[str, str]] = None
+        self,
+        working_dir: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        port_forwardings: Optional[List["PortForwarding"]] = None,
     ):
         """
         Initialize the SandBox wrapper.
@@ -214,11 +286,18 @@ class SandBox:
                 If None, a temporary directory will be created.
             env (Optional[Dict[str, str]]): Environment variables for the sandbox.
                 If None, inherits from parent process.
+            port_forwardings (Optional[List[PortForwarding]]): Port forwarding rules.
+                If set, Gateway URLs will be printed after creation.
         """
         # Create InvokeOptions with skip_serialize=True for cross-version compatibility
         opt = yr.InvokeOptions()
         opt.skip_serialize = True
+        if port_forwardings:
+            opt.port_forwardings = port_forwardings
         self._instance = SandBoxInstance.options(opt).invoke(working_dir, env)
+        if port_forwardings:
+            instance_id = yr.get(self._instance.get_name.invoke())
+            _print_gateway_urls(instance_id, port_forwardings)
 
     def exec(self, command: str, timeout: Optional[int] = None):
         """
@@ -282,7 +361,7 @@ class SandBox:
                 yr.get(self.cleanup())
                 # Then terminate the instance
                 self.terminate()
-        except Exception as e:
+        except Exception:
             # Silently catch exceptions during cleanup to avoid errors in destructor
             pass
 

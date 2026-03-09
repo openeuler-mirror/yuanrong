@@ -83,6 +83,7 @@ runtime_metrics_config:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
 enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_enable_tls:,traefik_servers_transport:,\
 meta_service_address:,\
+system_tenant_id:,\
 help"
 FS_LOG_CONFIG="{\"filepath\": \"{{logConfigPath}}\",\"level\": \"{{logLevel}}\",\"compress\": {{logCompressEnable}}, \
 \"rolling\": {\"maxsize\": {{logRollingMaxSize}},\"maxfiles\": {{logRollingMaxFiles}},\"retentionDays\": {{logRollingRetentionDays}}}, \
@@ -388,6 +389,9 @@ LOG_EXPIRATION_TIME_THRESHOLD=7200   # 2 hours in seconds
 LOG_EXPIRATION_CLEANUP_INTERVAL=600  # 10 minutes in seconds
 LOG_EXPIRATION_MAX_FILE_COUNT=256
 
+# System Tenant Configuration
+SYSTEM_TENANT_ID="0"
+
 function usage() {
   echo -e "General Options:"
   echo -e "     -a, --ip_address                                    node ip address"
@@ -542,6 +546,7 @@ function usage() {
   echo -e "     --enable_dposix_uds                                 enable DPOSIX UDS for runtime and function proxy communication (default false)"
   echo -e "     --dposix_uds_path                                   dposix uds path, should be absolute path, if not set, will use deploy_path/NODE_ID/dposix_uds as default"
   echo -e "     --local_ip                                          specify in-node communication IP, usually set to 127.0.0.1"
+  echo -e "     --system_tenant_id                                  system tenant ID for querying all tenants' instances (default 0)"
   echo -e "Data System Options:"
   echo -e "     --ds_master_port                                    data system master listening port (default 12123)"
   echo -e "     --ds_worker_port                                    data system worker listening port (default 31501)"
@@ -845,6 +850,7 @@ function parse_opt() {
     --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
     --dposix_uds_path) DPOSIX_UDS_PATH=$2 && shift 2 ;;
     --local_ip) LOCAL_IP=$2 && shift 2 ;;
+    --system_tenant_id) SYSTEM_TENANT_ID=$2 && shift 2 ;;
     --) shift && break ;;
     *) log_error "Invalid option: $1" && return 1 ;;
     esac
@@ -1595,6 +1601,8 @@ function export_config() {
   export LOG_EXPIRATION_ENABLE LOG_EXPIRATION_CLEANUP_INTERVAL LOG_EXPIRATION_TIME_THRESHOLD LOG_EXPIRATION_MAX_FILE_COUNT
   # log UTC time configuration for yuanrong runtime
   export YR_LOG_USE_UTC_TIME
+  # system tenant configuration
+  export SYSTEM_TENANT_ID
 }
 
 function main() {

@@ -650,6 +650,7 @@ class SystemLauncher:
 
         deploy_path.mkdir(parents=True, exist_ok=True)
         symlink_path = Path(SESSION_LATEST_PATH)
+        symlink_path.parent.mkdir(parents=True, exist_ok=True)
         if symlink_path.is_symlink() or symlink_path.exists():
             symlink_path.unlink()
         # /tmp/yr/session_latest -> real deploy path. we only need to focus on dealing with /tmp/yr/session_latest

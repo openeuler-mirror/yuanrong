@@ -42,7 +42,7 @@ namespace Libruntime {
 class AsyncHttpsClient : public HttpClient, public std::enable_shared_from_this<AsyncHttpsClient> {
 public:
     explicit AsyncHttpsClient(const std::shared_ptr<asio::io_context> &ioc,
-                              const std::shared_ptr<asio::ssl::context> &ctx, const std::string &serverName);
+                              const std::shared_ptr<asio::ssl::context> &ctx);
 
     ~AsyncHttpsClient() override;
 
@@ -67,7 +67,6 @@ private:
     std::shared_ptr<asio::io_context> ioc_;
     std::shared_ptr<asio::ssl::context> ctx_;
     asio::ip::tcp::resolver resolver_;
-    std::string serverName_;
     std::shared_ptr<beast::ssl_stream<beast::tcp_stream>> stream_;
 };
 }  // namespace Libruntime

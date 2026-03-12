@@ -62,7 +62,7 @@ ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t co
 
 ErrorInfo GwClient::Init(const std::string &ip, int port)
 {
-    return Init(ip, port);
+    return Init(ip, port, DS_CONNECT_TIMEOUT);
 }
 
 void GwClient::Init(std::shared_ptr<HttpClient> httpClient)

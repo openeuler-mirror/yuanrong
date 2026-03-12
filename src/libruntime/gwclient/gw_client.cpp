@@ -50,7 +50,8 @@ ErrorInfo ClientBuffer::Seal(const std::unordered_set<std::string> &nestedIds)
     return gwClient->PosixObjPut(req);
 }
 
-ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout, const std::string &authToken)
+ErrorInfo GwClient::Init(std::shared_ptr<HttpClient> httpClient, std::int32_t connectTimeout,
+                         const std::string &authToken)
 {
     if (init_) {
         return ErrorInfo();
@@ -123,7 +124,7 @@ void GwClient::Clear()
 {
     std::vector<std::string> objectIds = refCountMap_.ToArray();
     refCountMap_.Clear();
-    if (asyncDecreRef_.Push(objectIds, threadLocalTenantId)) {
+    if (asyncDecreRef_.Push(objectIds, this->tenantId_)) {
         asyncDecreRef_.Stop();
     }
 }
@@ -206,7 +207,7 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
                            int timeoutSec)
 {
     auto requestId = std::make_shared<std::string>(req.requestid());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     YRLOG_DEBUG("create request, requestId :{}", *requestId);
@@ -247,7 +248,7 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
 void GwClient::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeoutSec)
 {
     auto requestId = std::make_shared<std::string>(req->Immutable().requestid());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req->Immutable().SerializeToString(&body);
     YRLOG_DEBUG("invoke request, requestId :{}, instanceId: {}", *requestId, req->Immutable().instanceid());
@@ -283,7 +284,7 @@ void GwClient::KillAsync(const KillRequest &req, KillCallBack callback, int time
 {
     auto requestId = std::make_shared<std::string>(req.requestid());
     auto instanceId = req.instanceid();
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     YRLOG_DEBUG("kill request, requestId: {}, instanceId: {}", *requestId, instanceId);
@@ -421,7 +422,7 @@ ErrorInfo GwClient::DecreGlobalReference(const std::vector<std::string> &objectI
     // if the objectId is not in the map, not decrease
     std::vector<std::string> needDecreObjectIds = refCountMap_.DecreRefCount(objectIds);
     if (!needDecreObjectIds.empty()) {
-        bool success = asyncDecreRef_.Push(needDecreObjectIds, threadLocalTenantId);
+        bool success = asyncDecreRef_.Push(needDecreObjectIds, this->tenantId_);
         if (!success) {
             err.SetErrCodeAndMsg(YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED,
                                  YR::Libruntime::ModuleCode::DATASYSTEM, "async decrease thread has exited");
@@ -503,7 +504,7 @@ ErrorInfo GwClient::PosixKvGet(const std::vector<std::string> &keys,
 {
     auto req = this->BuildKvGetRequest(keys, timeoutMs);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -533,7 +534,7 @@ ErrorInfo GwClient::PosixKvSet(const std::string &key, const std::shared_ptr<Buf
 {
     auto req = this->BuildKvSetRequest(key, value, setParam);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -564,7 +565,7 @@ ErrorInfo GwClient::PosixKvMSetTx(const std::vector<std::string> &keys,
 {
     auto req = this->BuildKvMSetTxRequest(keys, vals, mSetParam);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -593,7 +594,7 @@ ErrorInfo GwClient::PosixKvMSetTx(const std::vector<std::string> &keys,
 ErrorInfo GwClient::PosixObjPut(const PutRequest &req)
 {
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -624,7 +625,7 @@ ErrorInfo GwClient::PosixObjGet(const std::vector<std::string> &keys,
 {
     auto req = this->BuildObjGetRequest(keys, timeoutMs);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -655,7 +656,7 @@ ErrorInfo GwClient::PosixKvDel(const std::vector<std::string> &keys,
 {
     auto req = this->BuildKvDelRequest(keys);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -686,7 +687,7 @@ ErrorInfo GwClient::PosixGDecreaseRef(const std::vector<std::string> &objectIds,
 {
     auto req = this->BuildDecreaseRefRequest(objectIds);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -717,7 +718,7 @@ ErrorInfo GwClient::PosixGInCreaseRef(const std::vector<std::string> &objectIds,
 {
     auto req = this->BuildIncreaseRefRequest(objectIds);
     auto requestId = std::make_shared<std::string>(YR::utility::IDGenerator::GenRequestId());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, threadLocalTenantId);
+    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     auto asyncNotify = std::make_shared<NotificationUtility>();
@@ -741,17 +742,17 @@ ErrorInfo GwClient::PosixGInCreaseRef(const std::vector<std::string> &objectIds,
     ss << "increase ref request by http has timed out: " << connectTimeout_ << ", requestId: " << *requestId;
     return logError(asyncNotify->WaitForNotificationWithTimeout(
         absl::Seconds(connectTimeout_), ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, ModuleCode::RUNTIME, ss.str())));
-}
-
 void GwClient::SetTenantId(const std::string &tenantId)
 {
-    threadLocalTenantId = tenantId;
+    tenantId_ = tenantId;
 }
 
 ErrorInfo GwClient::ParseLeaseResponse(const std::string &result)
 {
     LeaseResponse leaseRsp;
-    leaseRsp.ParseFromString(result);
+    if (result.empty() || !leaseRsp.ParseFromString(result)) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "failed to parse lease response");
+    }
     return leaseRsp.code() == common::ERR_NONE
                ? ErrorInfo()
                : ErrorInfo(static_cast<ErrorCode>(leaseRsp.code()), ModuleCode::RUNTIME, leaseRsp.message());

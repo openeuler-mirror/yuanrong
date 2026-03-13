@@ -20,8 +20,8 @@
 namespace YR {
 namespace Libruntime {
 AsyncHttpsClient::AsyncHttpsClient(const std::shared_ptr<asio::io_context> &ioc,
-                                   const std::shared_ptr<asio::ssl::context> &ctx)
-    : ioc_(ioc), ctx_(ctx), resolver_(asio::make_strand(*ioc))
+                                   const std::shared_ptr<asio::ssl::context> &ctx, std::string serverName)
+    : ioc_(ioc), ctx_(ctx), serverName_(std::move(serverName)), resolver_(asio::make_strand(*ioc))
 {
 }
 
@@ -62,10 +62,11 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
     connParam_ = param;
     idleTime_ = connParam_.idleTime;
     std::string msg;
-    if (!param.ip.empty()) {
-        if (!SSL_set_tlsext_host_name(stream_->native_handle(), param.ip.c_str())) {
-            YRLOG_ERROR("failed to set servername: {}", param.ip);
-            msg = "failed to set servername during initing invoke client, serverName:" + param.ip;
+    const auto &tlsServerName = serverName_.empty() ? param.ip : serverName_;
+    if (!tlsServerName.empty()) {
+        if (!SSL_set_tlsext_host_name(stream_->native_handle(), tlsServerName.c_str())) {
+            YRLOG_ERROR("failed to set servername: {}", tlsServerName);
+            msg = "failed to set servername during initing invoke client, serverName:" + tlsServerName;
             return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
         }
     }

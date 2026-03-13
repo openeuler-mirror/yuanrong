@@ -742,6 +742,8 @@ ErrorInfo GwClient::PosixGInCreaseRef(const std::vector<std::string> &objectIds,
     ss << "increase ref request by http has timed out: " << connectTimeout_ << ", requestId: " << *requestId;
     return logError(asyncNotify->WaitForNotificationWithTimeout(
         absl::Seconds(connectTimeout_), ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, ModuleCode::RUNTIME, ss.str())));
+}
+
 void GwClient::SetTenantId(const std::string &tenantId)
 {
     tenantId_ = tenantId;

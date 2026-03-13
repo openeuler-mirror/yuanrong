@@ -92,6 +92,21 @@ def validate_ip(input_ip: str):
     return compile_ip.match(input_ip)
 
 
+def validate_domain(domain_str: str):
+    """
+    This is a checker for input domain string
+
+    Checks validity of input domain string
+
+    Returns:
+        True, the input domain string is valid
+        False, the input domain string is invalid
+    """
+    domain_regex = r"^([a-zA-Z0-9\-]+\.)*[a-zA-Z0-9\-]+$"
+    compile_domain = re.compile(domain_regex)
+    return compile_domain.match(domain_str)
+
+
 def validate_address(address, localhost_pass=False):
     """
     Validates address parameter
@@ -113,10 +128,10 @@ def validate_address(address, localhost_pass=False):
         raise ValueError("port format is wrong, must be an integer.") from err
     if not 1 <= port <= 65535:
         raise ValueError(f"port value {port} is out of range.")
-    if localhost_pass and ip in ("127.0.0.1"):
+    if localhost_pass and ip in ("127.0.0.1", "localhost"):
         return ip, port
-    if not validate_ip(ip):
-        raise ValueError(f"invalid ip {ip}")
+    if not (validate_ip(ip) or validate_domain(ip)):
+        raise ValueError(f"invalid host {ip}")
     return ip, port
 
 
@@ -206,7 +221,7 @@ def check_request_id_in_order(request_id) -> bool:
 
 def generate_resource_group_name():
     """
-    This is a wrapper generating resource group name when create virtual 
+    This is a wrapper generating resource group name when create virtual
     cluster with no name input
 
     Gets a random name string
@@ -653,10 +668,10 @@ def is_static_method(base_cls, f_name):
 
 def _should_skip_env_line(line: str) -> bool:
     """Check if a line should be skipped (empty or comment).
-    
+
     Args:
         line: The line to check (should already be stripped).
-        
+
     Returns:
         True if the line should be skipped, False otherwise.
     """
@@ -665,10 +680,10 @@ def _should_skip_env_line(line: str) -> bool:
 
 def _strip_quotes(value: str) -> str:
     """Remove surrounding quotes from a value if present.
-    
+
     Args:
         value: The value string that may have quotes.
-        
+
     Returns:
         The value with quotes removed if they were present.
     """
@@ -683,12 +698,12 @@ def _strip_quotes(value: str) -> str:
 
 def _parse_env_line(line: str, line_num: int, env_file_path: str):
     """Parse a single line from .env file into key-value pair.
-    
+
     Args:
         line: The line to parse (should already be stripped).
         line_num: Line number for error reporting.
         env_file_path: File path for error reporting.
-        
+
     Returns:
         Tuple of (key, value) if parsing succeeds, None otherwise.
     """
@@ -697,7 +712,7 @@ def _parse_env_line(line: str, line_num: int, env_file_path: str):
             f"Invalid format in {env_file_path} at line {line_num}: "
             f"expected KEY=VALUE format, got: {line}")
         return None
-    
+
     # Split on first '=' to handle values that contain '='
     parts = line.split('=', 1)
     if len(parts) != 2:
@@ -705,19 +720,19 @@ def _parse_env_line(line: str, line_num: int, env_file_path: str):
             f"Invalid format in {env_file_path} at line {line_num}: "
             f"expected KEY=VALUE format, got: {line}")
         return None
-    
+
     key = parts[0].strip()
     value = parts[1].strip()
-    
+
     # Remove quotes if present
     value = _strip_quotes(value)
-    
+
     # Skip if key is empty
     if not key:
         _logger.warning(
             f"Empty key in {env_file_path} at line {line_num}")
         return None
-    
+
     return (key, value)
 
 
@@ -749,14 +764,14 @@ def load_env_from_file(env_file_path: str):
         with open(env_file_path, 'r', encoding='utf-8') as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
-                
+
                 if _should_skip_env_line(line):
                     continue
-                
+
                 parsed = _parse_env_line(line, line_num, env_file_path)
                 if parsed is None:
                     continue
-                
+
                 key, value = parsed
                 os.environ[key] = value
                 loaded_count += 1

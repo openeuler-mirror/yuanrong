@@ -38,6 +38,7 @@ __client_cert = None
 __client_key = None
 __ca_cert = None
 __insecure = False
+__server_name = None
 __user = None
 __client_auth_type = "mutual"  # "mutual" or "one-way"
 __jwt_token = None
@@ -94,6 +95,7 @@ class HTTPClient:
         client_key: Optional[str] = None,
         ca_cert: Optional[str] = None,
         insecure: bool = False,
+        server_name: Optional[str] = None,
         client_auth_type: str = "mutual",  # "mutual" or "one-way"
         jwt_token: Optional[str] = None,
     ):
@@ -103,6 +105,7 @@ class HTTPClient:
         self.client_key = client_key
         self.ca_cert = ca_cert
         self.insecure = insecure
+        self.server_name = server_name
         self.client_auth_type = client_auth_type
         self.jwt_token = jwt_token
 
@@ -148,27 +151,58 @@ class HTTPClient:
             elif self.client_cert:
                 cert = self.client_cert
         # For "one-way" TLS, cert remains None (only verify server)
-
+        verify = self.ca_cert if self.ca_cert else self.verify
+        if url.startswith("http://") and verify:
+            url = url.replace("http://", "https://", 1)
         if self.insecure:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             verify = False
-            if url.startswith("http://"):
-                url = url.replace("http://", "https://", 1)
-        else:
-            verify = self.ca_cert if self.ca_cert else False
-            if url.startswith("http://") and verify:
-                url = url.replace("http://", "https://", 1)
 
-        response = self.session.request(
-            method.upper(),
-            url,
-            json=data,
-            headers=default_headers,
-            timeout=self.timeout,
-            cert=cert,
-            verify=verify,
-        )
+        # If server_name is specified, use hostname overwrite
+        if self.server_name:
+            from requests.adapters import HTTPAdapter
+
+            class SNIAdapter(HTTPAdapter):
+                def __init__(self, sni_hostname, *args, **kwargs):
+                    self.sni_hostname = sni_hostname
+                    super().__init__(*args, **kwargs)
+
+                def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+                    # server_hostname sets SNI, assert_hostname sets certificate verification hostname
+                    pool_kwargs['server_hostname'] = self.sni_hostname
+                    pool_kwargs['assert_hostname'] = self.sni_hostname
+                    super().init_poolmanager(connections, maxsize, block, **pool_kwargs)
+
+                def cert_verify(self, conn, url, verify, cert):
+                    # Ensure SNI is set during connection
+                    conn.server_hostname = self.sni_hostname
+                    super().cert_verify(conn, url, verify, cert)
+
+            # Create temporary session for this request
+            temp_session = requests.Session()
+            adapter = SNIAdapter(self.server_name)
+            temp_session.mount("https://", adapter)
+
+            response = temp_session.request(
+                method.upper(),
+                url,
+                json=data,
+                headers=default_headers,
+                timeout=self.timeout,
+                cert=cert,
+                verify=verify,
+            )
+        else:
+            response = self.session.request(
+                method.upper(),
+                url,
+                json=data,
+                headers=default_headers,
+                timeout=self.timeout,
+                cert=cert,
+                verify=verify,
+            )
 
         try:
             try:
@@ -239,6 +273,7 @@ def deploy_function(function_json, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -263,6 +298,7 @@ def update_function(function_json, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -284,6 +320,7 @@ def delete_function(function_name, user):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -305,6 +342,7 @@ def query_function(function_name, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -333,6 +371,7 @@ def query_instances(user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -353,6 +392,7 @@ def query_instance(instance_id, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -372,6 +412,7 @@ def publish_function(function_name, publish_json, user=None):
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -474,6 +515,7 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         client_key=__client_key,
         ca_cert=__ca_cert,
         insecure=__insecure,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
@@ -522,6 +564,13 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
     help="CA certificate file path",
 )
 @click.option(
+    "--server-name",
+    required=False,
+    type=str,
+    envvar="YR_SERVER_NAME",
+    help="Server name for certificate verification (SNI)",
+)
+@click.option(
     "--insecure",
     is_flag=True,
     default=False,
@@ -553,6 +602,7 @@ def cli(
     client_key,
     ca_cert,
     insecure,
+    server_name,
     client_auth_type,
     jwt_token,
     log_level,
@@ -579,6 +629,9 @@ def cli(
     if insecure:
         global __insecure
         __insecure = insecure
+    if server_name:
+        global __server_name
+        __server_name = server_name
     if client_auth_type:
         global __client_auth_type
         __client_auth_type = client_auth_type.lower()

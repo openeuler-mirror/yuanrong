@@ -131,7 +131,7 @@ html_theme_options = {
         "version-switcher",
         ],
     "switcher": {
-        "json_url": "http://docs.openyuanrong.org/versions.json",
+        "json_url": "https://docs.openyuanrong.org/versions.json",
         "version_match": os.getenv("BUILD_VERSION", "latest"),
     },
     "logo": {

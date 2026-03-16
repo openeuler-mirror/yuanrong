@@ -1,77 +1,100 @@
-# CLAUDE.md
+# YuanRong Development Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+请使用第一性原理思考。你不能总是假设我非常清楚自己想要什么和该怎么得到。请保持审慎，从原始需求和问题出发，如果动机和目标不清晰，停下来和我讨论。如果目标清晰但是路径不是最短，告诉我，并且建议更好的办法
 
-## Project Overview
 
-openYuanrong is a Serverless distributed computing engine that supports AI, big data, and microservices applications with a unified architecture. It provides multi-language function programming interfaces (Python, Java, C++, Go) with single-machine programming experience for distributed applications.
 
-## Build Commands
+## 角色分工
 
-### Primary Build System (Bazel)
+- Claude 是**产品经理 (PM)**：负责定义需求、规划优先级、确保目标符合用户价值，跟踪进度，协调沟通，总结输出。
+- Gemini 是**技术架构师 (Arch)**：设计系统架构，评估技术可行性，做出关键技术决策。
+- Codex 是**开发工程师 (Dev)**：编写代码，实现功能，修复 bug。
+- OpenCode 是**测试工程师 (QA)**：设计测试用例，执行测试，确保质量。
+
+## Project Structure
+
+- `functionsystem/` - Core function system (IAM, runtime, etc.)
+- `api/` - API definitions (C++, Go, Python)
+- `datasystem/` - Data storage system
+- `frontend/` - Frontend components
+- `example/` - Example configurations and scripts
+
+## Build Workflow
+
+### After Modifying `functionsystem/` Code
 
 ```bash
-# Build all API packages (cpp, java, python, go)
-bash build.sh
+# 1. Build functionsystem (generates wheel package)
+make functionsystem
 
-# Build specific language
-bash build.sh //api/cpp:yr_cpp_pkg
-bash build.sh //api/java:yr_java_pkg
-bash build.sh //api/python:yr_python_pkg
-bash build.sh //api/go:yr_go_pkg
+# 2. Build yuanrong runtime (depends on functionsystem output)
+make yuanrong
+```
 
-# Run tests
+### After Modifying `frontend/` Code
+
+```bash
+# 1. Build functionsystem (generates wheel package)
+make frontend
+
+# 2. Build yuanrong runtime (depends on functionsystem output)
+make yuanrong
+```
+
+
+### Quick Restart
+
+Use the integrated restart script:
+
+```bash
+./example/restart.sh token
+```
+
+This script:
+1. Stops existing runtime
+2. Reinstalls Python packages
+3. Starts runtime with IAM server enabled
+
+
+### Testing
+
+```bash
+# Run all tests
 bash build.sh -t
 
-# Build with debug mode
-bash build.sh -D
+# Run tests with specific filter
+bash build.sh -t -T "TestName*"
 
-# Coverage
+# Generate coverage report
 bash build.sh -c
 
-# Clean build environment
-bash build.sh -C
+# Run with AddressSanitizer
+bash build.sh -S address
+
+# Run with ThreadSanitizer
+bash build.sh -S thread
+
+# System tests (requires deployment)
+cd test/st
+bash test.sh -l all  # Run all language tests
+bash test.sh -l cpp  # C++ tests only
+bash test.sh -l python  # Python tests only
+bash test.sh -l java  # Java tests only
+bash test.sh -l go  # Go tests only
 ```
 
-### Convenient Build (Makefile)
+### Direct Bazel Commands
 
 ```bash
-make help                   # Show available targets
-make all                    # Build all components
-make frontend               # Build frontend
-make datasystem             # Build datasystem
-make functionsystem         # Build functionsystem
-make yuanrong               # Build runtime (no remote cache)
-make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092  # Build with remote cache
-make dashboard              # Build dashboard (Go)
+# Build specific targets
+bazel build //api/python:yr_python_pkg
+bazel build //api/java:yr_java_pkg
+bazel build //api/cpp:yr_cpp_pkg
+bazel build //api/go:yr_go_pkg
 
-# Parameters:
-#   REMOTE_CACHE - Remote cache server address (optional)
-#                  Example: grpc://192.168.3.45:9092
-```
-
-## Architecture
+# Run specific tests
+bazel test //test/...
+bazel test //api/python/yr/tests/...
+bazel test //api/java:java_tests
 
 ```
-api/          - Multi-language SDKs (cpp, java, go, python)
-src/          - Core C++ runtime (libruntime, proto, dto, scene, utility)
-go/           - Go components (cmd, pkg, proto)
-datasystem/   - Data system (distributed cache with Object/Stream semantics)
-functionsystem/ - Function system (dynamic scheduling, scaling)
-frontend/     - Gateway (HTTP API for function management)
-```
-
-## Key Notes
-
-- This repo is the **runtime** component (yuanrong)
-- Other components: yuanrong-functionsystem, yuanrong-datasystem, yuanrong-frontend are separate repos
-- The Makefile orchestrates building all components in correct dependency order
-- Build outputs are copied to `output/` directory
-- Development typically requires the datasystem output first (provides SDK)
-
-## Active Technologies
-- Go 1.21+ + gin, redis (go-redis), Prometheus client (001-async-invocation)
-- Redis (分布式场景), sync.Map (单机fallback) (001-async-invocation)
-
-## Recent Changes
-- 001-async-invocation: Added Go 1.21+ + gin, redis (go-redis), Prometheus client

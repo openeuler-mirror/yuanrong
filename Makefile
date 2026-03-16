@@ -67,9 +67,8 @@ functionsystem:
 	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
 
 yuanrong:
-	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output"
-	cp -ar functionsystem/output/metrics ./
 	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
+	cp -ar functionsystem/output/metrics ./
 	@echo "Building runtime..."
 	@if [ -n "$(REMOTE_CACHE)" ]; then \
 		echo "Using remote cache: $(REMOTE_CACHE)"; \

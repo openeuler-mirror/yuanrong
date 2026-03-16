@@ -110,6 +110,12 @@ echo "📦 Installing Python versions..."
 sudo tar -xzf "$PKG_DIR/python-3.9.11-linux-${PKG_ARCH}.tar.gz" -C /
 sudo tar -xzf "$PKG_DIR/python-3.10.2-linux-${PKG_ARCH}.tar.gz" -C /
 sudo tar -xzf "$PKG_DIR/python-3.11.4-linux-${PKG_ARCH}.tar.gz" -C /
+if [[ -f "$PKG_DIR/python-3.12.0-linux-${PKG_ARCH}.tar.gz" ]]; then
+    sudo tar -xzf "$PKG_DIR/python-3.12.0-linux-${PKG_ARCH}.tar.gz" -C /
+fi
+if [[ -f "$PKG_DIR/python-3.13.0-linux-${PKG_ARCH}.tar.gz" ]]; then
+    sudo tar -xzf "$PKG_DIR/python-3.13.0-linux-${PKG_ARCH}.tar.gz" -C /
+fi
 
 echo "📦 Installing Bazel..."
 sudo tar -xzf "$PKG_DIR/bazel-6.5.0-linux-${PKG_ARCH}.tar.gz" -C /usr/local/bin/
@@ -122,7 +128,7 @@ echo "📦 Installing Node.js..."
 sudo tar -xzf "$PKG_DIR/nodejs-20.19.0-linux-${PKG_ARCH}.tar.gz" -C "$BUILD_TOOLS"
 
 # --- Python symlinks ---
-for ver in "3.9" "3.10" "3.11"; do
+for ver in "3.9" "3.10" "3.11" "3.12" "3.13"; do
     sudo ln -sf "$BUILD_TOOLS/python$ver/bin/python$ver" "/usr/local/bin/python$ver"
     sudo ln -sf "$BUILD_TOOLS/python$ver/bin/python$ver" "$BUILD_TOOLS/python$ver/bin/python"
     sudo ln -sf "$BUILD_TOOLS/python$ver/bin/pip$ver" "/usr/local/bin/pip$ver"
@@ -134,6 +140,8 @@ sudo ln -sf /usr/bin/python3 /usr/bin/python 2>/dev/null || true
 echo "/opt/buildtools/python3.9/lib" | sudo tee /etc/ld.so.conf.d/python3.9.conf > /dev/null
 echo "/opt/buildtools/python3.10/lib" | sudo tee /etc/ld.so.conf.d/python3.10.conf > /dev/null
 echo "/opt/buildtools/python3.11/lib" | sudo tee /etc/ld.so.conf.d/python3.11.conf > /dev/null
+echo "/opt/buildtools/python3.12/lib" | sudo tee /etc/ld.so.conf.d/python3.12.conf > /dev/null
+echo "/opt/buildtools/python3.13/lib" | sudo tee /etc/ld.so.conf.d/python3.13.conf > /dev/null
 sudo ldconfig
 
 # --- Global environment setup ---
@@ -150,8 +158,10 @@ export GONOSUMDB=*
 export PYTHON_PATH_3911=/opt/buildtools/python3.9
 export PYTHON_PATH_3102=/opt/buildtools/python3.10
 export PYTHON_PATH_3114=/opt/buildtools/python3.11
-export PATH=$PYTHON_PATH_3911/bin:$PYTHON_PATH_3102/bin:$PYTHON_PATH_3114/bin:$HOME/.local/bin:$PATH
-export LD_LIBRARY_PATH=$PYTHON_PATH_3911/lib:$PYTHON_PATH_3102/lib:$PYTHON_PATH_3114/lib:/usr/lib:/usr/lib64:$LD_LIBRARY_PATH
+export PYTHON_PATH_3120=/opt/buildtools/python3.12
+export PYTHON_PATH_3130=/opt/buildtools/python3.13
+export PATH=$PYTHON_PATH_3911/bin:$PYTHON_PATH_3102/bin:$PYTHON_PATH_3114/bin:$PYTHON_PATH_3120/bin:$PYTHON_PATH_3130/bin:$HOME/.local/bin:$PATH
+export LD_LIBRARY_PATH=$PYTHON_PATH_3911/lib:$PYTHON_PATH_3102/lib:$PYTHON_PATH_3114/lib:$PYTHON_PATH_3120/lib:$PYTHON_PATH_3130/lib:/usr/lib:/usr/lib64:$LD_LIBRARY_PATH
 
 export LANG=C.UTF-8
 export TMOUT=0
@@ -159,7 +169,7 @@ EOF
 
 
 # --- Configure pip mirrors ---
-for py in "3.9" "3.10" "3.11"; do
+for py in "3.9" "3.10" "3.11" "3.12" "3.13"; do
     pip_cmd="pip$(echo $py | tr -d .)"
     if command -v "$pip_cmd" &> /dev/null; then
         "$pip_cmd" config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple
@@ -184,6 +194,18 @@ pip3.10 install wheel==0.36.2
 pip3.11 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple
 pip3.11 config --user set global.trusted-host mirrors.huaweicloud.com
 pip3.11 install wheel==0.36.2
+
+if command -v pip3.12 &>/dev/null; then
+    pip3.12 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple
+    pip3.12 config --user set global.trusted-host mirrors.huaweicloud.com
+    pip3.12 install -U wheel
+fi
+
+if command -v pip3.13 &>/dev/null; then
+    pip3.13 config --user set global.index-url https://mirrors.huaweicloud.com/repository/pypi/simple
+    pip3.13 config --user set global.trusted-host mirrors.huaweicloud.com
+    pip3.13 install -U wheel
+fi
 
 # --- Configure npm ---
 export PATH="/opt/buildtools/nodejs/bin:$PATH"

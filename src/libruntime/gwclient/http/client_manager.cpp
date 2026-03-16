@@ -88,7 +88,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
             // Disable insecure SSL/TLS versions (SSLv2, SSLv3, TLSv1.0, TLSv1.1)
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                              ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-            
+
             // Load client certificate and private key for client authentication
             if (librtCfg->certificateFilePath.empty() || librtCfg->privateKeyPath.empty()) {
                 YRLOG_ERROR("enableMTLS is true, but certificateFilePath or privateKeyPath is empty");
@@ -97,7 +97,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                 return err;
             }
             ctx->use_certificate_chain_file(librtCfg->certificateFilePath);
-            
+
             // Set password callback if private key is encrypted
             if (strlen(librtCfg->privateKeyPaaswd) > 0) {
                 ctx->set_password_callback([this](std::size_t, ssl::context::password_purpose) {
@@ -105,7 +105,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                 });
             }
             ctx->use_private_key_file(librtCfg->privateKeyPath, ssl::context::pem);
-            
+
             // Configure server certificate verification
             if (librtCfg->skipServerVerify) {
                 ctx->set_verify_mode(ssl::verify_none);
@@ -117,7 +117,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                     ctx->load_verify_file(librtCfg->verifyFilePath);  // Use custom CA certificate
                 }
             }
-            
+
             for (uint32_t i = 0; i < maxConnSize_; i++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
             }
@@ -138,7 +138,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
             // Disable insecure SSL/TLS versions
             ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
                              ssl::context::no_tlsv1 | ssl::context::no_tlsv1_1);
-            
+
             // Configure server certificate verification
             if (librtCfg->skipServerVerify) {
                 ctx->set_verify_mode(ssl::verify_none);
@@ -150,7 +150,7 @@ ErrorInfo ClientManager::InitCtxAndIocThread()
                     ctx->load_verify_file(librtCfg->verifyFilePath);  // Use custom CA certificate
                 }
             }
-            
+
             for (uint32_t i = 0; i < maxConnSize_; i++) {
                 this->clients.emplace_back(std::make_shared<AsyncHttpsClient>(this->ioc, ctx));
             }

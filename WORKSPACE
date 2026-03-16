@@ -196,7 +196,7 @@ maybe(
 http_archive(
     name = "etcd_source",
     build_file = "//bazel:etcd.BUILD",
-    strip_prefix = "etcd-3.5.24",
+    strip_prefix = "etcd-v3.5.24",
     sha256 = "cd1ee896fcdae1679dbed946fc61f799de51460121ff8ac0687bc39063f87123",
     urls = [
         "https://gitee.com/mirrors/etcd/repository/archive/v3.5.24.zip",

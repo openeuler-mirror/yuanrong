@@ -26,7 +26,6 @@ FSIntf::FSIntf(const FSIntfHandlers &handlers) : handlers(handlers)
 {
     if (handlers.call == nullptr || handlers.checkpoint == nullptr || handlers.recover == nullptr ||
         handlers.shutdown == nullptr || handlers.signal == nullptr) {
-        YRLOG_WARN("One or more function system handlers is empty!");
         return;
     }
 

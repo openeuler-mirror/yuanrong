@@ -78,8 +78,8 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
             lowgest.expires_after(std::chrono::seconds(param.timeoutSec));
         }
         (void)lowgest.connect(results);
-        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}",
-            param.ip, param.port, param.timeoutSec);
+        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
+                    param.timeoutSec);
         if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
             lowgest.expires_never();
         }

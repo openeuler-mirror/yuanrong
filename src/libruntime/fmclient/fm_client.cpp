@@ -435,7 +435,7 @@ std::shared_ptr<HttpClient> FMClient::InitCtxAndHttpClient(void)
             ctx->load_verify_file(libConfig_->verifyFilePath);
             ctx->use_certificate_chain_file(libConfig_->certificateFilePath);
             ctx->use_private_key_file(libConfig_->privateKeyPath, ssl::context::pem);
-            return std::make_shared<AsyncHttpsClient>(this->ioc_, ctx, libConfig_->serverName);
+            return std::make_shared<AsyncHttpsClient>(this->ioc_, ctx);
         } catch (const std::exception &e) {
             YRLOG_ERROR("caught exception when init ssl context : {}", e.what());
             return {};

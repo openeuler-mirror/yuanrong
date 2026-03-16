@@ -1062,7 +1062,7 @@ def invoke(function_name, payload, timeout, header):
 @click.option(
     "--runtime",
     required=False,
-    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12"]),
+    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12", "python3.13"]),
     help="Runtime language version",
 )
 @click.option(

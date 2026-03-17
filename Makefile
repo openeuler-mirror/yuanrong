@@ -39,6 +39,9 @@ datasystem:
 	bash datasystem/build.sh -X off -G on -i on
 	@mkdir -p output
 	@cp datasystem/output/yr-datasystem*.tar.gz output/
+	mkdir -p functionsystem/vendor/src
+	cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
+	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
@@ -62,13 +65,16 @@ runtime_launcher:
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	mkdir -p functionsystem/vendor/src
-	cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
 	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
+	cp -ar functionsystem/output/metrics ./
+	cp functionsystem/output/yr-functionsystem*.tar.gz output/
+
+dashboard:
+	cd go && bash build.sh && cd -
+	cp go/output/yr-dashboard*.tar.gz output/
+	cp go/output/yr-faas*.tar.gz output/
 
 yuanrong:
-	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
-	cp -ar functionsystem/output/metrics ./
 	@echo "Building runtime..."
 	@if [ -n "$(REMOTE_CACHE)" ]; then \
 		echo "Using remote cache: $(REMOTE_CACHE)"; \
@@ -77,9 +83,6 @@ yuanrong:
 		echo "Building without remote cache (REMOTE_CACHE not provided)"; \
 		bash build.sh -P; \
 	fi
-
-dashboard:
-	cd go && bash build.sh && cd -
 
 aio:
 	@echo "Copying packages to example/aio/pkg/..."
@@ -100,10 +103,5 @@ aio:
 all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
 	@echo "Build completed!"
 	@echo "Copying outputs to output/..."
-	mkdir -p output
-	cp frontend/output/yr-frontend*.tar.gz output/
-	cp datasystem/output/yr-datasystem*.tar.gz output/
-	cp functionsystem/output/yr-functionsystem*.tar.gz output/
-	@echo "Copying runtime-launcher to example/aio/pkg/..."
 	@mkdir -p example/aio/pkg
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher

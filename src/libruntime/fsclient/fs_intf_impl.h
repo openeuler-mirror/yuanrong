@@ -336,6 +336,7 @@ inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &message
     return streamMsg;
 }
 
+template <>
 inline std::shared_ptr<StreamingMessage> GenStreamMsg(const std::string &messageId,
                                                       const PrepareSnapResponse &msg)
 {

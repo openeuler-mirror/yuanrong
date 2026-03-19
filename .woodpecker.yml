@@ -1,0 +1,74 @@
+# Woodpecker CI Pipeline for YuanRong ARM64
+# 完全免费开源的 CI/CD，可替代 Buildkite
+
+when:
+  event:
+    - push
+    - pull_request
+    - manual
+  branch:
+    - main
+    - master
+    - develop
+
+variables:
+  BUILDER_IMAGE: yuanrong/builder:arm64
+  BUILD_VERSION: v0.0.1
+  GOPROXY: https://goproxy.cn,direct
+
+platform: linux/arm64
+
+steps:
+  # ========== 并行构建阶段 ==========
+
+  frontend:
+    image: ${BUILDER_IMAGE}
+    commands:
+      - echo "=== Building Frontend ==="
+      - make frontend
+    when:
+      event: push
+
+  datasystem:
+    image: ${BUILDER_IMAGE}
+    commands:
+      - echo "=== Building DataSystem ==="
+      - make datasystem
+    when:
+      event: push
+
+  functionsystem:
+    image: ${BUILDER_IMAGE}
+    commands:
+      - echo "=== Building FunctionSystem ==="
+      - make functionsystem
+    when:
+      event: push
+
+  yuanrong:
+    image: ${BUILDER_IMAGE}
+    commands:
+      - echo "=== Building Runtime ==="
+      - make yuanrong
+    when:
+      event: push
+
+  # ========== 产物收集 ==========
+
+  artifacts:
+    image: alpine:latest
+    commands:
+      - echo "=== Collecting Artifacts ==="
+      - ls -lah output/
+      - tar -czf build-artifacts.tar.gz -C output .
+    when:
+      - status: [success, failure]
+
+  # ========== 通知 (可选) ==========
+
+  notify:
+    image: alpine:latest
+    commands:
+      - echo "Build completed: ${CI_BUILD_STATUS}"
+    when:
+      - status: [success, failure]

@@ -1,0 +1,328 @@
+#!/bin/bash
+# Buildkite 动态 Pipeline
+# 根据参数动态生成构建步骤
+
+set -e
+
+# ============================================
+# 配置
+# ============================================
+
+BUILD_TARGET="${BUILD_TARGET:-all}"        # all, linux, macos
+COMPONENTS="${COMPONENTS:-frontend,datasystem,functionsystem,yuanrong}"
+BUILDER_IMAGE="${BUILDER_IMAGE:-yuanrong/builder:arm64}"
+BUILD_VERSION="${BUILD_VERSION:-v0.0.1}"
+
+# 华为云 OBS 配置 (从环境变量读取)
+OBS_ENDPOINT="${OBS_ENDPOINT:-obs.cn-north-4.myhuaweicloud.com}"
+OBS_BUCKET="${OBS_BUCKET}"
+OBS_ACCESS_KEY="${OBS_ACCESS_KEY}"
+OBS_SECRET_KEY="${OBS_SECRET_KEY}"
+OBS_PATH_PREFIX="${OBS_PATH_PREFIX:-yuanrong/builds}"
+
+# ============================================
+# 工具函数
+# ============================================
+
+# 生成 Linux 构建步骤 (Docker 容器)
+generate_linux_step() {
+    local component="$1"
+    local label=""
+
+    case "$component" in
+        frontend)      label=":gopher: Frontend" ;;
+        datasystem)    label=":database: DataSystem" ;;
+        functionsystem) label=":gear: FunctionSystem" ;;
+        runtime_launcher) label=":rocket: Runtime Launcher" ;;
+        dashboard)     label=":chart_with_upwards_trend: Dashboard" ;;
+        yuanrong)      label=":package: Runtime" ;;
+        *)             label=":linux: $component" ;;
+    esac
+
+    cat << STEP
+  - label: "$label (Linux ARM64)"
+    command: |
+      #!/bin/bash
+      set -e
+      echo "=== Building $component for Linux ARM64 ==="
+      echo "Platform: \$(uname -a)"
+      make $component
+      mkdir -p artifacts/linux
+      cp -r output/* artifacts/linux/ 2>/dev/null || true
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+          env:
+            - BUILD_VERSION=$BUILD_VERSION
+            - GOPROXY=https://goproxy.cn,direct
+    retry:
+      automatic:
+        - limit: 1
+        exit_status: -1
+    timeout_in_minutes: 90
+    artifact_paths: "artifacts/linux/**/*"
+
+STEP
+}
+
+# 生成 macOS 构建步骤 (主机直接运行)
+generate_macos_step() {
+    local component="$1"
+    local label=""
+
+    case "$component" in
+        frontend)      label=":gopher: Frontend" ;;
+        datasystem)    label=":database: DataSystem" ;;
+        functionsystem) label=":gear: FunctionSystem" ;;
+        runtime_launcher) label=":rocket: Runtime Launcher" ;;
+        dashboard)     label=":chart_with_upwards_trend: Dashboard" ;;
+        yuanrong)      label=":package: Runtime" ;;
+        *)             label=":mac: $component" ;;
+    esac
+
+    cat << STEP
+  - label: "$label (macOS ARM64)"
+    command: |
+      #!/bin/bash
+      set -e
+      echo "=== Building $component for macOS ARM64 ==="
+      echo "Platform: \$(uname -a)"
+      make $component
+      mkdir -p artifacts/macos
+      cp -r output/* artifacts/macos/ 2>/dev/null || true
+    agents:
+      os: "macos"
+      arch: "arm64"
+    retry:
+      automatic:
+        - limit: 1
+        exit_status: -1
+    timeout_in_minutes: 90
+    artifact_paths: "artifacts/macos/**/*"
+
+STEP
+}
+
+# ============================================
+# 生成 Pipeline
+# ============================================
+
+cat << YAML
+steps:
+  # ========== 构建信息 ==========
+  - label: ":information_source: 构建信息"
+    command: |
+      echo "=========================================="
+      echo "  YuanRong ARM64 双平台构建"
+      echo "=========================================="
+      echo "构建目标: $BUILD_TARGET"
+      echo "组件列表: $COMPONENTS"
+      echo "版本: $BUILD_VERSION"
+      echo "分支: ${BUILDKITE_BRANCH:-unknown}"
+      echo "提交: ${BUILDKITE_COMMIT:-unknown}"
+      echo "=========================================="
+    agents:
+      os: "macos"
+
+  # 等待信息步骤
+  - wait: ~
+    continue_on_failure: true
+
+YAML
+
+# 根据目标生成构建步骤
+IFS=',' read -ra COMPONENT_ARRAY <<< "$COMPONENTS"
+
+if [ "$BUILD_TARGET" = "all" ] || [ "$BUILD_TARGET" = "linux" ]; then
+    echo "  # ========== Linux ARM64 构建 =========="
+    for component in "${COMPONENT_ARRAY[@]}"; do
+        generate_linux_step "$component"
+    done
+fi
+
+if [ "$BUILD_TARGET" = "all" ] || [ "$BUILD_TARGET" = "macos" ]; then
+    echo "  # ========== macOS ARM64 构建 =========="
+    for component in "${COMPONENT_ARRAY[@]}"; do
+        generate_macos_step "$component"
+    done
+fi
+
+# 等待构建完成
+cat << YAML
+
+  # ========== 等待所有构建完成 ==========
+  - wait: ~
+
+  # ========== 合并产物 ==========
+  - label: ":package: 打包产物"
+    command: |
+      #!/bin/bash
+      set -e
+
+      echo "=========================================="
+      echo "  合并构建产物"
+      echo "=========================================="
+
+      mkdir -p output-final
+
+      # 处理 Linux 产物
+YAML
+
+if [ "$BUILD_TARGET" = "all" ] || [ "$BUILD_TARGET" = "linux" ]; then
+    cat << YAML
+      if [ -d "artifacts/linux" ]; then
+        echo "=== Linux ARM64 产物 ==="
+        ls -lah artifacts/linux/
+        cp -r artifacts/linux output-final/linux
+
+        # 创建发布包 (使用 Commit ID)
+        COMMIT_SHORT="\${BUILDKITE_COMMIT:0:8}"
+        tar -czf yuanrong-${BUILD_VERSION}-linux-arm64-\${COMMIT_SHORT}.tar.gz -C artifacts/linux .
+        ln -sf yuanrong-${BUILD_VERSION}-linux-arm64-\${COMMIT_SHORT}.tar.gz yuanrong-latest-linux-arm64.tar.gz
+        echo "✓ Linux 包: yuanrong-${BUILD_VERSION}-linux-arm64-\${COMMIT_SHORT}.tar.gz"
+      fi
+
+YAML
+fi
+
+if [ "$BUILD_TARGET" = "all" ] || [ "$BUILD_TARGET" = "macos" ]; then
+    cat << YAML
+      # 处理 macOS 产物
+      if [ -d "artifacts/macos" ]; then
+        echo ""
+        echo "=== macOS ARM64 产物 ==="
+        ls -lah artifacts/macos/
+        cp -r artifacts/macos output-final/macos
+
+        # 创建发布包 (使用 Commit ID)
+        COMMIT_SHORT="\${BUILDKITE_COMMIT:0:8}"
+        tar -czf yuanrong-${BUILD_VERSION}-macos-arm64-\${COMMIT_SHORT}.tar.gz -C artifacts/macos .
+        ln -sf yuanrong-${BUILD_VERSION}-macos-arm64-\${COMMIT_SHORT}.tar.gz yuanrong-latest-macos-arm64.tar.gz
+        echo "✓ macOS 包: yuanrong-${BUILD_VERSION}-macos-arm64-\${COMMIT_SHORT}.tar.gz"
+      fi
+
+YAML
+fi
+
+cat << YAML
+      echo ""
+      echo "=========================================="
+      echo "  构建完成!"
+      echo "=========================================="
+      echo "产物位置:"
+      ls -lh *.tar.gz 2>/dev/null || echo "无产物"
+    agents:
+      os: "macos"
+    artifact_paths:
+      - "output-final/**/*"
+      - "yuanrong-*.tar.gz"
+
+  # ========== 上传到华为云 OBS ==========
+  - label: ":cloud: 上传 OBS"
+    command: |
+      #!/bin/bash
+      set -e
+
+      echo "=========================================="
+      echo "  上传到华为云 OBS"
+      echo "=========================================="
+
+      # 检查配置
+      if [ -z "$OBS_BUCKET" ]; then
+        echo "⚠️  OBS_BUCKET 未设置，跳过上传"
+        exit 0
+      fi
+
+      COMMIT_SHORT="\${BUILDKITE_COMMIT:0:8}"
+      TIMESTAMP="\$(date +%Y%m%d-%H%M%S)"
+      OBS_UPLOAD_PATH="\${OBS_PATH_PREFIX}/\${BUILDKITE_BRANCH}/\${TIMESTAMP}-\${COMMIT_SHORT}"
+
+      echo "Bucket: \${OBS_BUCKET}"
+      echo "Endpoint: \${OBS_ENDPOINT}"
+      echo "上传路径: \${OBS_UPLOAD_PATH}"
+
+      # 使用 AWS CLI 上传 (华为云 OBS 兼容 S3 协议)
+      if command -v aws &> /dev/null; then
+        echo "使用 AWS CLI 上传..."
+
+        upload_file() {
+          local file="\$1"
+          local name="\$2"
+
+          if [ ! -f "\$file" ]; then
+            echo "⚠️  文件不存在: \$file"
+            return
+          fi
+
+          echo "上传: \$file"
+          aws s3 cp "\$file" \
+            "s3://\${OBS_BUCKET}/\${OBS_UPLOAD_PATH}/\${name}" \
+            --endpoint-url="https://\${OBS_ENDPOINT}" \
+            --region=auto \
+            --acl=public-read
+
+          if [ \$? -eq 0 ]; then
+            echo "✓ 上传成功"
+          else
+            echo "✗ 上传失败"
+          fi
+        }
+
+        upload_file "yuanrong-${BUILD_VERSION}-linux-arm64-\${COMMIT_SHORT}.tar.gz" \
+                    "yuanrong-${BUILD_VERSION}-linux-arm64-\${COMMIT_SHORT}.tar.gz"
+
+        upload_file "yuanrong-latest-linux-arm64.tar.gz" \
+                    "yuanrong-latest-linux-arm64.tar.gz"
+
+        upload_file "yuanrong-${BUILD_VERSION}-macos-arm64-\${COMMIT_SHORT}.tar.gz" \
+                    "yuanrong-${BUILD_VERSION}-macos-arm64-\${COMMIT_SHORT}.tar.gz"
+
+        upload_file "yuanrong-latest-macos-arm64.tar.gz" \
+                    "yuanrong-latest-macos-arm64.tar.gz"
+
+      else
+        echo "⚠️  AWS CLI 未安装，跳过上传"
+        echo "   请在构建镜像中安装: apt-get install awscli"
+      fi
+
+      echo ""
+      echo "✓ 上传完成!"
+      echo "下载: https://\${OBS_BUCKET}.\${OBS_ENDPOINT}/\${OBS_UPLOAD_PATH}/"
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+    retry:
+      automatic:
+        - limit: 2
+
+  # ========== 构建摘要 ==========
+  - label: ":memo: 摘要"
+    command: |
+      #!/bin/bash
+      echo "### YuanRong 构建完成 :rocket:"
+      echo ""
+      echo "| 项目 | 值 |"
+      echo "|------|-----|"
+      echo "| **构建** | #\${BUILDKITE_BUILD_NUMBER} |"
+      echo "| **分支** | \`\${BUILDKITE_BRANCH}\` |"
+      echo "| **提交** | \`\${BUILDKITE_COMMIT:0:8}\` |"
+      echo "| **版本** | $BUILD_VERSION |"
+      echo "| **目标** | $BUILD_TARGET |"
+      echo ""
+      echo "#### 产物 :package:"
+      echo ""
+      echo "\`\`\`"
+      ls -lh *.tar.gz 2>/dev/null | awk '{print "|", \$9, "|", \$5, "|"}'
+      echo "\`\`\`"
+    agents:
+      os: "macos"
+
+YAML

@@ -317,7 +317,7 @@ data:
     [runtime_manager.args]
     runtime_dir="/home/snuser/runtime"
     runtime_logs_dir={{ quote .Values.global.log.runtime.path }}
-    runtime_ld_library_path="/opt/buildtools/python3.9/lib::/usr/lib:/usr/lib64:/home/snuser/snlib"
+    runtime_ld_library_path="/opt/buildtools/python3.9/lib::/usr/lib:/usr/lib64"
     snuser_lib_dir={{ quote .Values.global.runtime.snuserLibPath }}
     virtual_env_idle_time_limit={{ quote .Values.global.runtime.virtualEnvIdleTimeLimit }}
     runtime_log_level={{ quote .Values.global.log.runtime.level }}

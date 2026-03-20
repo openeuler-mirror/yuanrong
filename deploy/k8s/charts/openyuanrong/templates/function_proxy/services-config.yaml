@@ -14,13 +14,13 @@ data:
           timeout: 900
           cpu: 500
           memory: 500
-          runtime: python3.9
+          runtime: python3.11
           concurrentNum: 20
         py:
           timeout: 900
           cpu: 500
           memory: 500
-          runtime: python3.9
+          runtime: python3.11
           concurrentNum: 20
         java:
           timeout: 900

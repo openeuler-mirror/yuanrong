@@ -8,8 +8,8 @@ ENV USER_UID=1003 \
     GROUP_ID=1003 \
     GROUP_NAME=snuser \
     HOME=/home/snuser \
-    PYTHON3_BIN_PATH=/opt/buildtools/python3.9 \
-    RUNTIME_LANGUAGE=python3.9 \
+    PYTHON3_BIN_PATH=/opt/buildtools/python3.11 \
+    RUNTIME_LANGUAGE=python3.11 \
     JAVA8_BIN_PATH=/opt/function/runtime/java8/rtsp/jre \
     JAVA11_BIN_PATH=/opt/function/runtime/java11/rtsp/jre \
     JAVA17_BIN_PATH=/opt/function/runtime/java17/rtsp/jre \
@@ -26,7 +26,7 @@ ENV JAVA_HOME=/opt/buildtools/jdk8
 ENV GOROOT=/opt/buildtools/golang_go-1.24.1
 ENV GOPATH=/opt/buildtools/go_workspace
 ENV PATH=$JAVA_HOME/bin:$MAVEN_HOME/bin:$GOROOT/bin:$GOPATH/bin:/opt/buildtools/nodejs/bin:$PATH
-ENV PYTHON_PATH_3911=/opt/buildtools/python3.9
+ENV PYTHON_PATH_3911=/opt/buildtools/python3.11
 ENV PATH=$PYTHON_PATH_3911/bin:$HOME/.local/bin:$PATH
 ENV LD_LIBRARY_PATH=$PYTHON_PATH_3911/lib::/usr/lib:/usr/lib64
 ENV SNLIB=/home/snuser/snlib
@@ -67,11 +67,10 @@ USER ${USER_NAME}
 # USER_UID GROUP_ID 1003
 
 RUN echo "install python wheel package"; \
-    pip3.9 install -i https://mirrors.huaweicloud.com/repository/pypi/simple --trusted-host=mirrors.huaweicloud.com/pypi/simple --user \
+    pip3.11 install -i https://mirrors.huaweicloud.com/repository/pypi/simple --trusted-host=mirrors.huaweicloud.com/pypi/simple --user \
     cloudpickle==2.2.1 \
     urllib3==1.26.5 \
     msgpack==1.0.5 \
-    grpcio==1.41.0 \
     redis==3.5.3 \
     numpy==1.24.3 \
     opentelemetry-api==1.14.0 \
@@ -126,5 +125,5 @@ EXPOSE 8080
 
 WORKDIR /etc/yuanrong/cli
 COPY --chown=sn:sn ${FUNCTIONSYSTEM_OUTPUT_DIR}/runtime/service/python/yr/cli/ /etc/yuanrong/cli/yr/cli/
-RUN pip3.9 install click==8.1.8 tomli_w==1.2.0 jinja2==3.1.6 -i https://mirrors.huaweicloud.com/repository/pypi/simple --trusted-host=mirrors.huaweicloud.com/pypi/simple --target /home/sn/.local/lib/python3.9/site-packages
-ENV PYTHONPATH=$PYTHONPATH:/home/sn/.local/lib/python3.9/site-packages
+RUN pip3.11 install click==8.1.8 tomli_w==1.2.0 jinja2==3.1.6 -i https://mirrors.huaweicloud.com/repository/pypi/simple --trusted-host=mirrors.huaweicloud.com/pypi/simple --target /home/sn/.local/lib/python3.11/site-packages
+ENV PYTHONPATH=$PYTHONPATH:/home/sn/.local/lib/python3.11/site-packages

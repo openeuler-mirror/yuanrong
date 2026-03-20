@@ -5,6 +5,7 @@
 The yuanrong system supports multiple external identity providers (IdP) for user authentication and authorization. The current architecture primarily uses **Casdoor** as the default identity provider due to its lightweight nature and support for advanced features like quota management. **Keycloak** is also supported for legacy installations or specific enterprise requirements.
 
 The integration follows a hybrid authentication model:
+
 - **External IdP (Casdoor/Keycloak)**: Manages user authentication via OAuth2/OIDC.
 - **iam-server**: Handles token exchange, issues internal JWTs, and manages service-to-service authentication.
 - **Frontend**: Orchestrates the login flow and handles browser-side session management.
@@ -15,7 +16,7 @@ Casdoor is a Go-based, lightweight UI-first identity provider. It is the recomme
 
 ### Architecture
 
-```
+```text
                           ┌─────────────────────────────────────────────┐
                           │                  YuanRong                   │
                           │                                             │
@@ -36,6 +37,7 @@ Casdoor is a Go-based, lightweight UI-first identity provider. It is the recomme
 ```
 
 ### Key Features
+
 - **Lightweight**: Low memory footprint (~150MB).
 - **Quota Management**: User CPU and Memory quotas are stored in Casdoor's `Custom Fields` and injected into the internal IAM token.
 - **Rich Social Login**: Supports various social providers and email/SMS registration.
@@ -43,6 +45,7 @@ Casdoor is a Go-based, lightweight UI-first identity provider. It is the recomme
 ### Configuration
 
 #### Frontend (config.toml)
+
 ```toml
 [auth]
 provider = "casdoor"  # Options: "casdoor", "keycloak"
@@ -59,6 +62,7 @@ enabled = true
 ```
 
 #### iam-server (CLI Flags)
+
 | Flag | Description |
 |------|-------------|
 | `--auth_provider` | Set to `casdoor` |
@@ -77,6 +81,7 @@ Keycloak is a powerful, enterprise-grade identity provider. While still supporte
 ### Configuration
 
 #### Frontend (config.toml)
+
 ```toml
 [auth]
 provider = "keycloak"
@@ -90,6 +95,7 @@ enabled = true
 ```
 
 #### iam-server (CLI Flags)
+
 | Flag | Description |
 |------|-------------|
 | `--auth_provider` | Set to `keycloak` |
@@ -130,10 +136,13 @@ One of the primary reasons for moving to Casdoor is integrated quota management.
 ## 5. Troubleshooting
 
 ### Redirect URI Issues
+
 Ensure that the `Redirect URI` configured in Casdoor/Keycloak matches exactly with the `publicEndpoint` of your Frontend (usually `http://<domain>/auth/callback`).
 
 ### JWT Verification Failure
+
 For Casdoor, ensure the `jwtPublicKey` in `config.toml` matches the public key provided in the Casdoor UI for the corresponding application.
 
 ### Provider Mismatch
+
 If you change the `auth.provider` in one service, ensure all services (`frontend`, `iam-server`) are updated and restarted.

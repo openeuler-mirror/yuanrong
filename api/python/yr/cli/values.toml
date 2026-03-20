@@ -8,6 +8,7 @@ shared_memory_num = "{{ memory_num_mb // 3 }}" # in MB
 node_id = "{{ node_id }}"
 log_level = "INFO"
 pid = "{{ pid }}"
+ld_library_path = "{{ ld_library_path }}"
 
 [values.meta_store]
 enable = false

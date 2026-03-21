@@ -55,8 +55,6 @@ const int KEEPALIVE_TIMES = -1;            // unlimited retry
 using InvocationCallback =
     std::function<void(const std::string &requestId, YR::Libruntime::ErrorCode code, const std::string &result)>;
 
-thread_local static std::string threadLocalTenantId;
-
 class GwClient : public FSIntf,
                  public ObjectStore,
                  public StateStore,
@@ -335,6 +333,7 @@ private:
     std::string funcId_;
     std::string jobId_;
     AsyncDecreRef asyncDecreRef_;
+    mutable std::mutex refCountMu_;
     RefCountMap refCountMap_;
     std::shared_ptr<TimerWorker> timerWorker_;
     std::shared_ptr<YR::utility::Timer> timer_;
@@ -342,6 +341,7 @@ private:
     std::int32_t connectTimeout_ = DS_CONNECT_TIMEOUT;
     std::shared_ptr<Security> security_;
     std::string authToken_;
+    std::string tenantId_;
 };
 
 class ClientBuffer : public NativeBuffer {

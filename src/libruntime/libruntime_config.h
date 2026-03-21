@@ -228,6 +228,7 @@ struct LibruntimeConfig {
     uint32_t httpIocThreadsNum = 200;
     int httpIdleTime = HTTP_IDLE_TIME;
     std::string serverName = "";
+    bool skipServerVerify = true;  // Whether to skip server certificate verification
     bool inCluster = true;
     std::string ns = "";
     bool isLowReliabilityTask = false;

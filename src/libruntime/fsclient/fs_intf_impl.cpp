@@ -82,6 +82,8 @@ FSIntfImpl::FSIntfImpl(const std::string &ipAddr, int port, FSIntfHandlers handl
                   {StreamingMessage::kCheckpointReq, std::bind(&FSIntfImpl::RecvCheckpointRequest, this, _1, _2)},
                   {StreamingMessage::kRecoverReq, std::bind(&FSIntfImpl::RecvRecoverRequest, this, _1, _2)},
                   {StreamingMessage::kShutdownReq, std::bind(&FSIntfImpl::RecvShutdownRequest, this, _1, _2)},
+                  {StreamingMessage::kPrepareSnapReq, std::bind(&FSIntfImpl::RecvPrepareSnapRequest, this, _1, _2)},
+                  {StreamingMessage::kSnapStartedReq, std::bind(&FSIntfImpl::RecvSnapStartedRequest, this, _1, _2)},
                   {StreamingMessage::kSignalReq, std::bind(&FSIntfImpl::RecvSignalRequest, this, _1, _2)},
                   {StreamingMessage::kHeartbeatReq, std::bind(&FSIntfImpl::RecvHeartbeatRequest, this, _1, _2)},
                   {StreamingMessage::kCreateRsp, std::bind(&FSIntfImpl::RecvCreateOrInvokeResponse, this, _1, _2)},
@@ -1009,6 +1011,22 @@ void FSIntfImpl::RecvShutdownRequest(const std::string &, const std::shared_ptr<
                                                                   message->messageid(), _1));
 }
 
+void FSIntfImpl::RecvPrepareSnapRequest(const std::string &, const std::shared_ptr<StreamingMessage> &message)
+{
+    YRLOG_DEBUG("grpc prepare snap request, message id: {}", message->messageid());
+    this->HandlePrepareSnapRequest(message->preparesnapreq(),
+                                   std::bind(&FSIntfImpl::WriteResponse<PrepareSnapResponse>, this,
+                                            message->messageid(), _1));
+}
+
+void FSIntfImpl::RecvSnapStartedRequest(const std::string &, const std::shared_ptr<StreamingMessage> &message)
+{
+    YRLOG_DEBUG("grpc snap started request, message id: {}", message->messageid());
+    this->HandleSnapStartedRequest(message->snapstartedreq(),
+                                   std::bind(&FSIntfImpl::WriteResponse<SnapStartedResponse>, this,
+                                            message->messageid(), _1));
+}
+
 void FSIntfImpl::RecvSignalRequest(const std::string &, const std::shared_ptr<StreamingMessage> &message)
 {
     this->HandleSignalRequest(message->signalreq(),
@@ -1396,6 +1414,52 @@ bool FSIntfImpl::IsHealth()
 int FSIntfImpl::GetSelfPort() const
 {
     return this->selfPort;
+}
+
+ErrorInfo FSIntfImpl::ReconnectProxyClient(const std::string &newFsIp, int newFsPort)
+{
+    YRLOG_INFO("Reconnecting to proxy with ip: {}, port: {}", newFsIp, newFsPort);
+    
+    if (!enableClientMode) {
+        YRLOG_WARN("Not in client mode, skip reconnecting to proxy");
+        return ErrorInfo();
+    }
+    
+    // Update fsIp and fsPort
+    this->fsIp = newFsIp;
+    this->fsPort = newFsPort;
+    
+    // Create new fsIntf client with updated ip and port
+    auto fsIntf = fsInrfMgr->NewFsIntfClient(
+        this->instanceID, "function-proxy", runtimeID,
+        ReaderWriterClientOption{.ip = newFsIp,
+                                 .port = newFsPort,
+                                 .disconnectedTimeout = PROXY_DISCONNECT_TIMEOUT_MS,
+                                 .security = security,
+                                 .resendCb = std::bind(&FSIntfImpl::ResendRequests, this, _1),
+                                 .disconnectedCb = std::bind(&FSIntfImpl::NotifyDisconnected, this, _1)},
+        ProtocolType::GRPC);
+    
+    // Update system interface
+    (void)fsInrfMgr->UpdateSystemIntf(fsIntf);
+    
+    // Register message handlers
+    fsIntf->RegisterMessageHandler(fsMsgHdlrs);
+    
+    // Start the client
+    auto err = fsIntf->Start();
+    if (!err.OK()) {
+        YRLOG_ERROR("Failed to reconnect to proxy: {}", err.CodeAndMsg());
+        return err;
+    }
+    
+    // Call reSubscribe callback if registered
+    if (reSubscribeCb) {
+        reSubscribeCb();
+    }
+    
+    YRLOG_INFO("Successfully reconnected to proxy");
+    return ErrorInfo();
 }
 
 }  // namespace Libruntime

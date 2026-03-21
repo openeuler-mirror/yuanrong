@@ -36,7 +36,7 @@ import yr
 from yr.config import SchedulingAffinityType, FunctionGroupOptions, ResourceGroupOptions, GroupOptions
 from yr.common.types import GroupInfo, CommonStatus, Resource, Resources, BundleInfo, Option, RgInfo, ResourceGroupUnit
 from yr.common import constants
-from yr.common.utils import generate_random_id, create_new_event_loop
+from yr.common.utils import generate_random_id, create_new_event_loop, refresh_env
 from yr.config_manager import ConfigManager
 from yr.err_type import ErrorCode, ModuleCode, ErrorInfo
 from yr.executor.executor import Executor
@@ -76,7 +76,7 @@ CStreamProducer, CSubscriptionConfig,
 CSubscriptionType,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
-CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
+CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
 CClusterAccessInfo, AutoGetClusterAccessInfo, CResourceGroupSpec, CResourceGroupOptions, CAccelerateMsgQueueHandle, QueryNamedInsResponse, CResourceGroupUnit, CRgInfo, CBundleInfo, CResources, CResource, CType, CScalar)
 
 include "includes/affinity.pxi"
@@ -911,6 +911,29 @@ cdef CErrorInfo shutdown_function_callback(gracePeriodSecond: uint64_t) noexcept
         _logger.info("Execution of graceful exit finished.")
         return error_info_from_py(error_info)
 
+cdef CErrorInfo prepare_snap_callback() noexcept nogil:
+    with gil:
+        _logger.debug("Start to execute prepare snapshot.")
+        error_info = Executor.before_snapshot()
+        _logger.info("Execution of prepare snapshot finished.")
+        return error_info_from_py(error_info)
+
+cdef CErrorInfo snap_started_callback() noexcept nogil:
+    with gil:
+        _logger.debug("Start to execute snap started.")
+        error_info = Executor.after_snapstart()
+        _logger.info("Execution of snap started finished.")
+        return error_info_from_py(error_info)
+
+cdef void refresh_env_callback() noexcept nogil:
+    with gil:
+        _logger.debug("Start to refresh environment variables.")
+        try:
+            refresh_env()
+            _logger.info("Environment variables refreshed after snapshot restore")
+        except Exception as e:
+            _logger.error(f"Failed to refresh environment variables: {e}")
+
 cdef CErrorInfo build_invoke_arg(arg, vector[CInvokeArg]& invokeArgs, string tenantId):
     cdef:
         CInvokeArg c_arg
@@ -1298,6 +1321,9 @@ cdef class Fnruntime:
         config.libruntimeOptions.shutdownCallback = shutdown_function_callback
         config.libruntimeOptions.checkpointCallback = dump_instance
         config.libruntimeOptions.recoverCallback = load_instance
+        config.libruntimeOptions.prepareSnapCallback = prepare_snap_callback
+        config.libruntimeOptions.snapStartedCallback = snap_started_callback
+        config.libruntimeOptions.refreshEnvCallback = refresh_env_callback
         config.libruntimeOptions.accelerateCallback = accelerate_execute_callback
         config.functionSystemIpAddr = functionSystemIpAddr
         config.functionSystemPort = functionSystemPort
@@ -1898,6 +1924,64 @@ cdef class Fnruntime:
             raise RuntimeError(
                 f"failed to kill instance sync, "
                 f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
+
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+        """
+        Create instance snapshot
+        :param instance_id: instance id to snapshot
+        :param ttl: time-to-live for the snapshot in seconds
+        :param leave_running: whether to keep instance running after snapshot
+        :return: checkpointID
+        """
+        cdef:
+            pair[CErrorInfo, string] ret
+            string c_id = instance_id
+            CSnapOptions snap_opts
+
+        snap_opts.type = CSnapType.SNAPSHOT
+        snap_opts.ttl = ttl
+        snap_opts.leaveRunning = leave_running
+
+        cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+        if c_libruntime == nullptr:
+            raise RuntimeError("already finalized")
+
+        with nogil:
+            ret = c_libruntime.get().Snapshot(c_id, snap_opts)
+
+        if not ret.first.OK():
+            raise RuntimeError(
+                f"failed to snapshot instance, "
+                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+
+        return ret.second.decode()
+
+    def snapstart_instance(self, checkpoint_id: str) -> str:
+        """
+        Start instance from snapshot
+        :param checkpoint_id: checkpoint id to restore from
+        :return: new instance id
+        """
+        cdef:
+            pair[CErrorInfo, string] ret
+            string c_checkpoint_id = checkpoint_id
+            CSnapStartOptions snap_start_opts
+
+        snap_start_opts.type = CSnapType.SNAPSHOT
+
+        cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
+        if c_libruntime == nullptr:
+            raise RuntimeError("already finalized")
+
+        with nogil:
+            ret = c_libruntime.get().Snapstart(c_checkpoint_id, snap_start_opts)
+
+        if not ret.first.OK():
+            raise RuntimeError(
+                f"failed to snapstart instance, "
+                f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
+
+        return ret.second.decode()
 
     def terminate_group(self, group_name: str) -> None:
         """

@@ -57,6 +57,18 @@ struct LibruntimeOptions {
     using ShutdownCallback = std::function<ErrorInfo(uint64_t gracePeriodSeconds)>;
     ShutdownCallback shutdownCallback;
 
+    // prepare snapshot handler: called before taking snapshot
+    using PrepareSnapCallback = std::function<ErrorInfo(void)>;
+    PrepareSnapCallback prepareSnapCallback;
+
+    // snap started handler: called after restoring from snapshot
+    using SnapStartedCallback = std::function<ErrorInfo(void)>;
+    SnapStartedCallback snapStartedCallback;
+
+    // refresh env handler: called after snapStarted handler completes to refresh environment
+    using RefreshEnvCallback = std::function<void(void)>;
+    RefreshEnvCallback refreshEnvCallback;
+
     // signal handler: handle user defined signal
     using SignalCallback = std::function<ErrorInfo(int sigNo, std::shared_ptr<Buffer> payload)>;
     SignalCallback signalCallback;

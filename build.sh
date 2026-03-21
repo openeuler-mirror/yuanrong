@@ -69,7 +69,7 @@ SECBRELLA_CCE="OFF"
 PACKAGE_ALL="false"
 ENABLE_GLOO="false"
 ENABLE_UCC="false"
-LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:${LD_LIBRARY_PATH}
+LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:${LD_LIBRARY_PATH}
 BOOST_VERSION="1.87.0"
 export BUILD_ALL="false"
 if [ ! -d "${THIRD_PARTY_DIR}" ]; then
@@ -101,8 +101,11 @@ MODULE_LIST=(\
 )
 
 PYTHON_VERSION_LIST=(\
+"python3.13" \
+"python3.12" \
 "python3.11" \
-"python3.10"
+"python3.10" \
+"python3.9"
 )
 
 function go_module_coverage_report() {
@@ -196,12 +199,13 @@ function build_python_sdk() {
 }
 
 function install_python_requirements() {
-    pip3 install pytest coverage
-    pip3 install -r api/python/requirements.txt
-    pip3 install numpy
-    pip3 install fastapi
-    pip3 install aiohttp # only for test
-    pip3 install requests
+    "${PYTHON3_BIN_PATH}" -m pip install -U pip setuptools wheel
+    "${PYTHON3_BIN_PATH}" -m pip install pytest coverage
+    "${PYTHON3_BIN_PATH}" -m pip install -r api/python/requirements.txt
+    "${PYTHON3_BIN_PATH}" -m pip install numpy
+    "${PYTHON3_BIN_PATH}" -m pip install fastapi
+    "${PYTHON3_BIN_PATH}" -m pip install aiohttp # only for test
+    "${PYTHON3_BIN_PATH}" -m pip install requests
 }
 
 function check_sanitizers() {
@@ -352,9 +356,20 @@ sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_
 sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/function-common/pom.xml
 sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
 
-pip3 install wheel==0.36.2
+if command -v "${PYTHON3_BIN_PATH}" >/dev/null 2>&1; then
+    "${PYTHON3_BIN_PATH}" -m pip install -U wheel
+else
+    pip3 install -U wheel
+fi
 
-BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=$PYTHON3_BIN_PATH --define ENABLE_GLOO=${ENABLE_GLOO}"
+PYTHON_BIN_FULL_PATH="$(command -v "${PYTHON3_BIN_PATH}" 2>/dev/null || true)"
+if [[ -z "${PYTHON_BIN_FULL_PATH}" ]]; then
+    log_fatal "python not found: ${PYTHON3_BIN_PATH}"
+fi
+
+# - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
+# - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
+BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON3_BIN_PATH} --define ENABLE_GLOO=${ENABLE_GLOO}"
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR

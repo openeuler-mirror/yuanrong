@@ -16,8 +16,11 @@
 
 #include "src/libruntime/libruntime.h"
 #include <iostream>
+#include <sstream>
 #include "invoke_order_manager.h"
 #include "re2/re2.h"
+#include "src/libruntime/fsclient/protobuf/core_service.pb.h"
+#include "src/libruntime/fsclient/protobuf/common.pb.h"
 #include "src/dto/config.h"
 #include "src/dto/data_object.h"
 #include "src/dto/status.h"
@@ -1307,6 +1310,93 @@ ErrorInfo Libruntime::Kill(const std::string &instanceId, int sigNo, std::shared
     auto realInsId = memStore->GetInstanceId(instanceId);
     return invokeAdaptor->Kill(realInsId, std::string(static_cast<char *>(data->MutableData()), data->GetSize()),
                                sigNo);
+}
+
+std::pair<ErrorInfo, std::string> Libruntime::Snapshot(const std::string &instanceId, const SnapOptions &snapOpts)
+{
+    auto realInsId = memStore->GetInstanceId(instanceId);
+
+    // Construct protobuf SnapOptions message
+    ::core_service::SnapOptions protoSnapOpts;
+    protoSnapOpts.set_type(snapOpts.type);
+    protoSnapOpts.set_ttl(snapOpts.ttl);
+    protoSnapOpts.set_leaverunning(snapOpts.leaveRunning);
+
+    // Serialize protobuf message to string
+    std::string payload;
+    if (!protoSnapOpts.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Failed to serialize SnapOptions"), ""};
+    }
+
+    // Send snapshot signal (signal 18) to the instance
+    constexpr int INSTANCE_SNAPSHOT_SIGNAL = 18;
+    auto [err, killResponse] = invokeAdaptor->KillWithResponse(realInsId, payload, INSTANCE_SNAPSHOT_SIGNAL);
+
+    if (!err.OK()) {
+        return {err, ""};
+    }
+
+    // Extract checkpoint ID from response payload
+    // The payload should be a serialized SnapInfo message
+    ::core_service::SnapInfo snapInfo;
+    if (!snapInfo.ParseFromString(killResponse.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Failed to parse SnapInfo from response payload"), ""};
+    }
+
+    std::string checkpointId = snapInfo.snapshotid();
+    if (checkpointId.empty()) {
+        YRLOG_WARN("SnapInfo snapshotID is empty, this might indicate a snapshot failure");
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Snapshot response contains empty snapshotID"), ""};
+    }
+
+    YRLOG_DEBUG("Snapshot succeeded, checkpointID: {}, size: {}", checkpointId, snapInfo.size());
+    return {ErrorInfo(), checkpointId};
+}
+
+std::pair<ErrorInfo, std::string> Libruntime::Snapstart(const std::string &checkpointId,
+                                                         const SnapStartOptions &snapStartOpts)
+{
+    // Construct protobuf SnapStartOptions message
+    ::core_service::SnapStartOptions protoSnapStartOpts;
+    protoSnapStartOpts.set_type(snapStartOpts.type);
+    // TODO: Add scheduleOpts when needed
+    // auto* scheduleOpts = protoSnapStartOpts.mutable_scheduleopts();
+
+    // Serialize protobuf message to string
+    std::string payload;
+    if (!protoSnapStartOpts.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Failed to serialize SnapStartOptions"), ""};
+    }
+
+    // Send snapstart signal (signal 19) to restore from checkpoint
+    constexpr int INSTANCE_SNAPSTART_SIGNAL = 19;
+    auto [err, killResponse] = invokeAdaptor->KillWithResponse(checkpointId, payload, INSTANCE_SNAPSTART_SIGNAL);
+
+    if (!err.OK()) {
+        return {err, ""};
+    }
+
+    // Extract new instance ID from response payload
+    // The payload should be a serialized SnapStartedInfo message
+    ::core_service::SnapStartedInfo snapStartedInfo;
+    if (!snapStartedInfo.ParseFromString(killResponse.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Failed to parse SnapStartedInfo from response payload"), ""};
+    }
+
+    std::string newInstanceId = snapStartedInfo.instanceid();
+    if (newInstanceId.empty()) {
+        YRLOG_WARN("SnapStartedInfo instanceID is empty, this might indicate a restore failure");
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Snapstart response contains empty instanceID"), ""};
+    }
+
+    YRLOG_DEBUG("Snapstart succeeded, new instanceID: {}", newInstanceId);
+    return {ErrorInfo(), newInstanceId};
 }
 
 void Libruntime::Finalize(bool isDriver)

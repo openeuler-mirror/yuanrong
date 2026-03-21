@@ -37,6 +37,7 @@ __ds_address = None
 __client_cert = None
 __client_key = None
 __ca_cert = None
+__insecure = False
 __server_name = None
 __user = None
 __client_auth_type = "mutual"  # "mutual" or "one-way"
@@ -93,22 +94,20 @@ class HTTPClient:
         client_cert: Optional[str] = None,
         client_key: Optional[str] = None,
         ca_cert: Optional[str] = None,
-        verify: bool = False,
+        insecure: bool = False,
         server_name: Optional[str] = None,
         client_auth_type: str = "mutual",  # "mutual" or "one-way"
         jwt_token: Optional[str] = None,
-        accept_status: tuple = (200,),  # Status codes to consider as success
     ):
         self.timeout = timeout
         self.session = requests.Session()
         self.client_cert = client_cert
         self.client_key = client_key
         self.ca_cert = ca_cert
-        self.verify = verify
+        self.insecure = insecure
         self.server_name = server_name
         self.client_auth_type = client_auth_type
         self.jwt_token = jwt_token
-        self.accept_status = accept_status
 
     def request(
         self,
@@ -152,51 +151,37 @@ class HTTPClient:
             elif self.client_cert:
                 cert = self.client_cert
         # For "one-way" TLS, cert remains None (only verify server)
-
         verify = self.ca_cert if self.ca_cert else self.verify
         if url.startswith("http://") and verify:
             url = url.replace("http://", "https://", 1)
+        if self.insecure:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            verify = False
 
         # If server_name is specified, use hostname overwrite
         if self.server_name:
             from requests.adapters import HTTPAdapter
-            from urllib3.poolmanager import PoolManager
-            from urllib3.util.ssl_ import create_urllib3_context
-            import ssl
 
-            class HostNameOverridePoolManager(PoolManager):
-                def __init__(self, *args, server_hostname=None, **kwargs):
-                    self.server_hostname = server_hostname
+            class SNIAdapter(HTTPAdapter):
+                def __init__(self, sni_hostname, *args, **kwargs):
+                    self.sni_hostname = sni_hostname
                     super().__init__(*args, **kwargs)
 
-                def _new_pool(self, scheme, host, port, request_context=None):
-                    # Inject assert_hostname when creating connection pool
-                    if request_context is None:
-                        request_context = self.connection_pool_kw.copy()
-                    if self.server_hostname:
-                        request_context["assert_hostname"] = self.server_hostname
-                    return super()._new_pool(scheme, host, port, request_context)
+                def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+                    # server_hostname sets SNI, assert_hostname sets certificate verification hostname
+                    pool_kwargs['server_hostname'] = self.sni_hostname
+                    pool_kwargs['assert_hostname'] = self.sni_hostname
+                    super().init_poolmanager(connections, maxsize, block, **pool_kwargs)
 
-            class HostNameOverrideAdapter(HTTPAdapter):
-                def __init__(self, server_hostname, *args, **kwargs):
-                    self.server_hostname = server_hostname
-                    super().__init__(*args, **kwargs)
-
-                def init_poolmanager(
-                    self, connections, maxsize, block=False, **pool_kwargs
-                ):
-                    # Use custom PoolManager
-                    self.poolmanager = HostNameOverridePoolManager(
-                        num_pools=connections,
-                        maxsize=maxsize,
-                        block=block,
-                        server_hostname=self.server_hostname,
-                        **pool_kwargs,
-                    )
+                def cert_verify(self, conn, url, verify, cert):
+                    # Ensure SNI is set during connection
+                    conn.server_hostname = self.sni_hostname
+                    super().cert_verify(conn, url, verify, cert)
 
             # Create temporary session for this request
             temp_session = requests.Session()
-            adapter = HostNameOverrideAdapter(self.server_name)
+            adapter = SNIAdapter(self.server_name)
             temp_session.mount("https://", adapter)
 
             response = temp_session.request(
@@ -228,7 +213,7 @@ class HTTPClient:
             logging.debug("response: %s\n%s", response.headers, result)
 
             return {
-                "success": response.status_code in self.accept_status,
+                "success": response.status_code == 200,
                 "error": result,
                 "status_code": response.status_code,
                 "data": result,
@@ -256,11 +241,6 @@ class YRContext:
         self.__user = user
 
     def __enter__(self):
-        if os.environ.get("YR_RUNTIME_ID"):
-            os.environ.pop("YR_WORKING_DIR", None)
-            cfg = yr.Config()
-            cfg.in_cluster = True
-            return yr.init(cfg)
         cfg = yr.Config()
         cfg.log_dir = "/tmp/yr_sessions/driver"
         if self.__user:
@@ -292,6 +272,7 @@ def deploy_function(function_json, user):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -316,6 +297,7 @@ def update_function(function_json, user):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -337,6 +319,7 @@ def delete_function(function_name, user):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -358,6 +341,7 @@ def query_function(function_name, user=None):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -386,6 +370,7 @@ def query_instances(user=None):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -406,6 +391,7 @@ def query_instance(instance_id, user=None):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -425,6 +411,7 @@ def publish_function(function_name, publish_json, user=None):
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
@@ -527,10 +514,10 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
+        insecure=__insecure,
         server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
-        accept_status=(200, 202),  # Accept 202 for async invoke
     )
     url = f"http://{__server_address}/invocations/{user}/{str(function_name).replace('@', '/')}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
@@ -584,6 +571,13 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
     help="Server name for certificate verification (SNI)",
 )
 @click.option(
+    "--insecure",
+    is_flag=True,
+    default=False,
+    envvar="YR_INSECURE",
+    help="Skip server TLS certificate verification (connects via HTTPS without cert check)",
+)
+@click.option(
     "--client-auth-type",
     required=False,
     type=click.Choice(["mutual", "one-way"], case_sensitive=False),
@@ -607,6 +601,7 @@ def cli(
     client_cert,
     client_key,
     ca_cert,
+    insecure,
     server_name,
     client_auth_type,
     jwt_token,
@@ -631,6 +626,9 @@ def cli(
     if ca_cert:
         global __ca_cert
         __ca_cert = ca_cert
+    if insecure:
+        global __insecure
+        __insecure = insecure
     if server_name:
         global __server_name
         __server_name = server_name
@@ -1004,210 +1002,6 @@ def delete(function_name, no_clear_package, version):
     else:
         print(f"succeed to delete function: {function_name}")
 
-    if not function_name and not instance_id:
-        print("Error: Must specify either --function-name or --instance-id")
-        sys.exit(1)
-
-    if function_name:
-        # Query function
-        function_name = FunctionName(function_name)
-        ret, resp = query_function(function_name, __user)
-        if ret:
-            print(json.dumps(resp, indent=2, ensure_ascii=False))
-        else:
-            print(f"function not found: {function_name}")
-
-    if instance_id:
-        # Query instance
-        ret, resp = query_instance(instance_id, __user)
-        if ret:
-            print(json.dumps(resp, indent=2, ensure_ascii=False))
-        else:
-            print(f"instance not found: {instance_id}")
-
-
-@cli.command()
-@click.argument(
-    "resource_type",
-    type=click.Choice(
-        [
-            "function",
-            "functions",
-            "func",
-            "fun",
-            "instance",
-            "instances",
-            "inst",
-            "ins",
-        ],
-        case_sensitive=False,
-    ),
-    default="function",
-    required=False,
-)
-def list(resource_type):
-    """List functions or instances
-
-    Examples:
-        yrcli list                  # List functions (default)
-        yrcli list function         # List functions
-        yrcli list instance         # List instances
-    """
-    if resource_type in ("instance", "instances", "inst", "ins"):
-        # List instances
-        ret, resp = query_instances(__user)
-        if ret and len(resp) > 0:
-            for instance in resp:
-                instance_id = instance.get("id", "N/A")
-                print(instance_id)
-        else:
-            print(f"user {__user} has no instance.")
-    elif resource_type in ("function", "functions", "func", "fun"):
-        # List functions (default)
-        ret, resp = query_function(None, __user)
-        if ret and len(resp) > 0:
-            for function in resp:
-                print(f"{function['name'][2:]}:{function['versionNumber']}")
-        else:
-            print(f"user {__user} has no function.")
-
-
-@cli.group("sandbox")
-def sandbox():
-    """Manage detached sandbox instances.
-
-    Examples:
-        yrcli sandbox list
-        yrcli sandbox create --namespace aaa --name bbb
-        yrcli sandbox query aaa-bbb
-        yrcli sandbox delete aaa-bbb
-    """
-
-
-@sandbox.command("create")
-@click.option(
-    "--namespace",
-    required=True,
-    type=str,
-    help="Namespace for sandbox instance",
-)
-@click.option(
-    "--name",
-    required=True,
-    type=str,
-    help="Name for sandbox instance",
-)
-def sandbox_create(namespace, name):
-    """Create a detached sandbox instance directly in YR runtime context."""
-    os.environ.pop("YR_WORKING_DIR", None)
-    try:
-        with YRContext(__server_address, __ds_address, __user):
-            opt = yr.InvokeOptions()
-            opt.custom_extensions["lifecycle"] = "detached"
-            opt.idle_timeout = 60 * 60 * 24 * 1
-            opt.cpu = 1000
-            opt.memory = 2048
-            opt.name = name
-            opt.namespace = namespace
-
-            sandbox = yr.sandbox.SandBoxInstance.options(opt).invoke()
-            instance_name = yr.get(sandbox.get_name.invoke())
-            if not instance_name:
-                instance_name = f"{namespace}-{name}"
-            print(f"sandbox created, instance_name={instance_name}")
-    except Exception as e:
-        print(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
-        sys.exit(1)
-
-
-@sandbox.command("list")
-@click.option(
-    "--namespace",
-    required=False,
-    type=str,
-    default=None,
-    help="Filter by namespace prefix",
-)
-def sandbox_list(namespace):
-    """List sandbox instances."""
-    ret, resp = query_instances(__user)
-    if not ret:
-        print(f"failed to list instances: {resp.get('error', resp)}")
-        sys.exit(1)
-
-    sandbox_ids = []
-    for instance in resp:
-        instance_id = instance.get("id", "")
-        if not instance_id:
-            continue
-        if instance_id.startswith("app-"):
-            continue
-        if "-" not in instance_id:
-            continue
-        if namespace and not instance_id.startswith(f"{namespace}-"):
-            continue
-        sandbox_ids.append(instance_id)
-
-    if not sandbox_ids:
-        print("no sandbox instance found")
-        return
-
-    for sandbox_id in sandbox_ids:
-        print(sandbox_id)
-
-
-@sandbox.command("query")
-@click.argument("sandbox_id", type=str)
-def sandbox_query(sandbox_id):
-    """Query sandbox instance detail by instance id."""
-    if not __server_address:
-        print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
-        sys.exit(1)
-
-    ret, resp = query_instance(sandbox_id, __user)
-    if ret:
-        print(json.dumps(resp, indent=2, ensure_ascii=False))
-    else:
-        print(f"sandbox not found: {sandbox_id}")
-        sys.exit(1)
-
-
-@sandbox.command("delete")
-@click.argument("sandbox_id", type=str)
-def sandbox_delete(sandbox_id):
-    """Delete (terminate) a sandbox instance by instance id."""
-    try:
-        with YRContext(__server_address, __ds_address, __user):
-            yr.kill_instance(sandbox_id)
-        print(f"succeed to delete sandbox: {sandbox_id}")
-    except Exception as e:
-        print(f"failed to delete sandbox {sandbox_id}: {e}")
-        sys.exit(1)
-
-
-@cli.command()
-@click.option("-f", "--function-name", required=True, type=str, default=None)
-@click.option("--no-clear-package", is_flag=True, default=False)
-@click.option("-v", "--version", required=False, type=str, default="latest")
-def delete(function_name, no_clear_package, version):
-    function_name = FunctionName(function_name, version)
-    if not no_clear_package:
-        ret, function_info = query_function(function_name, __user)
-        if not ret:
-            print(f"function not found.")
-            return
-        code_path = function_info.get("codePath")
-        if code_path and code_path.startswith("ds://"):
-            key = code_path.strip("ds://").split(".")[0]
-            with YRContext(__server_address, __ds_address):
-                yr.kv_del(key)
-            print(f"succeed to del package {code_path}")
-    ret, _ = delete_function(function_name, __user)
-    if not ret:
-        print(f"function not found.")
-    else:
-        print(f"succeed to delete function: {function_name}")
-
 
 @cli.command
 @click.argument("package", type=str)
@@ -1245,11 +1039,7 @@ def invoke(function_name, payload, timeout, header):
             headers[key.strip()] = value.strip()
     function_name = FunctionName(function_name)
     if payload:
-        try:
-            payload_dict = json.loads(payload)
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON payload: {e}")
-            sys.exit(1)
+        payload_dict = json.loads(payload)
     else:
         payload_dict = {}
     ret, resp = invoke_function(
@@ -1259,110 +1049,6 @@ def invoke(function_name, payload, timeout, header):
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
         print(f"failed to invoke function: {resp['error']}")
-
-
-@cli.command
-@click.option("-f", "--function-name", required=True, type=str, default=None)
-@click.option("--payload", required=False, type=str, default=None)
-@click.option("--timeout", required=False, type=int, default=30)
-@click.option("--header", required=False, type=str, multiple=True)
-@click.option("--webhook", required=False, type=str, default=None, help="Webhook URL for async callback")
-def async_invoke(function_name, payload, timeout, header, webhook):
-    """Asynchronously invoke a function and return immediately with a request ID"""
-    headers = {}
-    for i in range(len(header)):
-        if ":" in header[i]:
-            key, value = header[i].split(":", 1)
-            headers[key.strip()] = value.strip()
-    # Add async invoke header
-    headers["X-Invoke-Type"] = "async"
-    if webhook:
-        headers["X-Webhook-Url"] = webhook
-
-    function_name = FunctionName(function_name)
-    if payload:
-        try:
-            payload_dict = json.loads(payload)
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON payload: {e}")
-            sys.exit(1)
-    else:
-        payload_dict = {}
-
-    http_client = HTTPClient(
-        timeout=timeout,
-        client_cert=__client_cert,
-        client_key=__client_key,
-        ca_cert=__ca_cert,
-        server_name=__server_name,
-        client_auth_type=__client_auth_type,
-        jwt_token=__jwt_token,
-        accept_status=(200, 202),  # Accept 202 for async invoke
-    )
-    # Parse function name for short URL format
-    # Format: [tenant-id@]namespace@function-name[:version]
-    func_str = str(function_name)
-    parts = func_str.split('@')
-    
-    if len(parts) >= 3:
-        # Format: tenant-id@namespace@function-name[:version]
-        tenant_id = parts[0]
-        namespace = parts[1]
-        function_name_only = parts[2].split(':')[0]
-    elif len(parts) == 2:
-        # Format: namespace@function-name[:version]
-        tenant_id = __user  # Use the user as tenant
-        namespace = parts[0]
-        function_name_only = parts[1].split(':')[0]
-    else:
-        # Fallback to old format
-        tenant_id = __user
-        namespace = func_str.split(':')[0] if ':' in func_str else func_str
-        function_name_only = func_str.split(':')[0] if ':' in func_str else func_str
-    
-    # Build URL with trailing slash as required by the route
-    url = f"http://{__server_address}/invocations/{tenant_id}/{namespace}/{function_name_only}/"
-    resp = http_client.request(url, payload_dict, headers=headers, method="POST")
-    if resp.get("success"):
-        data = resp.get("data", {})
-        print(json.dumps({
-            "requestId": data.get("requestId", ""),
-            "status": "pending",
-            "message": "Async invocation started. Use 'async-result' command to get the result."
-        }, indent=2, ensure_ascii=False))
-    else:
-        print(f"failed to invoke function: {resp.get('error', resp)}")
-        sys.exit(1)
-
-
-@cli.command
-@click.option("-r", "--request-id", required=True, type=str, help="Request ID from async-invoke")
-@click.option("--timeout", required=False, type=int, default=30)
-def async_result(request_id, timeout):
-    """Get the result of an asynchronous function invocation"""
-    http_client = HTTPClient(
-        timeout=timeout,
-        client_cert=__client_cert,
-        client_key=__client_key,
-        ca_cert=__ca_cert,
-        server_name=__server_name,
-        client_auth_type=__client_auth_type,
-        jwt_token=__jwt_token,
-    )
-    url = f"http://{__server_address}/serverless/v1/functions/async-results/{request_id}"
-    resp = http_client.request(url, None, headers={}, method="GET")
-    if resp.get("success"):
-        data = resp.get("data", {})
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-    else:
-        status_code = resp.get("status_code")
-        if status_code == 404:
-            print(f"Async result not found for request ID: {request_id}")
-            sys.exit(1)
-        else:
-            error_msg = resp.get("error", "Unknown error")
-            print(f"failed to get async result: {error_msg}")
-            sys.exit(1)
 
 
 @cli.command(
@@ -1376,7 +1062,7 @@ def async_result(request_id, timeout):
 @click.option(
     "--runtime",
     required=False,
-    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12"]),
+    type=click.Choice(["python3.11", "python3.9", "python3.10", "python3.12", "python3.13"]),
     help="Runtime language version",
 )
 @click.option(
@@ -1784,3 +1470,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

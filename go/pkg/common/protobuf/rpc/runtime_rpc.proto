@@ -105,6 +105,16 @@ message StreamingMessage {
     // handle by runtime
     runtime_service.HeartbeatRequest   heartbeatReq  = 28;
     runtime_service.HeartbeatResponse  heartbeatRsp  = 29;
+
+    // receive the prepare snap call before functionsystem to make sandbox checkpoint
+    // handle by runtime
+    runtime_service.PrepareSnapRequest prepareSnapReq = 34;
+    runtime_service.PrepareSnapResponse prepareSnapRsp = 35;
+
+    // received after runtime was snap started
+    // handle by runtime
+    runtime_service.SnapStartedRequest snapStartedReq = 36;
+    runtime_service.SnapStartedResponse snapStartedRsp = 37;
   }
 
   // message is sent from functiontask(0), or frontend, this is only used in runtime call request for now

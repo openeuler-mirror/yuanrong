@@ -70,9 +70,10 @@ class SetupSpec:
 
 
 if os.getenv("SETUP_TYPE") == "sdk":
+    base_name = os.getenv("YR_PACKAGE_NAME", "openyuanrong")
     setup_spec = SetupSpec(
         SetupType.OPENYUANRONG_SDK,
-        "openyuanrong_sdk",
+        f"{base_name}_sdk",
         "openyuanrong python sdk",
     )
     setup_spec.install_requires = [
@@ -91,15 +92,17 @@ if os.getenv("SETUP_TYPE") == "sdk":
         ]
     }
 elif os.getenv("SETUP_TYPE") == "sdk_cpp":
+    base_name = os.getenv("YR_PACKAGE_NAME", "openyuanrong")
     setup_spec = SetupSpec(
         SetupType.OPENYUANRONG_CPP_SDK,
-        "openyuanrong_cpp_sdk",
+        f"{base_name}_cpp_sdk",
         "openyuanrong cpp sdk",
     )
 elif os.getenv("SETUP_TYPE") == "all":
+    base_name = os.getenv("YR_PACKAGE_NAME", "openyuanrong")
     setup_spec = SetupSpec(
         SetupType.OPENYUANRONG_ALL,
-        "openyuanrong_all",
+        f"{base_name}_all",
         "openyuanrong all package",
     )
     setup_spec.entry_points = {
@@ -109,13 +112,14 @@ elif os.getenv("SETUP_TYPE") == "all":
         ]
     }
 else:
+    base_name = os.getenv("YR_PACKAGE_NAME", "openyuanrong")
     setup_spec = SetupSpec(
-        SetupType.OPENYUANRONG, "openyuanrong", "openyuanrong package"
+        SetupType.OPENYUANRONG, base_name, "openyuanrong package"
     )
     setup_spec.install_requires = [
-        "openyuanrong_sdk==" + setup_spec.version,
+        f"{base_name}_sdk==" + setup_spec.version,
     ]
-    setup_spec.extras["cpp"] = ["openyuanrong_cpp_sdk==" + setup_spec.version]
+    setup_spec.extras["cpp"] = [f"{base_name}_cpp_sdk==" + setup_spec.version]
     setup_spec.entry_points = {
         "console_scripts": [
             "yr=yr.inner.scripts:run_yr",

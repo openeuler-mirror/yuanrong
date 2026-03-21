@@ -129,6 +129,10 @@ genrule(
             cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-310-$$ARCH-linux-gnu.so
         elif [[ $$PYTHON_VERSION =~ "3.11" ]]; then
             cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-311-$$ARCH-linux-gnu.so
+        elif [[ $$PYTHON_VERSION =~ "3.12" ]]; then
+            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-312-$$ARCH-linux-gnu.so
+        elif [[ $$PYTHON_VERSION =~ "3.13" ]]; then
+            cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime.cpython-313-$$ARCH-linux-gnu.so
         else
             cp -ar $(location py_strip) $$PYTHON_CODE_DIR/yr/
         fi

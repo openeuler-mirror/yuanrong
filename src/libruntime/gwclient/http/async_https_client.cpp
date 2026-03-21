@@ -20,8 +20,8 @@
 namespace YR {
 namespace Libruntime {
 AsyncHttpsClient::AsyncHttpsClient(const std::shared_ptr<asio::io_context> &ioc,
-                                   const std::shared_ptr<asio::ssl::context> &ctx, const std::string &serverName)
-    : ioc_(ioc), ctx_(ctx), resolver_(asio::make_strand(*ioc)), serverName_(serverName)
+                                   const std::shared_ptr<asio::ssl::context> &ctx, std::string serverName)
+    : ioc_(ioc), ctx_(ctx), serverName_(std::move(serverName)), resolver_(asio::make_strand(*ioc))
 {
 }
 
@@ -62,10 +62,11 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
     connParam_ = param;
     idleTime_ = connParam_.idleTime;
     std::string msg;
-    if (!serverName_.empty()) {
-        if (!SSL_set_tlsext_host_name(stream_->native_handle(), serverName_.c_str())) {
-            YRLOG_ERROR("failed to set servername: {}", serverName_);
-            msg = "failed to set servername during initing invoke client, serverName:" + serverName_;
+    const auto &tlsServerName = serverName_.empty() ? param.ip : serverName_;
+    if (!tlsServerName.empty()) {
+        if (!SSL_set_tlsext_host_name(stream_->native_handle(), tlsServerName.c_str())) {
+            YRLOG_ERROR("failed to set servername: {}", tlsServerName);
+            msg = "failed to set servername during initing invoke client, serverName:" + tlsServerName;
             return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
         }
     }
@@ -77,8 +78,8 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
             lowgest.expires_after(std::chrono::seconds(param.timeoutSec));
         }
         (void)lowgest.connect(results);
-        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}",
-            param.ip, param.port, param.timeoutSec);
+        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
+                    param.timeoutSec);
         if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
             lowgest.expires_never();
         }
@@ -94,7 +95,7 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
     stream_->handshake(ssl::stream_base::client, ec);
     if (ec) {
         YRLOG_ERROR("handshake error: {}", ec.message().c_str());
-        msg = "failed to handshake error during initing invoke client, err:" + serverName_;
+        msg = "failed to handshake during initing invoke client, host:" + param.ip;
         return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
     }
     ResetConnActive();

@@ -195,6 +195,21 @@ message InstanceStatus {
     string msg = 3;
     // process exit type
     int32 type = 4;
+    // instance err code, defined in function system
+    int32 errCode = 5;
+}
+
+enum TrafficReportType {
+    None           = 0;  // Do not emit traffic events
+    Idle           = 1;  // Only emit busy/idle events
+    Periodic       = 2;  // Emit events periodically
+}
+
+message SnapshotInfo {
+  string checkpointID = 1;
+  string storage = 2;
+  string createTime = 3;
+  int32 ttlSeconds = 4;
 }
 
 message InstanceInfo {
@@ -281,6 +296,17 @@ message InstanceInfo {
 
     // indicate an instance whether is a low reliability instance
     bool lowReliability = 32;
+    // extension field
+    map<string, string> extensions = 33;
+    // the instance was scheduled on this resource unit
+    string unitID = 34;
+
+    // kv labels
+    map<string, string> kvLabels = 35;
+
+    TrafficReportType trafficReportType = 36;
+
+    SnapshotInfo snapshotInfo = 37;
 }
 
 message RouteInfo {
@@ -296,6 +322,7 @@ message RouteInfo {
     string tenantID = 10; // Need while iam
     bool isSystemFunc = 11; // Need while iam
     int64 version = 12;    // indicates the number of times that instance information is modified in etcd
+    TrafficReportType trafficReportType = 13;
 }
 
 message SystemInfo {

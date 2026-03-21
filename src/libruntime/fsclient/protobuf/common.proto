@@ -236,6 +236,11 @@ enum GroupPolicy {
   StrictPack = 4;
 }
 
+enum SnapType {
+  DUMPSTATE = 0;
+  SNAPSHOT = 1;
+}
+
 message ResourceGroupSpec {
   string name         = 1;
   // indicated which rg is the resource group was created from, default is Primary

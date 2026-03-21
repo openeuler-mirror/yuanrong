@@ -81,3 +81,4 @@ function make_valid_semver() {
         echo "${VERSION}"
     fi
 }
+

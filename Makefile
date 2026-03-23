@@ -4,6 +4,8 @@
 # functionsystem uses half of CPU cores because it requires large memory for compilation
 JOBS ?= $(shell nproc)
 FUNCTIONSYSTEM_JOBS ?= $(shell echo $$(( $$(nproc) / 2 )))
+# Remote cache URL for bazel build (leave empty to disable remote cache)
+REMOTE_CACHE_URL ?=
 
 help:
 	@echo "Available targets:"
@@ -18,6 +20,7 @@ help:
 	@echo "Environment variables:"
 	@echo "  JOBS                - Parallel jobs (default: nproc)"
 	@echo "  FUNCTIONSYSTEM_JOBS - Functionsystem jobs (default: nproc/2)"
+	@echo "  REMOTE_CACHE_URL    - Bazel remote cache URL (default: empty)"
 
 frontend:
 	@echo "Building frontend..."
@@ -51,7 +54,11 @@ functionsystem:
 
 yuanrong:
 	@echo "Building yuanrong runtime..."
-	bash build.sh -P
+	@if [ -n "$(REMOTE_CACHE_URL)" ]; then \
+		bash build.sh -P -r $(REMOTE_CACHE_URL); \
+	else \
+		bash build.sh -P; \
+	fi
 
 dashboard:
 	@echo "Building dashboard..."

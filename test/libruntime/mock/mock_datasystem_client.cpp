@@ -159,7 +159,7 @@ Status ObjectClient::Get(const std::vector<std::string> &objectIds, int32_t time
 }
 
 Status ObjectClient::GIncreaseRef(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds,
-                        const std::string &remoteClientId)
+                                     const std::string &remoteClientId)
 {
     if (objectIds.size() == 2) {
         return Status(StatusCode::K_RPC_DEADLINE_EXCEEDED, "error");
@@ -168,7 +168,7 @@ Status ObjectClient::GIncreaseRef(const std::vector<std::string> &objectIds, std
 }
 
 Status ObjectClient::GDecreaseRef(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds,
-                        const std::string &remoteClientId)
+                                     const std::string &remoteClientId)
 {
     return Status::OK();
 }

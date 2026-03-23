@@ -252,15 +252,27 @@ def copy_openyuanrong(ctx):
     for filename in deploy_files_to_include:
         target_dir = os.path.join(ctx.build_lib, "yr/deploy/process")
         copy_file(target_dir, filename, deploy_dir)
-        # Update python runtime version in services.yaml
-        if "services.yaml" in filename:
-            dst = os.path.join(target_dir, os.path.relpath(filename, deploy_dir))
-            with open(dst, 'r') as f:
-                content = f.read()
-            import re
-            new_content = re.sub(r'runtime: python3\.\d+', f'runtime: {python_runtime_version}', content)
-            with open(dst, 'w') as f:
-                f.write(new_content)
+
+    # Update python runtime version in services.yaml files
+    import re
+    # Replace version in yr/cli/services.yaml (from source)
+    cli_services_src = os.path.join(ROOT_DIR, "yr", "cli", "services.yaml")
+    cli_services_dst = os.path.join(ctx.build_lib, "yr", "cli", "services.yaml")
+    if os.path.exists(cli_services_src):
+        os.makedirs(os.path.dirname(cli_services_dst), exist_ok=True)
+        with open(cli_services_src, 'r') as f:
+            content = f.read()
+        new_content = re.sub(r'runtime: python3\.\d+', f'runtime: {python_runtime_version}', content)
+        with open(cli_services_dst, 'w') as f:
+            f.write(new_content)
+    # Replace version in yr/deploy/process/services.yaml (copied from output)
+    deploy_services_dst = os.path.join(ctx.build_lib, "yr/deploy/process/services.yaml")
+    if os.path.exists(deploy_services_dst):
+        with open(deploy_services_dst, 'r') as f:
+            content = f.read()
+        new_content = re.sub(r'runtime: python3\.\d+', f'runtime: {python_runtime_version}', content)
+        with open(deploy_services_dst, 'w') as f:
+            f.write(new_content)
 
 
 def run_ext(ctx):

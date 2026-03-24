@@ -450,6 +450,7 @@ genrule(
         ln -f -s libupb_base_lib.so.42.0.0 $$JAVA_SERVICE_DIR/lib/libupb_base_lib.so.42 &&
         ln -f -s libupb_mem_lib.so.42.0.0 $$JAVA_SERVICE_DIR/lib/libupb_mem_lib.so.42 &&
         ln -f -s libgpr.so.42.0.0 $$JAVA_SERVICE_DIR/lib/libgpr.so.42 &&
+        ln -f -s libaddress_sorting.so.42.0.0 $$JAVA_SERVICE_DIR/lib/libaddress_sorting.so.42 &&
         patchelf --set-rpath '$$ORIGIN' $$JAVA_SERVICE_DIR/lib/libdatasystem.so 2>/dev/null || true &&
         patchelf --set-rpath '$$ORIGIN' $$JAVA_SERVICE_DIR/lib/libetcdapi_proto.so 2>/dev/null || true &&
         echo "$$BASE_DIR" > $@

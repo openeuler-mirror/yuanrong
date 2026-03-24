@@ -337,7 +337,6 @@ cc_test(
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
-    "//:runtime_lib",
     "//api/cpp:yr_api_lib",
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
@@ -370,7 +369,6 @@ cc_test(
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
-    "//:runtime_lib",
     "//api/cpp:yr_api_lib",
   ],
   linkopts = ["-lstdc++fs", "-ldl"],

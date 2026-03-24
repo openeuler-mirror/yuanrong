@@ -30,7 +30,7 @@ for so_path in [
     "libds-spdlog.so.1.12.0",
     "libzmq.so.5.2.5",
     "libcrypto.so.3",
-    "libaddress_sorting.so.42.0.0",
+    "libaddress_sorting.so.42",
     "libetcdapi_proto.so",
     "libgrpc++.so.1.65",
     "libgrpc.so.42",

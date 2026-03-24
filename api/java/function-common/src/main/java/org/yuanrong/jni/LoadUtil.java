@@ -64,9 +64,10 @@ public class LoadUtil {
         SYMLINK_MAP.put("libupb_base_lib.so.42.0.0", "libupb_base_lib.so.42");
         SYMLINK_MAP.put("libupb_mem_lib.so.42.0.0", "libupb_mem_lib.so.42");
         SYMLINK_MAP.put("libgpr.so.42.0.0", "libgpr.so.42");
+        SYMLINK_MAP.put("libaddress_sorting.so.42.0.0", "libaddress_sorting.so.42");
     }
 
-    // Libraries that only need to be extracted and symlinked, not loaded explicitly
+    // Libraries that only need to be extracted and symlinked, not loaded explicitly.
     private static final String[] EXTRACT_ONLY_LIBS = {
         "libgrpc++.so.1.65.4",
         "libgrpc.so.42.0.0",
@@ -81,7 +82,6 @@ public class LoadUtil {
     };
 
     // .so files depend on each other and need to be read in a specific sequence.
-
     private static final String[] LOADING_SEQUENCE = {
         "libsecurec.so",
         "libtbb.so.2",
@@ -89,7 +89,6 @@ public class LoadUtil {
         "libssl.so.3",
         "libds-spdlog.so.1.12.0",
         "libzmq.so.5.2.5",
-        "libaddress_sorting.so.42.0.0",
         "libabseil_dll.so.2407.0.0",
         "libprotobuf.so.25.5.0",
         "librpc_option_protos.so",
@@ -123,16 +122,26 @@ public class LoadUtil {
                 throw new ExceptionInInitializerError("Failed to create folder: " + jniDir.getAbsolutePath());
             }
 
-            // Phase 1: Extract libraries that only need symlinks (not loaded explicitly)
             extractAndSymlink(properties, libPath, EXTRACT_ONLY_LIBS);
 
-            // Phase 2: Extract and create symlinks for libraries in LOADING_SEQUENCE
-            extractAndSymlink(properties, libPath, LOADING_SEQUENCE);
-
-            // Phase 3: Load all so files in LOADING_SEQUENCE
             for (String soFileName : LOADING_SEQUENCE) {
+                String soFileHash = properties.getProperty(soFileName);
+                if (soFileHash == null) {
+                    throw new InvalidPropertiesFormatException("the hash is empty for " + soFileName);
+                }
+                String soFilePath = Paths.get(libPath, soFileName).toString();
                 File localSoFile = Paths.get(DEFAULT_JNI_FOLDER, soFileName).toFile();
-                System.load(localSoFile.getCanonicalPath());
+                boolean isSoFileExist = localSoFile.exists();
+                boolean isCheckSumMatch = checkSHA256(localSoFile, soFileHash);
+
+                if (isSoFileExist && isCheckSumMatch) {
+                    System.load(localSoFile.getCanonicalPath());
+                    continue;
+                }
+
+                if (!copyAndLoadSoFile(soFilePath, localSoFile)) {
+                    copyAndLoadTempSoFile(soFileName, soFilePath);
+                }
             }
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
@@ -150,7 +159,10 @@ public class LoadUtil {
             boolean isSoFileExist = localSoFile.exists();
             boolean isCheckSumMatch = checkSHA256(localSoFile, soFileHash);
 
-            if (!isSoFileExist || !isCheckSumMatch) {
+            if (isSoFileExist && !isCheckSumMatch) {
+                throw new InvalidPropertiesFormatException("the hash is not match for " + soFileName);
+            }
+            if (!isSoFileExist) {
                 copySoFile(soFilePath, localSoFile);
             }
             createSymlink(soFileName);
@@ -158,22 +170,18 @@ public class LoadUtil {
     }
 
     private static void copySoFile(String soFilePath, File localSoFile) throws IOException {
-        if (!localSoFile.exists()) {
-            if (!localSoFile.createNewFile() && !localSoFile.exists()) {
-                throw new ExceptionInInitializerError("Failed to create file: " + localSoFile.getAbsolutePath());
-            }
+        if (!localSoFile.createNewFile() && !localSoFile.exists()) {
+            throw new ExceptionInInitializerError("Failed to create file: " + localSoFile.getAbsolutePath());
         }
         try (FileChannel outChannel = FileChannel.open(localSoFile.toPath(), StandardOpenOption.WRITE,
-                StandardOpenOption.APPEND); FileLock soLock = outChannel.lock()) {
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING); FileLock soLock = outChannel.lock()) {
             if (soLock == null) {
                 LOGGER.info("Not get lock of file: {}", localSoFile.getAbsolutePath());
                 return;
             }
             if (outChannel.size() == 0) {
                 copyJarSoToLocal(soFilePath, outChannel);
-                if (!localSoFile.setReadOnly()) {
-                    LOGGER.warn("set file: {} read permission failed.", localSoFile.getAbsolutePath());
-                }
+                return;
             }
         }
     }
@@ -261,10 +269,11 @@ public class LoadUtil {
     }
 
     private static boolean copyAndLoadSoFile(String soFilePath, File localSoFile) throws IOException {
-        if (!localSoFile.exists()) {
-            if (!localSoFile.createNewFile() && !localSoFile.exists()) {
-                throw new ExceptionInInitializerError("Failed to create file: " + localSoFile.getAbsolutePath());
-            }
+        if (localSoFile.exists()) {
+            return false;
+        }
+        if (!localSoFile.createNewFile() && !localSoFile.exists()) {
+            throw new ExceptionInInitializerError("Failed to create file: " + localSoFile.getAbsolutePath());
         }
         try (FileChannel outChannel = FileChannel.open(localSoFile.toPath(), StandardOpenOption.WRITE,
                 StandardOpenOption.APPEND); FileLock soLock = outChannel.lock()) {

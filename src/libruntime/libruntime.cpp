@@ -62,7 +62,7 @@ Libruntime::Libruntime(std::shared_ptr<LibruntimeConfig> librtCfg, std::shared_p
       security_(security),
       socketClient_(socketClient)
 {
-    invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    invokeOrderMgr = std::make_shared<InvokeOrderManager>(librtCfg);
     messageCoder_ = std::make_shared<MessageCoder>();
 }
 
@@ -191,7 +191,7 @@ ErrorInfo Libruntime::CheckSpec(std::shared_ptr<InvokeSpec> spec)
     if (!err.OK()) {
         return err;
     }
-    auto insId = spec->GetNamedInstanceId();
+    auto insId = spec->GetNamedInstanceId(this->config);
     if (insId.size() > MAX_INS_ID_LENGTH) {
         return ErrorInfo(
             YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, YR::Libruntime::ModuleCode::RUNTIME,
@@ -477,7 +477,7 @@ ErrorInfo Libruntime::InvokeByInstanceId(const YR::Libruntime::FunctionMeta &fun
             invokeOrderMgr->UpdateUnfinishedSeq(spec);
             AddGeneratorReceiver(spec);
             if (PutRefArgToDs(spec)) {
-                auto namedId = spec->GetNamedInstanceId();
+                auto namedId = spec->GetNamedInstanceId(this->config);
                 if (spec->opts.isDeleteRemoteTensor) {
                     spec->invokeInstanceId = spec->instanceId;
                     spec->invokeType = libruntime::InvokeType::DeleteRemoteTensor;

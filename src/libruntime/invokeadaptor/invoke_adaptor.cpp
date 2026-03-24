@@ -1299,7 +1299,7 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
         }
         memStore->SetReady(spec->returnIds[0].id);
         if (spec->functionMeta.apiType != libruntime::ApiType::Posix) {
-            if (auto insId = spec->GetNamedInstanceId(); !insId.empty()) {
+            if (auto insId = spec->GetNamedInstanceId(this->librtConfig); !insId.empty()) {
                 auto meta = convertFuncMetaToProto(spec);
                 this->UpdateAndSubcribeInsStatus(insId, meta);
             }

@@ -23,7 +23,7 @@ void InvokeOrderManager::CreateInstance(std::shared_ptr<InvokeSpec> spec)
     if (!spec->opts.needOrder || spec->returnIds.empty()) {
         return;
     }
-    auto instanceId = spec->GetNamedInstanceId();
+    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->returnIds[0].id;
     }
@@ -111,7 +111,7 @@ void InvokeOrderManager::RemoveInstance(std::shared_ptr<InvokeSpec> spec)
     if (!spec->opts.needOrder || spec->returnIds.empty()) {
         return;
     }
-    auto instanceId = spec->GetNamedInstanceId();
+    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->returnIds[0].id;
     }
@@ -128,7 +128,7 @@ void InvokeOrderManager::RemoveInstance(std::shared_ptr<InvokeSpec> spec)
 
 void InvokeOrderManager::Invoke(std::shared_ptr<InvokeSpec> spec)
 {
-    auto instanceId = spec->GetNamedInstanceId();
+    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->instanceId;
     }
@@ -159,7 +159,7 @@ void InvokeOrderManager::Invoke(std::shared_ptr<InvokeSpec> spec)
 
 void InvokeOrderManager::UpdateUnfinishedSeq(std::shared_ptr<InvokeSpec> spec)
 {
-    auto instanceId = spec->GetNamedInstanceId();
+    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
     if (instanceId.empty()) {
         instanceId = spec->instanceId;
     }
@@ -202,7 +202,7 @@ void InvokeOrderManager::ClearInsOrderMsg(const std::string &insId, int signal)
 
 void InvokeOrderManager::NotifyInvokeSuccess(std::shared_ptr<InvokeSpec> spec)
 {
-    auto instanceId = spec->GetNamedInstanceId();
+    auto instanceId = spec->GetNamedInstanceId(this->libConfig);
     if (instanceId.empty()) {
         if (spec->invokeType == libruntime::InvokeType::CreateInstance) {
             // create spec use return id as instance id

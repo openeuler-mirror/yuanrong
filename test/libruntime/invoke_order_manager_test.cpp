@@ -34,7 +34,7 @@ class InvokeOrderManagerTest : public testing::Test {
 TEST_F(InvokeOrderManagerTest, OrderTest)
 {
     std::string instanceId = "fake_idd";
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     auto specCreate = std::make_shared<InvokeSpec>();
     specCreate->invokeType = libruntime::InvokeType::CreateInstance;
     specCreate->opts.needOrder = true;
@@ -55,7 +55,7 @@ TEST_F(InvokeOrderManagerTest, OrderTest)
 
 TEST_F(InvokeOrderManagerTest, CreateAndNotifyAndRomveGroupInstanceTest)
 {
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     invokeOrderMgr->CreateGroupInstance("");
     ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") == invokeOrderMgr->instances.end(), true);
 
@@ -75,7 +75,7 @@ TEST_F(InvokeOrderManagerTest, CreateAndNotifyAndRomveGroupInstanceTest)
 
 TEST_F(InvokeOrderManagerTest, ClearInsOrderMsgTest)
 {
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     invokeOrderMgr->instances["instanceId"] = invokeOrderMgr->ConstuctInstOrder();
     invokeOrderMgr->ClearInsOrderMsg("", libruntime::Signal::KillInstance);
     ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") == invokeOrderMgr->instances.end(), false);
@@ -86,7 +86,7 @@ TEST_F(InvokeOrderManagerTest, ClearInsOrderMsgTest)
 
 TEST_F(InvokeOrderManagerTest, InvokeOrderInvokeTest)
 {
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     auto spec = std::make_shared<InvokeSpec>();
     invokeOrderMgr->Invoke(spec);
     ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") == invokeOrderMgr->instances.end(), true);
@@ -103,7 +103,7 @@ TEST_F(InvokeOrderManagerTest, InvokeOrderInvokeTest)
 
 TEST_F(InvokeOrderManagerTest, RemoveInstanceTest)
 {
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     auto spec = std::make_shared<InvokeSpec>();
     spec->opts.needOrder = true;
     ASSERT_NO_THROW(invokeOrderMgr->RemoveInstance(spec));
@@ -116,7 +116,7 @@ TEST_F(InvokeOrderManagerTest, RemoveInstanceTest)
 
 TEST_F(InvokeOrderManagerTest, RegisterInstanceAndUpdateOrderTest)
 {
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     auto insId = "instanceId";
     invokeOrderMgr->RegisterInstanceAndUpdateOrder(insId);
     ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") != invokeOrderMgr->instances.end(), true);
@@ -125,7 +125,7 @@ TEST_F(InvokeOrderManagerTest, RegisterInstanceAndUpdateOrderTest)
 
 TEST_F(InvokeOrderManagerTest, RegisterInstance)
 {
-    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>();
+    auto invokeOrderMgr = std::make_shared<InvokeOrderManager>(std::make_shared<LibruntimeConfig>());
     auto insId = "instanceId";
     invokeOrderMgr->RegisterInstance(insId);
     ASSERT_EQ(invokeOrderMgr->instances.find("instanceId") != invokeOrderMgr->instances.end(), true);

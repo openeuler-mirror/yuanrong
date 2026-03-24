@@ -113,7 +113,7 @@ struct InvokeSpec {
 
     std::string GetInstanceId(std::shared_ptr<LibruntimeConfig> config);
 
-    std::string GetNamedInstanceId();
+    std::string GetNamedInstanceId(std::shared_ptr<LibruntimeConfig> config);
 
     void InitDesignatedInstanceId(const LibruntimeConfig &config);
 

@@ -85,14 +85,16 @@ std::string InvokeSpec::ConstructRequestID()
     return YR::utility::IDGenerator::GenRequestId(this->requestId, this->seq);
 }
 
-std::string InvokeSpec::GetNamedInstanceId()
+std::string InvokeSpec::GetNamedInstanceId(std::shared_ptr<LibruntimeConfig> config)
 {
     if (!functionMeta.name.empty()) {
         if (!functionMeta.ns.empty()) {
             return functionMeta.ns + "-" + functionMeta.name;
-        } else {
-            return DEFAULT_YR_NAMESPACE + "-" + functionMeta.name;
         }
+        if (!config->ns.empty()) {
+            return config->ns + "-" + functionMeta.name;
+        }
+        return DEFAULT_YR_NAMESPACE + "-" + functionMeta.name;
     }
     return "";
 }

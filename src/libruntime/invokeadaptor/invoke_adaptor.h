@@ -22,6 +22,7 @@
 #include <unordered_set>
 
 #include "alias_element.h"
+#include "agent_session_manager.h"
 #include "alias_routing.h"
 #include "execution_manager.h"
 #include "request_manager.h"
@@ -184,6 +185,8 @@ public:
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
     ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
                                const std::string &instanceId);
+    std::pair<std::string, ErrorInfo> LoadCurrentSession(const std::string &sessionId);
+    ErrorInfo UpdateCurrentSession(const std::string &sessionId, const std::string &sessionData);
 
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
@@ -252,6 +255,7 @@ private:
     std::shared_ptr<GeneratorNotifier> generatorNotifier_;
     std::shared_ptr<ResourceGroupManager> rGroupManager_;
     std::shared_ptr<FMClient> functionMasterClient_;
+    std::shared_ptr<AgentSessionManager> agentSessionManager_;
     std::mutex finishTaskMtx;
     DebugBreakpointHook setDebugBreakpoint_ = nullptr;
     SetTenantIdCallback setTenantIdCb_;

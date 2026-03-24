@@ -345,6 +345,9 @@ void InvokeSpec::BuildInstanceInvokeRequest(const LibruntimeConfig &config)
         }
         customTag->insert({extension.first, extension.second});
     }
+    if (opts.instanceSession && !opts.instanceSession->sessionID.empty()) {
+        customTag->insert({YR_AGENT_SESSION_ID, opts.instanceSession->sessionID});
+    }
     if (!instanceRoute.empty()) {
         customTag->insert({YR_ROUTE, instanceRoute});
     }

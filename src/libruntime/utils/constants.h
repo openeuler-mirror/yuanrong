@@ -41,5 +41,8 @@ const char* const STREAM_MODE = "STREAM_MODE";
 const char* const MPMC = "MPMC";
 const char* const MPSC = "MPSC";
 const char* const SPSC = "SPSC";
+const char* const YR_AGENT_SESSION_ID = "YR_AGENT_SESSION_ID";
+const char* const USE_AGENT_SESSION_ENV = "use_agent_session";
+const char* const AGENT_SESSION_KEY_PREFIX = "yr:agent_session:v1";
 }  // namespace Libruntime
 }  // namespace YR

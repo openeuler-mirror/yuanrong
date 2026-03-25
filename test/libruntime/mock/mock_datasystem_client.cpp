@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <msgpack.hpp>
 #include <string>
+#include <unordered_set>
 
 #define private public
 #include "datasystem/hetero_client.h"
@@ -299,24 +300,33 @@ Status KVClient::Get(const std::string &key, std::string &val, int32_t timeoutMs
 Status KVClient::Get(const std::vector<std::string> &keys, std::vector<Optional<ReadOnlyBuffer>> &readOnlyBuffers,
                      int32_t timeoutMs)
 {
-    // To test the if branch of partial get,
-    // if a vector of len = 1, successfully get
-    // if a vector of len > 1, only store the first element
     readOnlyBuffers.clear();
-    auto buf = std::make_shared<Buffer>();
-    auto rdBuf = std::make_shared<ReadOnlyBuffer>(buf);
+    if (keys.empty()) {
+        return Status::OK();
+    }
     if (keys.size() == 1) {
         if (keys[0] == "wrongKey") {
             readOnlyBuffers.emplace_back();
             return Status(StatusCode::K_OUT_OF_MEMORY, "mock test runtime error");
         }
+        auto buf = std::make_shared<Buffer>();
+        auto rdBuf = std::make_shared<ReadOnlyBuffer>(buf);
         readOnlyBuffers.emplace_back(std::move(*rdBuf));
-        Status rt = Status::OK();
-        return rt;
+        return Status::OK();
     }
-    // if length >= 2, only store the first object
-    readOnlyBuffers.emplace_back(std::move(*rdBuf));  // only first one is non-empty
-    for (size_t i = 1; i < keys.size(); ++i) {        // others are empty
+    std::unordered_set<std::string> uniq(keys.begin(), keys.end());
+    if (uniq.size() == keys.size()) {
+        for (size_t i = 0; i < keys.size(); ++i) {
+            auto buf = std::make_shared<Buffer>();
+            auto rdBuf = std::make_shared<ReadOnlyBuffer>(buf);
+            readOnlyBuffers.emplace_back(std::move(*rdBuf));
+        }
+        return Status::OK();
+    }
+    auto buf = std::make_shared<Buffer>();
+    auto rdBuf = std::make_shared<ReadOnlyBuffer>(buf);
+    readOnlyBuffers.emplace_back(std::move(*rdBuf));
+    for (size_t i = 1; i < keys.size(); ++i) {
         readOnlyBuffers.emplace_back();
     }
     return Status(StatusCode::K_OUT_OF_MEMORY, "mock test runtime error");
@@ -352,6 +362,15 @@ Status KVClient::Exist(const std::vector<std::string> &keys, std::vector<bool> &
 {
     if (keys.empty()) {
         return Status(StatusCode::K_INVALID, "The keys are empty");
+    }
+    return Status::OK();
+}
+
+Status KVClient::QuerySize(const std::vector<std::string> &objectKeys, std::vector<uint64_t> &outSizes)
+{
+    outSizes.clear();
+    for (size_t i = 0; i < objectKeys.size(); ++i) {
+        outSizes.emplace_back(0);
     }
     return Status::OK();
 }

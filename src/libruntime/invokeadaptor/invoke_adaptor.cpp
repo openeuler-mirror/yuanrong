@@ -290,9 +290,7 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
         }
         librtConfig->InitFunctionGroupRunningInfo(runningInfo);
     }
-    if (metaData.functionmeta().language() == libruntime::LanguageType::Cpp) {
-        CheckAndSetDebugBreakpoint(req);
-    }
+    CheckAndSetDebugBreakpoint(req);
     librtConfig->funcMeta = metaData.functionmeta();
     librtConfig->funcMeta.set_needorder(librtConfig->needOrder);
     YRLOG_DEBUG("update instance function meta, req id is {}, value is {}", req->Immutable().requestid(),
@@ -583,25 +581,58 @@ RecoverResponse InvokeAdaptor::RecoverHandler(const RecoverRequest &req)
     return resp;
 }
 
+namespace {
+
+FSIntfHandlers MakeFsIntfHandlers(InvokeAdaptor *self, const std::shared_ptr<LibruntimeConfig> &cfg)
+{
+    FSIntfHandlers handlers;
+    handlers.init = std::bind(&InvokeAdaptor::InitHandler, self, _1);
+    handlers.call = std::bind(&InvokeAdaptor::CallHandler, self, _1);
+    handlers.checkpoint = std::bind(&InvokeAdaptor::CheckpointHandler, self, _1);
+    handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, self, _1);
+    handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, self, _1);
+    handlers.prepareSnap = std::bind(&InvokeAdaptor::PrepareSnapHandler, self, _1);
+    handlers.snapStarted = std::bind(&InvokeAdaptor::SnapStartedHandler, self, _1);
+    if (cfg->libruntimeOptions.refreshEnvCallback) {
+        handlers.refreshEnv = cfg->libruntimeOptions.refreshEnvCallback;
+    }
+    handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, self, _1);
+    handlers.event = std::bind(&InvokeAdaptor::EventHandler, self, _1);
+    if (cfg->libruntimeOptions.healthCheckCallback) {
+        handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, self, _1);
+    }
+    return handlers;
+}
+
+void CompleteGetInstanceKillResponse(const std::string &insId,
+                                     std::promise<std::pair<libruntime::FunctionMeta, ErrorInfo>> &promise,
+                                     const KillResponse &response, const ErrorInfo &err)
+{
+    if (response.code() != common::ERR_NONE) {
+        YRLOG_ERROR("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
+                    fmt::underlying(response.code()), response.message());
+        YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(response.code()), ModuleCode::RUNTIME,
+                                          response.message());
+        errInfo.SetIsTimeout(err.IsTimeout());
+        promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
+        return;
+    }
+    libruntime::FunctionMeta funcMeta;
+    if (auto status = google::protobuf::util::JsonStringToMessage(response.message(), &funcMeta); !status.ok()) {
+        YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
+    }
+    if (!response.payload().empty()) {
+        funcMeta.set_payload(response.payload());
+    }
+    promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
+}
+
+}  // namespace
+
 std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeContext,
                                                       std::shared_ptr<Security> security)
 {
-    FSIntfHandlers handlers;
-    handlers.init = std::bind(&InvokeAdaptor::InitHandler, this, _1);
-    handlers.call = std::bind(&InvokeAdaptor::CallHandler, this, _1);
-    handlers.checkpoint = std::bind(&InvokeAdaptor::CheckpointHandler, this, _1);
-    handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, this, _1);
-    handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, this, _1);
-    handlers.prepareSnap = std::bind(&InvokeAdaptor::PrepareSnapHandler, this, _1);
-    handlers.snapStarted = std::bind(&InvokeAdaptor::SnapStartedHandler, this, _1);
-    if (librtConfig->libruntimeOptions.refreshEnvCallback) {
-        handlers.refreshEnv = librtConfig->libruntimeOptions.refreshEnvCallback;
-    }
-    handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, this, _1);
-    handlers.event = std::bind(&InvokeAdaptor::EventHandler, this, _1);
-    if (librtConfig->libruntimeOptions.healthCheckCallback) {
-        handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
-    }
+    FSIntfHandlers handlers = MakeFsIntfHandlers(this, librtConfig);
     if (Config::Instance().ENABLE_SERVER_MODE()) {
         this->librtConfig->enableServerMode = Config::Instance().ENABLE_SERVER_MODE();
     }
@@ -977,7 +1008,8 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
         case libruntime::Signal::GetInstance: {
             std::string serializedMeta;
             google::protobuf::util::JsonPrintOptions options;
-            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta, &serializedMeta, options);
+            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta,
+                                                                     &serializedMeta, options);
             if (!status.ok()) {
                 YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
                 resp.set_code(::common::ErrorCode::ERR_INNER_SYSTEM_ERROR);
@@ -2254,23 +2286,7 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
     this->fsClient->KillAsync(
         killReq,
         [insId, &promise](const KillResponse &response, const ErrorInfo &err) -> void {
-            if (response.code() != common::ERR_NONE) {
-                YRLOG_ERROR("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
-                            fmt::underlying(response.code()), response.message());
-                YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(response.code()), ModuleCode::RUNTIME,
-                                                  response.message());
-                errInfo.SetIsTimeout(err.IsTimeout());
-                promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
-            } else {
-                libruntime::FunctionMeta funcMeta;
-                if (auto status = google::protobuf::util::JsonStringToMessage(response.message(), &funcMeta); !status.ok()) {
-                    YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
-                }
-                if (!response.payload().empty()) {
-                    funcMeta.set_payload(response.payload());
-                }
-                promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
-            }
+            CompleteGetInstanceKillResponse(insId, promise, response, err);
         },
         timeoutSec);
     auto [funcMeta, errorInfo] = future.get();

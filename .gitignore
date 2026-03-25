@@ -36,6 +36,7 @@ test/st/python/pkg
 # test
 test/st/cpp/gtest
 test/st/yuanrong/
+test/st/cpp/build/
 test/st/**/output.txt
 test/st/functions/pkg
 test/st/functions/**/*.so

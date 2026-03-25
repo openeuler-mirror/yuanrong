@@ -27,7 +27,7 @@
 #include "src/utility/logger/logger.h"
 using namespace YR::utility;
 const std::string masterInfoString =
-    "master_ip:127.0.0.1,etcd_ip:127.0.0.1,local_ip:127.0.0.1,etcd_port:11393,global_scheduler_port:14210,ds_"
+    "master_ip:127.0.0.1,etcd_ip:127.0.0.1,local_ip:127.0.0.1,host_ip:127.0.0.1,etcd_port:11393,global_scheduler_port:14210,ds_"
     "master_port:11090,etcd_"
     "peer_port:15580,bus-proxy:30495,bus:34834,ds-worker:31499,";
 
@@ -35,8 +35,12 @@ class AutoInitTest : public testing::Test {
 public:
     AutoInitTest(){};
     ~AutoInitTest(){};
-    void SetUp() override {
+    void SetUp() override
+    {
         unsetenv("YR_SERVER_ADDRESS");
+        unsetenv("YR_DS_ADDRESS");
+        unsetenv("YR_MASTER_INFO");
+        unsetenv("YR_MASTER_INFO_PATH");
         YR::Libruntime::Config::c = YR::Libruntime::Config();
         Mkdir("/tmp/log");
         LogParam g_logParam = {

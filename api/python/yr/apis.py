@@ -42,6 +42,8 @@ from yr.decorator.function_proxy import FunctionProxy
 from yr.decorator.instance_proxy import InstanceCreator, InstanceProxy
 from yr.common.utils import CrossLanguageInfo
 from yr.resource_group import ResourceGroup
+from yr.serialization import Serialization
+from yr.ds_tensor_client_manager import get_tensor_client
 
 # Gradual migration: StatelessFunction is the new preferred name
 # FunctionProxy is kept for backward compatibility
@@ -51,9 +53,6 @@ StatelessFunction = FunctionProxy
 # InstanceProxy and InstanceCreator are kept for backward compatibility  
 StatefulInstance = InstanceProxy
 StatefulInstanceCreator = InstanceCreator
-
-from yr.serialization import Serialization
-from yr.ds_tensor_client_manager import get_tensor_client
 
 __g_is_init = False
 _MAX_INT = 0x7FFFFFFF
@@ -139,6 +138,7 @@ def _get_from_env(conf):
         conf.server_name = os.environ.get("YR_SERVER_NAME", "")
     conf.log_dir = os.environ.get("YR_LOG_PATH", "./")
     return conf
+
 
 def _auto_get_cluster_access_info(conf):
     conf = _get_from_env(conf)

@@ -184,6 +184,28 @@ class FunctionHandler(HandlerIntf):
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
         return ErrorInfo()
 
+    def before_snapshot(self) -> ErrorInfo:
+        """
+        Public method to trigger snapshot hook, called by libruntime before snapshot.
+
+        Returns:
+            ErrorInfo: Error information if hook execution failed.
+        """
+        _logger.debug("Trigger before_snapshot hook")
+        instance = InstanceManager().instance()
+        return self.__before_snapshot(instance)
+
+    def after_snapstart(self) -> ErrorInfo:
+        """
+        Public method to trigger snapstart hook, called by libruntime after restore.
+
+        Returns:
+            ErrorInfo: Error information if hook execution failed.
+        """
+        _logger.debug("Trigger after_snapstart hook")
+        instance = InstanceManager().instance()
+        return self.__after_snapstarted(instance)
+
     def __before_snapshot(self, instance) -> ErrorInfo:
         """
         Call user-defined __yr_before_snapshot__ hook before taking snapshot.
@@ -195,28 +217,34 @@ class FunctionHandler(HandlerIntf):
             ErrorInfo: Error information if hook execution failed.
         """
         if instance is None:
+            msg = (
+                f"Failed to invoke instance function [{USER_BEFORE_SNAPSHOT_FUNC_NAME}], "
+                "instance has not been initialized"
+            )
             return ErrorInfo(
                 ErrorCode.ERR_INNER_SYSTEM_ERROR,
                 ModuleCode.RUNTIME,
-                f"Failed to invoke instance function [{USER_BEFORE_SNAPSHOT_FUNC_NAME}], instance has not been initialized",
+                msg,
             )
 
         # Check if user defined the hook method
         if not hasattr(instance, USER_BEFORE_SNAPSHOT_FUNC_NAME):
-            log.get_logger().debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} not defined, skipping")
+            _logger.debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} not defined, skipping")
             return ErrorInfo()
 
         snapshot_hook = getattr(instance, USER_BEFORE_SNAPSHOT_FUNC_NAME)
         if not callable(snapshot_hook):
-            log.get_logger().debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} is not callable, skipping")
+            _logger.debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} is not callable, skipping")
             return ErrorInfo()
 
-        log.get_logger().debug(f"Start to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
+        _logger.debug(f"Start to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
         try:
             snapshot_hook()
-            log.get_logger().info(f"Succeeded to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
+            _logger.info(
+                f"Succeeded to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}"
+            )
         except Exception as e:
-            log.get_logger().exception(e)
+            _logger.exception(e)
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
         return ErrorInfo()
 
@@ -231,52 +259,34 @@ class FunctionHandler(HandlerIntf):
             ErrorInfo: Error information if hook execution failed.
         """
         if instance is None:
+            msg = (
+                f"Failed to invoke instance function [{USER_AFTER_SNAPSTART_FUNC_NAME}], "
+                "instance has not been initialized"
+            )
             return ErrorInfo(
                 ErrorCode.ERR_INNER_SYSTEM_ERROR,
                 ModuleCode.RUNTIME,
-                f"Failed to invoke instance function [{USER_AFTER_SNAPSTART_FUNC_NAME}], instance has not been initialized",
+                msg,
             )
 
         # Check if user defined the hook method
         if not hasattr(instance, USER_AFTER_SNAPSTART_FUNC_NAME):
-            log.get_logger().debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} not defined, skipping")
+            _logger.debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} not defined, skipping")
             return ErrorInfo()
 
         snapstart_hook = getattr(instance, USER_AFTER_SNAPSTART_FUNC_NAME)
         if not callable(snapstart_hook):
-            log.get_logger().debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} is not callable, skipping")
+            _logger.debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} is not callable, skipping")
             return ErrorInfo()
 
-        log.get_logger().debug(f"Start to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
+        _logger.debug(f"Start to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
         try:
             snapstart_hook()
-            log.get_logger().info(f"Succeeded to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
+            _logger.info(f"Succeeded to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
         except Exception as e:
-            log.get_logger().exception(e)
+            _logger.exception(e)
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
         return ErrorInfo()
-
-    def before_snapshot(self) -> ErrorInfo:
-        """
-        Public method to trigger snapshot hook, called by libruntime before snapshot.
-
-        Returns:
-            ErrorInfo: Error information if hook execution failed.
-        """
-        log.get_logger().debug("Trigger before_snapshot hook")
-        instance = InstanceManager().instance()
-        return self.__before_snapshot(instance)
-
-    def after_snapstart(self) -> ErrorInfo:
-        """
-        Public method to trigger snapstart hook, called by libruntime after restore.
-
-        Returns:
-            ErrorInfo: Error information if hook execution failed.
-        """
-        log.get_logger().debug("Trigger after_snapstart hook")
-        instance = InstanceManager().instance()
-        return self.__after_snapstarted(instance)
 
     def __create_instance(self, func_meta, args) -> None:
         _logger.info("%s" % func_meta)

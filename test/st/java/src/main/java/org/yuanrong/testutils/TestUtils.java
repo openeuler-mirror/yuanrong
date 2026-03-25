@@ -85,6 +85,16 @@ public class TestUtils {
         return tempConfig.build();
     }
 
+    public static String getJavaFuncUrn() {
+        String id = System.getenv("YR_JAVA_FUNC_ID");
+        return id != null ? id : "sn:cn:yrk:default:function:0-yr-stjava:$latest";
+    }
+
+    public static String getCppFuncUrn() {
+        String id = System.getenv("YRFUNCID");
+        return id != null ? id : "sn:cn:yrk:default:function:0-yr-stcpp:$latest";
+    }
+
     public static Config createInvalidConfig() {
         String functionURN = System.getenv("YR_JAVA_FUNC_ID");
         Config conf = new Config(functionURN, "127.0.0.1", "", "", true);

@@ -6,7 +6,7 @@ AIO 镜像使用 Traefik 作为反向代理和 API 网关，通过 etcd provider
 
 ## 架构
 
-```
+```text
 ┌─────────────────┐      ┌──────────────┐      ┌─────────────────┐
 │   Traefik       │──────│    etcd      │──────│  Services       │
 │  (Priority 10)  │      │  (Port 32379)│      │  (动态注册)      │
@@ -31,7 +31,7 @@ AIO 镜像使用 Traefik 作为反向代理和 API 网关，通过 etcd provider
 
 服务需要在 etcd 中注册以下格式的键：
 
-```
+```text
 /traefik/http/services/{service-name}/loadBalancer/servers/{server-id}/url = "https://127.0.0.1:port"
 /traefik/http/routers/{router-name}/rule = "PathPrefix(`/path`)"
 /traefik/http/routers/{router-name}/service = "{service-name}"

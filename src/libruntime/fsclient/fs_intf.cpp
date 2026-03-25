@@ -17,11 +17,18 @@
 #include "fs_intf.h"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
+#include <thread>
 
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
 #include "src/libruntime/utils/utils.h"
+
+namespace {
+constexpr int kCheckpointRestoreDelayMs = 10000;
+}  // namespace
+
 namespace YR {
 namespace Libruntime {
 std::string GetReturnObjectId(const CallRequest &req)
@@ -358,7 +365,7 @@ void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnap
                 file.peek();  // Trigger actual read() syscall
                 YRLOG_INFO("restore from checkpoint. {}", checkpointFile);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kCheckpointRestoreDelayMs));
             // Refresh environment after snapshot restore
             if (this->handlers.refreshEnv) {
                 YRLOG_INFO("calling refreshEnv callback");

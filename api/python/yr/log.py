@@ -98,7 +98,10 @@ class RuntimeLogger:
             "disable_existing_loggers": False,
             "formatters": {
                 "extra": {
-                    "format": "[%(asctime)s %(levelname)s %(filename)s:%(lineno)d] [%(podname)s %(thread)d] [%(runtime_id)s] %(message)s"
+                    "format": (
+                        "[%(asctime)s %(levelname)s %(filename)s:%(lineno)d] "
+                        "[%(podname)s %(thread)d] [%(runtime_id)s] %(message)s"
+                    )
                 }
             },
             "handlers": {

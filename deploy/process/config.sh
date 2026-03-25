@@ -45,14 +45,14 @@ ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
 enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,enable_event:,enable_function_token_auth:,\
-enable_meta_service:,meta_service_port:,enable_event:,\
+enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
 function_proxy_grpc_port:,global_scheduler_port:,runtime_init_port:,\
 function_agent_litebus_thread:,function_master_litebus_thread:,function_proxy_litebus_thread:,\
 meta_store_mode:,\
 metrics_collector_type:,runtime_heartbeat_enable:,runtime_heartbeat_timeout_ms:,port_policy:,ds_worker_port:,\
-npu_collection_mode:,gpu_collection_enable:,numa_collection_enable:,\
+npu_collection_mode:,gpu_collection_enable:,\
 enable_multi_master,etcd_addr_list:,cluster_list:,\
 ds_master_port:,\
 curve_key_path:,runtime_ds_auth_enable:,runtime_ds_encrypt_enable:,runtime_ds_connect_timeout:,\
@@ -227,7 +227,6 @@ RUNTIME_INIT_CALL_TIMEOUT_SECONDS=600
 RUNTIME_DEFAULT_CONFIG=""
 NPU_COLLECTION_MODE="all"
 GPU_COLLECTION_ENABLE=false
-NUMA_COLLECTION_ENABLE=false
 IS_SCHEDULE_TOLERATE_ABNORMAL=false
 ENABLE_PRINT_RESOURCE_VIEW=false
 PORT_POLICY="RANDOM"
@@ -239,8 +238,8 @@ FUNCTION_AGENT_LITEBUS_THREAD=20
 FUNCTION_PROXY_LITEBUS_THREAD=20
 FUNCTION_MASTER_LITEBUS_THREAD=20
 FUNCTION_AGENT_ALIAS=""
-LOCAL_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\", \"NUMA\"]"
-DOMAIN_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\", \"NUMA\"]"
+LOCAL_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\"]"
+DOMAIN_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\"]"
 SCHEDULE_RELAXED=-1
 ENABLE_PREEMPTION=false
 FUNCTION_PROXY_UNREGISTER_WHILE_STOP=true
@@ -503,7 +502,6 @@ function usage() {
   echo -e "     --is_protomsg_to_runtime                            send protobuf message to runtime, otherwise send json message (default false)"
   echo -e "     --npu_collection_mode                               collect npu info mode (default all), support all, count, hbm, sfmd, topo, off"
   echo -e "     --gpu_collection_enable                             enable collect gpu info (default false)"
-  echo -e "     --numa_collection_enable                            enable collect numa info (default false)"
   echo -e "     --local_schedule_plugins                            local schedule plugins (default enable all plugins)"
   echo -e "     --domain_schedule_plugins                           domain schedule plugins (default enable all plugins)"
   echo -e "     --runtime_init_call_timeout_seconds                 init runtime call timeout, unit second(default 600)"
@@ -738,7 +736,6 @@ function parse_opt() {
     --runtime_metrics_config)  RUNTIME_METRICS_CONFIG=$2 && shift 2 ;;
     --npu_collection_mode) NPU_COLLECTION_MODE=$2 && shift 2 ;;
     --gpu_collection_enable) GPU_COLLECTION_ENABLE=$2 && shift 2 ;;
-    --numa_collection_enable) NUMA_COLLECTION_ENABLE=$2 && shift 2 ;;
     --runtime_init_call_timeout_seconds) RUNTIME_INIT_CALL_TIMEOUT_SECONDS=$2 && shift 2 ;;
     --is_schedule_tolerate_abnormal) IS_SCHEDULE_TOLERATE_ABNORMAL=$2 && shift 2 ;;
     --system_timeout) SYSTEM_TIMEOUT=$2 && shift 2 ;;
@@ -1184,10 +1181,6 @@ function check_input() {
       log_error "gpu_collection_enable can only be 'true' or 'false'"
       return 1
   fi
-  if [ "X${NUMA_COLLECTION_ENABLE}" != "Xtrue" ] && [ "X${NUMA_COLLECTION_ENABLE}" != "Xfalse" ]; then
-      log_error "numa_collection_enable can only be 'true' or 'false'"
-      return 1
-  fi
   if [ "X${DS_SPILL_ENABLE}" != "Xtrue" ] && [ "X${DS_SPILL_ENABLE}" != "Xfalse" ]; then
     log_error "ds_spill_enable can only be 'true' or 'false'"
     return 1
@@ -1561,7 +1554,7 @@ function export_config() {
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
   export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
-  export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE NUMA_COLLECTION_ENABLE
+  export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE
   export GLOBAL_SCHEDULER_PORT METRICS_COLLECTOR_TYPE ETCD_PROXY_ENABLE
   export RUNTIME_METRICS_CONFIG
   export RUNTIME_HEARTBEAT_ENABLE RUNTIME_HEARTBEAT_TIMEOUT_MS RUNTIME_MAX_HEARTBEAT_TIMEOUT_TIMES RUNTIME_RECOVER_ENABLE RUNTIME_DIRECT_CONNECTION_ENABLE RUNTIME_INSTANCE_DEBUG_ENABLE

@@ -15,6 +15,7 @@
  */
 
 #include <chrono>
+#include <memory>
 #include <thread>
 
 #include <gmock/gmock.h>
@@ -88,12 +89,13 @@ TEST_F(TimerTest, Test_timeworker_execute_times_should_be_right)
 {
     int timeoutMs = 1;
     int executeTimes = 3;
-    TimerWorker t;
+    // TimerWorker uses weak_from_this() in CreateTimer; the object must be owned by shared_ptr.
+    auto t = std::make_shared<TimerWorker>();
     std::atomic<int> count{0};
     auto f = [&count]() { count++; };
-    t.CreateTimer(timeoutMs, executeTimes, f);
+    ASSERT_NE(t->CreateTimer(timeoutMs, executeTimes, f), nullptr);
     std::this_thread::sleep_for(std::chrono::milliseconds(timeoutMs * executeTimes * delay));
-    EXPECT_EQ(count, executeTimes);
+    EXPECT_EQ(count.load(), executeTimes);
 }
 
 TEST_F(TimerTest, Test_TimeMeasurement)

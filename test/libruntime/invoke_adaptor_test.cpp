@@ -917,59 +917,6 @@ TEST_F(InvokeAdaptorTest, SignalHandlerCancelWithPayloadTest)
     ASSERT_EQ(response6.code(), ::common::ErrorCode::ERR_NONE);
 }
 
-TEST_F(InvokeAdaptorTest, SignalHandlerCancelWithPayloadTest)
-{
-    SignalRequest req;
-    req.set_signal(libruntime::Signal::Cancel);
-
-    req.set_payload("invalid json");
-    auto response1 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response1.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response1.message().empty());
-
-    req.set_payload("{\"requestId\":\"test-req-id\"}");  // 缺少 instanceId
-    auto response2 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response2.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response2.message().empty());
-
-    auto execMgr = std::make_shared<OrderedExecutionManager>(1, nullptr);
-    auto err = execMgr->DoInit(1);
-    ASSERT_EQ(err.OK(), true);
-    invokeAdaptor->execMgr = execMgr;
-
-    json cancelReqJson;
-    cancelReqJson["requestId"] = "test-req-id";
-    cancelReqJson["instanceId"] = "";
-    req.set_payload(cancelReqJson.dump());
-    auto response3 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response3.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response3.message().empty());
-
-    cancelReqJson["instanceId"] = "non-existent-instance-id";
-    req.set_payload(cancelReqJson.dump());
-    auto response4 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response4.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response4.message().empty());
-
-    auto generalExecMgr = std::make_shared<GeneralExecutionManager>(1, nullptr);
-    err = generalExecMgr->DoInit(1);
-    ASSERT_EQ(err.OK(), true);
-    invokeAdaptor->execMgr = generalExecMgr;
-
-    cancelReqJson["requestId"] = "test-req-id-2";
-    cancelReqJson["instanceId"] = "test-instance-id";
-    req.set_payload(cancelReqJson.dump());
-    auto response5 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response5.code(), ::common::ErrorCode::ERR_NONE);
-
-    invokeAdaptor->execMgr = nullptr;
-    cancelReqJson["requestId"] = "test-req-id-3";
-    cancelReqJson["instanceId"] = "test-instance-id-2";
-    req.set_payload(cancelReqJson.dump());
-    auto response6 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response6.code(), ::common::ErrorCode::ERR_NONE);
-}
-
 TEST_F(InvokeAdaptorTest, CreateInstanceRawTest)
 {
     CreateRequest req;

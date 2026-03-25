@@ -767,7 +767,8 @@ void GwClient::SetTenantId(const std::string &tenantId)
 ErrorInfo GwClient::ParseLeaseResponse(const std::string &result)
 {
     LeaseResponse leaseRsp;
-    if (result.empty() || !leaseRsp.ParseFromString(result)) {
+    // An empty result is valid: protobuf serializes default values (code=0=ERR_NONE) as empty bytes.
+    if (!result.empty() && !leaseRsp.ParseFromString(result)) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "failed to parse lease response");
     }
     return leaseRsp.code() == common::ERR_NONE
@@ -1040,7 +1041,8 @@ std::pair<std::unordered_map<std::string, std::string>, std::string> GwClient::B
     if (!spec->traceId.empty()) {
         headers.emplace(TRACE_ID_KEY_NEW, spec->traceId);
     }
-    headers.emplace(REMOTE_CLIENT_ID_KEY, jobId_);  // for llt test
+    headers.emplace(REMOTE_CLIENT_ID_KEY, jobId_);       // for llt test
+    headers.emplace(REMOTE_CLIENT_ID_KEY_NEW, jobId_);   // keep in sync with BuildHeaders
     headers.emplace(INSTANCE_CPU_KEY, std::to_string(spec->opts.cpu));
     headers.emplace(INSTANCE_MEMORY_KEY, std::to_string(spec->opts.memory));
     std::string ak;

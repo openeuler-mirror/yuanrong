@@ -43,6 +43,10 @@ private:
                        const std::unordered_map<std::string, std::string> &headers, const std::string &body,
                        const std::shared_ptr<std::string> requestId, const HttpCallbackFunction &receiver);
     ErrorInfo InitCtxAndIocThread();
+    ErrorInfo InitMtlsClients();
+    ErrorInfo InitOneWayTlsClients();
+    void InitPlainHttpClients();
+    void StartIocThreads();
     std::shared_ptr<asio::io_context> ioc;
     std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work;
     std::vector<std::unique_ptr<std::thread>> asyncRunners;

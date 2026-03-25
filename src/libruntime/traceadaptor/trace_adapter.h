@@ -18,6 +18,7 @@
 #define COMMON_TRACE_TRACE_ADAPTER_H
 
 #include <iomanip>
+#include <vector>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <opentelemetry/sdk/trace/exporter.h>
 #include <opentelemetry/sdk/resource/semantic_conventions.h>
@@ -41,6 +42,8 @@ namespace YR {
 namespace Libruntime {
 
 using OtelSpan = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>;
+using OtelAttrVector =
+    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>>;
 
 class TraceAdapter : public utility::Singleton<TraceAdapter> {
 public:
@@ -57,14 +60,11 @@ public:
 
     OtelSpan StartSpan(const std::string &name, const opentelemetry::trace::StartSpanOptions &startSpanOptions = {});
 
-    OtelSpan StartSpan(const std::string &name,
-                       std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs,
+    OtelSpan StartSpan(const std::string &name, OtelAttrVector attrs,
                        const opentelemetry::trace::StartSpanOptions &startSpanOptions = {});
 
-    OtelSpan StartSpan(const std::string &name,
-                       const std::string &traceID,
-                       const std::string &spanID,
-                       std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs = {});
+    OtelSpan StartSpan(const std::string &name, const std::string &traceID, const std::string &spanID,
+                       OtelAttrVector attrs = {});
 
     opentelemetry::nostd::shared_ptr<opentelemetry::trace::Tracer> GetTracer(const std::string &name = "yuanrong",
                                                                              const std::string &version = "");

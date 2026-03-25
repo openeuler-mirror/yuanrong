@@ -17,6 +17,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <boost/beast/http.hpp>
+#include <cctype>
 #include "src/libruntime/utils/utils.h"
 #define private public
 #define protected public
@@ -25,6 +26,33 @@
 using namespace testing;
 using namespace YR::Libruntime;
 using namespace YR::utility;
+
+namespace {
+std::string GwTestGetHeader(const std::unordered_map<std::string, std::string> &headers, const std::string &name)
+{
+    auto it = headers.find(name);
+    if (it != headers.end()) {
+        return it->second;
+    }
+    for (const auto &kv : headers) {
+        if (kv.first.size() != name.size()) {
+            continue;
+        }
+        bool same = true;
+        for (size_t i = 0; i < name.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(kv.first[i])) !=
+                std::tolower(static_cast<unsigned char>(name[i]))) {
+                same = false;
+                break;
+            }
+        }
+        if (same) {
+            return kv.second;
+        }
+    }
+    return {};
+}
+}  // namespace
 
 namespace YR {
 namespace test {
@@ -85,7 +113,14 @@ public:
                              const std::shared_ptr<std::string> requestId,
                              const HttpCallbackFunction &receiver) override
     {
-        const auto rspType = headers.at(REMOTE_CLIENT_ID_KEY);
+        std::string rspType = GwTestGetHeader(headers, REMOTE_CLIENT_ID_KEY);
+        if (rspType.empty()) {
+            rspType = GwTestGetHeader(headers, REMOTE_CLIENT_ID_KEY_NEW);
+        }
+        if (rspType.empty()) {
+            receiver(body, boost::asio::error::make_error_code(boost::asio::error::fault), 0);
+            return;
+        }
         auto code = common::ERR_NONE;
         std::string msg = "";
         if (responseTypeMap[ResponseType::HTTP_TIMEOUT] == rspType) {

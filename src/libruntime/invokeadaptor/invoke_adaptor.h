@@ -166,6 +166,10 @@ public:
     RecoverResponse RecoverHandler(const RecoverRequest &req);
     PrepareSnapResponse PrepareSnapHandler(const PrepareSnapRequest &req);
     SnapStartedResponse SnapStartedHandler(const SnapStartedRequest &req);
+    SignalResponse SignalHandler(const SignalRequest &req);
+    ShutdownResponse ShutdownHandler(const ShutdownRequest &req);
+    HeartbeatResponse HeartbeatHandler(const HeartbeatRequest &req);
+    void EventHandler(const std::shared_ptr<EventMessageSpec> &req);
 
     void CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec> spec);
     virtual std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> GetInstance(const std::string &name,
@@ -200,11 +204,7 @@ private:
     void CreateNotifyHandler(const NotifyRequest &req);
     ErrorInfo WriteDataToState(const std::string &instanceId, const std::shared_ptr<Buffer> data, std::string *state);
     ErrorInfo ReadDataFromState(const std::string &instanceId, const std::string &state, std::shared_ptr<Buffer> &data);
-    SignalResponse SignalHandler(const SignalRequest &req);
     SignalResponse ExecSignalCallback(const SignalRequest &req);
-    ShutdownResponse ShutdownHandler(const ShutdownRequest &req);
-    HeartbeatResponse HeartbeatHandler(const HeartbeatRequest &req);
-    void EventHandler(const std::shared_ptr<EventMessageSpec> &req);
     void ExecUserShutdownCallback(uint64_t gracePeriodSec,
                                   const std::shared_ptr<utility::NotificationUtility> &notification);
     ErrorInfo ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo);

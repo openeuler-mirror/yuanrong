@@ -15,21 +15,23 @@
 # limitations under the License.
 
 import asyncio
-import os
-import uuid
-import shutil
-import sys
-import subprocess
-import click
 import json
 import logging
+import os
+import shutil
+import subprocess
+import sys
+import traceback
+import uuid
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+import click
 import requests
 from requests.exceptions import RequestException
-from typing import Any, Dict, Optional
-import traceback
 
 import yr
-from yr.cli.exec import run_client
+from yr.cli.exec import TerminalClientParams, run_client
 
 
 __server_address = None
@@ -42,6 +44,36 @@ __server_name = None
 __user = None
 __client_auth_type = "mutual"  # "mutual" or "one-way"
 __jwt_token = None
+
+
+@dataclass
+class CliGlobalOptions:
+    """Grouped CLI global flags (reduces parameter count on entry command)."""
+
+    server_address: Optional[str] = None
+    ds_address: Optional[str] = None
+    client_cert: Optional[str] = None
+    client_key: Optional[str] = None
+    ca_cert: Optional[str] = None
+    insecure: bool = False
+    server_name: Optional[str] = None
+    client_auth_type: str = "mutual"
+    jwt_token: Optional[str] = None
+    log_level: str = "INFO"
+    user: str = "default"
+
+
+@dataclass
+class DeployOptions:
+    """Grouped deploy command parameters."""
+
+    backend: str = "ds"
+    code_path: str = "."
+    package_format: str = "zip"
+    function_json: Optional[str] = None
+    skip_package: bool = False
+    update: bool = False
+    requirements: Optional[str] = None
 
 
 class FunctionName:
@@ -138,9 +170,9 @@ class HTTPClient:
         if headers:
             default_headers.update(headers)
 
-        logging.debug(f"{method.lower()} to {url}")
-        logging.debug(f"headers: {json.dumps(default_headers, indent=2)}")
-        logging.debug(f"body: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        logging.debug("%s to %s", method.lower(), url)
+        logging.debug("headers: %s", json.dumps(default_headers, indent=2))
+        logging.debug("body: %s", json.dumps(data, indent=2, ensure_ascii=False))
 
         # Configure certificates based on client_auth_type
         cert = None
@@ -151,7 +183,7 @@ class HTTPClient:
             elif self.client_cert:
                 cert = self.client_cert
         # For "one-way" TLS, cert remains None (only verify server)
-        verify = self.ca_cert if self.ca_cert else self.verify
+        verify = self.ca_cert if self.ca_cert else True
         if url.startswith("http://") and verify:
             url = url.replace("http://", "https://", 1)
         if self.insecure:
@@ -208,7 +240,7 @@ class HTTPClient:
             try:
                 result = response.json() if response.content else {}
             except ValueError:
-                result =  response.content
+                result = response.content
 
             logging.debug("response: %s\n%s", response.headers, result)
 
@@ -324,7 +356,10 @@ def delete_function(function_name, user):
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
-    url = f"http://{__server_address}/admin/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
+    url = (
+        f"http://{__server_address}/admin/v1/functions/"
+        f"{function_name.full_name_no_version()}?versionNumber={function_name.version}"
+    )
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -349,7 +384,10 @@ def query_function(function_name, user=None):
     if function_name is None:
         url = f"http://{__server_address}/admin/v1/functions"
     else:
-        url = f"http://{__server_address}/admin/v1/functions/{function_name.full_name_no_version()}?versionNumber={function_name.version}"
+        url = (
+        f"http://{__server_address}/admin/v1/functions/"
+        f"{function_name.full_name_no_version()}?versionNumber={function_name.version}"
+    )
     headler = {}
     if user:
         headler = {"X-Tenant-Id": user}
@@ -439,10 +477,10 @@ def install_requirements(requirements_file, target_dir):
         True if successful, False otherwise
     """
     if not os.path.exists(requirements_file):
-        print(f"Requirements file not found: {requirements_file}")
+        logging.error(f"Requirements file not found: {requirements_file}")
         return False
 
-    print(f"Installing dependencies from {requirements_file} to {target_dir}...")
+    logging.info(f"Installing dependencies from {requirements_file} to {target_dir}...")
 
     try:
         result = subprocess.run(
@@ -462,47 +500,45 @@ def install_requirements(requirements_file, target_dir):
         )
 
         if result.returncode != 0:
-            print(f"Failed to install dependencies: {result.stderr}")
+            logging.error(f"Failed to install dependencies: {result.stderr}")
             return False
 
-        print(f"Successfully installed dependencies to {target_dir}")
+        logging.info(f"Successfully installed dependencies to {target_dir}")
         return True
 
     except Exception as e:
-        print(f"Error installing dependencies: {str(e)}")
+        logging.error(f"Error installing dependencies: {str(e)}")
         return False
 
 
-def package(backend, code_path, format):
+def package(backend, code_path, package_format):
     real_code_path = os.path.realpath(code_path)
     file_name = f"code-{uuid.uuid4().hex}"
     archive_file = os.path.join("/tmp", file_name)
-    if format == "zip":
-        shutil.make_archive(archive_file, format, real_code_path)
-    elif format == "img":
+    if package_format == "zip":
+        shutil.make_archive(archive_file, package_format, real_code_path)
+    elif package_format == "img":
         result = subprocess.run(
             [
                 "mkfs.erofs",
                 "-E",
                 "noinline_data",
-                f"{archive_file}.{format}",
+                f"{archive_file}.{package_format}",
                 real_code_path,
             ]
         )
         if result.returncode != 0:
-            sys.exit(result.returncode)
+            raise click.ClickException(f"mkfs.erofs failed with exit code {result.returncode}")
     else:
-        print(f"unkown format: {format}")
-        sys.exit(1)
+        raise click.ClickException(f"unknown format: {package_format}")
     if backend == "ds":
         with YRContext(__server_address, __ds_address):
-            with open(f"{archive_file}.{format}", "rb") as f:
+            with open(f"{archive_file}.{package_format}", "rb") as f:
                 yr.kv_write(file_name, f.read())
 
-        package_key = f"ds://{file_name}.{format}"
+        package_key = f"ds://{file_name}.{package_format}"
     else:
-        print("not support backend: %s" % backend)
-        sys.exit(1)
+        raise click.ClickException(f"not support backend: {backend}")
     return real_code_path, package_key
 
 
@@ -595,59 +631,48 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
 @click.option("--log-level", required=False, type=str, default="INFO")
 @click.option("--user", required=False, type=str, default="default")
 @click.version_option(package_name="openyuanrong-sdk")
-def cli(
-    server_address,
-    ds_address,
-    client_cert,
-    client_key,
-    ca_cert,
-    insecure,
-    server_name,
-    client_auth_type,
-    jwt_token,
-    log_level,
-    user,
-):
+def cli(**kwargs):
     """
     run command
     """
-    if server_address:
+    opts = CliGlobalOptions(**kwargs)
+    if opts.server_address:
         global __server_address
-        __server_address = server_address
-    if ds_address:
+        __server_address = opts.server_address
+    if opts.ds_address:
         global __ds_address
-        __ds_address = ds_address
-    if client_cert:
+        __ds_address = opts.ds_address
+    if opts.client_cert:
         global __client_cert
-        __client_cert = client_cert
-    if client_key:
+        __client_cert = opts.client_cert
+    if opts.client_key:
         global __client_key
-        __client_key = client_key
-    if ca_cert:
+        __client_key = opts.client_key
+    if opts.ca_cert:
         global __ca_cert
-        __ca_cert = ca_cert
-    if insecure:
+        __ca_cert = opts.ca_cert
+    if opts.insecure:
         global __insecure
-        __insecure = insecure
-    if server_name:
+        __insecure = opts.insecure
+    if opts.server_name:
         global __server_name
-        __server_name = server_name
-    if client_auth_type:
+        __server_name = opts.server_name
+    if opts.client_auth_type:
         global __client_auth_type
-        __client_auth_type = client_auth_type.lower()
-    if jwt_token:
+        __client_auth_type = opts.client_auth_type.lower()
+    if opts.jwt_token:
         global __jwt_token
-        __jwt_token = jwt_token
-    if user:
+        __jwt_token = opts.jwt_token
+    if opts.user:
         global __user
-        __user = user
-    logging.basicConfig(level=getattr(logging, log_level.upper(), None))
+        __user = opts.user
+    logging.basicConfig(level=getattr(logging, opts.log_level.upper(), None))
 
 
-@cli.command()
+@cli.command("help")
 @click.argument("command_name", required=False)
 @click.pass_context
-def help(ctx, command_name):
+def show_help(ctx, command_name):
     """Show help for commands
 
     Examples:
@@ -657,7 +682,7 @@ def help(ctx, command_name):
     """
     if command_name is None:
         # Show general help
-        click.echo(ctx.parent.get_help())
+        click.echo(ctx.parent.get_help())  # Using built-in help() is fine here
     else:
         # Show help for specific command
         cmd = cli.commands.get(command_name)
@@ -666,7 +691,7 @@ def help(ctx, command_name):
             click.echo("\nAvailable commands:")
             for name in sorted(cli.commands.keys()):
                 click.echo(f"  {name}")
-            sys.exit(1)
+            raise click.ClickException("")
         else:
             click.echo(cmd.get_help(ctx))
 
@@ -674,7 +699,7 @@ def help(ctx, command_name):
 @cli.command()
 @click.option("--backend", required=False, type=str, default="ds")
 @click.option("--code-path", required=False, type=str, default=".")
-@click.option("--format", required=False, type=str, default="zip")
+@click.option("--format", "package_format", required=False, type=str, default="zip")
 @click.option("--function-json", required=False, type=str, default=None)
 @click.option("--skip-package", required=False, type=bool, default=False)
 @click.option("--update", required=False, is_flag=True, default=False)
@@ -686,9 +711,15 @@ def help(ctx, command_name):
     default=None,
     help="Path to requirements.txt file for installing dependencies",
 )
-def deploy(
-    backend, code_path, format, function_json, skip_package, update, requirements
-):
+def deploy(**kwargs):
+    opts = DeployOptions(**kwargs)
+    backend = opts.backend
+    code_path = opts.code_path
+    package_format = opts.package_format
+    function_json = opts.function_json
+    skip_package = opts.skip_package
+    update = opts.update
+    requirements = opts.requirements
     if function_json:
         with open(function_json, "r") as f:
             function_json = json.load(f)
@@ -696,15 +727,15 @@ def deploy(
     if requirements and not skip_package:
         real_code_path = os.path.realpath(code_path)
         if not install_requirements(requirements, real_code_path):
-            print("Failed to install dependencies. Deployment aborted.")
-            sys.exit(1)
+            logging.error("Failed to install dependencies. Deployment aborted.")
+            raise click.ClickException("")
     if not skip_package:
-        real_code_path, package_key = package(backend, code_path, format)
+        real_code_path, package_key = package(backend, code_path, package_format)
         if function_json:
             function_json["storageType"] = "working_dir"
             function_json["codePath"] = package_key
         else:
-            print(
+            logging.info(
                 f"""already upload {real_code_path} to {backend}.
 export YR_WORKING_DIR={package_key} to set this package.
 yrcli clear {package_key} to delete this package.
@@ -714,31 +745,31 @@ yrcli download {package_key} to download this package."""
     if function_json:
         name = function_json.get("name")
         if name is None:
-            print("function name is required to deploy function.")
-            sys.exit(1)
+            logging.error("function name is required to deploy function.")
+            raise click.ClickException("")
         version = "latest" if function_json.get("kind", "faas") == "faas" else "$latest"
         name = FunctionName(name, version)
         query_ret, function_info = query_function(name, __user)
         if query_ret and not update:
-            print(f"function {name} already exists, use --update to update it.")
-            sys.exit(1)
+            logging.warning(f"function {name} already exists, use --update to update it.")
+            raise click.ClickException("")
         if query_ret:
             function_json["revisionId"] = function_info.get("revisionId")
             ret = update_function(function_json, __user)
             if ret[0]:
                 name = get_name_from_info(ret[1])
-                print(f"succeed to update function: {name}")
+                logging.info(f"succeed to update function: {name}")
             else:
-                print(f"failed to update function: {ret[1]['error']}")
+                logging.error(f"failed to update function: {ret[1]['error']}")
         else:
             ret = deploy_function(function_json, __user)
             if ret[0]:
                 name = get_name_from_info(ret[1])
-                print(f"succeed to deploy function: {name}")
+                logging.info(f"succeed to deploy function: {name}")
             else:
-                print(f"failed to deploy function: {ret[1]}")
+                logging.error(f"failed to deploy function: {ret[1]}")
     else:
-        print("function json is required to deploy function.")
+        logging.error("function json is required to deploy function.")
 
 
 @cli.command()
@@ -746,28 +777,25 @@ yrcli download {package_key} to download this package."""
 @click.option("-v", "--version", required=False, type=str, default=None)
 def publish(function_name, version):
     if ":" not in function_name and version is None:
-        print("version is required if function name has no version.")
-        sys.exit(1)
+        raise click.ClickException("version is required if function name has no version.")
     if ":" in function_name and version is not None:
-        print("version should not be specified if function name has version.")
-        sys.exit(1)
+        raise click.ClickException("version should not be specified if function name has version.")
     if ":" in function_name:
         version = function_name.split(":")[1]
     function_name = FunctionName(function_name, version)
     publish_json = {}
     query_ret, function_info = query_function(function_name, __user)
     if not query_ret:
-        print(f"function not found: {function_name}")
-        sys.exit(1)
+        raise click.ClickException(f"function not found: {function_name}")
     publish_json["revisionId"] = function_info.get("revisionId")
     publish_json["kind"] = function_info.get("kind", "faas")
     if version:
         publish_json["versionNumber"] = version
     ret = publish_function(function_name, publish_json, __user)
     if ret[0]:
-        print(f"succeed to publish function: {ret[1]}")
+        logging.info(f"succeed to publish function: {ret[1]}")
     else:
-        print(f"failed to publish function: {ret[1]}")
+        logging.error(f"failed to publish function: {ret[1]}")
 
 
 @cli.command()
@@ -795,12 +823,10 @@ def query(function_name, instance_id):
         yrcli query -i db6126e0-0000-4000-8000-00faf8d1692b  # Query instance
     """
     if function_name and instance_id:
-        print("Error: Cannot specify both function-name and instance-id")
-        sys.exit(1)
+        raise click.ClickException("Error: Cannot specify both function-name and instance-id")
 
     if not function_name and not instance_id:
-        print("Error: Must specify either --function-name or --instance-id")
-        sys.exit(1)
+        raise click.ClickException("Error: Must specify either --function-name or --instance-id")
 
     if function_name:
         # Query function
@@ -809,7 +835,7 @@ def query(function_name, instance_id):
         if ret:
             print(json.dumps(resp, indent=2, ensure_ascii=False))
         else:
-            print(f"function not found: {function_name}")
+            logging.warning(f"function not found: {function_name}")
 
     if instance_id:
         # Query instance
@@ -817,10 +843,10 @@ def query(function_name, instance_id):
         if ret:
             print(json.dumps(resp, indent=2, ensure_ascii=False))
         else:
-            print(f"instance not found: {instance_id}")
+            logging.warning(f"instance not found: {instance_id}")
 
 
-@cli.command()
+@cli.command("list")
 @click.argument(
     "resource_type",
     type=click.Choice(
@@ -839,7 +865,7 @@ def query(function_name, instance_id):
     default="function",
     required=False,
 )
-def list(resource_type):
+def list_resources(resource_type):
     """List functions or instances
 
     Examples:
@@ -855,7 +881,7 @@ def list(resource_type):
                 instance_id = instance.get("id", "N/A")
                 print(instance_id)
         else:
-            print(f"user {__user} has no instance.")
+            logging.info(f"user {__user} has no instance.")
     elif resource_type in ("function", "functions", "func", "fun"):
         # List functions (default)
         ret, resp = query_function(None, __user)
@@ -863,7 +889,7 @@ def list(resource_type):
             for function in resp:
                 print(f"{function['name'][2:]}:{function['versionNumber']}")
         else:
-            print(f"user {__user} has no function.")
+            logging.info(f"user {__user} has no function.")
 
 
 @cli.group("sandbox")
@@ -904,14 +930,13 @@ def sandbox_create(namespace, name):
             opt.name = name
             opt.namespace = namespace
 
-            sandbox = yr.sandbox.SandBoxInstance.options(opt).invoke()
-            instance_name = yr.get(sandbox.get_name.invoke())
+            sandbox_inst = yr.sandbox.SandBoxInstance.options(opt).invoke()
+            instance_name = yr.get(sandbox_inst.get_name.invoke())
             if not instance_name:
                 instance_name = f"{namespace}-{name}"
-            print(f"sandbox created, instance_name={instance_name}")
+            logging.info(f"sandbox created, instance_name={instance_name}")
     except Exception as e:
-        print(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
-        sys.exit(1)
+        raise click.ClickException(f"sandbox create failed, name={name}, namespace={namespace}, error={e}")
 
 
 @sandbox.command("list")
@@ -926,8 +951,7 @@ def sandbox_list(namespace):
     """List sandbox instances."""
     ret, resp = query_instances(__user)
     if not ret:
-        print(f"failed to list instances: {resp.get('error', resp)}")
-        sys.exit(1)
+        raise click.ClickException(f"failed to list instances: {resp.get('error', resp)}")
 
     sandbox_ids = []
     for instance in resp:
@@ -943,7 +967,7 @@ def sandbox_list(namespace):
         sandbox_ids.append(instance_id)
 
     if not sandbox_ids:
-        print("no sandbox instance found")
+        logging.info("no sandbox instance found")
         return
 
     for sandbox_id in sandbox_ids:
@@ -955,15 +979,13 @@ def sandbox_list(namespace):
 def sandbox_query(sandbox_id):
     """Query sandbox instance detail by instance id."""
     if not __server_address:
-        print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
-        sys.exit(1)
+        raise click.ClickException("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
 
     ret, resp = query_instance(sandbox_id, __user)
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
-        print(f"sandbox not found: {sandbox_id}")
-        sys.exit(1)
+        raise click.ClickException(f"sandbox not found: {sandbox_id}")
 
 
 @sandbox.command("delete")
@@ -973,10 +995,9 @@ def sandbox_delete(sandbox_id):
     try:
         with YRContext(__server_address, __ds_address, __user):
             yr.kill_instance(sandbox_id)
-        print(f"succeed to delete sandbox: {sandbox_id}")
+        logging.info(f"succeed to delete sandbox: {sandbox_id}")
     except Exception as e:
-        print(f"failed to delete sandbox {sandbox_id}: {e}")
-        sys.exit(1)
+        raise click.ClickException(f"failed to delete sandbox {sandbox_id}: {e}")
 
 
 @cli.command()
@@ -988,42 +1009,42 @@ def delete(function_name, no_clear_package, version):
     if not no_clear_package:
         ret, function_info = query_function(function_name, __user)
         if not ret:
-            print(f"function not found.")
+            logging.warning(f"function not found.")
             return
         code_path = function_info.get("codePath")
         if code_path and code_path.startswith("ds://"):
             key = code_path.strip("ds://").split(".")[0]
             with YRContext(__server_address, __ds_address):
                 yr.kv_del(key)
-            print(f"succeed to del package {code_path}")
+            logging.info(f"succeed to del package {code_path}")
     ret, _ = delete_function(function_name, __user)
     if not ret:
-        print(f"function not found.")
+        logging.warning(f"function not found.")
     else:
-        print(f"succeed to delete function: {function_name}")
+        logging.info(f"succeed to delete function: {function_name}")
 
 
 @cli.command
-@click.argument("package", type=str)
-def clear(package):
-    if package.startswith("ds://"):
-        key = package.strip("ds://").split(".")[0]
+@click.argument("package_uri", metavar="PACKAGE", type=str)
+def clear(package_uri):
+    if package_uri.startswith("ds://"):
+        key = package_uri.strip("ds://").split(".")[0]
         with YRContext(__server_address, __ds_address):
             yr.kv_del(key)
-        print(f"succeed to del {package}")
+        logging.info(f"succeed to del {package_uri}")
 
 
 @cli.command
-@click.argument("package", type=str)
-def download(package):
-    if package.startswith("ds://"):
-        key = package.strip("ds://").split(".")[0]
-        file_name = package.strip("ds://")
+@click.argument("package_uri", metavar="PACKAGE", type=str)
+def download(package_uri):
+    if package_uri.startswith("ds://"):
+        key = package_uri.strip("ds://").split(".")[0]
+        file_name = package_uri.strip("ds://")
         with YRContext(__server_address, __ds_address):
             with open(file_name, "wb") as f:
                 value = yr.kv_get(key)
                 f.write(value)
-        print(f"save {package} to {file_name}")
+        logging.info(f"save {package_uri} to {file_name}")
 
 
 @cli.command
@@ -1033,9 +1054,9 @@ def download(package):
 @click.option("--header", required=False, type=str, multiple=True)
 def invoke(function_name, payload, timeout, header):
     headers = {}
-    for i in range(len(header)):
-        if ":" in header[i]:
-            key, value = header[i].split(":", 1)
+    for hdr in header:
+        if ":" in hdr:
+            key, value = hdr.split(":", 1)
             headers[key.strip()] = value.strip()
     function_name = FunctionName(function_name)
     if payload:
@@ -1048,7 +1069,7 @@ def invoke(function_name, payload, timeout, header):
     if ret:
         print(json.dumps(resp, indent=2, ensure_ascii=False))
     else:
-        print(f"failed to invoke function: {resp['error']}")
+        logging.error(f"failed to invoke function: {resp['error']}")
 
 
 @cli.command(
@@ -1110,8 +1131,7 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
     else:
         # Validate runtime is provided when not using function_json
         if not runtime:
-            print("Error: --runtime is required when not using --function-json")
-            sys.exit(1)
+            raise click.ClickException("Error: --runtime is required when not using --function-json")
 
         # Generate function name based on runtime and sdk flag
         # sdk + python3.x -> 0-defaultservice-py3xx (e.g. python3.11 -> py311, python3.9 -> py39)
@@ -1167,8 +1187,7 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
             },
         }
 
-    # Apply overrides from command line arguments using dot notation
-    # Example: --rootfs.storageInfo.accessKey=mykey
+    # Apply overrides from command line arguments using dot notation (see docstring for examples).
     for override in overrides:
         if override.startswith("--"):
             override = override[2:]  # Remove leading --
@@ -1202,8 +1221,7 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
     # Get function name from the json data
     function_name = function_json_data.get("name")
     if not function_name:
-        print("Error: function name is required in configuration")
-        sys.exit(1)
+        raise click.ClickException("Error: function name is required in configuration")
 
     # Check if function already exists
     version = "$latest"
@@ -1216,23 +1234,23 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
         ret = update_function(function_json_data, current_user)
         if ret[0]:
             name = get_name_from_info(ret[1])
-            print(f"Successfully updated FaaS language runtime function: {name}")
+            logging.info(f"Successfully updated FaaS language runtime function: {name}")
             if runtime:
-                print(f"Runtime: {runtime}")
+                logging.info(f"Runtime: {runtime}")
         else:
-            print(f"Failed to update FaaS language runtime function: {ret[1]['error']}")
-            sys.exit(1)
+            logging.error(f"Failed to update FaaS language runtime function: {ret[1]['error']}")
+            raise click.ClickException("")
     else:
         # Deploy new function
         ret = deploy_function(function_json_data, current_user)
         if ret[0]:
             name = get_name_from_info(ret[1])
-            print(f"Successfully deployed FaaS language runtime function: {name}")
+            logging.info(f"Successfully deployed FaaS language runtime function: {name}")
             if runtime:
-                print(f"Runtime: {runtime}")
+                logging.info(f"Runtime: {runtime}")
         else:
-            print(f"Failed to deploy FaaS language runtime function: {ret[1]}")
-            sys.exit(1)
+            logging.error(f"Failed to deploy FaaS language runtime function: {ret[1]}")
+            raise click.ClickException("")
 
 
 @cli.command("run-spark")
@@ -1258,8 +1276,7 @@ def run_spark(script, args):
     """
     # Validate script path
     if not os.path.exists(script):
-        print(f"Error: Script file not found: {script}")
-        sys.exit(1)
+        raise click.ClickException(f"Error: Script file not found: {script}")
 
     # Get absolute path
     script_path = os.path.abspath(script)
@@ -1276,24 +1293,25 @@ def run_spark(script, args):
 
     cmd.append("com.SparkJobExample")
 
-    print(f"Running Spark job with script: {script_path}")
-    print(f"Command: {' '.join(cmd)}")
+    logging.info("Running Spark job with script: %s", script_path)
+    logging.debug("Command: %s", " ".join(cmd))
 
     try:
-        # Execute the Java command with stdout/stderr redirected to terminal
-        result = subprocess.run(cmd)
-
-        # Check return code
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.stderr:
+            logging.debug("Spark job stderr: %s", result.stderr)
         if result.returncode != 0:
-            print(f"\nSpark job failed with exit code: {result.returncode}")
-            sys.exit(result.returncode)
-
-    except FileNotFoundError:
-        print("Error: Java command not found. Make sure Java is installed and in PATH.")
-        sys.exit(1)
+            raise click.ClickException(
+                f"\nSpark job failed with exit code: {result.returncode}"
+            )
+    except FileNotFoundError as e:
+        raise click.ClickException(
+            "Error: Java command not found. Make sure Java is installed and in PATH."
+        ) from e
+    except click.ClickException:
+        raise
     except Exception as e:
-        print(f"Error executing Spark job: {str(e)}")
-        sys.exit(1)
+        raise click.ClickException(f"Error executing Spark job: {str(e)}") from e
 
 
 @cli.command("exec")
@@ -1325,29 +1343,31 @@ def run_spark(script, args):
 )
 @click.argument("instance", type=str)
 @click.argument("command", type=str)
-def exec(stdin, tty, verify_server, instance, command):
+def exec_command(stdin, tty, verify_server, instance, command):
     use_ssl = __client_cert is not None and __client_key is not None
     try:
         host, port = __server_address.split(":")
         asyncio.run(
             run_client(
-                host,
-                port,
-                instance=instance,
-                command=command,
-                tty=tty,
-                stdin=stdin,
-                user=__user,
-                use_ssl=use_ssl,
-                cert_file=__client_cert,
-                key_file=__client_key,
-                ca_file=__ca_cert,
-                verify_server=verify_server,
-                token=__jwt_token,
+                TerminalClientParams(
+                    host=host,
+                    port=port,
+                    instance=instance,
+                    command=command,
+                    allocate_tty=tty,
+                    stdin=stdin,
+                    user=__user,
+                    use_ssl=use_ssl,
+                    cert_file=__client_cert,
+                    key_file=__client_key,
+                    ca_file=__ca_cert,
+                    verify_server=verify_server,
+                    token=__jwt_token,
+                )
             )
         )
     except KeyboardInterrupt:
-        print("\nDisconnected", file=sys.stderr)
+        logging.warning("\nDisconnected")
 
 
 @cli.command(
@@ -1385,10 +1405,9 @@ def token_auth(token, iam_address):
     resp = http_client.request(url, {}, headers=headers, method="GET")
 
     if resp["success"]:
-        print("Token is valid. Authentication successful.")
+        logging.info("Token is valid. Authentication successful.")
     else:
-        print(f"Token authentication failed: {resp.get('error', 'Unknown error')}")
-        sys.exit(1)
+        raise click.ClickException(f"Token authentication failed: {resp.get('error', 'Unknown error')}")
 
 
 @cli.command("token-require")
@@ -1428,8 +1447,7 @@ def token_require(tenant_id, ttl, role, iam_address):
         if "X-Auth" in resp["headers"]:
             print(f"Token: {resp['headers']['X-Auth']}")
     else:
-        print(f"Token generation failed: {resp.get('error', 'Unknown error')}")
-        sys.exit(1)
+        raise click.ClickException(f"Token generation failed: {resp.get('error', 'Unknown error')}")
 
 
 @cli.command("token-abandon")
@@ -1446,8 +1464,10 @@ def token_abandon(token, tenant_id, iam_address):
     """Abandon/revoke a JWT token
 
     Example:
-        yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-        yrcli token-abandon --iam-address 127.0.0.1:31112 --token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." --tenant-id user
+        yrcli token-abandon --iam-address 127.0.0.1:31112 \\
+            --token "<jwt>"
+        yrcli token-abandon --iam-address 127.0.0.1:31112 \\
+            --token "<jwt>" --tenant-id user
     """
     http_client = HTTPClient(timeout=30)
     url = f"http://{iam_address}/iam-server/v1/token/abandon"
@@ -1458,10 +1478,9 @@ def token_abandon(token, tenant_id, iam_address):
     resp = http_client.request(url, {}, headers=headers, method="POST")
 
     if resp["success"]:
-        print("Token successfully abandoned/revoked")
+        logging.info("Token successfully abandoned/revoked")
     else:
-        print(f"Token abandonment failed: {resp.get('error', 'Unknown error')}")
-        sys.exit(1)
+        raise click.ClickException(f"Token abandonment failed: {resp.get('error', 'Unknown error')}")
 
 
 def main():
@@ -1469,5 +1488,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 

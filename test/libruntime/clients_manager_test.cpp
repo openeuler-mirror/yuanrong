@@ -23,6 +23,7 @@
 #define private public
 #include "httpserver/async_http_server.h"
 #include "src/libruntime/clientsmanager/clients_manager.h"
+#include "src/libruntime/utils/utils.h"
 #include "src/libruntime/err_type.h"
 #include "src/utility/logger/logger.h"
 using namespace testing;
@@ -64,7 +65,7 @@ private:
     std::shared_ptr<AsyncHttpServer> httpServer_;
 };
 
-TEST_F(ClientsManagerTest, DISABLED_DsClientsTest)
+TEST_F(ClientsManagerTest, DsClientsTest)
 {
     auto clientsMgr = std::make_shared<ClientsManager>();
     datasystem::SensitiveValue runtimePrivateKey;
@@ -127,6 +128,24 @@ TEST_F(ClientsManagerTest, ReleaseDsClientTest)
     clientsMgr->dsClients["127.0.0.1:80"] = dsClients;
     ASSERT_EQ(clientsMgr->ReleaseDsClient("127.0.0.1", 80).OK(), true);
     ASSERT_EQ(clientsMgr->dsClientsReferCounter["127.0.0.1:80"] == 0, true);
+}
+
+TEST_F(ClientsManagerTest, FsConnErrorHandlingTest)
+{
+    auto clientsMgr = std::make_shared<ClientsManager>();
+    
+    auto result = clientsMgr->GetFsConn("invalid_ip", -1, "test_instance");
+    EXPECT_EQ(result.first, nullptr);
+    EXPECT_NE(result.second.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(ClientsManagerTest, GetIpAddrTest)
+{
+    std::string ip = "127.0.0.1";
+    int port = 8080;
+    std::string expected = "127.0.0.1:8080";
+    auto result = GetIpAddr(ip, port);
+    EXPECT_EQ(result, expected);
 }
 }  // namespace test
 }  // namespace YR

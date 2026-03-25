@@ -36,6 +36,7 @@ _MIN_FAAS_ENTRY_NUMS = 2
 
 _logger = logging.getLogger(__name__)
 
+
 def _are_faas_entries(code_paths: List[str]) -> bool:
     if len(code_paths) > _MAX_FAAS_ENTRY_NUMS or len(code_paths) < _MIN_FAAS_ENTRY_NUMS:
         return False
@@ -125,9 +126,14 @@ class CodeManager:
         if len(func_meta.code) != 0:
             code = self.load_code_from_bytes(func_meta.code)
             if code is not None:
+                if is_class:
+                    self.register_class_lookup_alias(func_meta, code)
                 return code
         if len(func_meta.codeID) != 0:
-            return self.load_code_from_datasystem(func_meta.codeID)
+            code = self.load_code_from_datasystem(func_meta.codeID)
+            if is_class:
+                self.register_class_lookup_alias(func_meta, code)
+            return code
         _logger.debug(f'there is no code id in meta, try to load function from local {func_meta}')
         code_name = func_meta.className if is_class else func_meta.functionName
         code = self.load_code_from_local(self.deploy_dir, func_meta.moduleName, code_name)
@@ -188,8 +194,9 @@ class CodeManager:
         # Handle YRInstance proxy objects - extract the original user class
         # When a class is decorated with @yr.instance, it gets wrapped in a proxy
         # For skip_serialize mode, we need the original unwrapped class
-        if code is not None and hasattr(code, "_InstanceCreator__user_class__"):
-            code = code._InstanceCreator__user_class__
+        if code is not None and hasattr(code, "get_original_cls"):
+            # Use public method to get the original class
+            code = code.get_original_cls()
         elif code is not None and hasattr(code, "__user_class__"):
             code = code.__user_class__
 
@@ -201,6 +208,27 @@ class CodeManager:
         _logger.debug("Succeeded to load code from file %s/%s.py. code_key: %s, entry_name: %s",
                                code_dir, module_name, code_key, entry_name)
         return code
+
+    def load_module_impl_for_testing(self, code_dir, module_name):
+        """
+        Public interface for testing _load_module_impl.
+
+        This method provides access to the protected _load_module_impl method for testing purposes.
+        """
+        return self._load_module_impl(code_dir, module_name)
+
+    def register_class_lookup_alias(self, func_meta, class_obj):
+        """
+        Register moduleName%%className so get_instance_by_name can resolve the class when
+        runtime returns meta without inline code or codeID (e.g. nested class qualnames are
+        not importable via getattr on the module).
+        """
+        if class_obj is None or not isinstance(class_obj, type):
+            return
+        if not func_meta.moduleName or not func_meta.className:
+            return
+        key = func_meta.moduleName + "%%" + func_meta.className
+        self.register(key, class_obj)
 
     def load_functions(self, code_paths: List[str]) -> ErrorInfo:
         """
@@ -275,6 +303,10 @@ class CodeManager:
 
     def __load_module(self, code_dir, module_name):
         """load module using cache"""
+        return self._load_module_impl(code_dir, module_name)
+
+    def _load_module_impl(self, code_dir, module_name):
+        """load module using cache (implementation for testing)"""
         if code_dir is None:
             _logger.debug(
                 "code dir is None, import from module name %s directly.", module_name)

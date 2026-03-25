@@ -18,6 +18,7 @@ import logging
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 
+from yr.code_manager import CodeManager
 from yr.decorator import instance_proxy, function_proxy
 from yr.object_ref import ObjectRef
 from yr.config import InvokeOptions
@@ -108,7 +109,7 @@ class TestDecorator(TestCase):
         ins1.terminate()
         self.assertFalse(ins1.is_activate())
 
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(TypeError):
             instance_proxy.InstanceCreator().create_from_user_class(CppClass, InvokeOptions(name="instance1")).get_instance("instance1")
 
         mock_runtime.get_instance_by_name.return_value = FunctionMeta()
@@ -164,6 +165,102 @@ class TestDecorator(TestCase):
 
         cross_proxy = function_proxy.make_cross_language_function_proxy("cppfunc", "", LanguageType.Cpp)
         self.assertEqual(cross_proxy.cross_language_info.function_name, "cppfunc")
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    @patch("yr.log.get_logger")
+    def test_python_instance_create_registers_class_for_get_instance_lookup(self, mock_logger, get_runtime):
+        """
+        After create_instance, client registers moduleName%%className so yr.get_instance can
+        load_code when runtime returns meta without code/codeID (nested class qualnames).
+        """
+        mock_logger.return_value = logger
+        CodeManager().clear()
+        try:
+
+            class LocalActor:
+                pass
+
+            mock_rt = Mock()
+            mock_rt.create_instance.return_value = "ins-1"
+            mock_rt.get_instance_by_name.side_effect = RuntimeError("not found")
+            get_runtime.return_value = mock_rt
+
+            opts = InvokeOptions(name="actor1", namespace="ns1")
+            creator = instance_proxy.InstanceCreator.create_from_user_class(LocalActor, opts)
+            desc = creator.user_class_descriptor
+            key = desc.module_name + "%%" + desc.class_name
+
+            creator.create_instance_for_testing(opts, "", None, [], None)
+
+            self.assertIs(CodeManager().load(key), LocalActor)
+            mock_rt.create_instance.assert_called_once()
+        finally:
+            CodeManager().clear()
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    @patch("yr.log.get_logger")
+    def test_inner_create_skip_serialize_uses_short_class_name_in_meta(self, mock_logger, get_runtime):
+        """skip_serialize: className in FunctionMeta is __name__, not qualname (pre-deploy path)."""
+        mock_logger.return_value = logger
+        CodeManager().clear()
+        try:
+
+            class PredeployActor:
+                pass
+
+            mock_rt = Mock()
+            mock_rt.create_instance.return_value = "ins-skip"
+            mock_rt.get_instance_by_name.side_effect = RuntimeError("not found")
+            get_runtime.return_value = mock_rt
+
+            opts = InvokeOptions(name="a1", namespace="")
+            opts.skip_serialize = True
+            creator = instance_proxy.InstanceCreator.create_from_user_class(PredeployActor, opts)
+            qual = creator.__user_class_descriptor__.class_name
+            self.assertIn("PredeployActor", qual)
+
+            creator.create_instance_for_testing(opts, "", None, [], None)
+
+            _ca = mock_rt.create_instance.call_args
+            func_meta = (_ca.kwargs or _ca[1])["func_meta"]
+            self.assertEqual(func_meta.className, "PredeployActor")
+            self.assertNotEqual(func_meta.className, qual)
+
+            key = creator.__user_class_descriptor__.module_name + "%%PredeployActor"
+            self.assertIs(CodeManager().load(key), PredeployActor)
+        finally:
+            CodeManager().clear()
+
+    @patch("yr.decorator.function_proxy.global_runtime.get_runtime")
+    @patch("yr.decorator.function_proxy.Serialization")
+    @patch("yr.log.get_logger")
+    def test_function_proxy_small_serialize_sets_inline_code_on_meta(self, mock_logger, mock_ser_cls, get_runtime):
+        """Small serialized payload: FunctionMeta carries inline code bytes (merge ant behavior)."""
+        mock_logger.return_value = logger
+        mock_rt = Mock()
+        mock_rt.is_object_existing_in_local.return_value = False
+        mock_rt.put_serialized.return_value = "ut-code-ref-id"
+        mock_rt.generate_group_name.return_value = ""
+        mock_rt.invoke_by_name.return_value = ["obj-ref-1"]
+        get_runtime.return_value = mock_rt
+
+        ser_obj = Mock()
+        ser_obj.__len__ = Mock(return_value=64)
+        ser_obj.to_bytes = Mock(return_value=b"ut-inline-payload")
+        mock_ser_cls.return_value.serialize.return_value = ser_obj
+
+        def add(a, b):
+            return a + b
+
+        fp = function_proxy.FunctionProxy(func=add, return_nums=1)
+        fp.options(InvokeOptions())
+        fp.invoke_function_for_testing(fp.invoke_options, add, (1, 2), {})
+
+        mock_rt.invoke_by_name.assert_called_once()
+        _ia = mock_rt.invoke_by_name.call_args
+        func_meta = (_ia.kwargs or _ia[1])["func_meta"]
+        self.assertEqual(func_meta.code, b"ut-inline-payload")
+        mock_rt.put_serialized.assert_called_once()
 
 
 if __name__ == "__main__":

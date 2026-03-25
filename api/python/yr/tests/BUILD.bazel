@@ -166,3 +166,21 @@ py_test(
     deps = ["//api/python:yr_lib"],
     env = SAN_ENV,
 )
+py_test(
+    name="test_sandbox_gateway",
+    size="small",
+    srcs=["test_sandbox_gateway.py"],
+    tags = ["smoke"],
+    imports = ["../../"],
+    deps = ["//api/python:yr_lib"],
+    env = SAN_ENV,
+)
+py_test(
+    name="test_faas_component",
+    size="small",
+    srcs=["test_faas_component.py"],
+    tags = ["smoke"],
+    imports = ["../../"],
+    deps = ["//api/python:yr_lib"],
+    env = SAN_ENV,
+)

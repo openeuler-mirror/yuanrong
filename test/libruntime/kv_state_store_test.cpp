@@ -99,5 +99,88 @@ TEST_F(KVStateStoreTest, KVWriteReadDelExist)
     MultipleDelResult mdResult = stateStore_->Del({key, key2});
     ASSERT_EQ(mdResult.second.Code(), ErrorCode::ERR_OK);
 }
+
+TEST_F(KVStateStoreTest, MultipleWriteReadTest)
+{
+    std::vector<std::string> keys = {"key1", "key2", "key3"};
+    std::vector<std::string> values = {"value1", "value2", "value3"};
+    
+    for (size_t i = 0; i < keys.size(); i++) {
+        std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(values[i].size());
+        sbuf->MemoryCopy(values[i].data(), values[i].size());
+        YR::Libruntime::SetParam setParam = {
+            .writeMode = WriteMode::NONE_L2_CACHE,
+            .ttlSecond = 10,
+        };
+        ErrorInfo err = stateStore_->Write(keys[i], sbuf, setParam);
+        ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    }
+    
+    MultipleReadResult multiReadResult = stateStore_->Read(keys, 100, false);
+    ASSERT_EQ(multiReadResult.second.Code(), ErrorCode::ERR_OK);
+    ASSERT_EQ(multiReadResult.first.size(), 3);
+}
+
+TEST_F(KVStateStoreTest, TtlExpirationTest)
+{
+    std::string key = "ttl_key";
+    std::string value = "ttl_value";
+    
+    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
+    sbuf->MemoryCopy(value.data(), value.size());
+    YR::Libruntime::SetParam setParam = {
+        .writeMode = WriteMode::NONE_L2_CACHE,
+        .ttlSecond = 1,
+    };
+    ErrorInfo err = stateStore_->Write(key, sbuf, setParam);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    
+    SingleReadResult readResult = stateStore_->Read(key, -1);
+    ASSERT_EQ(readResult.second.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(KVStateStoreTest, ErrorHandlingTest)
+{
+    std::string emptyKey = "";
+    std::string value = "test";
+    
+    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
+    sbuf->MemoryCopy(value.data(), value.size());
+    YR::Libruntime::SetParam setParam = {};
+    
+    ErrorInfo err = stateStore_->Write(emptyKey, sbuf, setParam);
+}
+
+TEST_F(KVStateStoreTest, ExistTest)
+{
+    std::string key = "exist_key";
+    std::string value = "exist_value";
+    
+    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
+    sbuf->MemoryCopy(value.data(), value.size());
+    YR::Libruntime::SetParam setParam = {};
+    
+    ErrorInfo err = stateStore_->Write(key, sbuf, setParam);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    
+    MultipleExistResult existResult = stateStore_->Exist({key});
+    ASSERT_EQ(existResult.second.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(KVStateStoreTest, QuerySizeTest)
+{
+    std::string key = "size_key";
+    std::string value = "size_value";
+    
+    std::shared_ptr<Buffer> sbuf = std::make_shared<NativeBuffer>(value.size());
+    sbuf->MemoryCopy(value.data(), value.size());
+    YR::Libruntime::SetParam setParam = {};
+    
+    ErrorInfo err = stateStore_->Write(key, sbuf, setParam);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    
+    std::vector<uint64_t> sizes;
+    err = stateStore_->QuerySize({key}, sizes);
+}
 }  // namespace test
 }  // namespace YR

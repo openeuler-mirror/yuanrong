@@ -292,27 +292,6 @@ public class TestFaaSHandler {
         return args;
     }
 
-    public List<String> generateCallArgsWithHeader() {
-        Gson gson = new Gson();
-        List<String> args = new ArrayList<>();
-        args.add("{\"codeID\":\"\",\"config\":{\"functionID\":{\"cpp\":\"\"," +
-                "\"python\":\"sn:cn:yrk:12345678901234561234567890123456:function:0-he-he:$latest\"}," +
-                "\"jodID\":\"96f2fc5e-c9ab-4d83-9aa2-89579a29ff4a\",\"logLevel\":30,\"recycleTime\":2}," +
-                "\"invokeType\":3,\"objectDescriptor\":{\"className\":\"\",\"functionName\":\"execute\"," +
-                "\"moduleName\":\"faasexecutor\",\"srcLanguage\":\"python\",\"targetLanguage\":\"python\"}}");
-        TestRequestEvent testRequestEvent = new TestRequestEvent("yuanrong", 1);
-        CallRequest callRequest = new CallRequest();
-        callRequest.setBody(testRequestEvent);
-        callRequest.setHeader(new HashMap<String, String>(){
-            {
-                put("Accept", "text/event-stream");
-                put("X-Trace-Id", "test_trace_id");
-            }
-        });
-        args.add(gson.toJson(callRequest));
-        return args;
-    }
-
     public List<String> generateErrorCallArgs() {
         Gson gson = new Gson();
         List<String> args = new ArrayList<>();

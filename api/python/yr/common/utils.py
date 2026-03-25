@@ -57,6 +57,7 @@ _JOB_ID_PREFIX = "job-"
 
 _logger = logging.getLogger(__name__)
 
+
 def create_new_event_loop():
     """
     If uvloop is not existed, use asyncio to create event loop, else use uvloop
@@ -89,7 +90,7 @@ def validate_ip(input_ip: str):
     ip_regex = \
         r"^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$"
     compile_ip = re.compile(ip_regex)
-    return compile_ip.match(input_ip)
+    return compile_ip.match(input_ip) is not None
 
 
 def validate_domain(domain_str: str):
@@ -143,6 +144,13 @@ def validate_address(address, localhost_pass=False):
         )
     if localhost_pass and ip in ("127.0.0.1", "localhost"):
         return ip, port
+    # "a127.0.0.1" matches validate_domain() but is almost always a typo for 127.0.0.1
+    _typo_prefixed_ipv4 = re.compile(r"^([a-zA-Z]+)(\d{1,3}(?:\.\d{1,3}){3})$")
+    tm = _typo_prefixed_ipv4.match(ip)
+    if tm and validate_ip(tm.group(2)):
+        raise ValueError(
+            f"host '{ip}' in address '{address}' is not a valid IP or domain name."
+        )
     if not (validate_ip(ip) or validate_domain(ip)):
         raise ValueError(
             f"host '{ip}' in address '{address}' is not a valid IP or domain name."
@@ -798,6 +806,7 @@ def load_env_from_file(env_file_path: str):
     if loaded_count > 0:
         _logger.debug(
             f"Loaded {loaded_count} environment variables from {env_file_path}")
+
 
 def refresh_env():
     """Refresh environment variables from YR_ENV_FILE."""

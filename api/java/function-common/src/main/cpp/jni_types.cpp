@@ -694,7 +694,7 @@ void JNILibRuntimeConfig::Init(JNIEnv *env)
     jmIsEnableMetrics_ = GetJMethod(env, clz_, "isEnableMetrics", "()Z");
     jmIsEnableMTLS_ = GetJMethod(env, clz_, "isEnableMTLS", "()Z");
     jmIsEnableDsEncrypt_ = GetJMethod(env, clz_, "isEnableDsEncrypt", "()Z");
-    jmIsEnableFrontendTLS_ = GetJMethod(env ,clz_, "isEnableFrontendTLS", "()Z");
+    jmIsEnableFrontendTLS_ = GetJMethod(env, clz_, "isEnableFrontendTLS", "()Z");
     jmGetCertificateFilePath_ = GetJMethod(env, clz_, "getCertificateFilePath", "()Ljava/lang/String;");
     jmGetPrivateKeyPath_ = GetJMethod(env, clz_, "getPrivateKeyPath", "()Ljava/lang/String;");
     jmGetDsPublicKeyContextPath_ = GetJMethod(env, clz_, "getDsPublicKeyContextPath", "()Ljava/lang/String;");
@@ -816,8 +816,12 @@ YR::Libruntime::LibruntimeConfig JNILibRuntimeConfig::FromJava(JNIEnv *env, cons
         const char *passwd = env->GetStringUTFChars(jStrPasswd, nullptr);
         if (passwd != nullptr) {
             size_t passwdLen = strlen(passwd) + 1;
-            memcpy_s(libConfig.privateKeyPaaswd, passwdLen, passwd, passwdLen);
+            std::vector<char> passwdBuf(passwdLen);
+            (void)memcpy_s(passwdBuf.data(), passwdBuf.size(), passwd, passwdLen);
+            (void)memset_s(const_cast<char *>(passwd), passwdLen, 0, passwdLen);
             env->ReleaseStringUTFChars(jStrPasswd, passwd);
+            (void)memcpy_s(libConfig.privateKeyPaaswd, passwdLen, passwdBuf.data(), passwdLen);
+            (void)memset_s(passwdBuf.data(), passwdBuf.size(), 0, passwdBuf.size());
         }
     }
     libConfig.inCluster = static_cast<bool>(env->CallBooleanMethod(meta, jmIsInCluster_));

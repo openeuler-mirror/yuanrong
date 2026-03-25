@@ -78,6 +78,13 @@ class LocalModeRuntime(BaseRuntime, ABC):
         self.__local_store.put(key, obj)
         return key
 
+    def put_serialized(self, serialized_object) -> str:
+        """Deserialize and store a SerializedObject so worker.py can retrieve it as a callable."""
+        key = generate_random_id()
+        obj = self._deserialize_code_bytes(serialized_object.to_bytes())
+        self.__local_store.put(key, obj)
+        return key
+
     def get(self, ids: List[str], timeout: int, allow_partial: bool) -> List[Any]:
         """
         Get data from ds
@@ -219,6 +226,7 @@ class LocalModeRuntime(BaseRuntime, ABC):
         :param group_info: group info
         :return: None
         """
+        func_meta = self._ensure_code_in_store(func_meta)
         task_id = generate_task_id()
         f = Future()
 
@@ -248,6 +256,7 @@ class LocalModeRuntime(BaseRuntime, ABC):
         :param group_info: group info
         :return: instance id
         """
+        func_meta = self._ensure_code_in_store(func_meta)
         task_id = generate_task_id()
         f = Future()
         task_spec = TaskSpec(
@@ -322,6 +331,12 @@ class LocalModeRuntime(BaseRuntime, ABC):
         :return: None
         """
         self.__invoke_client.kill(instance_id)
+
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+        raise RuntimeError("not support in local mode")
+
+    def snapstart_instance(self, checkpoint_id: str) -> str:
+        raise RuntimeError("not support in local mode")
 
     def terminate_group(self, group_name: str) -> None:
         """
@@ -655,6 +670,21 @@ class LocalModeRuntime(BaseRuntime, ABC):
         """
         raise RuntimeError("not support in local mode")
 
+    def create_group(self, group_name: str, group_opts: GroupOptions):
+        raise RuntimeError("not support in local mode")
+
+    def terminate_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def wait_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def suspend_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def resume_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
     def _check_objs(self, objs):
         exist_exception = False
         ready_objs = []
@@ -676,17 +706,38 @@ class LocalModeRuntime(BaseRuntime, ABC):
                 unready_map[future] = [object_id]
         return ready_objs, unready_map, exist_exception
 
-    def create_group(self, group_name: str, group_opts: GroupOptions):
-        raise RuntimeError("not support in local mode")
+    def _deserialize_code_bytes(self, raw: bytes) -> object:
+        """Deserialize code bytes (SerializedObject binary format) into a callable."""
+        import msgpack as _msgpack
+        from yr.common import constants
+        from yr.serialization.serializers import PySerializer, MessagePackSerializer
 
-    def terminate_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
+        # Buffer format: |metadata(8 bytes)|msgpack_size(8 bytes)|msgpack_data(N bytes)|py_data|
+        meta_unpacker = _msgpack.Unpacker()
+        meta_unpacker.feed(raw[:8])
+        metadata = meta_unpacker.unpack()
 
-    def wait_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
+        size_unpacker = _msgpack.Unpacker()
+        size_unpacker.feed(raw[8:16])
+        msgpack_data_size = size_unpacker.unpack()
 
-    def suspend_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
+        msgpack_data = raw[16:16 + msgpack_data_size]
+        py_data = raw[16 + msgpack_data_size:]
 
-    def resume_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
+        python_objects = []
+        if py_data and constants.Metadata(metadata) == constants.Metadata.PYTHON:
+            python_objects = PySerializer.deserialize(py_data)
+
+        return MessagePackSerializer.deserialize(msgpack_data, python_objects)
+
+    def _ensure_code_in_store(self, func_meta: FunctionMeta) -> FunctionMeta:
+        """If code is passed inline (codeID empty, code bytes present), store it and return updated meta."""
+        if func_meta.codeID or not func_meta.code:
+            return func_meta
+        obj = self._deserialize_code_bytes(bytes(func_meta.code))
+        key = generate_random_id()
+        self.__local_store.put(key, obj)
+        new_meta = FunctionMeta()
+        new_meta.CopyFrom(func_meta)
+        new_meta.codeID = key
+        return new_meta

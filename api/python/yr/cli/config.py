@@ -24,13 +24,13 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import tomli_w
-from jinja2 import Environment, StrictUndefined
-
 try:
     import tomllib
 except ImportError:
     from pip._vendor import tomli as tomllib
+
+import tomli_w
+from jinja2 import Environment, StrictUndefined
 
 from yr.cli.const import DEFAULT_CONFIG_TEMPLATE_PATH, DEFAULT_VALUES_TOML, SESSIONS_DIR, StartMode
 from yr.cli.utils import get_ip, get_total_memory_mb, port_or_free, trim_hostname
@@ -190,8 +190,7 @@ class ConfigResolver:
         for key in self.env_subst_keys:
             value = envs.get(key)
             if value is None:
-                logger.error(f"Environment variable '{key}' is not set but was requested by --env-subst.")
-                sys.exit(1)
+                raise ValueError(f"Environment variable '{key}' is not set but was requested by --env-subst.")
             logger.info(f"Substituting '{{{key}}}' in config.toml with value '{value}'.")
             text = text.replace(f"{{{key}}}", value)
         logger.debug(f"Config after environment substitution: {text}")

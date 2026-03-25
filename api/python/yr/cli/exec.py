@@ -24,7 +24,32 @@ import ssl
 import sys
 import termios
 import tty
+from dataclasses import dataclass
+from typing import Optional
+from urllib.parse import quote
+
 import websockets
+
+
+@dataclass
+class TerminalClientParams:
+    """Parameters for WebSocket terminal client connection."""
+
+    host: str
+    port: str
+    instance: Optional[str] = None
+    command: Optional[str] = None
+    allocate_tty: Optional[bool] = None
+    stdin: Optional[bool] = None
+    rows: Optional[int] = None
+    cols: Optional[int] = None
+    user: Optional[str] = None
+    use_ssl: bool = False
+    cert_file: Optional[str] = None
+    key_file: Optional[str] = None
+    ca_file: Optional[str] = None
+    verify_server: bool = True
+    token: Optional[str] = None
 
 
 def create_ssl_context(
@@ -123,8 +148,10 @@ async def read_stdin(ws, should_exit):
                 await ws.send(data)
             except asyncio.TimeoutError:
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        # Log the exception but don't interrupt the exit flow
+        import logging
+        logging.getLogger(__name__).debug("Error in stdin reader: %s", e)
     finally:
         pass
 
@@ -139,8 +166,10 @@ async def read_websocket(ws, should_exit):
                 os.write(sys.stdout.fileno(), message)
             else:
                 os.write(sys.stdout.fileno(), message.encode("utf-8"))
-    except Exception:
-        pass
+    except Exception as e:
+        # Log the error and signal exit
+        import logging
+        logging.getLogger(__name__).debug("Error reading from websocket: %s", e)
     finally:
         should_exit.set()
 
@@ -159,7 +188,10 @@ async def watch_terminal_resize(ws, should_exit):
     try:
         old_handler = signal.getsignal(signal.SIGWINCH)
         signal.signal(signal.SIGWINCH, on_resize)
-    except Exception:
+    except Exception as e:
+        # If we can't set up signal handler, log and return gracefully
+        import logging
+        logging.getLogger(__name__).debug("Failed to set SIGWINCH handler: %s", e)
         return
 
     last_size = None
@@ -173,7 +205,10 @@ async def watch_terminal_resize(ws, should_exit):
             resize_event.clear()
             try:
                 terminal_size = shutil.get_terminal_size()
-            except Exception:
+            except Exception as e:
+                # If terminal size is unavailable, just skip this iteration
+                import logging
+                logging.getLogger(__name__).debug("Failed to get terminal size: %s", e)
                 continue
 
             cols = terminal_size.columns
@@ -188,14 +223,19 @@ async def watch_terminal_resize(ws, should_exit):
             last_size = current_size
             try:
                 await ws.send(f"RESIZE:{cols}:{rows}")
-            except Exception:
+            except Exception as e:
+                # If send fails, signal exit and log
+                import logging
+                logging.getLogger(__name__).debug("Failed to send resize: %s", e)
                 should_exit.set()
                 break
     finally:
         try:
             signal.signal(signal.SIGWINCH, old_handler)
-        except Exception:
-            pass
+        except Exception as e:
+            # Log but don't raise in cleanup code
+            import logging
+            logging.getLogger(__name__).debug("Failed to restore SIGWINCH handler: %s", e)
 
 
 async def send_terminal_resize(ws, rows=None, cols=None):
@@ -207,20 +247,41 @@ async def send_terminal_resize(ws, rows=None, cols=None):
                 rows = terminal_size.lines
             if cols is None:
                 cols = terminal_size.columns
-    except Exception:
+    except Exception as e:
+        # If terminal size is unavailable, use server defaults
+        import logging
+        logging.getLogger(__name__).debug("Failed to get terminal size: %s", e)
         return
 
-    if rows and cols and rows > 0 and cols > 0:
-        try:
-            await ws.send(f"RESIZE:{cols}:{rows}")
-        except Exception:
-            pass
+    if rows is None or cols is None:
+        return
+    if rows <= 0 or cols <= 0:
+        return
+    try:
+        await ws.send(f"RESIZE:{cols}:{rows}")
+    except Exception as e:
+        # Log failure to send resize message
+        import logging
+        logging.getLogger(__name__).debug("Failed to send resize message: %s", e)
 
 
-async def run_client(
-    host, port, instance=None, command=None, tty=None, stdin=None, rows=None, cols=None, user=None,
-    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None
-):
+async def run_client(params: TerminalClientParams):
+    """Connect to runtime terminal WebSocket using ``params``."""
+    host = params.host
+    port = params.port
+    instance = params.instance
+    command = params.command
+    allocate_tty = params.allocate_tty
+    rows = params.rows
+    cols = params.cols
+    user = params.user
+    use_ssl = params.use_ssl
+    cert_file = params.cert_file
+    key_file = params.key_file
+    ca_file = params.ca_file
+    verify_server = params.verify_server
+    token = params.token
+
     # 获取当前终端的实际尺寸作为默认值
     if rows is None or cols is None:
         try:
@@ -229,20 +290,19 @@ async def run_client(
                 rows = terminal_size.lines
             if cols is None:
                 cols = terminal_size.columns
-        except Exception:
-            # 如果无法获取，使用服务端默认值
-            pass
+        except Exception as e:
+            # If unable to get terminal size, use server defaults
+            import logging
+            logging.getLogger(__name__).debug("Failed to get terminal size: %s", e)
 
     # 构建 URL query 参数
     query_params = []
     if instance:
         query_params.append(f"instance={instance}")
     if command:
-        from urllib.parse import quote
-
         query_params.append(f"command={quote(command)}")
-    if tty is not None:
-        query_params.append(f"tty={str(tty).lower()}")
+    if allocate_tty is not None:
+        query_params.append(f"tty={str(allocate_tty).lower()}")
     if rows:
         query_params.append(f"rows={rows}")
     if cols:
@@ -284,7 +344,7 @@ async def run_client(
             should_exit = asyncio.Event()
 
             with RawTerminal(sys.stdin.fileno()):
-                if tty and sys.stdin.isatty():
+                if allocate_tty and sys.stdin.isatty():
                     await send_terminal_resize(ws, rows=rows, cols=cols)
 
                 # 同时处理输入和输出
@@ -292,7 +352,7 @@ async def run_client(
                     asyncio.create_task(read_stdin(ws, should_exit)),
                     asyncio.create_task(read_websocket(ws, should_exit)),
                 ]
-                if tty and sys.stdin.isatty():
+                if allocate_tty and sys.stdin.isatty():
                     tasks.append(asyncio.create_task(watch_terminal_resize(ws, should_exit)))
 
                 await should_exit.wait()
@@ -305,7 +365,9 @@ async def run_client(
                     try:
                         await task
                     except asyncio.CancelledError:
-                        pass
+                        # Task was cancelled, this is expected behavior during shutdown
+                        import logging
+                        logging.getLogger(__name__).debug("Task cancelled during shutdown")
     except KeyboardInterrupt:
         print("\n[Interrupted]", file=sys.stderr)
     except Exception as e:

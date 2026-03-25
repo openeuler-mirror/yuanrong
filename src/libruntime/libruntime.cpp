@@ -1377,8 +1377,6 @@ std::pair<ErrorInfo, std::string> Libruntime::Snapstart(const std::string &check
     // Construct protobuf SnapStartOptions message
     ::core_service::SnapStartOptions protoSnapStartOpts;
     protoSnapStartOpts.set_type(snapStartOpts.type);
-    // TODO: Add scheduleOpts when needed
-    // auto* scheduleOpts = protoSnapStartOpts.mutable_scheduleopts();
 
     // Serialize protobuf message to string
     std::string payload;
@@ -2084,7 +2082,7 @@ std::string Libruntime::GetNameSpace()
 }
 
 std::string Libruntime::GetActiveMasterAddr()
-{   
+{
     return this->invokeAdaptor->GetActiveMasterAddr();
 }
 

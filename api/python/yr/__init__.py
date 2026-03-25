@@ -17,8 +17,8 @@
 """
 yr api
 """
-import os
 import ctypes
+import os
 from yr.session_service import ManagedSessionObj, SessionService  # noqa: E402
 
 for so_path in [
@@ -64,6 +64,8 @@ for so_path in [
 
 # E402: import not at top of file
 # We must load so before import datasystem, so the lint is not really useful
+from yr import sandbox  # noqa: E402
+
 from yr.apis import (  # noqa: E402
     init, finalize,
     put, get,
@@ -74,7 +76,7 @@ from yr.apis import (  # noqa: E402
     query_global_producers_num, query_global_consumers_num, save_state, load_state,
     cpp_function, java_function, go_function, cpp_instance_class, java_instance_class,
     go_instance_class, resources, create_resource_group, remove_resource_group, get_node_ip_address,
-    list_named_instances, kill_instance
+    list_named_instances, kill_instance,
 )
 
 from yr.fcc import (  # noqa: E402
@@ -103,8 +105,6 @@ from yr.decorator.instance_proxy import (  # noqa: E402
     InstanceCreator, InstanceProxy, MethodProxy, FunctionGroupHandler, FunctionGroupMethodProxy)
 from yr.debug_server.rpdb import set_trace
 
-from yr import sandbox  # noqa: E402
-
 __all__ = [
     "init", "finalize", "Config", "UserTLSConfig",
     "put", "get",
@@ -122,7 +122,7 @@ __all__ = [
     "FunctionGroupOptions", "SchedulingAffinityType", "FunctionGroupContext", "ServerInfo", "DeviceInfo",
     "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
     "FunctionProxy", "InstanceCreator", "InstanceProxy", "MethodProxy", "FunctionGroupHandler",
-    "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances", "Group",  "GroupOptions",
+    "FunctionGroupMethodProxy", "get_node_ip_address", "list_named_instances", "Group", "GroupOptions",
     "DebugServer", "set_trace", "sandbox", "kill_instance",
     "ManagedSessionObj", "SessionService",
 ]

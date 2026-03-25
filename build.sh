@@ -186,11 +186,17 @@ function build_python_sdk() {
     else
         PYTHON_RUNTIME_VERSION=$PYTHON3_BIN_PATH
     fi
-    SETUP_TYPE= PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    # Main wheel declares install_requires on openyuanrong_sdk; build and ship both.
+    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     mkdir -p ${OUTPUT_DIR}
+    mkdir -p $OUTPUT_BASE/runtime/sdk/python/
+    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
+    cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
+    rm -rf build/ dist/ *.egg-info
+    SETUP_TYPE= PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
     chmod 750 $BASE_DIR/output/*.whl
-    mkdir -p $OUTPUT_BASE/runtime/sdk/python/
+    cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
     if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then
         cp -arf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
         cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
@@ -278,12 +284,6 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
         else
             log_warning "no remote cache server available at ${host}:${port}"
         fi
-        ;;
-    l)
-        if [ ! -d "${OPTARG}" ] ;then
-          mkdir -p ${OPTARG}
-        fi
-        BAZEL_OPTIONS="$BAZEL_OPTIONS --disk_cache=${OPTARG} "
         ;;
     l)
         if [ ! -d "${OPTARG}" ] ;then

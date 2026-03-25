@@ -324,8 +324,8 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
     auto funcName = req.function();
     auto traceId = std::make_shared<std::string>(req.traceid());
     auto designatedInstanceID = req.designatedinstanceid();
-    auto span = TraceAdapter::GetInstance().StartSpan(
-        "Create", *reqId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
+    auto span = TraceAdapter::GetInstance().StartSpan("Create", *reqId, "",
+        {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
     auto respCallback = [this, reqId, funcName, traceId, createRespCallback, span](
                             const StreamingMessage &createResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
@@ -1207,17 +1207,6 @@ void FSIntfImpl::TryDirectWrite(const std::string &dstInstanceID, const std::sha
     auto rw = this->fsInrfMgr->Get(dstInstanceID);
     if (rw != nullptr) {
         rw->Write(msg, callback, preWrite);
-        return;
-    }
-    CommunicationErrCallback(callback);
-}
-
-void FSIntfImpl::TryDirectWriteEvent(const std::string &dstInstanceID, const std::shared_ptr<StreamingMessage> &msg,
-                                    std::function<void(bool, ErrorInfo)> callback)
-{
-    auto rw = NewOrGetEventIntfClient(dstInstanceID);
-    if (rw != nullptr) {
-        rw->Write(msg, callback);
         return;
     }
     CommunicationErrCallback(callback);

@@ -609,7 +609,7 @@ def test_custom_envs_config(init_yr_config):
 @pytest.mark.smoke
 def test_invoke_cpp_task(init_yr):
     cppf = yr.cpp_function(
-        "PlusOne", "sn:cn:yrk:default:function:0-yr-stcpp:$latest")
+        "PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
     opt = yr.InvokeOptions()
     res = cppf.options(opt).invoke(10)
     cppres = yr.get(res)
@@ -620,7 +620,7 @@ def test_invoke_cpp_task(init_yr):
 def test_invoke_cpp_task_with_ref(init_yr):
     obj = yr.put(10)
     cppf = yr.cpp_function(
-        "PlusOne", "sn:cn:yrk:default:function:0-yr-stcpp:$latest")
+        "PlusOne", "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest")
     opt = yr.InvokeOptions()
     res = cppf.options(opt).invoke(obj)
     cppres = yr.get(res)
@@ -630,7 +630,7 @@ def test_invoke_cpp_task_with_ref(init_yr):
 @pytest.mark.smoke
 def test_invoke_cpp_actor(init_yr):
     opt = yr.InvokeOptions()
-    cpp_function_id = "sn:cn:yrk:default:function:0-yr-stcpp:$latest"
+    cpp_function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest"
     cpp_ins = yr.cpp_instance_class(
         "Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
     add_res = cpp_ins.Add.invoke(10)
@@ -641,7 +641,7 @@ def test_invoke_cpp_actor(init_yr):
 def test_invoke_cpp_actor_with_ref(init_yr):
     obj = yr.put(10)
     opt = yr.InvokeOptions()
-    cpp_function_id = "sn:cn:yrk:default:function:0-yr-stcpp:$latest"
+    cpp_function_id = "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stcpp:$latest"
     cpp_ins = yr.cpp_instance_class(
         "Counter", "Counter::FactoryCreate", cpp_function_id).options(opt).invoke(1)
     add_res = cpp_ins.Add.invoke(obj)
@@ -652,7 +652,7 @@ def test_invoke_cpp_actor_with_ref(init_yr):
 @pytest.mark.skip(reason="tmp skip")
 def test_invoke_java_task(init_yr):
     javaf = yr.java_function("org.yuanrong.testutils.TestUtils", "returnInt",
-                             "sn:cn:yrk:default:function:0-yr-stjava:$latest")
+                             "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
     res = javaf.invoke(10)
     ret = yr.get(res)
     assert ret == 10
@@ -662,7 +662,7 @@ def test_invoke_java_task(init_yr):
 @pytest.mark.skip(reason="tmp skip")
 def test_invoke_java_actor(init_yr):
     java_cls = yr.java_instance_class("org.yuanrong.testutils.Counter",
-                                      "sn:cn:yrk:default:function:0-yr-stjava:$latest")
+                                      "sn:cn:yrk:12345678901234561234567890123456:function:0-yr-stjava:$latest")
     java_ins = java_cls.invoke()
     res = java_ins.addOne.invoke()
     ret = yr.get(res)
@@ -784,37 +784,45 @@ def test_get_async_instance(init_yr_config):
     assert ret1 + 1 == ret2
 
 
+# Module-level actors for test_get_async_instance_in_actor_proxy: yr.get_instance runs inside
+# CounterProxy on a worker that may differ from the one that created Counter. Nested classes
+# get qualname ...<locals>...; load_code_from_local cannot getattr that on a cold worker.
+# Top-level classes resolve after import test_yr_api on any worker.
+
+
+@yr.instance
+class _SmokeRemoteGetInstanceCounter:
+    def __init__(self):
+        self.num = 1
+
+    def get(self):
+        return self.num
+
+
+@yr.instance
+class _SmokeRemoteGetInstanceCounterProxy:
+    def __init__(self):
+        self.num = 1
+
+    def InvokeCounterGet(self):
+        counter = yr.get_instance("actor2", "ns")
+        obj = counter.get.invoke()
+        return yr.get(obj)
+
+
 @pytest.mark.smoke
 def test_get_async_instance_in_actor_proxy(init_yr_config):
     conf = init_yr_config
     yr.init(conf)
 
-    @yr.instance
-    class Counter:
-        def __init__(self):
-            self.num = 1
-
-        def get(self):
-            return self.num
-
-    @yr.instance
-    class CounterProxy:
-        def __init__(self):
-            self.num = 1
-
-        def InvokeCounterGet(self):
-            counter = yr.get_instance("actor2", "ns")
-            obj = counter.get.invoke()
-            return yr.get(obj)
-
     opt = yr.InvokeOptions()
     opt.name = "actor2"
     opt.namespace = "ns"
-    counter = Counter.options(opt).invoke()
+    counter = _SmokeRemoteGetInstanceCounter.options(opt).invoke()
     obj1 = counter.get.invoke()
     ret1 = yr.get(obj1)
 
-    counter_proxy = CounterProxy.invoke()
+    counter_proxy = _SmokeRemoteGetInstanceCounterProxy.invoke()
     obj2 = counter_proxy.InvokeCounterGet.invoke()
     ret2 = yr.get(obj2)
     counter.terminate()

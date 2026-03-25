@@ -415,8 +415,7 @@ class SystemLauncher:
             if enable:
                 launcher_class: Optional[type[ComponentLauncher]] = self.launcher_classes.get(comp_name)
                 if launcher_class is None:
-                    logger.error(f"Unknown component: {comp_name}")
-                    sys.exit(1)
+                    raise ValueError(f"Unknown component: {comp_name}")
 
                 launcher = launcher_class(comp_name, self.resolver)
                 self._apply_component_overrides(comp_name, launcher)
@@ -992,8 +991,7 @@ class SystemLauncher:
             depends_on = launcher.component_config.depends_on or []
             for dep in depends_on:
                 if dep not in self.components:
-                    logger.error(f"Component '{name}' depends on unknown component '{dep}'")
-                    sys.exit(1)
+                    raise ValueError(f"Component '{name}' depends on unknown component '{dep}'")
                 if name not in graph[dep]:
                     graph[dep].add(name)
                     in_degree[name] += 1
@@ -1011,8 +1009,7 @@ class SystemLauncher:
 
         if len(order) != len(self.components):
             cycle_nodes = [name for name, deg in in_degree.items() if deg > 0]
-            logger.error(f"Detected cyclic or unresolved dependencies among components: {cycle_nodes}")
-            sys.exit(1)
+            raise ValueError(f"Detected cyclic or unresolved dependencies among components: {cycle_nodes}")
 
         logger.debug(f"Component start order (topological): {order}")
         return order

@@ -8,8 +8,8 @@ cc_library(
         "lib/liblitebus.so.0.0.1",
         "lib/libyrlogs.so",
         "lib/libspdlog.so.1.*",
-    ]),
-    hdrs = glob(["include/metrics/**/*.h"]),
+    ], allow_empty = True),
+    hdrs = glob(["include/metrics/**/*.h"], allow_empty = True),
     strip_include_prefix = "include",
     visibility = ["//visibility:public"],
     alwayslink = True,
@@ -17,7 +17,7 @@ cc_library(
 
 filter_files_with_suffix(
     name = "shared",
-    srcs = glob(["lib/lib*.so*"]),
+    srcs = glob(["lib/lib*.so*"], allow_empty = True),
     suffix = ".so",
     visibility = ["//visibility:public"],
 )

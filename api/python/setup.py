@@ -176,6 +176,9 @@ def copy_openyuanrong(build_lib):
 
 def copy_openyuanrong_cpp_sdk(build_lib):
     """copy openyuanrong"""
+    import re
+
+    python_runtime_version = os.getenv("PYTHON_RUNTIME_VERSION", "python3.9")
     files_to_include = []
     for root, _, fs in os.walk("./yr"):
         for i in fs:
@@ -185,10 +188,9 @@ def copy_openyuanrong_cpp_sdk(build_lib):
         copy_file(build_lib, filename, ROOT_DIR)
 
     # Update python runtime version in services.yaml files
-    import re
     # Replace version in yr/cli/services.yaml (from source)
     cli_services_src = os.path.join(ROOT_DIR, "yr", "cli", "services.yaml")
-    cli_services_dst = os.path.join(ctx.build_lib, "yr", "cli", "services.yaml")
+    cli_services_dst = os.path.join(build_lib, "yr", "cli", "services.yaml")
     if os.path.exists(cli_services_src):
         os.makedirs(os.path.dirname(cli_services_dst), exist_ok=True)
         with open(cli_services_src, 'r') as f:
@@ -197,7 +199,7 @@ def copy_openyuanrong_cpp_sdk(build_lib):
         with open(cli_services_dst, 'w') as f:
             f.write(new_content)
     # Replace version in yr/deploy/process/services.yaml (copied from output)
-    deploy_services_dst = os.path.join(ctx.build_lib, "yr/deploy/process/services.yaml")
+    deploy_services_dst = os.path.join(build_lib, "yr/deploy/process/services.yaml")
     if os.path.exists(deploy_services_dst):
         with open(deploy_services_dst, 'r') as f:
             content = f.read()

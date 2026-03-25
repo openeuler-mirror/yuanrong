@@ -2824,7 +2824,7 @@ def notify_generator_result(generator_id, index, output, error_info):
     serialized_object = _serialization_ctx.serialize(output)
     data_bytes = serialized_object.to_bytes()
     meta_size = constants.METALEN
-    data_size = len(serialized_object) - constants.METALEN
+    data_size = serialized_object.total_bytes - constants.METALEN
 
     c_error_info = CLibruntimeManager.Instance().GetLibRuntime().get().AllocReturnObject(
             dataObj, meta_size, data_size, nested_ids, total_native_buffer_size)

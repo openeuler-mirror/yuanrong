@@ -53,6 +53,8 @@ void ClusterAccessInfo::AutoParse()
 
 void ClusterAccessInfo::ParseFromMasterInfo()
 {
+    masterAddrList.clear();
+    isMasterCluster = false;
     std::string masterInfo;
     if (!Config::Instance().YR_MASTER_INFO().empty()) {
         masterInfo = Config::Instance().YR_MASTER_INFO();

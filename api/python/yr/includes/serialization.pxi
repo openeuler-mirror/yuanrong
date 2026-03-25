@@ -399,6 +399,11 @@ cdef class SerializedObject:
         return self._total_length
 
     @property
+    def total_bytes(self):
+        """Total serialized byte length (same as __len__); explicit name for clarity in size math."""
+        return self._total_length
+
+    @property
     def nested_refs(self):
         return self._nested_refs
 

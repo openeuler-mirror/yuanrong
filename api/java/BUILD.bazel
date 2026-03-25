@@ -275,7 +275,7 @@ group_of_java_tests(
         "org.yuanrong.executor.TestReturnType",
         "org.yuanrong.runtime.server.TestRuntimeLogger",
         "org.yuanrong.TestEntrypoint",
-        "org.yuanrong.utils.TestRuntimeUtils"
+        "com.yuanrong.utils.TestRuntimeUtils"
     ],
     srcs = glob([
         "yr-runtime/src/test/java/**/*.java",

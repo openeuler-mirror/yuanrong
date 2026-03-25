@@ -260,6 +260,9 @@ void FunctionGroup::HandleReturnObjectLoop()
                 if (buffer == nullptr) {
                     break;
                 }
+                if (!handleReturnObjectCallback_) {
+                    break;
+                }
                 auto [err, outBuffer] = handleReturnObjectCallback_(buffer, i, objId);
                 YRLOG_DEBUG("{} invoke request result dequeued", objId);
                 queues_[i]->SetReadFlag();

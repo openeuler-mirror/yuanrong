@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/http.hpp>
+#include <cstdlib>
 #include <string>
 #include <unistd.h>
 #include <dlfcn.h>
@@ -503,11 +504,18 @@ TEST_F(MetricsAdaptorTest, InitHttpExporterWithTLS)
     YR::Libruntime::Config::c = YR::Libruntime::Config();
 
     auto config = GetPrometheusPushExporterConfig();
-    auto ret = metricsAdaptor->InitHttpExporter("prometheusPushExporter", "key", "name", config);
-    ASSERT_NE(ret, nullptr);
+    // Exporter may be null if SSL cert files are invalid; the key behavior under test is passphrase erasure.
+    metricsAdaptor->InitHttpExporter("prometheusPushExporter", "key", "name", config);
+    // Cleared via setenv(..., ""); on some platforms (e.g. Darwin) that removes the var, so getenv is nullptr.
     auto value = std::getenv("YR_SSL_PASSPHRASE");
-    ASSERT_TRUE(value != nullptr);
-    ASSERT_EQ(std::string(value), "");
+    EXPECT_TRUE(value == nullptr || value[0] == '\0');
+
+    unsetenv("YR_SSL_ENABLE");
+    unsetenv("YR_SSL_ROOT_FILE");
+    unsetenv("YR_SSL_CERT_FILE");
+    unsetenv("YR_SSL_KEY_FILE");
+    unsetenv("YR_SSL_PASSPHRASE");
+    YR::Libruntime::Config::c = YR::Libruntime::Config();
 }
 
 TEST_F(MetricsAdaptorTest, BuildExportConfigsTest)

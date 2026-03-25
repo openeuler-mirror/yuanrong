@@ -264,6 +264,24 @@ class FunctionProxy:
         """
         return self._options_wrapper(opts)
 
+    def invoke_function_for_testing(self, opts: InvokeOptions, func, args=None, kwargs=None) -> Union[
+            "yr.ObjectRef", List["yr.ObjectRef"]]:
+        """
+        Invoke function for testing purposes.
+
+        This is a public wrapper around _invoke_function for testing.
+
+        Args:
+            opts: The invoke options.
+            func: The function to invoke.
+            args: The positional arguments.
+            kwargs: The keyword arguments.
+
+        Returns:
+            A reference to the data object or list of references.
+        """
+        return self._invoke_function(opts, func, args, kwargs)
+
     def _invoke_function(self, opts: InvokeOptions, func, args=None, kwargs=None) -> Union[
             "yr.ObjectRef", List["yr.ObjectRef"]]:
         """
@@ -291,14 +309,19 @@ class FunctionProxy:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", func.__qualname__)
-                self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
+                self._code_ref = ObjectRef(
+                    global_runtime.get_runtime().put_serialized(serialized_object),
+                    need_incre=False
+                )
                 _logger.debug("[Reference Counting] put code with id = %s, functionName = %s",
                               self._code_ref.id, func.__qualname__)
         with self._lock:
             if self._initializer and self._initializer_code_ref is None:
                 self._initializer_code_ref = yr.put(self._initializer)
 
-        initializer_code_id = self._initializer_code_ref if self._initializer_code_ref is not None else ""
+        initializer_code_id = ""
+        if self._initializer_code_ref is not None:
+            initializer_code_id = self._initializer_code_ref.id
         func_meta = FunctionMeta(functionID=function_id,  # if designated_urn is not set,
                                  # use function id in the config
                                  moduleName=self.function_descriptor.module_name,

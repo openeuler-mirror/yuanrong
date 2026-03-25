@@ -955,26 +955,6 @@ void CGetEvent(char *objectId, void *userData)
             auto cErr = ErrorInfoToCError(err);
             CBuffer cBuf = {0};
             if (err.OK()) {
-                cErr = ErrorInfoToCError(ToCBuffer(data->buffer, &cBuf));
-            }
-            auto cObjectId = const_cast<char *>(data->id.c_str());
-            GoGetEventCallback(cObjectId, cBuf, &cErr, userData);
-        },
-        userData);
-}
-
-void CGetEvent(char *objectId, void *userData)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return;  // 以后把报错抛出去
-    }
-    lrt->GetEvent(
-        objectId,
-        [](std::shared_ptr<DataObject> data, const ErrorInfo &err, void *userData) {
-            auto cErr = ErrorInfoToCError(err);
-            CBuffer cBuf = {0};
-            if (err.OK()) {
                 cErr = ErrorInfoToCError(ToCBuffer(data->data, &cBuf));
             }
             auto cObjectId = const_cast<char *>(data->id.c_str());

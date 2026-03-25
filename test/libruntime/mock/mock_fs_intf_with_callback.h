@@ -160,11 +160,8 @@ public:
             resp.set_code(::common::ErrorCode::ERR_SCHEDULE_PLUGIN_CONFIG);
         }
         if (isGetInstance) {
-            std::string serializedMeta;
-            libruntime::FunctionMeta meta;
-            meta.set_classname("classname");
-            meta.SerializeToString(&serializedMeta);
-            resp.set_message(serializedMeta);
+            // Must match libruntime.FunctionMeta JSON (field className); JsonStringToMessage in GetInstance rejects binary.
+            resp.set_message(R"({"className":"classname"})");
         } else {
             AccelerateMsgQueueHandle handler{.name = "name"};
             resp.set_message(handler.ToJson());

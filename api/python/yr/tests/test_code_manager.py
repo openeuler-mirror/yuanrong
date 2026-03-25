@@ -111,8 +111,83 @@ class TestCodeManager(TestCase):
         mock_spec.loader.exec_module.return_value = "exec_module"
         mock_spec_from_file_location.return_value = mock_spec
         mock_module_from_spec.return_value = "module"
-        res = self.cm._CodeManager__load_module("code_dir", "module_name")
+        # Use the public testing interface for load_module_impl
+        res = self.cm.load_module_impl_for_testing("code_dir", "module_name")
         self.assertEqual(res, "module", res)
+
+
+class TestCodeManagerClassLookupAlias(TestCase):
+    """
+    Covers get_instance / load_code path: alias key moduleName%%className so slim FunctionMeta
+    (no code / codeID) still resolves nested-class qualnames. Related to instance inline-code flow.
+    """
+
+    def setUp(self):
+        self.cm = CodeManager()
+        self.cm.clear()
+
+    def tearDown(self):
+        self.cm.clear()
+
+    def test_register_alias_skips_non_type(self):
+        meta = FunctionMeta()
+        meta.moduleName = "m"
+        meta.className = "C"
+        self.cm.register_class_lookup_alias(meta, object())
+        self.assertIsNone(self.cm.load("m%%C"))
+
+    def test_register_alias_skips_empty_module_or_class(self):
+        class DummyType:
+            pass
+
+        meta = FunctionMeta()
+        meta.className = "DummyType"
+        self.cm.register_class_lookup_alias(meta, DummyType)
+        self.assertIsNone(self.cm.load("%%DummyType"))
+
+        meta2 = FunctionMeta()
+        meta2.moduleName = "m"
+        self.cm.register_class_lookup_alias(meta2, DummyType)
+        self.assertIsNone(self.cm.load("m%%"))
+
+    def test_load_code_class_from_bytes_registers_alias(self):
+        class UTNested:
+            pass
+
+        def from_bytes(_b):
+            return UTNested
+
+        self.cm.register_load_code_from_bytes_func(from_bytes)
+        meta = FunctionMeta()
+        meta.code = b"x"
+        meta.moduleName = "ut_fake_mod"
+        meta.className = "outer.<locals>.UTNested"
+        got = self.cm.load_code(meta, is_class=True)
+        self.assertIs(got, UTNested)
+
+        slim = FunctionMeta()
+        slim.moduleName = meta.moduleName
+        slim.className = meta.className
+        again = self.cm.load_code(slim, is_class=True)
+        self.assertIs(again, UTNested)
+
+    def test_load_code_class_from_codeid_registers_alias(self):
+        class FromDS:
+            pass
+
+        self.cm.register_load_code_from_datasystem_func(lambda _cid: FromDS)
+        meta = FunctionMeta()
+        meta.codeID = "ut-code-id-1"
+        meta.moduleName = "m_ds"
+        meta.className = "FromDS"
+        got = self.cm.load_code(meta, is_class=True)
+        self.assertIs(got, FromDS)
+
+        slim = FunctionMeta()
+        slim.moduleName = "m_ds"
+        slim.className = "FromDS"
+        again = self.cm.load_code(slim, is_class=True)
+        self.assertIs(again, FromDS)
 
 
 if __name__ == '__main__':

@@ -79,6 +79,7 @@ class TestApi(unittest.TestCase):
         mock_runtime.create_instance.return_value = "1"
         mock_runtime.invoke_instance.return_value = ["1"]
         mock_runtime.put.return_value = "1"
+        mock_runtime.put_serialized.return_value = "serialized-code-id"
         mock_runtime.increase_global_reference.return_value = None
         mock_runtime.decrease_global_reference.return_value = None
         get_runtime.return_value = mock_runtime

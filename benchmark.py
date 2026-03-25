@@ -1,11 +1,30 @@
-from asyncio import threads
-import yr
-import json
-import time
-import threading
+#!/usr/bin/env python3
+# coding=UTF-8
+# Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
+import json
+import logging
+import threading
+import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
 from datetime import datetime
+
+import yr
+
+logger = logging.getLogger(__name__)
 
 
 # ========================
@@ -48,8 +67,7 @@ def run_single_request(stats, termination_pool):
         if ins is not None:
             termination_pool.submit(safe_terminate, ins)
 
-    except Exception as e:
-        # print(f"Request failed: {e}")
+    except Exception:
         stats["failed"] += 1
     finally:
         stats["total"] += 1
@@ -59,10 +77,8 @@ def safe_terminate(instance):
     """安全销毁实例（防止异常中断压测）"""
     try:
         instance.terminate()
-    except Exception as e:
-        # 可选：记录日志
-        # print(f"Terminate failed: {e}")
-        pass
+    except Exception:
+        logger.debug("terminate failed in stress worker", exc_info=True)
 
 
 def worker_loop(duration):
@@ -73,8 +89,6 @@ def worker_loop(duration):
     end_time = time.time() + duration
     while time.time() < end_time:
         run_single_request(stats, termination_pool)
-        # 可选：控制速率
-        # time.sleep(0.001)
     termination_pool.shutdown(wait=True)
     yr.finalize()
     return stats

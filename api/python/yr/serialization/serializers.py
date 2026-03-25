@@ -41,6 +41,7 @@ global_thread_local = threading.local()
 global_thread_local.object_refs = set()
 _logger = logging.getLogger(__name__)
 
+
 def pop_local_object_refs():
     """pop local object refs"""
     if not hasattr(global_thread_local, "object_refs"):

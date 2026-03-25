@@ -18,6 +18,7 @@
 Instance decorator
 """
 
+import contextlib
 import inspect
 import logging
 import os
@@ -59,8 +60,8 @@ class InstanceCreator:
         self.__user_class_methods__ = {}
         self.__base_cls__ = None
         self.__target_function_key__ = None
-        self._code_ref = None
-        self._code = None
+        self._yr_embedded_code_ref = None
+        self._yr_embedded_code = None
         self._lock = threading.Lock()
         self.__invoke_options__ = InvokeOptions()
         self.__is_async__ = False
@@ -69,15 +70,25 @@ class InstanceCreator:
     def __getstate__(self):
         attrs = self.__dict__.copy()
         del attrs["_lock"]
-        del attrs["_code_ref"]
-        del attrs["_code"]
+        del attrs["_yr_embedded_code_ref"]
+        del attrs["_yr_embedded_code"]
         return attrs
 
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.__dict__["_lock"] = threading.Lock()
-        self.__dict__["_code_ref"] = None
-        self.__dict__["_code"] = None
+        self.__dict__["_yr_embedded_code_ref"] = None
+        self.__dict__["_yr_embedded_code"] = None
+
+    @property
+    def user_class_descriptor(self):
+        """
+        Get the user class descriptor.
+
+        Returns:
+           The user class descriptor.
+        """
+        return self.__user_class_descriptor__
 
     @classmethod
     def create_from_user_class(cls, user_class, invoke_options):
@@ -122,10 +133,15 @@ class InstanceCreator:
         self.__target_function_key__ = ""
         self.__user_class_methods__ = dict(class_methods)
         self.__base_cls__ = inspect.getmro(user_class)
-        self._code_ref = None
-        self._code = None
+        object.__setattr__(self, "_yr_embedded_code_ref", None)
+        object.__setattr__(self, "_yr_embedded_code", None)
         self._lock = threading.Lock()
         self.function_group_size = 0
+        # Pre-register in CodeManager so get_instance_by_name can resolve local/nested classes
+        # (classes defined inside functions have <locals> in their qualname, which getattr cannot
+        # traverse on the module). Registration uses module%%qualname to match the key used by
+        # load_code_from_local when function_meta has no code or codeID.
+        CodeManager().register(f"{user_class.__module__}%%{user_class.__qualname__}", user_class)
         return self
 
     @classmethod
@@ -204,6 +220,24 @@ class InstanceCreator:
         """
         return self.__user_class__
 
+    def create_instance_for_testing(self, invoke_options, function_id, name, args_list, group_info):
+        """
+        Create instance for testing purposes.
+
+        This is a public wrapper around _inner_create_instance for testing.
+
+        Args:
+            invoke_options: The invoke options.
+            function_id: The function ID.
+            name: The instance name.
+            args_list: The arguments list.
+            group_info: The group info.
+
+        Returns:
+            The instance ID.
+        """
+        return self._inner_create_instance(invoke_options, function_id, name, args_list, group_info)
+
     def invoke(self, *args, **kwargs):
         """
         Create an instance in cluster.
@@ -231,6 +265,88 @@ class InstanceCreator:
         """
         return self._invoke(name=name, args=args, kwargs=kwargs)
 
+    def snapstart(self, checkpoint_id: str) -> "InstanceProxy":
+        """
+        Start a new instance from a checkpoint snapshot.
+
+        This class method creates a new instance by restoring from a previously created snapshot.
+        The new instance will have the same state as when the snapshot was taken.
+
+        Args:
+            checkpoint_id (str): The checkpoint ID returned by a previous snapshot() call.
+                Format: {instanceID}-{functionID}-{uuid}
+
+        Returns:
+            InstanceProxy: A new instance proxy for the restored instance.
+
+        Raises:
+            RuntimeError: If the checkpoint does not exist or restore operation fails.
+
+        Example:
+            >>> import yr
+            >>> yr.init()
+            >>>
+            >>> @yr.instance
+            ... class Counter:
+            ...     def __init__(self):
+            ...         self.value = 0
+            ...
+            ...     def increment(self):
+            ...         self.value += 1
+            ...         return self.value
+            ...
+            ...     def __yr_after_snapstart__(self):
+            ...         print(f\"Restored with value={self.value}\")
+            ...
+            >>> # Create instance and snapshot
+            >>> ins = Counter.invoke()
+            >>> yr.get(ins.increment.invoke())  # value = 1
+            >>> checkpoint_id = ins.snapshot(leave_running=False)
+            >>>
+            >>> # Restore from snapshot using the class
+            >>> restored_ins = Counter.snapstart(checkpoint_id)
+            >>> result = yr.get(restored_ins.increment.invoke())  # value = 2
+            >>> print(f\"Value after restore: {result}\")
+            >>>
+            >>> yr.finalize()
+        """
+        _logger.info("Starting instance from snapshot: %s", checkpoint_id)
+
+        new_instance_id = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+
+        # Create a new InstanceProxy for the restored instance
+        restored_proxy = InstanceProxy(
+            instance_id=new_instance_id,
+            class_descriptor=self.__user_class_descriptor__,
+            class_methods=self.__user_class_methods__,
+            base_cls=self.__base_cls__,
+            function_id="",
+            need_order=self.__invoke_options__.need_order,
+            group_name="",
+            is_async=self.__is_async__,
+            instance_name=self.__invoke_options__.name,
+            namespace=self.__invoke_options__.namespace,
+            code_ref=self._yr_embedded_code_ref
+        )
+
+        _logger.info("Instance restored from snapshot %s: %s",
+                     checkpoint_id, new_instance_id)
+        return restored_proxy
+
+    def _register_python_class_lookup_keys(self, invoke_options):
+        if (self.__user_class_descriptor__.target_language != LanguageType.Python
+                or not self.__user_class__):
+            return
+        lookup_key = (self.__user_class_descriptor__.module_name +
+                      "%%" + self.__user_class_descriptor__.class_name)
+        CodeManager().register(lookup_key, self.__user_class__)
+        if (getattr(invoke_options, "skip_serialize", False)
+                and hasattr(self, "__original_class_name__")):
+            short_key = (self.__user_class_descriptor__.module_name +
+                         "%%" + self.__original_class_name__)
+            if short_key != lookup_key:
+                CodeManager().register(short_key, self.__user_class__)
+
     def _inner_create_instance(self, invoke_options, function_id, name, args_list, group_info):
         # For skip_serialize mode, use original class name instead of YRInstance(...) wrapper name
         class_name = self.__user_class_descriptor__.class_name
@@ -242,22 +358,22 @@ class InstanceCreator:
                                  className=class_name,
                                  functionName=self.__user_class_descriptor__.function_name,
                                  language=self.__user_class_descriptor__.target_language,
-                                 codeID=self._code_ref.id if self._code_ref is not None else "",
+                                 codeID=self._yr_embedded_code_ref.id if self._yr_embedded_code_ref is not None else "",
                                  name=name if name is not None else invoke_options.name,
                                  ns=invoke_options.namespace,
                                  isAsync=self.__is_async__,
-                                 code=self._code if self._code is not None else b"",)
+                                 code=self._yr_embedded_code if self._yr_embedded_code is not None else b"",)
         runtime = global_runtime.get_runtime()
         if invoke_options.name:
-            try:
-                runtime.get_instance_by_name(invoke_options.name, invoke_options.namespace, timeout=30)
-            except Exception as _:
-                pass
+            with contextlib.suppress(Exception):
+                runtime.get_instance_by_name(
+                    invoke_options.name, invoke_options.namespace, timeout=30)
 
         instance_id = runtime.create_instance(func_meta=func_meta,
                                               args=args_list,
                                               opt=invoke_options,
                                               group_info=group_info)
+        self._register_python_class_lookup_keys(invoke_options)
         return instance_id
 
     def _invoke(self, name=None, args=None, kwargs=None, invoke_options=None):
@@ -273,23 +389,37 @@ class InstanceCreator:
             except Exception as e:
                 _logger.warning("can not get instance of id: %s, err is : %s",
                              invoke_options.name, e)
-                pass
         is_cross_invoke = self.__user_class_descriptor__.target_language != LanguageType.Python
+        skip_serialize = getattr(invoke_options, "skip_serialize", False)
+        need_embedded_serialization = (
+            not is_cross_invoke
+            and not skip_serialize
+            and (
+                self._yr_embedded_code_ref is None
+                or not global_runtime.get_runtime().is_object_existing_in_local(
+                    self._yr_embedded_code_ref.id)
+            )
+        )
         with self._lock:
             # Skip serialization for pre-deployed classes when skip_serialize=True
-            if not is_cross_invoke and not getattr(invoke_options, "skip_serialize", False) and (
-                    self._code_ref is None
-                    or not global_runtime.get_runtime().is_object_existing_in_local(self._code_ref.id)
-            ):
+            if need_embedded_serialization:
                 serialized_object = Serialization().serialize(self.__user_class__)
                 if len(serialized_object) <= 102400:
-                    self._code = serialized_object.to_bytes()
-                    _logger.debug("[Reference Counting] pass code by request, functionName = %s", self.__user_class__.__qualname__)
+                    self._yr_embedded_code = serialized_object.to_bytes()
+                    _logger.debug(
+                        "[Reference Counting] pass code by request, functionName = %s",
+                        self.__user_class__.__qualname__
+                    )
                 else:
-                    self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
-                    _logger.info("[Reference Counting] put code with id = %s, className = %s",
-                             self._code_ref.id, self.__user_class_descriptor__.class_name)
-            elif getattr(invoke_options, "skip_serialize", False):
+                    self._yr_embedded_code_ref = ObjectRef(
+                        global_runtime.get_runtime().put_serialized(serialized_object),
+                        need_incre=False
+                    )
+                    _logger.info(
+                        "[Reference Counting] put code with id = %s, className = %s",
+                        self._yr_embedded_code_ref.id, self.__user_class_descriptor__.class_name
+                    )
+            elif skip_serialize:
                 # For pre-deployed classes, skip serialization
                 class_path = f"{self.__user_class__.__module__}.{self.__user_class__.__qualname__}"
                 _logger.debug("[Reference Counting] skip serialization for pre-deployed class: %s", class_path)
@@ -319,7 +449,7 @@ class InstanceCreator:
                              invoke_options.need_order, group_name,
                              self.__is_async__,
                              name if name is not None else invoke_options.name,
-                             invoke_options.namespace, self._code_ref)
+                             invoke_options.namespace, self._yr_embedded_code_ref)
 
     def _options_wrapper(self, **actor_options):
         """
@@ -398,74 +528,6 @@ class InstanceCreator:
 
         return InstanceOptionWrapper()
 
-    def snapstart(self, checkpoint_id: str) -> "InstanceProxy":
-        """
-        Start a new instance from a checkpoint snapshot.
-
-        This class method creates a new instance by restoring from a previously created snapshot.
-        The new instance will have the same state as when the snapshot was taken.
-
-        Args:
-            checkpoint_id (str): The checkpoint ID returned by a previous snapshot() call.
-                Format: {instanceID}-{functionID}-{uuid}
-
-        Returns:
-            InstanceProxy: A new instance proxy for the restored instance.
-
-        Raises:
-            RuntimeError: If the checkpoint does not exist or restore operation fails.
-
-        Example:
-            >>> import yr
-            >>> yr.init()
-            >>>
-            >>> @yr.instance
-            ... class Counter:
-            ...     def __init__(self):
-            ...         self.value = 0
-            ...
-            ...     def increment(self):
-            ...         self.value += 1
-            ...         return self.value
-            ...
-            ...     def __yr_after_snapstart__(self):
-            ...         print(f\"Restored with value={self.value}\")
-            ...
-            >>> # Create instance and snapshot
-            >>> ins = Counter.invoke()
-            >>> yr.get(ins.increment.invoke())  # value = 1
-            >>> checkpoint_id = ins.snapshot(leave_running=False)
-            >>>
-            >>> # Restore from snapshot using the class
-            >>> restored_ins = Counter.snapstart(checkpoint_id)
-            >>> result = yr.get(restored_ins.increment.invoke())  # value = 2
-            >>> print(f\"Value after restore: {result}\")
-            >>>
-            >>> yr.finalize()
-        """
-        _logger.info("Starting instance from snapshot: %s", checkpoint_id)
-
-        new_instance_id = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
-
-        # Create a new InstanceProxy for the restored instance
-        restored_proxy = InstanceProxy(
-            instance_id=new_instance_id,
-            class_descriptor=self.__user_class_descriptor__,
-            class_methods=self.__user_class_methods__,
-            base_cls=self.__base_cls__,
-            function_id="",
-            need_order=self.__invoke_options__.need_order,
-            group_name="",
-            is_async=self.__is_async__,
-            instance_name=self.__invoke_options__.name,
-            namespace=self.__invoke_options__.namespace,
-            code_ref=self._code_ref
-        )
-
-        _logger.info("Instance restored from snapshot %s: %s",
-                     checkpoint_id, new_instance_id)
-        return restored_proxy
-
 
 class InstanceProxy:
     """
@@ -499,7 +561,7 @@ class InstanceProxy:
         self._is_async = is_async
         self._instance_name = instance_name
         self._ns = namespace
-        self._code_ref = code_ref
+        self._yr_embedded_code_ref = code_ref
 
 
         if self._class_methods is not None:
@@ -550,6 +612,29 @@ class InstanceProxy:
     def __reduce__(self):
         state = self.serialization_(False)
         return InstanceProxy.deserialization_, (state,)
+
+    @property
+    def real_id(self) -> str:
+        """
+        The real instance ID assigned by the runtime.
+
+        ``instance_id`` is a logical key used internally. This property blocks
+        until the runtime finishes scheduling the actor (default timeout: 30
+        seconds), then resolves it to the physical instance ID.
+
+        Raises:
+            TimeoutError: If the actor is not ready within 30 seconds.
+
+        Returns:
+            The real instance ID. Data type is str.
+
+        Examples:
+            >>> ins = MyActor.invoke()
+            >>> print(ins.real_id)
+        """
+        runtime = global_runtime.get_runtime()
+        runtime.wait([self.instance_id], 1, 30)
+        return runtime.get_real_instance_id(self.instance_id)
 
     @classmethod
     def deserialization_(cls, state):
@@ -637,29 +722,6 @@ class InstanceProxy:
         """
         return self.__instance_activate__
 
-    @property
-    def real_id(self) -> str:
-        """
-        The real instance ID assigned by the runtime.
-
-        ``instance_id`` is a logical key used internally. This property blocks
-        until the runtime finishes scheduling the actor (default timeout: 30
-        seconds), then resolves it to the physical instance ID.
-
-        Raises:
-            TimeoutError: If the actor is not ready within 30 seconds.
-
-        Returns:
-            The real instance ID. Data type is str.
-
-        Examples:
-            >>> ins = MyActor.invoke()
-            >>> print(ins.real_id)
-        """
-        runtime = global_runtime.get_runtime()
-        runtime.wait([self.instance_id], 1, 30)
-        return runtime.get_real_instance_id(self.instance_id)
-
     def get_function_group_handler(self) -> "FunctionGroupHandler":
         """
         Get the FunctionGroupHandler.
@@ -678,14 +740,6 @@ class InstanceProxy:
                                        self.need_order, self.group_name, self._is_async,
                                        self._instance_name, self._ns)
         return handler
-
-    def __get_method_generator(self, method_name):
-        """
-        get method generator feature
-        """
-        if method_name in self._method_descriptor:
-            return self._method_descriptor[method_name].is_generator
-        return False
 
     def snapshot(self, ttl: int = -1, leave_running: bool = False) -> str:
         """
@@ -809,12 +863,20 @@ class InstanceProxy:
             is_async=self._is_async,
             instance_name=self._instance_name,
             namespace=self._ns,
-            code_ref=self._code_ref
+            code_ref=self._yr_embedded_code_ref
         )
 
         _logger.info("Instance restored from snapshot %s: %s",
                      checkpoint_id, new_instance_id)
         return restored_proxy
+
+    def __get_method_generator(self, method_name):
+        """
+        get method generator feature
+        """
+        if method_name in self._method_descriptor:
+            return self._method_descriptor[method_name].is_generator
+        return False
 
 
 @register_pack_hook

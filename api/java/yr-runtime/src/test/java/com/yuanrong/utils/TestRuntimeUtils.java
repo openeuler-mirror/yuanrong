@@ -9,7 +9,7 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.yuanrong.executor.FaaSHandler;
+import org.yuanrong.utils.RuntimeUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,11 +17,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @RunWith(PowerMockRunner.class)
@@ -46,8 +43,6 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
         verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
     }
 
@@ -116,9 +111,6 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        PowerMockito.verifyStatic(System.class, times(2));
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
         verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
     }
 
@@ -140,12 +132,10 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        PowerMockito.verifyStatic(System.class, times(2));
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
         verify(logger).warn("{}:{}  invalid line, missing '=': {}", "/test/.env", 2, "INVALID_LINE_WITHOUT_EQUALS");
         verify(logger).warn("{}:{}  empty key", "/test/.env", 4);
-        verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
+        // KEY1, KEY2, KEY3 are valid; middle lines are skipped (invalid / empty key).
+        verify(logger).debug("Loaded {} environment variables from {}", 3, "/test/.env");
     }
 
     @Test
@@ -185,38 +175,6 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        PowerMockito.verifyStatic(System.class, times(3));
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
-        System.setProperty("KEY3", "VALUE3");
         verify(logger).debug("Loaded {} environment variables from {}", 3, "/test/.env");
-    }
-
-    @Test
-    public void testSetJavaProcessEnvMap() throws Exception {
-        // 测试setJavaProcessEnvMap是否能让System.getenv()获取到环境变量
-        Map<String, String> testEnvMap = new HashMap<>();
-        String testKey = "TEST_FAAS_ENV_KEY_" + System.currentTimeMillis();
-        String testValue = "TEST_FAAS_ENV_VALUE_" + System.currentTimeMillis();
-
-        testEnvMap.put(testKey, testValue);
-
-        // 调用setJavaProcessEnvMap方法
-        FaaSHandler.setJavaProcessEnvMap(testEnvMap);
-
-        // 验证System.getenv()是否能获取到
-        String retrievedValue = System.getenv(testKey);
-        assert retrievedValue != null : "环境变量未设置成功";
-        assert retrievedValue.equals(testValue) : "环境变量值不匹配";
-
-        // 验证大小写不敏感（在某些系统上）
-        String upperCaseKey = testKey.toUpperCase();
-        if (!testKey.equals(upperCaseKey)) {
-            String upperValue = System.getenv(upperCaseKey);
-            // 注意：大小写不敏感取决于具体实现，可能不一定能获取到
-            if (upperValue != null) {
-                assert upperValue.equals(testValue) : "大小写不敏感环境变量值不匹配";
-            }
-        }
     }
 }

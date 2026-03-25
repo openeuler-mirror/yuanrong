@@ -17,12 +17,16 @@
 """Sandbox implementation for isolated code execution."""
 
 import argparse
+import logging
+import os
+import sys
 import subprocess
 import tempfile
-import os
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 import yr
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from yr.config import PortForwarding
@@ -112,15 +116,38 @@ class SandBoxInstance:
             env (Optional[Dict[str, str]]): Environment variables for the sandbox.
                 If None, inherits from parent process.
         """
+        self._temp_dir_obj: Optional[tempfile.TemporaryDirectory] = None
         if working_dir is None:
-            self.working_dir = tempfile.mkdtemp(prefix="yr_sandbox_")
-            self._temp_dir_created = True
+            self._temp_dir_obj = tempfile.TemporaryDirectory(prefix="yr_sandbox_")
+            self.working_dir = self._temp_dir_obj.name
         else:
             self.working_dir = working_dir
-            self._temp_dir_created = False
 
         self.env = env if env is not None else os.environ.copy()
         self._initialized = True
+
+    def __del__(self):
+        """Destructor to ensure cleanup on object deletion."""
+        self.cleanup()
+
+    @staticmethod
+    def get_name():
+        """
+        Get the name of the sandbox instance.
+
+        Returns:
+            str: The name of the sandbox instance.
+        """
+        return os.environ.get("INSTANCE_ID", "")
+
+    def get_working_dir(self) -> str:
+        """
+        Get the working directory of the sandbox.
+
+        Returns:
+            str: The path to the working directory.
+        """
+        return self.working_dir
 
     def execute(self, command: str, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -150,16 +177,27 @@ class SandBoxInstance:
             raise RuntimeError("SandBox is not initialized")
 
         try:
+            cmd = command.strip()
+            if not cmd:
+                return {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "empty command",
+                }
+            # shell=False with explicit shell argv: same semantics as former shell=True, satisfies EDV.04
+            if os.name == "nt":
+                argv = [os.environ.get("COMSPEC", "cmd.exe"), "/c", cmd]
+            else:
+                argv = ["/bin/sh", "-c", cmd]
             result = subprocess.run(
-                command,
-                shell=True,
+                argv,
+                shell=False,
                 cwd=self.working_dir,
                 env=self.env,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
             )
-            import sys
             return {
                 "returncode": result.returncode,
                 "stdout": sys.version + '\n' + result.stdout,
@@ -168,20 +206,11 @@ class SandBoxInstance:
         except subprocess.TimeoutExpired as e:
             return {
                 "returncode": -1,
-                "stdout": e.stdout.decode() if e.stdout else "",
+                "stdout": e.stdout if e.stdout else "",
                 "stderr": f"Command timed out after {timeout} seconds",
             }
         except Exception as e:
             return {"returncode": -1, "stdout": "", "stderr": str(e)}
-
-    def get_working_dir(self) -> str:
-        """
-        Get the working directory of the sandbox.
-
-        Returns:
-            str: The path to the working directory.
-        """
-        return self.working_dir
 
     def cleanup(self) -> None:
         """
@@ -189,33 +218,17 @@ class SandBoxInstance:
 
         This method removes temporary files and directories created by the sandbox.
         """
-        # Use getattr to safely handle proxy objects that may not have these attributes
-        temp_dir_created = getattr(self, "_temp_dir_created", False)
-        working_dir = getattr(self, "working_dir", None)
-
-        if temp_dir_created and working_dir and os.path.exists(working_dir):
-            import shutil
-
+        temp_dir_obj = getattr(self, "_temp_dir_obj", None)
+        if temp_dir_obj is not None:
             try:
-                shutil.rmtree(working_dir)
+                temp_dir_obj.cleanup()
             except Exception as e:
-                # Log the error but don't raise
-                print(
-                    f"Warning: Failed to cleanup sandbox directory {working_dir}: {e}"
+                logger.warning(
+                    "Failed to cleanup sandbox directory %s: %s",
+                    getattr(self, "working_dir", ""),
+                    e,
                 )
-
-    def get_name(self):
-        """
-        Get the name of the sandbox instance.
-
-        Returns:
-            str: The name of the sandbox instance.
-        """
-        return os.environ.get("INSTANCE_ID", "")
-
-    def __del__(self):
-        """Destructor to ensure cleanup on object deletion."""
-        self.cleanup()
+            self._temp_dir_obj = None
 
 
 def create(
@@ -299,6 +312,22 @@ class SandBox:
             instance_id = yr.get(self._instance.get_name.invoke())
             _print_gateway_urls(instance_id, port_forwardings)
 
+    def __del__(self):
+        """
+        Destructor to ensure cleanup and termination on object deletion.
+
+        Automatically calls cleanup() and terminate() when the SandBox object is deleted.
+        """
+        try:
+            if hasattr(self, "_instance") and self._instance is not None:
+                # Call cleanup first
+                yr.get(self.cleanup())
+                # Then terminate the instance
+                self.terminate()
+        except Exception:
+            # Silently catch exceptions during cleanup to avoid errors in destructor
+            pass
+
     def exec(self, command: str, timeout: Optional[int] = None):
         """
         Execute a command in the sandbox environment.
@@ -348,22 +377,6 @@ class SandBox:
         This will cleanup resources and terminate the remote instance.
         """
         self._instance.terminate()
-
-    def __del__(self):
-        """
-        Destructor to ensure cleanup and termination on object deletion.
-
-        Automatically calls cleanup() and terminate() when the SandBox object is deleted.
-        """
-        try:
-            if hasattr(self, "_instance") and self._instance is not None:
-                # Call cleanup first
-                yr.get(self.cleanup())
-                # Then terminate the instance
-                self.terminate()
-        except Exception:
-            # Silently catch exceptions during cleanup to avoid errors in destructor
-            pass
 
 
 def main():

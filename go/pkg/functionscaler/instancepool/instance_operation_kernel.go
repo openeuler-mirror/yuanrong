@@ -802,22 +802,6 @@ func setCreateOptionForOtel(funcSpec *types.FunctionSpecification, createOpt map
 	return nil
 }
 
-func setCreateOptionForOtel(funcSpec *types.FunctionSpecification, createOpt map[string]string) error {
-	if !funcSpec.ExtendedMetaData.UserOtelConfig.Enable {
-		return nil
-	}
-	if createOpt == nil {
-		return errors.New("createOpt is nil")
-	}
-	add, createErr := initContainerAdd(funcSpec)
-	if createErr != nil {
-		log.GetLogger().Errorf(fmt.Sprintf("create init container error, %s", createErr.Error()))
-		return createErr
-	}
-	createOpt[constant.DelegateInitContainers] = string(add)
-	return nil
-}
-
 func setCreateOptionForFileBeat(funcSpec *types.FunctionSpecification, createOpt map[string]string) error {
 	if config.GlobalConfig.Scenario != types.ScenarioWiseCloud {
 		return nil

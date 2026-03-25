@@ -56,6 +56,7 @@ openYuanrong 支持文件导出器（fileExporter）、[Prometheus](https://prom
     | 初始化参数          | 说明                                  | 约束               |
     |-------------------|------------------------------------ |------------------|
     | endpoint          | OTLP 接收端 URL。                        | 必填 例: `http://localhost:4318/v1/metrics` |
+
 (metrics-config-example)=
 
 ### 配置示例

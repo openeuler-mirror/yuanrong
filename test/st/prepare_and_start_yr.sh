@@ -116,7 +116,10 @@ function start_yr() {
         --deploy_path "$DEPLOY_PATH" \
         --state_storage_type "datasystem" \
         --port_policy "$PORT_POLICY" \
-        --disable_nc_check
+        --disable_nc_check \
+        --npu_collection_mode off \
+        --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
+        --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]"
     for((k=0;k<"${AGENT_NUM}";k++))
     do
         nohup bash deploy/process/yr_agent.sh --master_info "$(cat ${DEPLOY_PATH}/yr_master/master.info)" \
@@ -129,7 +132,10 @@ function start_yr() {
             --runtime_direct_connection_enable "${direct_call}" \
             --state_storage_type "datasystem" \
             --disable_nc_check \
-            -c 10000 -m 20000 -s 2048 > ${DEPLOY_PATH}/nohup_start.log 2>&1 &
+            -c 10000 -m 20000 -s 2048 \
+            --npu_collection_mode off \
+            --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
+            --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" > ${DEPLOY_PATH}/nohup_start.log 2>&1 &
     done
     wait_cluster_readiness
     echo "Succeed to start yuanrong"

@@ -188,7 +188,7 @@ OtelSpan TraceAdapter::StartSpan(const std::string &name,
 
 OtelSpan TraceAdapter::StartSpan(
     const std::string &name,
-    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs,
+    OtelAttrVector attrs,
     const opentelemetry::trace::StartSpanOptions &startSpanOptions)
 {
     // preset system attr
@@ -258,7 +258,7 @@ OtelSpan TraceAdapter::StartSpan(
     const std::string &name,
     const std::string &traceID,
     const std::string &spanID,
-    std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs)
+    OtelAttrVector attrs)
 {
     YRLOG_DEBUG("start span with traceID and spanID, name: {}, traceID: {}, spanID: {}", name, traceID, spanID);
     auto options = BuildOptWithParent(traceID, spanID);

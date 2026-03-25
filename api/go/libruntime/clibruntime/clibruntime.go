@@ -1923,6 +1923,7 @@ func cInvokeOptions(invokeOpt api.InvokeOptions) *C.CInvokeOptions {
 		size_invokeLabels:         cIvkLabelLen,
 		scheduleTimeoutMs:         C.int64_t(invokeOpt.ScheduleTimeoutMs),
 		forceInvoke:               C.char(btoi(invokeOpt.ForceInvoke)),
+		isInterrupted:             C.char(btoi(invokeOpt.IsInterrupted)),
 	}
 	if invokeOpt.InstanceSession != nil {
 		cCInstanceSession := (*C.CInstanceSession)(C.malloc(C.sizeof_CInstanceSession))

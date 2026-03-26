@@ -143,6 +143,12 @@ const (
 	StsConfigErrCode = 4036
 	// InstanceSessionInvalidErrCode -
 	InstanceSessionInvalidErrCode = 4037
+	// AgentSessionNotEnabledErrCode AI Agent session not enabled
+	AgentSessionNotEnabledErrCode = 4038
+	// SessionNotFoundErrCode session not found
+	SessionNotFoundErrCode = 4039
+	// OverAcqLimitExceededErrCode over-acquire limit exceeded for AI Agent session
+	OverAcqLimitExceededErrCode = 4040
 	// ErrFinalized -
 	ErrFinalized = 9000
 	// ErrAllSchedulerUnavailable -

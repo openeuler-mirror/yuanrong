@@ -91,6 +91,8 @@ func buildSnError(err error) snerror.SNError {
 		return snerror.New(statuscode.InsThdReqTimeoutCode, err.Error())
 	case scheduler.ErrInvalidSession:
 		return snerror.New(statuscode.InstanceSessionInvalidErrCode, err.Error())
+	case scheduler.ErrOverAcqLimitExceeded:
+		return snerror.New(statuscode.NoInstanceAvailableErrCode, err.Error())
 	default:
 		return snerror.New(statuscode.StatusInternalServerError, err.Error())
 	}

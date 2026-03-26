@@ -18,6 +18,7 @@
 package concurrencyscheduler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -37,6 +38,7 @@ import (
 	commonTypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/lease"
+	"yuanrong.org/kernel/pkg/functionscaler/metrics"
 	"yuanrong.org/kernel/pkg/functionscaler/registry"
 	"yuanrong.org/kernel/pkg/functionscaler/scheduler"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
@@ -449,6 +451,68 @@ func TestReleaseInstanceWithSession(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	assert.Equal(t, 0, checkInUseInsThd)
 	assert.Equal(t, 4, checkAvailInsThd)
+}
+
+func TestAgentSessionOverAcquireShouldNotReportLeaseMetrics(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+
+	acquireCount := 0
+	releaseCount := 0
+	patches.ApplyFunc(metrics.OnAcquireLease, func(_ *types.InstanceAllocation) {
+		acquireCount++
+	})
+	patches.ApplyFunc(metrics.OnReleaseLease, func(_ *types.InstanceAllocation) {
+		releaseCount++
+	})
+
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey: "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{
+			ConcurrentNum: 1,
+		},
+		ExtendedMetaData: commonTypes.ExtendedMetaData{
+			EnableAgentSession: true,
+		},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+
+	insElem := &instanceElement{
+		instance: &types.Instance{
+			InstanceID:     "instance1",
+			ConcurrentNum:  1,
+			ResKey:         resspeckey.ResSpecKey{},
+			InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+		},
+		threadMap: map[string]struct{}{},
+	}
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	record := &sessionRecord{
+		ctx:           ctx,
+		sessionID:     "session1",
+		availThdMap:   map[string]struct{}{},
+		allocThdMap:   map[string]struct{}{"thread-1": {}},
+		overAcqThdMap: make(map[string]struct{}),
+		insElem:       insElem,
+		cancelFunc:    cancelFunc,
+	}
+	bcs.sessionManager.addSession(record.sessionID, record)
+
+	insAlloc, err := bcs.createOverAcqThread(record, &types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID: "session1",
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, 0, acquireCount)
+	assert.Len(t, record.overAcqThdMap, 1)
+
+	err = bcs.releaseInstanceThreadWithSession(bcs.selfInstanceQueue, insElem, insAlloc)
+	assert.Nil(t, err)
+	assert.Equal(t, 0, releaseCount)
+	assert.Len(t, record.overAcqThdMap, 0)
 }
 
 func TestAddInstance(t *testing.T) {

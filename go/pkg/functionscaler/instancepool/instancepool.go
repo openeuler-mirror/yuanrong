@@ -183,6 +183,7 @@ type InstancePool interface {
 	handleManagedChange()
 	handleRatioChange(ratio int)
 	CleanOrphansInstanceQueue()
+	QuerySession(sessionID string) (string, error)
 }
 
 // GenericInstancePool is a generic instance pool to manage instances of a specific function
@@ -475,6 +476,7 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 		}
 		var (
 			insAlloc *types.InstanceAllocation
+			err      snerror.SNError
 		)
 		defer func() {
 			if insAlloc != nil && len(insAlloc.SessionInfo.SessionID) != 0 {
@@ -500,7 +502,8 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 				logger.Errorf("failed to acquire on-demand instance queue of function, error %s", err.Error())
 				return nil, err
 			}
-			return onDemandInstanceQueue.AcquireInstance(insAcqReq)
+			insAlloc, err = onDemandInstanceQueue.AcquireInstance(insAcqReq)
+			return insAlloc, err
 		}
 		if !insAcqReq.TrafficLimited {
 			reservedInstanceQueue, err := gi.acquireReservedInstanceQueue(resKey)
@@ -518,7 +521,8 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 				return nil, err
 			}
 		}
-		return gi.acquireInstanceFromScaleQueueWithBackup(resKey, insAcqReq, logger)
+		insAlloc, err = gi.acquireInstanceFromScaleQueueWithBackup(resKey, insAcqReq, logger)
+		return insAlloc, err
 	}
 }
 
@@ -1213,6 +1217,18 @@ func (gi *GenericInstancePool) CleanOrphansInstanceQueue() {
 		}
 	}
 	gi.synced = true
+}
+
+func (gi *GenericInstancePool) QuerySession(sessionID string) (string, error) {
+	gi.RLock()
+	defer gi.RUnlock()
+
+	record, exist := gi.sessionRecordMap[sessionID]
+	if exist && record.instance != nil {
+		return record.instance.InstanceID, nil
+	}
+
+	return "", fmt.Errorf("session %s not found", sessionID)
 }
 
 func generateInstanceConfig(insConf *instanceconfig.Configuration) *instanceconfig.Configuration {

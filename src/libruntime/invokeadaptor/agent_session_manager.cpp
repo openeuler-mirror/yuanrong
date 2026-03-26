@@ -16,7 +16,7 @@
 
 #include "agent_session_manager.h"
 
-#include <nlohmann/json.hpp>
+#include <json.hpp>
 
 #include "src/dto/buffer.h"
 #include "src/libruntime/libruntime.h"
@@ -28,6 +28,19 @@
 namespace YR {
 namespace Libruntime {
 using json = nlohmann::json;
+
+namespace {
+std::shared_ptr<Libruntime> GetLibRuntime(const std::shared_ptr<RuntimeContext> &runtimeContext)
+{
+    if (runtimeContext != nullptr) {
+        const std::string rtCtx = runtimeContext->GetJobIdThreadlocal();
+        if (!rtCtx.empty()) {
+            return LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+        }
+    }
+    return LibruntimeManager::Instance().GetLibRuntime();
+}
+}  // namespace
 
 AgentSessionManager::AgentSessionManager(std::shared_ptr<LibruntimeConfig> config,
                                          std::shared_ptr<RuntimeContext> runtimeContext)
@@ -138,7 +151,7 @@ ErrorInfo AgentSessionManager::EnsureLoaded(const std::shared_ptr<AgentSessionCo
     if (sessionCtx->loaded) {
         return ErrorInfo();
     }
-    auto libRuntime = GetLibRuntime();
+    auto libRuntime = GetLibRuntime(runtimeContext_);
     if (libRuntime == nullptr) {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "failed to get libruntime for agent session");
     }
@@ -151,7 +164,8 @@ ErrorInfo AgentSessionManager::EnsureLoaded(const std::shared_ptr<AgentSessionCo
         return readErr;
     }
     if (buffer != nullptr && buffer->GetSize() > 0) {
-        sessionCtx->value.sessionData = std::string(static_cast<const char *>(buffer->ImmutableData()), buffer->GetSize());
+        sessionCtx->value.sessionData = std::string(static_cast<const char *>(buffer->ImmutableData()),
+                                                    buffer->GetSize());
         sessionCtx->loaded = true;
         return ErrorInfo();
     }
@@ -177,7 +191,7 @@ ErrorInfo AgentSessionManager::Persist(const std::shared_ptr<AgentSessionContext
     if (sessionCtx == nullptr || !sessionCtx->loaded) {
         return ErrorInfo();
     }
-    auto libRuntime = GetLibRuntime();
+    auto libRuntime = GetLibRuntime(runtimeContext_);
     if (libRuntime == nullptr) {
         return ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "failed to get libruntime for agent session");
     }
@@ -204,17 +218,6 @@ std::string AgentSessionManager::BuildDefaultSession(const std::string &sessionI
     sessionJson["sessionID"] = sessionId;
     sessionJson["histories"] = json::array();
     return sessionJson.dump();
-}
-
-std::shared_ptr<Libruntime> AgentSessionManager::GetLibRuntime() const
-{
-    if (runtimeContext_ != nullptr) {
-        const std::string rtCtx = runtimeContext_->GetJobIdThreadlocal();
-        if (!rtCtx.empty()) {
-            return LibruntimeManager::Instance().GetLibRuntime(rtCtx);
-        }
-    }
-    return LibruntimeManager::Instance().GetLibRuntime();
 }
 
 }  // namespace Libruntime

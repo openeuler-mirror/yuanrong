@@ -168,8 +168,7 @@ void TaskSubmitter::HandleInvokeNotify(const NotifyRequest &req, const ErrorInfo
     }
 }
 
-void TaskSubmitter::DowngradeCallback(const std::string &requestId, Libruntime::ErrorCode code,
-                                      const std::string &result)
+void TaskSubmitter::DowngradeCallback(const std::string &requestId, ErrorCode code, const std::string &result)
 {
     auto spec = requestManager->GetRequest(requestId);
     if (spec == nullptr) {
@@ -596,7 +595,7 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
         atomicLock.unlock();
         auto weakPtr = weak_from_this();
         downgrade_->Downgrade(
-            invokeSpec, [weakPtr](const std::string &requestId, Libruntime::ErrorCode code, const std::string &result) {
+            invokeSpec, [weakPtr](const std::string &requestId, ErrorCode code, const std::string &result) {
                 if (auto thisPtr = weakPtr.lock(); thisPtr) {
                     thisPtr->DowngradeCallback(requestId, code, result);
                 }

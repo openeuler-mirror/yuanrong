@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-#pragma once
+#ifndef AGENT_SESSION_MANAGER_H
+#define AGENT_SESSION_MANAGER_H
 
 #include <memory>
 #include <mutex>
@@ -29,8 +30,6 @@
 
 namespace YR {
 namespace Libruntime {
-
-class Libruntime;
 
 struct AgentSessionValue {
     std::string sessionID;
@@ -74,8 +73,6 @@ private:
 
     std::string BuildDefaultSession(const std::string &sessionId) const;
 
-    std::shared_ptr<Libruntime> GetLibRuntime() const;
-
     std::shared_ptr<LibruntimeConfig> librtConfig_;
     std::shared_ptr<RuntimeContext> runtimeContext_;
     std::mutex sessionMapMtx_;
@@ -86,3 +83,5 @@ private:
 
 }  // namespace Libruntime
 }  // namespace YR
+
+#endif  // AGENT_SESSION_MANAGER_H

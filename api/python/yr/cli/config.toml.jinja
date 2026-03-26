@@ -383,6 +383,8 @@ bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib"
 RUNTIME_METRICS_CONFIG = "false"
 INIT_LABELS = ""
+HOST_IP = "{{ values.function_agent.ip }}"
+NODE_ID = "{{ values.node_id }}"
 
 [function_agent.health_check]
 enable = true

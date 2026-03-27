@@ -156,7 +156,9 @@ public class FaaSHandler implements HandlerIntf {
 
     private static final String X_TRACE_ID = "X-Trace-Id";
 
-    private static final String YR_AGENT_SESSION_ID = "YR_AGENT_SESSION_ID";
+    private static final String X_INSTANCE_SESSION = "X-Instance-Session";
+
+    private static final String SESSION_ID = "sessionID";
 
     private static final String ENV_DELEGATE_DECRYPT = "ENV_DELEGATE_DECRYPT";
 
@@ -407,9 +409,13 @@ public class FaaSHandler implements HandlerIntf {
                 String traceId = headerObj.get(X_TRACE_ID).getAsString();
                 callContext.setTraceID(traceId);
             }
-            if (headerObj.has(YR_AGENT_SESSION_ID) && !headerObj.get(YR_AGENT_SESSION_ID).isJsonNull()) {
-                String sessionId = headerObj.get(YR_AGENT_SESSION_ID).getAsString();
-                callContext.setSessionId(sessionId);
+            if (headerObj.has(X_INSTANCE_SESSION) && !headerObj.get(X_INSTANCE_SESSION).isJsonNull()) {
+                String sessionJsonStr = headerObj.get(X_INSTANCE_SESSION).getAsString();
+                JsonObject sessionObj = GSON.fromJson(sessionJsonStr, JsonObject.class);
+                if (sessionObj.has(SESSION_ID) && !sessionObj.get(SESSION_ID).isJsonNull()) {
+                    String sessionId = sessionObj.get(SESSION_ID).getAsString();
+                    callContext.setSessionId(sessionId);
+                }
             }
             if (headerObj.has(EVENT_HEADER) && !headerObj.get(EVENT_HEADER).isJsonNull()) {
                 if (EVENT_HEADER_VALUE.equals(headerObj.get(EVENT_HEADER).getAsString())) {

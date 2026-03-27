@@ -134,19 +134,21 @@ func (fq *FifoQueue) UpdateObjByID(objID string, obj interface{}) error {
 }
 
 // Range iterates item in queue and process item with given function
-func (fq *FifoQueue) Range(f func(obj interface{}) bool) {
+func (fq *FifoQueue) Range(f func(obj interface{}) bool) bool {
 	for item := fq.queue.Front(); item != nil; item = item.Next() {
 		if !f(item) {
 			break
 		}
 	}
+	return true
 }
 
 // SortedRange iterates item in queue and process item with given function in order
-func (fq *FifoQueue) SortedRange(f func(obj interface{}) bool) {
+func (fq *FifoQueue) SortedRange(f func(obj interface{}) bool) bool {
 	for item := fq.queue.Front(); item != nil; item = item.Next() {
 		if !f(item) {
 			break
 		}
 	}
+	return true
 }

@@ -285,6 +285,16 @@ func (pm *PoolManager) ReleaseInstanceThread(insAlloc *types.InstanceAllocation)
 	pool.ReleaseInstance(insAlloc)
 }
 
+func (pm *PoolManager) QuerySession(funcKey string, sessionID string) (string, error) {
+	pm.RLock()
+	pool, exist := pm.instancePool[funcKey]
+	pm.RUnlock()
+	if !exist {
+		return "", fmt.Errorf("pool not exist for function %s", funcKey)
+	}
+	return pool.QuerySession(sessionID)
+}
+
 // ReleaseAbnormalInstance will release an abnormal instance of a specific function
 func (pm *PoolManager) ReleaseAbnormalInstance(instance *types.Instance, logger api.FormatLogger) {
 	pm.RLock()

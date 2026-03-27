@@ -63,5 +63,6 @@ func TestBuildSnError(t *testing.T) {
 	assert.Equal(t, statuscode.NoInstanceAvailableErrCode, buildSnError(scheduler.ErrNoInsAvailable).Code())
 	assert.Equal(t, statuscode.InstanceNotFoundErrCode, buildSnError(scheduler.ErrInsNotExist).Code())
 	assert.Equal(t, statuscode.InsThdReqTimeoutCode, buildSnError(scheduler.ErrInsReqTimeout).Code())
+	assert.Equal(t, statuscode.NoInstanceAvailableErrCode, buildSnError(scheduler.ErrOverAcqLimitExceeded).Code())
 	assert.Equal(t, statuscode.StatusInternalServerError, buildSnError(errors.New("some error")).Code())
 }

@@ -311,6 +311,38 @@ func TestAcquireInstance(t *testing.T) {
 			convey.So(thd, convey.ShouldBeNil)
 			convey.So(err, convey.ShouldNotBeNil)
 		})
+		convey.Convey("acquire session instance from on-demand queue records session", func() {
+			patchGet := ApplyMethod(reflect.TypeOf(&instancequeue.OnDemandInstanceQueue{}),
+				"AcquireInstance", func(_ *instancequeue.OnDemandInstanceQueue,
+					insAcqReq *types.InstanceAcquireRequest) (thread *types.InstanceAllocation,
+					acquireErr snerror.SNError) {
+					return &types.InstanceAllocation{
+						AllocationID: "alloc-on-demand",
+						Instance:     &types.Instance{InstanceID: "instance-on-demand"},
+						SessionInfo:  types.SessionInfo{SessionID: insAcqReq.InstanceSession.SessionID},
+					}, nil
+				})
+			defer patchGet.Reset()
+			insPool := CreateTestInstancePool().(*GenericInstancePool)
+			insThdApp := &types.InstanceAcquireRequest{
+				InstanceName: "testInstance",
+				InstanceSession: commonTypes.InstanceSessionConfig{
+					SessionID:   "session-on-demand",
+					SessionTTL:  0,
+					Concurrency: 1,
+				},
+				ResSpec: &resspeckey.ResourceSpecification{
+					CPU:    500,
+					Memory: 500,
+				},
+			}
+			insAlloc, err := insPool.AcquireInstance(insThdApp)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(insAlloc, convey.ShouldNotBeNil)
+			record, exist := insPool.sessionRecordMap["session-on-demand"]
+			convey.So(exist, convey.ShouldBeTrue)
+			convey.So(record.instance.InstanceID, convey.ShouldEqual, "instance-on-demand")
+		})
 		convey.Convey("acquire state instance", func() {
 			patch := ApplyGlobalVar(&config.GlobalConfig, types.Configuration{
 				AutoScaleConfig: types.AutoScaleConfig{
@@ -372,6 +404,47 @@ func TestAcquireInstance(t *testing.T) {
 			insAlloc2, err := insPool.AcquireInstance(insAcqReq1)
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(insAlloc2.Instance.InstanceID, convey.ShouldEqual, insAlloc1.Instance.InstanceID)
+		})
+		convey.Convey("acquire session instance from scale queue records session", func() {
+			callCount := 0
+			patchGet := ApplyMethod(reflect.TypeOf(&instancequeue.ScaledInstanceQueue{}),
+				"AcquireInstance", func(_ *instancequeue.ScaledInstanceQueue,
+					insAcqReq *types.InstanceAcquireRequest) (thread *types.InstanceAllocation,
+					acquireErr snerror.SNError) {
+					callCount++
+					if callCount == 1 {
+						return nil, snerror.New(statuscode.NoInstanceAvailableErrCode,
+							statuscode.NoInstanceAvailableErrMsg)
+					}
+					return &types.InstanceAllocation{
+						AllocationID: "alloc-scale",
+						Instance: &types.Instance{
+							InstanceID:   "instance-scale",
+							InstanceType: types.InstanceTypeScaled,
+						},
+						SessionInfo: types.SessionInfo{SessionID: insAcqReq.InstanceSession.SessionID},
+					}, nil
+				})
+			defer patchGet.Reset()
+			insPool := CreateTestInstancePool().(*GenericInstancePool)
+			insAcqReq := &types.InstanceAcquireRequest{
+				InstanceSession: commonTypes.InstanceSessionConfig{
+					SessionID:   "session-scale",
+					SessionTTL:  0,
+					Concurrency: 1,
+				},
+				ResSpec: &resspeckey.ResourceSpecification{
+					CPU:    500,
+					Memory: 500,
+				},
+			}
+			insAlloc, err := insPool.AcquireInstance(insAcqReq)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(insAlloc, convey.ShouldNotBeNil)
+			record, exist := insPool.sessionRecordMap["session-scale"]
+			convey.So(exist, convey.ShouldBeTrue)
+			convey.So(record.instance.InstanceID, convey.ShouldEqual, "instance-scale")
+			convey.So(callCount, convey.ShouldEqual, 2)
 		})
 	})
 }

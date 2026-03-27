@@ -84,6 +84,8 @@ var (
 	insOpRelease InstanceOperation = "release"
 	// insOpRelease stands for instance release operation
 	insOpRollout InstanceOperation = "rollout"
+	// insOpQuerySession stands for query session operation
+	insOpQuerySession InstanceOperation = "querySession"
 	// insOpUnknown stands for unknown instance operation
 	insOpUnknown InstanceOperation = "unknown"
 	// stateSplitStr -
@@ -335,6 +337,8 @@ func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceI
 		response = fs.handleInstanceBatchRetain(targetName, extraData, traceID)
 	case insOpRollout:
 		response = fs.handleRollout(targetName, traceID)
+	case insOpQuerySession:
+		response = fs.handleQuerySession(targetName, extraData, traceID)
 	default:
 		logger.Warnf("unknown instance operation %s", insOp)
 		response = generateInstanceResponse(nil, snerror.New(constant.UnsupportedOperationErrorCode,
@@ -512,6 +516,57 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 	logger.Infof("succeed to acquire instance %s of function %s traceID %s", insAlloc.AllocationID, funcSpec.FuncKey,
 		traceID)
 	return generateInstanceResponse(insAlloc, nil, startTime)
+}
+
+func (fs *FaaSScheduler) handleQuerySession(targetName string, extraData []byte,
+	traceID string) *commonTypes.InstanceResponse {
+	startTime := time.Now()
+	logger := log.GetLogger().With(zap.Any("traceID", traceID))
+
+	dataInfo, err := parseExtraData(extraData)
+	if err != nil {
+		logger.Errorf("failed to parse extraData error :%v", err)
+		return generateInstanceResponse(nil, err, startTime)
+	}
+
+	if len(dataInfo.instanceSession.SessionID) == 0 {
+		logger.Errorf("sessionID is empty in query request")
+		return generateInstanceResponse(nil, snerror.New(statuscode.InstanceSessionInvalidErrCode,
+			"sessionID is empty"), startTime)
+	}
+
+	funcKey := targetName
+	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
+	if funcSpec == nil {
+		logger.Errorf("failed to get instance, function %s doesn't exist", funcKey)
+		return generateInstanceResponse(nil, snerror.New(statuscode.FuncMetaNotFoundErrCode,
+			statuscode.FuncMetaNotFoundErrMsg), startTime)
+	}
+
+	if !funcSpec.ExtendedMetaData.EnableAgentSession {
+		logger.Errorf("AI Agent session is not enabled for function %s", funcKey)
+		return generateInstanceResponse(nil, snerror.New(statuscode.AgentSessionNotEnabledErrCode,
+			"AI Agent session not enabled"), startTime)
+	}
+
+	instanceID, queryErr := fs.PoolManager.QuerySession(funcKey, dataInfo.instanceSession.SessionID)
+	if queryErr != nil {
+		logger.Errorf("failed to query session %s for function %s: %v",
+			dataInfo.instanceSession.SessionID, funcKey, queryErr)
+		return generateInstanceResponse(nil, snerror.New(statuscode.SessionNotFoundErrCode,
+			queryErr.Error()), startTime)
+	}
+
+	return &commonTypes.InstanceResponse{
+		InstanceAllocationInfo: commonTypes.InstanceAllocationInfo{
+			FuncKey:    funcSpec.FuncKey,
+			FuncSig:    funcSpec.FuncMetaSignature,
+			InstanceID: instanceID,
+		},
+		ErrorCode:     constant.InsReqSuccessCode,
+		ErrorMessage:  constant.InsReqSuccessMessage,
+		SchedulerTime: time.Now().Sub(startTime).Seconds(),
+	}
 }
 
 func unmarshalExtraData(extraData []byte) (map[string][]byte, error) {

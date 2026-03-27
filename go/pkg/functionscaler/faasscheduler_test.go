@@ -1370,6 +1370,80 @@ func TestFaaSScheduler_parseExtraData(t *testing.T) {
 	})
 }
 
+func TestFaaSScheduler_handleQuerySession(t *testing.T) {
+	convey.Convey("test handleQuerySession", t, func() {
+		fs := &FaaSScheduler{
+			PoolManager: instancepool.NewPoolManager(make(chan struct{})),
+		}
+		funcKey := "test-func"
+		sessionID := "session-1"
+
+		extraData := map[string][]byte{
+			"instanceSessionConfig": []byte(`{"sessionID":"session-1","sessionTTL":0,"concurrency":1}`),
+		}
+		extraDataBytes, _ := json.Marshal(extraData)
+
+		patches := NewPatches()
+		defer patches.Reset()
+
+		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
+			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
+			return &types.FunctionSpecification{
+				FuncKey:            funcKey,
+				FuncMetaSignature:  "sig-1",
+				ExtendedMetaData:   commonTypes.ExtendedMetaData{EnableAgentSession: true},
+			}
+		})
+		patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "QuerySession",
+			func(_ *instancepool.PoolManager, _ string, _ string) (string, error) {
+				return "instance-123", nil
+			})
+
+		resp := fs.handleQuerySession(funcKey, extraDataBytes, "trace-1")
+		convey.So(resp, convey.ShouldNotBeNil)
+		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
+		convey.So(resp.ErrorMessage, convey.ShouldEqual, constant.InsReqSuccessMessage)
+		convey.So(resp.InstanceID, convey.ShouldEqual, "instance-123")
+		convey.So(resp.FuncKey, convey.ShouldEqual, funcKey)
+		convey.So(resp.FuncSig, convey.ShouldEqual, "sig-1")
+
+		patches.Reset()
+		patches = NewPatches()
+		defer patches.Reset()
+		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
+			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
+			return &types.FunctionSpecification{
+				FuncKey:          funcKey,
+				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: false},
+			}
+		})
+
+		resp = fs.handleQuerySession(funcKey, extraDataBytes, "trace-2")
+		convey.So(resp, convey.ShouldNotBeNil)
+		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.AgentSessionNotEnabledErrCode)
+
+		patches.Reset()
+		patches = NewPatches()
+		defer patches.Reset()
+		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
+			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
+			return &types.FunctionSpecification{
+				FuncKey:          funcKey,
+				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: true},
+			}
+		})
+		patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "QuerySession",
+			func(_ *instancepool.PoolManager, _ string, gotSessionID string) (string, error) {
+				convey.So(gotSessionID, convey.ShouldEqual, sessionID)
+				return "", fmt.Errorf("session %s not found", gotSessionID)
+			})
+
+		resp = fs.handleQuerySession(funcKey, extraDataBytes, "trace-3")
+		convey.So(resp, convey.ShouldNotBeNil)
+		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.SessionNotFoundErrCode)
+	})
+}
+
 func TestGetResourceSpecification(t *testing.T) {
 	defaultFuncSpec := &types.FunctionSpecification{
 		ResourceMetaData: commonTypes.ResourceMetaData{

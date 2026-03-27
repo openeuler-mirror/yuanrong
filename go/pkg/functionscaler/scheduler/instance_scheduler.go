@@ -65,6 +65,10 @@ var (
 	ErrFuncSigMismatch = errors.New("function signature mismatch")
 	// ErrFunctionDeleted is the error of "function is deleted"
 	ErrFunctionDeleted = errors.New("function is deleted")
+	// ErrSessionNotFound is the error of session not found
+	ErrSessionNotFound = errors.New("session not found")
+	// ErrOverAcqLimitExceeded is the error of over-acquire limit exceeded for AI Agent session
+	ErrOverAcqLimitExceeded = errors.New("over-acquire limit exceeded for AI Agent session")
 )
 
 // SignalInstanceFunc sends certain signal to instance

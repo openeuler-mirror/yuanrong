@@ -614,6 +614,18 @@ func setCreateOptionForUserAgencyAndEnv(funcSpec *types.FunctionSpecification, c
 	}
 	createOpt[constant.DelegateEncryptKey] = string(encryptData)
 	log.GetLogger().Infof("generate delegate encrypt config %s for function %s", string(encryptData), funcSpec.FuncKey)
+
+	if funcSpec.ExtendedMetaData.EnableAgentSession {
+		agentSessionEnv := map[string]string{"ENABLE_AGENT_SESSION": strconv.FormatBool(funcSpec.ExtendedMetaData.EnableAgentSession)}
+		agentSessionEnvBytes, err := json.Marshal(agentSessionEnv)
+		if err != nil {
+			log.GetLogger().Errorf("failed to marshal enable_agent_session env for %s", funcSpec.FuncKey)
+			return err
+		}
+		createOpt[constant.DelegateEnvVar] = string(agentSessionEnvBytes)
+		log.GetLogger().Infof("generate delegate env var config %s for function %s", string(agentSessionEnvBytes), funcSpec.FuncKey)
+	}
+
 	return nil
 }
 

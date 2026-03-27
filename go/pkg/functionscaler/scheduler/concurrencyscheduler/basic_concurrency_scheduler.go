@@ -783,6 +783,14 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 	insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
 	log.GetLogger().Infof("acquire session instance for function %s session %+v traceID %s",
 		bcs.funcKeyWithRes, insAcqReq.InstanceSession, insAcqReq.TraceID)
+
+	if bcs.isAgentSession(insAcqReq) {
+		insAcqReq.InstanceSession.SessionTTL = 0
+		insAcqReq.InstanceSession.Concurrency = 1
+		log.GetLogger().Infof("AI Agent session processing for function %s, session %s, TTL=0, Concurrency=1",
+			bcs.funcKeyWithRes, insAcqReq.InstanceSession.SessionID)
+	}
+
 	if insAcqReq.InstanceSession.Concurrency > bcs.concurrentNum {
 		return nil, scheduler.ErrInvalidSession
 	}
@@ -891,6 +899,14 @@ func (bcs *basicConcurrencyScheduler) acquireDesignateInstance(instanceQueue que
 
 func (bcs *basicConcurrencyScheduler) acquireInstanceWithOverAcqSession(instanceQueue queue.Queue,
 	record *sessionRecord, insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
+	if bcs.isAgentSession(insAcqReq) {
+		if len(record.overAcqThdMap) >= 1 {
+			log.GetLogger().Warnf("AI Agent session %s over-acquire limit exceeded (max 1), function %s",
+				insAcqReq.InstanceSession.SessionID, bcs.funcKeyWithRes)
+			return nil, scheduler.ErrOverAcqLimitExceeded
+		}
+		return bcs.createOverAcqThread(record, insAcqReq)
+	}
 	insAlloc, acqErr := acquireInstanceThread(insAcqReq.DesignateThreadID, instanceQueue, record.insElem)
 	if acqErr == nil {
 		record.overAcqThdMap[insAlloc.AllocationID] = struct{}{}
@@ -898,6 +914,8 @@ func (bcs *basicConcurrencyScheduler) acquireInstanceWithOverAcqSession(instance
 			SessionID:  insAcqReq.InstanceSession.SessionID,
 			SessionCtx: record.ctx,
 		}
+		log.GetLogger().Infof("Session %s over-acquired thread %s from pool, function %s",
+			insAcqReq.InstanceSession.SessionID, insAlloc.AllocationID, bcs.funcKeyWithRes)
 	}
 	return insAlloc, acqErr
 }
@@ -1077,10 +1095,16 @@ func (bcs *basicConcurrencyScheduler) releaseInstanceThreadWithSession(insQue qu
 	if _, ok := record.overAcqThdMap[insAlloc.AllocationID]; ok {
 		log.GetLogger().Debugf("%s is over acquire thd for session %s, function %s", insAlloc.AllocationID,
 			insAlloc.SessionInfo.SessionID, bcs.funcKeyWithRes)
+
 		delete(record.overAcqThdMap, insAlloc.AllocationID)
 		bcs.startUnbindInstanceSession(insQue, record)
-		// overAcq的租约不属于这个session，因此需要返回ErrInsThdNotExist
-		return ErrInsThdNotExist
+		// overAcq的租约不属于这个session，因此需要返回ErrInsThdNotExist，但是如果是Agent Session，
+		// 则需要返回nil，因为Agent Session的overAcq租约是属于session的
+		if !bcs.funcSpec.ExtendedMetaData.EnableAgentSession {
+			return ErrInsThdNotExist
+		} else {
+			return nil
+		}
 	}
 	err := record.PutThreadToAvailThdMap(insAlloc.AllocationID)
 	if err != nil {
@@ -1614,4 +1638,37 @@ func getSubHealthInstanceFromRecord(subHealthRecord map[string]*instanceElement)
 		}
 	}
 	return ins
+}
+
+func (bcs *basicConcurrencyScheduler) isAgentSession(insAcqReq *types.InstanceAcquireRequest) bool {
+	if !bcs.funcSpec.ExtendedMetaData.EnableAgentSession {
+		return false
+	}
+
+	if insAcqReq.InstanceSession.SessionID == "" {
+		return false
+	}
+
+	return true
+}
+
+func (bcs *basicConcurrencyScheduler) createOverAcqThread(record *sessionRecord,
+	insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
+	threadID := fmt.Sprintf("overacq-%s-%d", record.sessionID, time.Now().UnixNano())
+
+	record.overAcqThdMap[threadID] = struct{}{}
+
+	insAlloc := &types.InstanceAllocation{
+		Instance:     record.insElem.instance,
+		AllocationID: threadID,
+		SessionInfo: types.SessionInfo{
+			SessionID:  insAcqReq.InstanceSession.SessionID,
+			SessionCtx: record.ctx,
+		},
+	}
+
+	log.GetLogger().Infof("Created over-acquired thread %s for AI Agent session %s, function %s",
+		threadID, record.sessionID, bcs.funcKeyWithRes)
+
+	return insAlloc, nil
 }

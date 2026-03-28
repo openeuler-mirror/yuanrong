@@ -68,7 +68,8 @@ func (r *ClusterModeRuntime) InvokeByInstanceId(
 }
 
 // Kill send kill instance request
-func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte) error {
+func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
+	_ = invokeOpt
 	return clibruntime.Kill(instanceID, signal, payload)
 }
 

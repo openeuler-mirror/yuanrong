@@ -96,6 +96,8 @@ typedef struct tagCInstanceAllocation {
     char *instanceId;
     char *leaseId;
     int tLeaseInterval;
+    char *routeAddress;
+    char *proxyID;
 } CInstanceAllocation;
 
 typedef struct tagCInstanceSession {
@@ -443,7 +445,7 @@ CErrorInfo CConsumerClose(Consumer_p consumerPtr);
 
 // management
 void CExit(int code, char *message);
-CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData);
+CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID);
 void CFinalize(void);
 CErrorInfo CInit(CLibruntimeConfig *config);
 void CReceiveRequestLoop(void);

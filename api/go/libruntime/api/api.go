@@ -26,7 +26,7 @@ type LibruntimeAPI interface {
 	InvokeByFunctionName(funcMeta FunctionMeta, args []Arg, invokeOpt InvokeOptions) (string, error)
 	AcquireInstance(state string, funcMeta FunctionMeta, acquireOpt InvokeOptions) (InstanceAllocation, error)
 	ReleaseInstance(allocation InstanceAllocation, stateID string, abnormal bool, option InvokeOptions)
-	Kill(instanceID string, signal int, payload []byte) error
+	Kill(instanceID string, signal int, payload []byte, invokeOpt InvokeOptions) error
 
 	CreateInstanceRaw(createReqRaw []byte) ([]byte, error)
 	InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error)

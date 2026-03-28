@@ -407,6 +407,8 @@ type Instance struct {
 	ParentID          string
 	PodID             string
 	PodDeploymentName string
+	FunctionProxyID   string
+	RouteAddress      string
 }
 
 // Copy -
@@ -433,6 +435,8 @@ func (i *Instance) Copy() *Instance {
 		ParentID:          i.ParentID,
 		PodID:             i.PodID,
 		PodDeploymentName: i.PodDeploymentName,
+		FunctionProxyID:   i.FunctionProxyID,
+		RouteAddress:      i.RouteAddress,
 	}
 }
 

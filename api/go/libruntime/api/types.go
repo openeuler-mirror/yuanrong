@@ -250,6 +250,8 @@ type InstanceAllocation struct {
 	InstanceID    string
 	LeaseID       string
 	LeaseInterval int64
+	RouteAddress  string // litebus address (ip:port) of the proxy where the instance runs, used as YR_ROUTE value
+	ProxyID       string // functionProxyID of the proxy where the instance runs, used for DR kill routing
 }
 
 // WriteModeEnum kv write mode

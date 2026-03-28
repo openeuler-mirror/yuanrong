@@ -22,9 +22,11 @@ import shutil
 import warnings
 
 import setuptools
+from packaging import tags
 from setuptools.command.build_ext import build_ext
 from setuptools.command.develop import develop
 from setuptools import Extension
+from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
 ROOT_DIR = os.path.dirname(__file__)
 
@@ -85,6 +87,8 @@ if os.getenv("SETUP_TYPE") == "sdk":
         "click==8.1.8",
         "requests==2.32.5",
         "websockets==15.0.1",
+        "aiohttp>=3.9.0",   # tunnel_server Port B HTTP/WS server
+        "httpx>=0.27.0",    # tunnel_client async HTTP forwarding
     ]
     setup_spec.entry_points = {
         "console_scripts": [
@@ -222,6 +226,14 @@ class BinaryDistribution(setuptools.Distribution):
         return True
 
 
+class CustomBdistWheel(_bdist_wheel):
+    """Build wheels with a supported platform tag."""
+
+    def get_tag(self):
+        tag = next(tags.sys_tags())
+        return tag.interpreter, tag.abi, tag.platform
+
+
 warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarning)
 
 # 添加一个虚拟扩展模块来触发 build_ext
@@ -239,7 +251,11 @@ setuptools.setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    cmdclass={"build_ext": BuildExtImpl, "develop": DevelopImpl},
+    cmdclass={
+        "build_ext": BuildExtImpl,
+        "develop": DevelopImpl,
+        "bdist_wheel": CustomBdistWheel,
+    },
     distclass=BinaryDistribution,
     ext_modules=ext_modules,
     packages=setup_spec.get_packages(),

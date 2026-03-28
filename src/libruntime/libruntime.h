@@ -129,22 +129,28 @@ public:
     /*!
       @brief Create an instance using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
       @brief Invoke a function by instance ID using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
       @brief Kill an instance using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!

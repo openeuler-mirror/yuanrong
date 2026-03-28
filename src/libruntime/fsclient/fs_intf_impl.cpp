@@ -29,7 +29,22 @@ namespace Libruntime {
 using namespace std::placeholders;
 using YR::utility::NotificationUtility;
 const std::string FUNCTION_PROXY = "function-proxy";
+const std::string TRACE_PARENT_EXTENSION_KEY = "traceparent";
 const int DOUBLE_INTERVAL = 2;
+
+template <typename MapType>
+static std::string GetTraceParentFromMap(const MapType &options)
+{
+    auto traceParent = options.find(TRACE_PARENT_EXTENSION_KEY);
+    if (traceParent != options.end()) {
+        return traceParent->second;
+    }
+    auto legacyTraceParent = options.find("Traceparent");
+    if (legacyTraceParent != options.end()) {
+        return legacyTraceParent->second;
+    }
+    return "";
+}
 
 static const StreamingMessage CALL_RESULT_ACK = []() {
     StreamingMessage fake;
@@ -323,9 +338,11 @@ void FSIntfImpl::CreateAsync(const CreateRequest &req, CreateRespCallback create
     auto reqId = std::make_shared<std::string>(req.requestid());
     auto funcName = req.function();
     auto traceId = std::make_shared<std::string>(req.traceid());
+    auto traceParent = std::make_shared<std::string>(GetTraceParentFromMap(req.createoptions()));
     auto designatedInstanceID = req.designatedinstanceid();
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Create", *reqId, "", {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
+        SpanName::kCreate, *reqId, "", *traceParent,
+        {{"requestID", *reqId}, {"funcName", funcName}, {"designatedInstanceID", designatedInstanceID}});
     auto respCallback = [this, reqId, funcName, traceId, createRespCallback, span](
                             const StreamingMessage &createResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
@@ -403,9 +420,12 @@ void FSIntfImpl::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, Invo
     auto reqId = std::make_shared<std::string>(req->Immutable().requestid());
     auto instanceId = std::make_shared<std::string>(req->Immutable().instanceid());
     auto traceId = std::make_shared<std::string>(req->Immutable().traceid());
+    auto traceParent = std::make_shared<std::string>(
+        GetTraceParentFromMap(req->Immutable().invokeoptions().customtag()));
     auto funcName = std::make_shared<std::string>(req->Immutable().function());
     auto span = TraceAdapter::GetInstance().StartSpan(
-        "Invoke", *reqId, "", {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
+        SpanName::kInvoke, *reqId, "", *traceParent,
+        {{"requestID", *reqId}, {"funcName", *funcName}, {"instanceId", *instanceId}});
     auto respCallback = [this, callback, reqId, instanceId, traceId, span](
                             const StreamingMessage &invokeResp, ErrorInfo status,
                             std::function<void(bool)> needEraseWiredReq) {
@@ -590,16 +610,9 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
     if (reqId.empty()) {
         reqId = YR::utility::IDGenerator::GenRequestId();
     }
-    auto span = TraceAdapter::GetInstance().StartSpan(
-        "Kill", reqId, "", {{"requestID", reqId}, {"instanceID", req.instanceid()}, {"signal", req.signal()}});
-    auto respCallback = [callback, reqId, span](const StreamingMessage &killResp, ErrorInfo status,
-                                                std::function<void(bool)> needEraseWiredReq) {
+    auto respCallback = [callback, reqId](const StreamingMessage &killResp, ErrorInfo status,
+                                          std::function<void(bool)> needEraseWiredReq) {
         YRLOG_DEBUG("Receive kill response, request ID:{}", reqId);
-        if (killResp.has_killrsp()) {
-            span->SetAttribute("respCode", killResp.killrsp().code());
-            span->SetAttribute("respMessage", killResp.killrsp().message());
-        }
-        span->End();
         if (status.OK() && killResp.has_killrsp()) {
             callback(killResp.killrsp(), status);
             needEraseWiredReq(true);

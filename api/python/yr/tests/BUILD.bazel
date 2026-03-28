@@ -166,3 +166,12 @@ py_test(
     deps = ["//api/python:yr_lib"],
     env = SAN_ENV,
 )
+py_test(
+    name="test_trace_id",
+    size="small",
+    srcs=["test_trace_id.py"],
+    tags = ["smoke"],
+    imports = ["../../"],
+    deps = ["//api/python:yr_lib"],
+    env = SAN_ENV,
+)

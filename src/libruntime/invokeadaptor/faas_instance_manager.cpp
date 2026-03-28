@@ -654,6 +654,7 @@ std::shared_ptr<InvokeSpec> FaasInsManager::BuildAcquireRequest(std::shared_ptr<
     auto dsObjectId = YR::utility::IDGenerator::GenObjectId(acquireSpec->requestId, 0);
     acquireSpec->returnIds.push_back(DataObject(dsObjectId));
     acquireSpec->traceId = invokeSpec->traceId;
+    acquireSpec->opts.customExtensions = invokeSpec->opts.customExtensions;
 
     acquireSpec->functionMeta.functionId =
         invokeSpec->opts.schedulerFunctionId.empty() ? this->schedulerFuncKey : invokeSpec->opts.schedulerFunctionId;

@@ -207,7 +207,7 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
                            int timeoutSec)
 {
     auto requestId = std::make_shared<std::string>(req.requestid());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
+    auto headers = this->BuildHeaders(this->jobId_, req.traceid(), this->tenantId_);
     std::string body;
     req.SerializeToString(&body);
     YRLOG_DEBUG("create request, requestId :{}", *requestId);
@@ -248,7 +248,7 @@ void GwClient::CreateAsync(const CreateRequest &req, CreateRespCallback createRe
 void GwClient::InvokeAsync(const std::shared_ptr<InvokeMessageSpec> &req, InvokeCallBack callback, int timeoutSec)
 {
     auto requestId = std::make_shared<std::string>(req->Immutable().requestid());
-    auto headers = this->BuildHeaders(this->jobId_, *requestId, this->tenantId_);
+    auto headers = this->BuildHeaders(this->jobId_, req->Immutable().traceid(), this->tenantId_);
     std::string body;
     req->Immutable().SerializeToString(&body);
     YRLOG_DEBUG("invoke request, requestId :{}, instanceId: {}", *requestId, req->Immutable().instanceid());

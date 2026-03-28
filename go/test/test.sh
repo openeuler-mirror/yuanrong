@@ -34,7 +34,7 @@ go install github.com/axw/gocov/gocov@latest
 go install github.com/matm/gocov-html/cmd/gocov-html@latest
 
 # resolve missing go.sum entry
-go env -w "GOFLAGS"="-mod=mod"
+# go env -w "GOFLAGS"="-mod=mod"
 
 # coverage mode
 # set: 每个语句是否执行？

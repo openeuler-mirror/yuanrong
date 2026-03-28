@@ -387,9 +387,9 @@ CErrorInfo CAcquireInstance(char *stateId, CFunctionMeta *cFuncMeta, CInvokeOpti
                             CInstanceAllocation *cInsAlloc);
 
 CErrorInfo CReleaseInstance(CInstanceAllocation *insAlloc, char *cStateID, char cAbnormal, CInvokeOptions *cInvokeOpts);
-void CCreateInstanceRaw(CBuffer cReqRaw, char *cContext);
-void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cContext);
-void CKillRaw(CBuffer cReqRaw, char *cContext);
+void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext);
+void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext);
+void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext);
 
 extern void GoRawCallback(char *cKey, CErrorInfo cErr, CBuffer cResultRaw);
 

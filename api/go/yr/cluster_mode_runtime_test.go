@@ -73,7 +73,7 @@ func TestCreateInstanceRaw(t *testing.T) {
 		"Test CreateInstanceRaw", t, func() {
 			convey.Convey(
 				"CreateInstanceRaw success", func() {
-					bytes, err := clusterRt.CreateInstanceRaw([]byte{0})
+					bytes, err := clusterRt.CreateInstanceRaw([]byte{0}, api.RawRequestOption{})
 					convey.So(bytes, convey.ShouldBeNil)
 					convey.So(err, convey.ShouldBeNil)
 				},
@@ -87,7 +87,7 @@ func TestInvokeByInstanceIdRaw(t *testing.T) {
 		"Test InvokeByInstanceIdRaw", t, func() {
 			convey.Convey(
 				"InvokeByInstanceIdRaw success", func() {
-					bytes, err := clusterRt.InvokeByInstanceIdRaw([]byte{0})
+					bytes, err := clusterRt.InvokeByInstanceIdRaw([]byte{0}, api.RawRequestOption{})
 					convey.So(bytes, convey.ShouldBeNil)
 					convey.So(err, convey.ShouldBeNil)
 				},
@@ -101,7 +101,7 @@ func TestKillRaw(t *testing.T) {
 		"Test KillRaw", t, func() {
 			convey.Convey(
 				"KillRaw success", func() {
-					bytes, err := clusterRt.KillRaw([]byte{0})
+					bytes, err := clusterRt.KillRaw([]byte{0}, api.RawRequestOption{})
 					convey.So(bytes, convey.ShouldBeNil)
 					convey.So(err, convey.ShouldBeNil)
 				},

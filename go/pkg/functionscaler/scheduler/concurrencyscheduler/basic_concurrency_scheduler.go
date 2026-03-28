@@ -492,7 +492,13 @@ type basicConcurrencyScheduler struct {
 	leaseInterval        time.Duration
 	*sync.RWMutex
 	*sync.Cond
-	grayAllocator GrayInstanceAllocator
+	grayAllocator       GrayInstanceAllocator
+	coldStartTraceQueue []*coldStartTraceContext
+}
+
+type coldStartTraceContext struct {
+	traceContext *types.TraceContext
+	createdAt    time.Time
 }
 
 func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey resspeckey.ResSpecKey,
@@ -512,13 +518,14 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 		otherSubHealthRecord: make(map[string]*instanceElement, utils.DefaultMapSize),
 		sessionManager: makeSessionManager(makeSessionCacheKey(funcSpec.FuncMetaData.Name, funcKeyWitRes),
 			os.Getenv("HOST_IP"), instanceType),
-		observers:     make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
-		concurrentNum: utils.GetConcurrentNum(funcSpec.InstanceMetaData.ConcurrentNum),
-		leaseInterval: leaseInterval,
-		RWMutex:       mutex,
-		Cond:          sync.NewCond(mutex),
-		grayAllocator: NewHashBasedInstanceAllocator(0),
-		isFuncOwner:   selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
+		observers:           make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
+		concurrentNum:       utils.GetConcurrentNum(funcSpec.InstanceMetaData.ConcurrentNum),
+		leaseInterval:       leaseInterval,
+		RWMutex:             mutex,
+		Cond:                sync.NewCond(mutex),
+		grayAllocator:       NewHashBasedInstanceAllocator(0),
+		isFuncOwner:         selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
+		coldStartTraceQueue: make([]*coldStartTraceContext, 0, utils.DefaultSliceSize),
 	}
 	bcs.sessionManager.setFuncOwner(bcs.isFuncOwner)
 	bcs.grayAllocator.UpdateRolloutRatio(rollout.GetGlobalRolloutHandler().GetCurrentRatio())
@@ -528,6 +535,40 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 		go bcs.sessionManager.saveOrDeleteSessionRecordLoop()
 	}
 	return bcs
+}
+
+func (bcs *basicConcurrencyScheduler) recordColdStartTrace(traceID, traceParent string) {
+	if traceID == "" && traceParent == "" {
+		return
+	}
+	bcs.Lock()
+	bcs.coldStartTraceQueue = append(bcs.coldStartTraceQueue, &coldStartTraceContext{
+		traceContext: &types.TraceContext{
+			TraceID:     traceID,
+			TraceParent: traceParent,
+		},
+		createdAt: time.Now(),
+	})
+	bcs.Unlock()
+}
+
+// PopColdStartTrace returns the oldest non-expired request trace for the next cold start.
+func (bcs *basicConcurrencyScheduler) PopColdStartTrace() *types.TraceContext {
+	bcs.Lock()
+	defer bcs.Unlock()
+	expireBefore := time.Now().Add(-bcs.leaseInterval)
+	for len(bcs.coldStartTraceQueue) > 0 {
+		traceCtx := bcs.coldStartTraceQueue[0]
+		bcs.coldStartTraceQueue = bcs.coldStartTraceQueue[1:]
+		if traceCtx == nil || traceCtx.traceContext == nil {
+			continue
+		}
+		if traceCtx.createdAt.Before(expireBefore) {
+			continue
+		}
+		return traceCtx.traceContext
+	}
+	return nil
 }
 func (bcs *basicConcurrencyScheduler) RecoverSessionRecordFromDataSystem(fn utils.RecoverSessionCallback) {
 	if !config.GlobalConfig.EnableSessionRecover {

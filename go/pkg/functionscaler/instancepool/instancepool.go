@@ -113,6 +113,7 @@ const (
 
 type createOption struct {
 	traceID       string
+	traceParent   string
 	callerPodName string
 }
 
@@ -145,6 +146,7 @@ type patSvcCreateResponse struct {
 type createInstanceRequest struct {
 	createEvent     []byte
 	traceID         string
+	traceParent     string
 	instanceName    string
 	callerPodName   string
 	poolLabel       string
@@ -1318,13 +1320,20 @@ func (gi *GenericInstancePool) checkTenantLimit(instanceType types.InstanceType)
 }
 
 func (gi *GenericInstancePool) createInstanceAndAddCallerPodName(resSpec *resspeckey.ResourceSpecification,
-	instanceType types.InstanceType, callerPodName string) (*types.Instance, error) {
-	return gi.createInstanceFunc("", instanceType, gi.defaultResKey, nil, createOption{callerPodName: callerPodName})
+	instanceType types.InstanceType, traceID, traceParent, callerPodName string) (*types.Instance, error) {
+	return gi.createInstanceFunc("", instanceType, gi.defaultResKey, nil, createOption{
+		traceID:       traceID,
+		traceParent:   traceParent,
+		callerPodName: callerPodName,
+	})
 }
 
 func (gi *GenericInstancePool) createInstance(traceID string, insName string, instanceType types.InstanceType,
-	resKey resspeckey.ResSpecKey, createEvent []byte) (*types.Instance, error) {
-	return gi.createInstanceFunc(insName, instanceType, resKey, createEvent, createOption{traceID: traceID})
+	resKey resspeckey.ResSpecKey, createEvent []byte, traceParent string) (*types.Instance, error) {
+	return gi.createInstanceFunc(insName, instanceType, resKey, createEvent, createOption{
+		traceID:     traceID,
+		traceParent: traceParent,
+	})
 }
 
 func (gi *GenericInstancePool) createInstanceFunc(insName string, instanceType types.InstanceType,
@@ -1371,6 +1380,7 @@ func (gi *GenericInstancePool) createInstanceFunc(insName string, instanceType t
 
 	createRequest := createInstanceRequest{
 		traceID:         createOption.traceID,
+		traceParent:     createOption.traceParent,
 		funcSpec:        gi.FuncSpec,
 		poolLabel:       gi.currentPoolLabel,
 		createTimeout:   gi.createTimeout,

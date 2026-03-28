@@ -96,17 +96,17 @@ func (f *fakeSDKClient) Kill(instanceID string, signal int, payload []byte) erro
 	panic("implement me")
 }
 
-func (f *fakeSDKClient) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (f *fakeSDKClient) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (f *fakeSDKClient) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (f *fakeSDKClient) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (f *fakeSDKClient) KillRaw(killReqRaw []byte) ([]byte, error) {
+func (f *fakeSDKClient) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }

@@ -93,17 +93,17 @@ func (m mockLibruntimeClient) Kill(instanceID string, signal int, payload []byte
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (m mockLibruntimeClient) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (m mockLibruntimeClient) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) KillRaw(killReqRaw []byte) ([]byte, error) {
+func (m mockLibruntimeClient) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
 }

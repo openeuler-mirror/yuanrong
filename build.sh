@@ -196,6 +196,7 @@ function build_python_sdk() {
         rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
     fi
     rm -f $OUTPUT_BASE/runtime/service/python/yr/fnruntime.pyx
+    rm -rf $OUTPUT_BASE/runtime/service/python/yr/runtime
 }
 
 function install_python_requirements() {

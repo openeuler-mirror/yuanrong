@@ -172,6 +172,10 @@ def copy_openyuanrong(build_lib):
             files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
         copy_file(os.path.join(build_lib, "yr/inner"), filename, root_dir)
+    shutil.rmtree(
+        os.path.join(build_lib, "yr/inner/runtime/service/python/yr/runtime"),
+        ignore_errors=True,
+    )
 
 
 def copy_openyuanrong_cpp_sdk(build_lib):

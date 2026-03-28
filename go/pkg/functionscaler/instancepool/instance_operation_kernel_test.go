@@ -1681,8 +1681,10 @@ func TestCreateInvokeOptions(t *testing.T) {
 		},
 		ExtendedMetaData: commonTypes.ExtendedMetaData{},
 	}
-	opt := createInvokeOptions(funcSpec, &types.SchedulingOptions{}, nil, "")
+	opt := createInvokeOptions(funcSpec, &types.SchedulingOptions{}, nil, "", "trace-id", "trace-parent")
 	assert.NotNil(t, opt)
+	assert.Equal(t, "trace-id", opt.TraceID)
+	assert.Equal(t, "trace-parent", opt.CustomExtensions["traceparent"])
 }
 
 func TestCreatePATService(t *testing.T) {

@@ -73,17 +73,19 @@ func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte)
 }
 
 // CreateInstanceRaw not support raw interface
-func (r *ClusterModeRuntime) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (r *ClusterModeRuntime) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 
 // InvokeByInstanceIdRaw not support raw interface
-func (r *ClusterModeRuntime) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (r *ClusterModeRuntime) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 
 // KillRaw not support raw interface
-func (r *ClusterModeRuntime) KillRaw(killReqRaw []byte) ([]byte, error) { return nil, nil }
+func (r *ClusterModeRuntime) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return nil, nil
+}
 
 // SaveState no implement
 func (r *ClusterModeRuntime) SaveState(state []byte) (string, error) { return "", nil }

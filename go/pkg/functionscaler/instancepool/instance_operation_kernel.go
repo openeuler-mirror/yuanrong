@@ -125,7 +125,8 @@ func createInstanceForKernel(request createInstanceRequest) (instance *types.Ins
 		FuncID: getExecutorFuncKey(request.funcSpec),
 		Api:    commonUtils.GetAPIType(request.funcSpec.FuncMetaData.BusinessType),
 	}
-	invokeOpts := createInvokeOptions(request.funcSpec, schedulingOptions, createOpt, request.poolLabel)
+	invokeOpts := createInvokeOptions(
+		request.funcSpec, schedulingOptions, createOpt, request.poolLabel, request.traceID, request.traceParent)
 	logger.Debugf("invoke opts cpu is %v, mem is %v\n", invokeOpts.Cpu, invokeOpts.Memory)
 	delete(invokeOpts.CustomResources, resourcesCPU)
 	delete(invokeOpts.CustomResources, resourcesMemory)
@@ -276,7 +277,7 @@ func prepareSchedulingOptions(funcSpec *types.FunctionSpecification,
 }
 
 func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOptions *types.SchedulingOptions,
-	createOpt map[string]string, poolLabel string,
+	createOpt map[string]string, poolLabel, traceID, traceParent string,
 ) api.InvokeOptions {
 	if !isEmptyRootfsSpec(funcSpec.RootfsSpecMeta) {
 		rootfsData, err := json.Marshal(funcSpec.RootfsSpecMeta)
@@ -294,11 +295,21 @@ func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOption
 	if funcSpec.ExtendedMetaData.PreStop.Handler != "" {
 		codeEntrys = append(codeEntrys, funcSpec.ExtendedMetaData.PreStop.Handler)
 	}
+	customExtensions := schedulingOptions.Extension
+	if customExtensions == nil {
+		customExtensions = make(map[string]string)
+	}
+	if traceParent != "" {
+		customExtensions["traceparent"] = traceParent
+	}
+	if traceID == "" {
+		traceID = utils.GenerateTraceID()
+	}
 	invokeOpts := api.InvokeOptions{
 		Cpu:                int(schedulingOptions.Resources[resourcesCPU]),
 		Memory:             int(schedulingOptions.Resources[resourcesMemory]),
 		CustomResources:    schedulingOptions.Resources,
-		CustomExtensions:   schedulingOptions.Extension,
+		CustomExtensions:   customExtensions,
 		CreateOpt:          createOpt,
 		Priority:           int(schedulingOptions.Priority),
 		ScheduleAffinities: generateScheduleAffinity(schedulingOptions.Affinity, poolLabel),
@@ -306,6 +317,7 @@ func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOption
 		CodePaths:          codeEntrys,
 		Timeout:            int(utils.GetCreateTimeout(funcSpec).Seconds()),
 		ScheduleTimeoutMs:  constant.KernelScheduleTimeout * time.Second.Milliseconds(),
+		TraceID:            traceID,
 	}
 	return invokeOpts
 }

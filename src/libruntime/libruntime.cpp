@@ -663,19 +663,34 @@ void Libruntime::AddGeneratorReceiver(std::shared_ptr<InvokeSpec> spec)
     }
 }
 
+void Libruntime::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    this->invokeAdaptor->CreateInstanceRaw(reqRaw, traceParent, cb);
+}
+
 void Libruntime::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
-    this->invokeAdaptor->CreateInstanceRaw(reqRaw, cb);
+    CreateInstanceRaw(reqRaw, "", cb);
+}
+
+void Libruntime::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    this->invokeAdaptor->InvokeByInstanceIdRaw(reqRaw, traceParent, cb);
 }
 
 void Libruntime::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
-    this->invokeAdaptor->InvokeByInstanceIdRaw(reqRaw, cb);
+    InvokeByInstanceIdRaw(reqRaw, "", cb);
+}
+
+void Libruntime::KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    this->invokeAdaptor->KillRaw(reqRaw, traceParent, cb);
 }
 
 void Libruntime::KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
-    this->invokeAdaptor->KillRaw(reqRaw, cb);
+    KillRaw(reqRaw, "", cb);
 }
 
 std::pair<ErrorInfo, std::string> Libruntime::Put(std::shared_ptr<DataObject> dataobj,

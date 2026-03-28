@@ -190,7 +190,9 @@ func setupFunctionSchedulerLibruntime(fsClient api.LibruntimeAPI) error {
 		return err
 	}
 
-	signalmanager.GetSignalManager().SetKillFunc(fsClient.Kill)
+	signalmanager.GetSignalManager().SetKillFunc(func(instanceID string, signal int, payload []byte) error {
+		return fsClient.Kill(instanceID, signal, payload, api.InvokeOptions{})
+	})
 
 	instancepool.SetGlobalSdkClient(fsClient)
 	datasystemclient.InitDataSystemLibruntime(&types.DataSystemConfig{

@@ -303,6 +303,8 @@ void InsAllocationToCInsAllocation(const InstanceAllocation &alloc, CInstanceAll
     cInsAlloc->instanceId = CString(alloc.instanceId);
     cInsAlloc->leaseId = CString(alloc.leaseId);
     cInsAlloc->tLeaseInterval = alloc.tLeaseInterval;
+    cInsAlloc->routeAddress = CString(alloc.routeAddress);
+    cInsAlloc->proxyID = CString(alloc.proxyID);
 }
 
 CFunctionMeta FunctionMetaToCFunctionMeta(const FunctionMeta &function)
@@ -935,7 +937,7 @@ void CGetEvent(char *objectId, void *userData)
         userData);
 }
 
-CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData)
+CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID)
 {
     std::shared_ptr<NativeBuffer> data;
     if (cData.buffer != nullptr) {
@@ -945,10 +947,17 @@ CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData)
     if (!err.OK()) {
         return ErrorInfoToCError(err);
     }
+    InvokeOptions invokeOpts;
+    if (routeAddress != nullptr && strlen(routeAddress) > 0) {
+        invokeOpts.createOptions.emplace("YR_ROUTE", routeAddress);
+    }
+    if (proxyID != nullptr && strlen(proxyID) > 0) {
+        invokeOpts.createOptions.emplace("YR_PROXY_ID", proxyID);
+    }
     if (data) {
-        err = lrt->Kill(instanceId, sigNo, data);
+        err = lrt->Kill(instanceId, sigNo, data, invokeOpts);
     } else {
-        err = lrt->Kill(instanceId, sigNo);
+        err = lrt->Kill(instanceId, sigNo, invokeOpts);
     }
     return ErrorInfoToCError(err);
 }

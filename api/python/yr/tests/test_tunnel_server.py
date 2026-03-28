@@ -1,0 +1,152 @@
+# api/python/yr/tests/test_tunnel_server.py
+import asyncio
+import json
+import base64
+import unittest
+import websockets
+from yr.sandbox.tunnel_server import TunnelServer
+from yr.sandbox.tunnel_protocol import (
+    HttpReqFrame, HttpRespFrame, ErrorFrame,
+    WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame,
+    parse_frame, make_id,
+)
+
+
+WS_PORT = 18765
+HTTP_PORT = 18766
+
+
+async def _run_server():
+    server = TunnelServer(ws_port=WS_PORT, http_port=HTTP_PORT)
+    await server.start()
+    return server
+
+
+class TestTunnelServerHttp(unittest.TestCase):
+    def test_http_req_forwarded_to_sdk_and_response_returned(self):
+        """Port B HTTP request should be forwarded as http_req frame and response returned."""
+        async def _run():
+            server = await _run_server()
+            try:
+                # Connect a mock SDK client to Port A
+                async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}") as sdk_ws:
+                    # Send HTTP request to Port B concurrently
+                    async def send_http():
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(f"http://127.0.0.1:{HTTP_PORT}/hello") as resp:
+                                return resp.status, await resp.read()
+
+                    http_task = asyncio.create_task(send_http())
+                    # SDK receives the frame
+                    raw = await asyncio.wait_for(sdk_ws.recv(), timeout=5)
+                    frame = parse_frame(raw)
+                    self.assertIsInstance(frame, HttpReqFrame)
+                    self.assertEqual(frame.method, "GET")
+                    self.assertEqual(frame.path, "/hello")
+                    # SDK sends back a response
+                    resp_frame = HttpRespFrame(
+                        id=frame.id, status=200,
+                        headers={"Content-Type": "text/plain"},
+                        body=b"world",
+                    )
+                    await sdk_ws.send(resp_frame.to_json())
+                    status, body = await asyncio.wait_for(http_task, timeout=5)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(body, b"world")
+            finally:
+                await server.stop()
+
+        asyncio.run(_run())
+
+    def test_http_error_frame_returns_502(self):
+        """If SDK sends error frame, Port B should return 502."""
+        async def _run():
+            server = await _run_server()
+            try:
+                async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}") as sdk_ws:
+                    async def send_http():
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(f"http://127.0.0.1:{HTTP_PORT}/fail") as resp:
+                                return resp.status
+
+                    http_task = asyncio.create_task(send_http())
+                    raw = await asyncio.wait_for(sdk_ws.recv(), timeout=5)
+                    frame = parse_frame(raw)
+                    await sdk_ws.send(ErrorFrame(id=frame.id, message="upstream down").to_json())
+                    status = await asyncio.wait_for(http_task, timeout=5)
+                    self.assertEqual(status, 502)
+            finally:
+                await server.stop()
+
+        asyncio.run(_run())
+
+    def test_no_sdk_connected_returns_503(self):
+        """Without SDK connection, Port B should return 503."""
+        async def _run():
+            server = await _run_server()
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"http://127.0.0.1:{HTTP_PORT}/x") as resp:
+                        self.assertEqual(resp.status, 503)
+            finally:
+                await server.stop()
+
+        asyncio.run(_run())
+
+
+class TestTunnelServerWs(unittest.TestCase):
+    def test_ws_upgrade_sends_ws_connect_frame(self):
+        """WS Upgrade on Port B should send ws_connect frame to SDK."""
+        async def _run():
+            server = await _run_server()
+            try:
+                async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}") as sdk_ws:
+                    async def connect_portb_ws():
+                        async with websockets.connect(f"ws://127.0.0.1:{HTTP_PORT}/stream"):
+                            await asyncio.sleep(0.2)
+
+                    ws_task = asyncio.create_task(connect_portb_ws())
+                    raw = await asyncio.wait_for(sdk_ws.recv(), timeout=5)
+                    frame = parse_frame(raw)
+                    self.assertIsInstance(frame, WsConnectFrame)
+                    self.assertEqual(frame.path, "/stream")
+                    # Send ws_connected so server can proceed
+                    await sdk_ws.send(WsConnectedFrame(id=frame.id).to_json())
+                    await asyncio.wait_for(ws_task, timeout=2)
+            finally:
+                await server.stop()
+
+        asyncio.run(_run())
+
+    def test_ws_message_relayed_from_sdk_to_portb_client(self):
+        """Messages from SDK should be forwarded to Port B WS client."""
+        async def _run():
+            server = await _run_server()
+            received = []
+            try:
+                async with websockets.connect(f"ws://127.0.0.1:{WS_PORT}") as sdk_ws:
+                    async def portb_client():
+                        async with websockets.connect(f"ws://127.0.0.1:{HTTP_PORT}/stream") as ws:
+                            msg = await asyncio.wait_for(ws.recv(), timeout=5)
+                            received.append(msg)
+
+                    client_task = asyncio.create_task(portb_client())
+                    # Handle ws_connect
+                    raw = await asyncio.wait_for(sdk_ws.recv(), timeout=5)
+                    frame = parse_frame(raw)
+                    await sdk_ws.send(WsConnectedFrame(id=frame.id).to_json())
+                    # Send message from SDK side
+                    await sdk_ws.send(WsMessageFrame(id=frame.id, data="ping", binary=False).to_json())
+                    await asyncio.wait_for(client_task, timeout=5)
+                    self.assertEqual(received, ["ping"])
+            finally:
+                await server.stop()
+
+        asyncio.run(_run())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1068,6 +1068,9 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_getRequestAndInstance
 
 JNIEXPORT jstring JNICALL Java_org_yuanrong_jni_LibRuntime_loadCurrentSession(JNIEnv *env, jclass c, jstring jsessionId)
 {
+    if (jsessionId == nullptr) {
+        return nullptr;
+    }
     auto sessionId = YR::jni::JNIString::FromJava(env, jsessionId);
     auto rtCtx = get_runtime_context_callback(env, c);
     auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
@@ -1086,6 +1089,9 @@ JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_updateCurrentSession(JNI
                                                                               jstring jsessionId,
                                                                               jstring jsessionJson)
 {
+    if (jsessionId == nullptr || jsessionJson == nullptr) {
+        return;
+    }
     auto sessionId = YR::jni::JNIString::FromJava(env, jsessionId);
     auto sessionJson = YR::jni::JNIString::FromJava(env, jsessionJson);
     auto rtCtx = get_runtime_context_callback(env, c);

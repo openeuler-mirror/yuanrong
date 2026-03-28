@@ -55,6 +55,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonIOException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
@@ -409,11 +410,18 @@ public class FaaSHandler implements HandlerIntf {
                 callContext.setTraceID(traceId);
             }
             if (headerObj.has(X_INSTANCE_SESSION) && !headerObj.get(X_INSTANCE_SESSION).isJsonNull()) {
-                String sessionJsonStr = headerObj.get(X_INSTANCE_SESSION).getAsString();
-                JsonObject sessionObj = GSON.fromJson(sessionJsonStr, JsonObject.class);
-                if (sessionObj.has(SESSION_ID) && !sessionObj.get(SESSION_ID).isJsonNull()) {
-                    String sessionId = sessionObj.get(SESSION_ID).getAsString();
-                    callContext.setSessionId(sessionId);
+                try {
+                    String sessionJsonStr = headerObj.get(X_INSTANCE_SESSION).getAsString();
+                    JsonElement sessionElement = GSON.fromJson(sessionJsonStr, JsonElement.class);
+                    if (sessionElement instanceof JsonObject) {
+                        JsonObject sessionObj = sessionElement.getAsJsonObject();
+                        if (sessionObj.has(SESSION_ID) && !sessionObj.get(SESSION_ID).isJsonNull()) {
+                            String sessionId = sessionObj.get(SESSION_ID).getAsString();
+                            callContext.setSessionId(sessionId);
+                        }
+                    }
+                } catch (JsonSyntaxException | JsonIOException | IllegalStateException e) {
+                    LOG.warn("Failed to parse session JSON from header, degrade gracefully. cause: {}", e.getMessage());
                 }
             }
             if (headerObj.has(EVENT_HEADER) && !headerObj.get(EVENT_HEADER).isJsonNull()) {

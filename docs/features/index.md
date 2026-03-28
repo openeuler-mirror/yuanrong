@@ -11,6 +11,7 @@
 - [IAM 认证与授权](./iam-auth.md) - Keycloak/Casdoor 集成
 - [Snapshot 与 Checkpoint](./snapshot-checkpoint.md) - 函数快照与实例恢复
 - [WebTerminal](./webterminal.md) - WebSocket 终端
+- [Sandbox 实现综述](./sandbox-implementation.md) - SDK、Frontend、FunctionSystem 协同链路
 - [可观测性](./observability.md) - OpenTelemetry、Prometheus、Loki、Tempo
 - [Traefik 路由重构](./traefik-routing.md) - HTTP 路径路由
 - [Sandbox 外部认证](./iam-auth.md#sandbox-外部认证) - Sandbox 与 IAM 集成
@@ -18,11 +19,12 @@
 ## 新增特性汇总
 
 | 特性模块 | 状态 | 涉及组件 |
-|----------|------|----------|
+| -------- | ---- | -------- |
 | yrcli 命令行工具 | GA | yuanrong |
 | 异步调用 | GA | yuanrong, frontend |
 | Oneshot 函数 | GA | functionsystem |
 | WebTerminal | GA | frontend, functionsystem |
+| Sandbox 实现综述 | GA | yuanrong, frontend, functionsystem |
 | OpenTelemetry | GA | functionsystem |
 | Prometheus/Loki/Tempo (日志/告警) | GA | functionsystem, frontend |
 | Traefik HTTP 路由 | GA | functionsystem |
@@ -34,7 +36,7 @@
 ## 待办事项 (TODO)
 
 | 功能 | 状态 | 说明 |
-|------|------|------|
+| ---- | ---- | ---- |
 | Quota 与 IAM 对接 | 进行中 | 实现配额查询和同步机制 |
 | IAM 与函数系统对接 | 进行中 | 验证完整认证流程 |
 

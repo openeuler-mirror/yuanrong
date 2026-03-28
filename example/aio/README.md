@@ -57,7 +57,7 @@ example/aio/build-images.sh
 make all && make image && bash example/aio/run.sh
 ```
 
-`run.sh` 只负责启动，不负责构建。脚本会删除已有 `aio-yr` 容器，并以 `--privileged --cgroupns=host` 启动新的 `aio-yr:latest`。
+`run.sh` 只负责启动，不负责构建。脚本会通过 `docker compose up -d --force-recreate` 以 `--privileged --cgroupns=host` 语义拉起新的 `aio-yr:latest`。
 
 也支持环境变量覆盖：
 
@@ -65,8 +65,9 @@ make all && make image && bash example/aio/run.sh
 AIO_CONTAINER_NAME=my-aio AIO_PORT=9443 bash example/aio/run.sh
 ```
 
-旧的 [`Dockerfile`](/home/wyc/code/sandbox/example/aio/Dockerfile) 保留为兼容入口，内容与 `Dockerfile.aio-yr` 一致；推荐显式使用 `Dockerfile.aio-yr` 和 `Dockerfile.runtime`。
+底层现在通过 `example/aio/docker-compose.yml` 以单服务 `docker compose up -d --force-recreate` 启动，仍然保持 `--privileged` 和 host cgroup namespace 语义。
 
+旧的 [`Dockerfile`](./Dockerfile) 保留为兼容入口，内容与 `Dockerfile.aio-yr` 一致；推荐显式使用 `Dockerfile.aio-yr` 和 `Dockerfile.runtime`。
 启动后访问：
 
 ```text
@@ -118,12 +119,27 @@ example/aio/verify-port-forward-host.sh
 5. 从宿主访问 `https://127.0.0.1:38888/<instance_id>/8080`
 6. 验证完成后自动销毁实例
 
-## 运行方式说明
+## 宿主机验证 tunnel
 
+如果要直接验证 sandbox reverse tunnel，可以执行：
+
+```bash
+example/aio/verify-tunnel-host.sh
+```
+
+这个脚本会：
+
+1. 在宿主机 `127.0.0.1:19080` 启动一个临时 HTTP 服务
+2. 用 `upstream=127.0.0.1:19080` 创建 sandbox
+3. 在 sandbox 内访问 `http://127.0.0.1:8766/`
+4. 校验返回内容来自宿主机临时 HTTP 服务
+5. 尝试销毁 sandbox，并自动关闭宿主机临时 HTTP 服务
+
+## 运行方式说明
 - `supervisord-entrypoint.sh` 先启动容器内 `dockerd`
 - 如果内层 daemon 还没有 `aio-yr-runtime:latest`，会自动从 `/opt/runtime-images/aio-yr-runtime.tar` 执行 `docker load`
 - 然后再启动 Traefik、`runtime-launcher` 和 Yuanrong master
-- [`services.yaml`](/home/wyc/code/sandbox/example/aio/services.yaml) 中 `py39` runtime 会使用 `aio-yr-runtime:latest`
+- [`services.yaml`](./services.yaml) 中 `py39` runtime 会使用 `aio-yr-runtime:latest`
 
 ## 当前范围
 

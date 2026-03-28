@@ -117,11 +117,21 @@ class AioLayoutTests(unittest.TestCase):
         script_text = script_path.read_text()
         self.assertNotIn("make all", script_text)
         self.assertNotIn("make image", script_text)
-        self.assertIn("--privileged", script_text)
-        self.assertIn("--cgroupns=host", script_text)
-        self.assertIn('--name "${CONTAINER_NAME}"', script_text)
+        self.assertIn("docker compose", script_text)
+        self.assertIn("docker-compose.yml", script_text)
+        self.assertNotIn("docker run", script_text)
         self.assertIn('AIO_CONTAINER_NAME:-aio-yr', script_text)
 
+    def test_aio_compose_matches_runtime_requirements(self):
+        compose_path = ROOT / "docker-compose.yml"
+        self.assertTrue(compose_path.exists(), "docker-compose.yml should exist")
+        compose_text = compose_path.read_text()
+        self.assertIn("container_name: ${AIO_CONTAINER_NAME:-aio-yr}", compose_text)
+        self.assertIn("image: ${AIO_IMAGE_NAME:-aio-yr:latest}", compose_text)
+        self.assertIn('published: "${AIO_PORT:-38888}"', compose_text)
+        self.assertIn("target: 8888", compose_text)
+        self.assertIn("privileged: true", compose_text)
+        self.assertIn("cgroup: host", compose_text)
     def test_host_sdk_script_uses_frontend_address_with_in_cluster_false(self):
         script_path = ROOT / "create-sandbox-host.sh"
         self.assertTrue(script_path.exists(), "create-sandbox-host.sh should exist")

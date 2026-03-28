@@ -16,7 +16,7 @@
 import re
 
 from dataclasses import field
-from typing import Dict
+from typing import Dict, Optional
 
 from yr.config_manager import ConfigManager
 from yr.runtime import AlarmInfo

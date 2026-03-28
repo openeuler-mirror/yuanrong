@@ -69,7 +69,8 @@ public:
     OtelSpan StartSpan(const std::string &name,
                        const std::string &traceID,
                        const std::string &spanID,
-                       std::vector<std::pair<const std::string, const opentelemetry::common::AttributeValue>> attrs = {});
+                       std::vector<std::pair<const std::string,
+                           const opentelemetry::common::AttributeValue>> attrs = {});
 
     OtelSpan StartSpan(const std::string &name,
                        const std::string &traceID,

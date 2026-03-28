@@ -626,6 +626,7 @@ data:
     logPath={{ quote .Values.global.log.functionSystem.path}}
     functionSystemAddress="{RUNTIME_HOST_IP}:32568"
     driverMode="true"
+    enableEvent={{ quote .Values.global.common.enableEvent }}
 
 
     [function_manager]

@@ -423,6 +423,8 @@ global:
     enablePrintResourceView: false
     # whether enable horizontal scale or not when resources are not enough
     enableHorizontalScale: false
+    # enable stream event mode
+    enableEvent: false
     # The max retry times for function agent mgr send request to function-agent [0-100]
     functionAgentMgrRetryTimes: 9
     # The retry interval for function agent mgr send request to function-agent(Unit:ms) [5000-60000]

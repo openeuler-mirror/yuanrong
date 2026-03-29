@@ -75,6 +75,8 @@ struct ObjectDetail {
     absl::Notification notification;
     std::promise<std::string> instanceRoute;
     std::shared_future<std::string> instanceRouteFuture;
+    std::promise<std::string> instanceProxyID;
+    std::shared_future<std::string> instanceProxyIDFuture;
 
     ObjectDetail()
     {
@@ -82,6 +84,8 @@ struct ObjectDetail {
         instanceIdsFuture = instanceIds.get_future();
         instanceRoute = std::promise<std::string>();
         instanceRouteFuture = instanceRoute.get_future();
+        instanceProxyID = std::promise<std::string>();
+        instanceProxyIDFuture = instanceProxyID.get_future();
     }
 };
 
@@ -143,6 +147,8 @@ public:
     std::pair<std::vector<std::string>, ErrorInfo> GetInstanceIds(const std::string &objId, int timeoutSec);
     bool SetInstanceRoute(const std::string &id, const std::string &instanceRoute);
     std::string GetInstanceRoute(const std::string &objId, int timeoutSec = ZERO_TIMEOUT);
+    bool SetInstanceProxyID(const std::string &id, const std::string &instanceProxyID);
+    std::string GetInstanceProxyID(const std::string &objId, int timeoutSec = ZERO_TIMEOUT);
     // Directly Get from datasystem
     SingleResult DSDirectGet(const std::string &objID, int timeoutMS);
     ErrorInfo GetLastError(const std::string &objId);

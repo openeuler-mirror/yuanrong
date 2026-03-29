@@ -1167,6 +1167,48 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
     return f.get();
 }
 
+bool MemoryStore::SetInstanceProxyID(const std::string &id, const std::string &instanceProxyID)
+{
+    std::lock_guard<std::mutex> lock(mu);
+    auto it = storeMap.find(id);
+    if (it == storeMap.end()) {
+        return false;
+    }
+    std::shared_ptr<ObjectDetail> objDetail = it->second;
+    std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+    try {
+        objDetail->instanceProxyID.set_value(instanceProxyID);
+    } catch (const std::future_error &e) {
+        YRLOG_DEBUG("has already set value of objid : {}", id);
+    }
+    return true;
+}
+
+std::string MemoryStore::GetInstanceProxyID(const std::string &objId, int timeoutSec)
+{
+    std::shared_future<std::string> f;
+    std::string retInstanceProxyID;
+    {
+        std::unique_lock<std::mutex> lock(mu);
+        auto it = storeMap.find(objId);
+        if (it == storeMap.end()) {
+            std::string msg = "objId " + objId + " does not exist in storeMap.";
+            YRLOG_INFO("{} Return empty string as instanceProxyID.", msg);
+            return retInstanceProxyID;
+        }
+        std::shared_ptr<ObjectDetail> objDetail = it->second;
+        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+        f = objDetail->instanceProxyIDFuture;
+    }
+    if (timeoutSec != NO_TIMEOUT && f.wait_for(std::chrono::seconds(timeoutSec)) != std::future_status::ready) {
+        if (timeoutSec != ZERO_TIMEOUT) {
+            YRLOG_WARN("get instance proxyID timeout, return empty string as instanceProxyID. objectID is: {}.", objId);
+        }
+        return retInstanceProxyID;
+    }
+    return f.get();
+}
+
 // Get the Last ErrorInfo of an object. Default is empty.
 ErrorInfo MemoryStore::GetLastError(const std::string &objId)
 {

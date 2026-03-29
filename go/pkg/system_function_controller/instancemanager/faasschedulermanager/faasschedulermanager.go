@@ -60,6 +60,7 @@ var (
 type SchedulerManager struct {
 	instanceCache         map[string]*types.InstanceSpecification
 	terminalCache         map[string]*types.InstanceSpecification
+	routeCache            sync.Map // instanceID -> [2]string{routeAddress, proxyID}
 	etcdClient            *etcd3.EtcdClient
 	sdkClient             api.LibruntimeAPI
 	ConfigChangeCh        chan *types.ConfigChangeEvent

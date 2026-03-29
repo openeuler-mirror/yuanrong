@@ -70,7 +70,9 @@ func (r *ClusterModeRuntime) InvokeByInstanceId(
 // Kill send kill instance request
 func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
 	_ = invokeOpt
-	return clibruntime.Kill(instanceID, signal, payload)
+	// TODO: Retrieve routeAddress and proxyID from cache/instance metadata
+	// For now, pass empty strings - the C++ runtime will try to get routing info from MemoryStore
+	return clibruntime.Kill(instanceID, signal, payload, "", "")
 }
 
 // CreateInstanceRaw not support raw interface

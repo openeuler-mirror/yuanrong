@@ -58,7 +58,8 @@ type InsQueConfig struct {
 type InstanceOperationFunc struct{}
 
 // CreateInstanceFunc -
-type CreateInstanceFunc func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte) (*types.Instance, error)
+type CreateInstanceFunc func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+	*types.Instance, error)
 
 // DeleteInstanceFunc -
 type DeleteInstanceFunc func(*types.Instance) error

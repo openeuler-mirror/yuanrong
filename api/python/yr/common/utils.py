@@ -118,20 +118,35 @@ def validate_address(address, localhost_pass=False):
         port: integer of port
 
     """
+    if not address:
+        raise ValueError(
+            "address is empty. Please set it in the format '<ip>:<port>', "
+            "e.g. '127.0.0.1:31501'. You can also set it via the "
+            "environment variable YR_DS_ADDRESS or YR_SERVER_ADDRESS."
+        )
     address_parts = address.split(":")
     if len(address_parts) != 2:
-        raise ValueError("address format is wrong, '<ip>:<port>' is expected.")
+        raise ValueError(
+            f"address '{address}' is invalid: expected format '<ip>:<port>' "
+            f"(exactly one ':'), but got {len(address_parts) - 1} ':' separator(s)."
+        )
     ip = address_parts[0]
     try:
         port = int(address_parts[1])
     except ValueError as err:
-        raise ValueError("port format is wrong, must be an integer.") from err
+        raise ValueError(
+            f"port '{address_parts[1]}' in address '{address}' is not a valid integer."
+        ) from err
     if not 1 <= port <= 65535:
-        raise ValueError(f"port value {port} is out of range.")
+        raise ValueError(
+            f"port {port} in address '{address}' is out of valid range (1-65535)."
+        )
     if localhost_pass and ip in ("127.0.0.1", "localhost"):
         return ip, port
     if not (validate_ip(ip) or validate_domain(ip)):
-        raise ValueError(f"invalid host {ip}")
+        raise ValueError(
+            f"host '{ip}' in address '{address}' is not a valid IP or domain name."
+        )
     return ip, port
 
 

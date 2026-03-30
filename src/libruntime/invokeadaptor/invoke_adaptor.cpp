@@ -1178,8 +1178,17 @@ bool InvokeAdaptor::IsIdValid(const std::string &id)
 
 void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    CreateInstanceRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
     CreateRequest req;
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
+    if (!traceParent.empty()) {
+        (*req.mutable_createoptions())["traceparent"] = traceParent;
+        (*req.mutable_schedulingops()->mutable_extension())["traceparent"] = traceParent;
+    }
     YRLOG_DEBUG("start create instance raw request, req id is {}", req.requestid());
     if (!IsIdValid(req.requestid())) {
         YRLOG_ERROR("create raw req id: {} is invalid", req.requestid());
@@ -1227,8 +1236,17 @@ void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallbac
 
 void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    InvokeByInstanceIdRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent,
+                                          RawCallback cb)
+{
     InvokeRequest req;
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
+    if (!traceParent.empty()) {
+        (*req.mutable_invokeoptions()->mutable_customtag())["traceparent"] = traceParent;
+    }
     if (!IsIdValid(req.requestid())) {
         YRLOG_ERROR("invoke raw req id: {} is invalid", req.requestid());
         cb(ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "invalid req param"),
@@ -1248,6 +1266,12 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
 
 void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    KillRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    (void)traceParent;
     KillRequest req;
     req.set_requestid(YR::utility::IDGenerator::GenRequestId());
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));

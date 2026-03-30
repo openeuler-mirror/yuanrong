@@ -95,9 +95,15 @@ public:
 
     bool IsIdValid(const std::string &id);
 
+    void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
+
     void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
+    void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
+
     void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
+
+    void KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
 
     void KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 

@@ -696,9 +696,9 @@ func TestCreateInstanceRaw(t *testing.T) {
 			convey.Convey(
 				"InstanceRaw success", func() {
 					convey.So(func() {
-						go CreateInstanceRaw([]byte{0})
-						go InvokeByInstanceIdRaw([]byte{0})
-						go KillRaw([]byte{0})
+						go CreateInstanceRaw([]byte{0}, api.RawRequestOption{})
+						go InvokeByInstanceIdRaw([]byte{0}, api.RawRequestOption{})
+						go KillRaw([]byte{0}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)
@@ -1091,6 +1091,40 @@ func TestCCustomResources(t *testing.T) {
 					convey.So(cLen, convey.ShouldNotBeZeroValue)
 				},
 			)
+		},
+	)
+}
+
+func TestCAcquireOptions(t *testing.T) {
+	convey.Convey(
+		"Test cAcquireOptions", t, func() {
+			traceParent := "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01"
+			opts := api.InvokeOptions{
+				Cpu:                  1,
+				Memory:               256,
+				CustomResources:      map[string]float64{"npu": 1},
+				CustomExtensions:     map[string]string{"traceparent": traceParent, "k": "v"},
+				SchedulerFunctionID:  "scheduler",
+				SchedulerInstanceIDs: []string{"scheduler-0"},
+				TraceID:              "trace-id",
+				Timeout:              12,
+				AcquireTimeout:       8,
+				TrafficLimited:       true,
+			}
+			cAcquireOpt := cAcquireOptions(opts)
+			defer freeCInvokeOptions(cAcquireOpt)
+
+			convey.So(int(cAcquireOpt.size_customResources), convey.ShouldEqual, len(opts.CustomResources))
+			convey.So(int(cAcquireOpt.size_customExtensions), convey.ShouldEqual, len(opts.CustomExtensions))
+			convey.So(cAcquireOpt.trafficLimited, convey.ShouldNotEqual, 0)
+
+			extensions := unsafe.Slice(cAcquireOpt.customExtensions, int(cAcquireOpt.size_customExtensions))
+			extensionMap := make(map[string]string, len(extensions))
+			for _, extension := range extensions {
+				extensionMap[CSafeGoString(extension.key)] = CSafeGoString(extension.value)
+			}
+			convey.So(extensionMap["traceparent"], convey.ShouldEqual, traceParent)
+			convey.So(extensionMap["k"], convey.ShouldEqual, "v")
 		},
 	)
 }

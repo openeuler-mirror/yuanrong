@@ -476,6 +476,12 @@ type InstanceAllocation struct {
 // InstanceBuilder will create a instance
 type InstanceBuilder func(string) *Instance
 
+// TraceContext contains request-scoped trace metadata used for cold-start correlation.
+type TraceContext struct {
+	TraceID     string
+	TraceParent string
+}
+
 // InstanceAcquireRequest contains specifications for acquiring an instance
 type InstanceAcquireRequest struct {
 	FuncSpec            *FunctionSpecification
@@ -487,6 +493,7 @@ type InstanceAcquireRequest struct {
 	PoolLabel           string
 	PoolID              string
 	TraceID             string
+	TraceParent         string
 	StateID             string
 	CallerPodName       string
 	TrafficLimited      bool
@@ -500,6 +507,7 @@ type InstanceCreateRequest struct {
 	ResSpec      *resspeckey.ResourceSpecification
 	InstanceName string
 	TraceID      string
+	TraceParent  string
 	CreateEvent  []byte
 }
 

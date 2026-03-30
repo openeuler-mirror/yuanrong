@@ -102,6 +102,7 @@ class HTTPClient:
         self.client_cert = client_cert
         self.client_key = client_key
         self.ca_cert = ca_cert
+        self.verify = False
         self.insecure = insecure
         self.client_auth_type = client_auth_type
         self.jwt_token = jwt_token
@@ -1190,8 +1191,7 @@ def deploy_language_rt(ctx, runtime, sdk, function_json, no_rootfs):
 
     # Check if function already exists
     version = "$latest"
-    full_name = f"{function_name}:{version}"
-    query_ret, function_info = query_function(full_name, current_user)
+    query_ret, function_info = query_function(FunctionName(function_name, version), current_user)
 
     if query_ret:
         # Update existing function
@@ -1453,4 +1453,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

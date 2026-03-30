@@ -309,6 +309,17 @@ func (fs *FaaSScheduler) processRolloutConfigSubscription() {
 
 // ProcessInstanceRequestLibruntime will handle acquire, release and retain of instance based on multi libruntime
 func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceID string) ([]byte, error) {
+	return fs.processInstanceRequestLibruntime(args, traceID, "")
+}
+
+// ProcessInstanceRequestLibruntimeWithTraceParent preserves parent span context for cold-start correlation.
+func (fs *FaaSScheduler) ProcessInstanceRequestLibruntimeWithTraceParent(
+	args []api.Arg, traceID, traceParent string,
+) ([]byte, error) {
+	return fs.processInstanceRequestLibruntime(args, traceID, traceParent)
+}
+
+func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceID, traceParent string) ([]byte, error) {
 	logger := log.GetLogger().With(zap.Any("traceID", traceID))
 	insOp, targetName, extraData, eventData := parseInstanceOperation(args, traceID)
 	startTime := time.Now()
@@ -323,11 +334,11 @@ func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceI
 	var response interface{}
 	switch insOp {
 	case insOpCreate:
-		response = fs.handleInstanceCreate(targetName, extraData, eventData, traceID)
+		response = fs.handleInstanceCreateWithTraceParent(targetName, extraData, eventData, traceID, traceParent)
 	case insOpDelete:
 		response = fs.handleInstanceDelete(targetName, extraData, traceID)
 	case insOpAcquire:
-		response = fs.handleInstanceAcquire(targetName, extraData, traceID)
+		response = fs.handleInstanceAcquireWithTraceParent(targetName, extraData, traceID, traceParent)
 	case insOpRelease:
 		response = fs.handleInstanceRelease(targetName, extraData, traceID)
 	case insOpRetain:
@@ -395,6 +406,12 @@ func (fs *FaaSScheduler) HandleRequestForward(insOp InstanceOperation, args []ap
 func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventData []byte,
 	traceID string,
 ) *commonTypes.InstanceResponse {
+	return fs.handleInstanceCreateWithTraceParent(funcKey, extraData, eventData, traceID, "")
+}
+
+func (fs *FaaSScheduler) handleInstanceCreateWithTraceParent(funcKey string, extraData, eventData []byte,
+	traceID, traceParent string,
+) *commonTypes.InstanceResponse {
 	startTime := time.Now()
 	logger := log.GetLogger().With(zap.Any("traceID", traceID), zap.Any("funcKey", funcKey))
 	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
@@ -415,6 +432,7 @@ func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventDa
 	}
 	instance, err := fs.PoolManager.CreateInstance(&types.InstanceCreateRequest{
 		TraceID:      traceID,
+		TraceParent:  traceParent,
 		FuncSpec:     funcSpec,
 		ResSpec:      resSpec,
 		InstanceName: dataInfo.designateInstanceName,
@@ -447,6 +465,12 @@ func (fs *FaaSScheduler) handleInstanceDelete(instanceID string, extraData []byt
 
 func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []byte,
 	traceID string,
+) *commonTypes.InstanceResponse {
+	return fs.handleInstanceAcquireWithTraceParent(targetName, extraData, traceID, "")
+}
+
+func (fs *FaaSScheduler) handleInstanceAcquireWithTraceParent(targetName string, extraData []byte,
+	traceID, traceParent string,
 ) *commonTypes.InstanceResponse {
 	startTime := time.Now()
 	funcKey, stateID := parseStateOperation(targetName)
@@ -498,6 +522,7 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 		FuncSpec:            funcSpec, // etcd
 		ResSpec:             resSpec,  // args
 		TraceID:             traceID,
+		TraceParent:         traceParent,
 		StateID:             stateID,
 		PoolLabel:           poolLabel,
 		InstanceName:        dataInfo.designateInstanceName,

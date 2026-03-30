@@ -324,7 +324,7 @@ func TestAcquireInstance(t *testing.T) {
 			insPool.FuncSpec.FuncMetaData.IsStatefulFunction = true
 			var createErr snerror.SNError
 			insPool.stateRoute.createInstanceFunc = func(resSpec *resspeckey.ResourceSpecification, instanceType types.InstanceType,
-				callerPodName string) (*types.Instance, error) {
+				traceID, traceParent, callerPodName string) (*types.Instance, error) {
 				if createErr != nil {
 					return nil, createErr
 				}

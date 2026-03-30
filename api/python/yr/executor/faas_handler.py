@@ -45,3 +45,11 @@ class FaasHandler(HandlerIntf):
         except Exception as e:
             _logger.exception(e)
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
+
+    def before_snapshot(self) -> ErrorInfo:
+        """faas has no snapshot hook by default"""
+        return ErrorInfo()
+
+    def after_snapstart(self) -> ErrorInfo:
+        """faas has no snapstart hook by default"""
+        return ErrorInfo()

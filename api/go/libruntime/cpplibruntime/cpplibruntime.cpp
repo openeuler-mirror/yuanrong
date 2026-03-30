@@ -802,34 +802,37 @@ void RawCallbackWrapper(const std::string context, const ErrorInfo &err, std::sh
     GoRawCallback(const_cast<char *>(context.c_str()), ErrorInfoToCError(err), cResult);
 }
 
-void CCreateInstanceRaw(CBuffer cReqRaw, char *cContext)
+void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
         return;  // 以后把报错抛出去
     }
-    lrt->CreateInstanceRaw(reqRaw, std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
+    lrt->CreateInstanceRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
+                           std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
-void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cContext)
+void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
         return;  // 以后把报错抛出去
     }
-    lrt->InvokeByInstanceIdRaw(reqRaw, std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
+    lrt->InvokeByInstanceIdRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
+                               std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
-void CKillRaw(CBuffer cReqRaw, char *cContext)
+void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
         return;  // 以后把报错抛出去
     }
-    lrt->KillRaw(reqRaw, std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
+    lrt->KillRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
+                 std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
 ErrorInfo ToCBuffer(std::shared_ptr<Buffer> buf, CBuffer *data)

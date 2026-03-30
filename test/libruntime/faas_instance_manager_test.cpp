@@ -22,6 +22,7 @@
 #include "src/utility/logger/logger.h"
 
 #define protected public
+#define private public
 #include "mock/mock_fs_intf_with_callback.h"
 #include "src/libruntime/invokeadaptor/faas_instance_manager.h"
 
@@ -123,6 +124,28 @@ TEST_F(FaasInstanceManagerTest, BuildAcquireRequestTest)
     std::dynamic_pointer_cast<MockFsIntf>(mockFsIntf)->needCheckArgs = true;
     auto [instanceAllocation, err] = insManager->AcquireInstance("", spec);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+}
+
+TEST_F(FaasInstanceManagerTest, BuildAcquireRequestPreservesCustomExtensionsTest)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->jobId = "jobId";
+    spec->traceId = "traceId";
+    spec->functionMeta = {"",
+                          "",
+                          "funcname",
+                          "classname",
+                          libruntime::LanguageType::Cpp,
+                          "",
+                          "",
+                          "poollabel",
+                          libruntime::ApiType::Function};
+    spec->opts.customExtensions["traceparent"] =
+        "00-123e4567e89b12d3a456426614174000-0123456789abcdef-01";
+
+    auto acquireSpec = insManager->BuildAcquireRequest(spec);
+
+    ASSERT_EQ(acquireSpec->opts.customExtensions["traceparent"], spec->opts.customExtensions["traceparent"]);
 }
 
 TEST_F(FaasInstanceManagerTest, RecordRequestTest)

@@ -133,17 +133,17 @@ CErrorInfo CInvokeByFunctionName(CFunctionMeta *cFuncMeta, CInvokeArg *cInvokeAr
     return ErrorInfoToCError(ErrorInfo());
 }
 
-void CCreateInstanceRaw(CBuffer cReqRaw, char *cContext)
+void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     return;
 }
 
-void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cContext)
+void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     return;
 }
 
-void CKillRaw(CBuffer cReqRaw, char *cContext)
+void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     return;
 }

@@ -250,6 +250,26 @@ def receive_request_loop() -> None:
     runtime_holder.global_runtime.get_runtime().receive_request_loop()
 
 
+def need_reinit() -> bool:
+    """
+    Check if re-initialization is needed after checkpoint restore.
+    :return: True if re-init is needed
+    """
+    return runtime_holder.global_runtime.get_runtime().need_reinit()
+
+
+def reinit() -> None:
+    """
+    Perform re-initialization after checkpoint restore.
+    :return: None
+    """
+    global __g_is_init
+    runtime_holder.global_runtime.get_runtime().reinit()
+    CodeManager().clear()
+    __g_is_init = False
+    _logger.info("ReInit completed, jobID is %s", ConfigManager().job_id)
+
+
 @check_initialized
 def put(obj: object, create_param: CreateParam = CreateParam()) -> ObjectRef:
     """

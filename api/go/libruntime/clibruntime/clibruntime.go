@@ -718,6 +718,16 @@ func ReceiveRequestLoop() {
 	C.CReceiveRequestLoop()
 }
 
+// NeedReInit checks if re-initialization is needed after checkpoint restore.
+func NeedReInit() bool {
+	return C.CNeedReInit() != 0
+}
+
+// ReInit reinitializes runtime after checkpoint restore.
+func ReInit() {
+	C.CReInit()
+}
+
 // ExecShutdownHandler exec shutdown handler.
 func ExecShutdownHandler(signum int) {
 	cSignum := C.int(signum)

@@ -100,6 +100,16 @@ void CReceiveRequestLoop(void)
     return;
 }
 
+char CNeedReInit(void)
+{
+    return 0;
+}
+
+void CReInit(void)
+{
+    return;
+}
+
 void CExecShutdownHandler(int sigNum)
 {
     return;

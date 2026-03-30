@@ -31,6 +31,7 @@ public:
 
     void Handle(const libruntime::InvocationMeta &meta, std::function<void()> &&hdlr, std::string reqId = "") override;
     ErrorInfo CancelInsFunction(const CancelReqInfo &cancalReqInfo) override;
+    void Clear();
 private:
     std::shared_ptr<InvokeReq> ConstructInokeReq(std::function<void()> &&hdlr, std::string reqId);
     std::shared_ptr<Invoker> ConstructInvoker();

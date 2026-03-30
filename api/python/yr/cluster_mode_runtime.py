@@ -349,6 +349,21 @@ class ClusterModeRuntime(Runtime):
         """
         self.libruntime.receive_request_loop()
 
+    def need_reinit(self) -> bool:
+        """
+        Check if re-initialization is needed after checkpoint restore.
+        :return: True if re-init is needed
+        """
+        return self.libruntime.need_reinit()
+
+    def reinit(self) -> None:
+        """
+        Perform re-initialization after checkpoint restore.
+        :return: None
+        """
+        self.libruntime.reinit()
+        self.__enable_flag = False
+
     def finalize(self) -> None:
         """
         finalize

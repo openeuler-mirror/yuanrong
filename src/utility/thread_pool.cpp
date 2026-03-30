@@ -71,9 +71,7 @@ void ThreadPool::InitAndRun(void)
 {
     {
         std::unique_lock<std::mutex> lock(mux_);
-        if (stop_) {
-            return;
-        }
+        // Allow re-initialization after Shutdown() for checkpoint restore scenario
         stop_ = false;
     }
     Work();

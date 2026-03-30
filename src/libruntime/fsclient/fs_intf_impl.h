@@ -537,6 +537,9 @@ public:
     ErrorInfo Start(const std::string &jobID, const std::string &instanceID = "", const std::string &runtimeID = "",
                     const std::string &functionName = "", const SubscribeFunc &subScribeCb = nullptr) override;
     void Stop(void) override;
+    // Re-initialize after checkpoint restore. Reinitializes gRPC connections
+    // and thread pools without clearing user data.
+    void ReInit(void) override;
     void GroupCreateAsync(const CreateRequests &reqs, CreateRespsCallback respCallback, CreateCallBack callback,
                           int timeoutSec = -1);
     void CreateAsync(const CreateRequest &req, CreateRespCallback respCallback, CreateCallBack callback,

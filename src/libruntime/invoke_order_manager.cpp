@@ -64,7 +64,7 @@ void InvokeOrderManager::NotifyGroupInstance(const std::string &instanceId)
     if (instances.find(instanceId) != instances.end()) {
         auto instOrder = instances[instanceId];
         instOrder->unfinishedSeqNo++;
-        YRLOG_DEBUG("current unfinished sequence No. is {}, instance id: {}", instOrder->unfinishedSeqNo, instanceId);
+        YRLOG_DEBUG("notify group instance, instance id: {}, unfinishedSeqNo: {}", instanceId, instOrder->unfinishedSeqNo);
     }
 }
 
@@ -91,7 +91,7 @@ void InvokeOrderManager::RegisterInstance(const std::string &instanceId)
     }
 }
 
-void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &instanceId)
+void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored)
 {
     if (instanceId.empty()) {
         return;
@@ -99,7 +99,10 @@ void InvokeOrderManager::RegisterInstanceAndUpdateOrder(const std::string &insta
     absl::MutexLock lock(&mu);
     if (instances.find(instanceId) == instances.end()) {
         instances.insert({instanceId, ConstuctInstOrder()});
-        instances[instanceId]->orderingCounter++;
+        // orderingSeq of restored instance would be reset as 0 in remote 
+        if (!restored) {
+            instances[instanceId]->orderingCounter++;
+        }
         YRLOG_DEBUG("current order of instance {} is : {}", instanceId, instances[instanceId]->orderingCounter.load());
     } else {
         YRLOG_DEBUG("register instance for ordering, instance already exists, instance id: {}", instanceId);
@@ -141,9 +144,9 @@ void InvokeOrderManager::Invoke(std::shared_ptr<InvokeSpec> spec)
     if (instances.find(instanceId) != instances.end()) {
         auto instOrder = instances[instanceId];
         spec->invokeSeqNo = instOrder->orderingCounter++;
-        YRLOG_DEBUG(
-            "instance id: {}, request id: {}, invoke sequence No.: {}, ordered count: {}, "
-            "unfinished: {}",
+        YRLOG_INFO(
+            "InvokeOrderMgr::Invoke - instanceId={}, reqId={}, assignedSeqNo={}, orderingCounter={}, "
+            "unfinishedSeqNo={}",
             instanceId, spec->requestId, spec->invokeSeqNo, instOrder->orderingCounter.load(),
             instOrder->unfinishedSeqNo);
     } else {
@@ -172,9 +175,9 @@ void InvokeOrderManager::UpdateUnfinishedSeq(std::shared_ptr<InvokeSpec> spec)
     if (instances.find(instanceId) != instances.end()) {
         auto instOrder = instances[instanceId];
         spec->invokeUnfinishedSeqNo = instOrder->unfinishedSeqNo;
-        YRLOG_DEBUG(
-            "instance update unfinishedSeq with order, instance id: {}, request id: {}, sequence No.: {}, "
-            "unfinished No.: {}",
+        YRLOG_INFO(
+            "InvokeOrderMgr::UpdateUnfinishedSeq - instanceId={}, reqId={}, seqNo={}, "
+            "unfinishedSeqNo={}",
             instanceId, spec->requestId, spec->invokeSeqNo, instOrder->unfinishedSeqNo);
     }
 }
@@ -200,6 +203,13 @@ void InvokeOrderManager::ClearInsOrderMsg(const std::string &insId, int signal)
     }
 }
 
+void InvokeOrderManager::Clear()
+{
+    absl::MutexLock lock(&mu);
+    instances.clear();
+    YRLOG_DEBUG("InvokeOrderManager cleared for checkpoint restore");
+}
+
 void InvokeOrderManager::NotifyInvokeSuccess(std::shared_ptr<InvokeSpec> spec)
 {
     auto instanceId = spec->GetNamedInstanceId();
@@ -211,7 +221,8 @@ void InvokeOrderManager::NotifyInvokeSuccess(std::shared_ptr<InvokeSpec> spec)
             instanceId = spec->instanceId;
         }
     }
-    YRLOG_DEBUG("entry notify order manager invoke success, instance id: {}, req id: {}", instanceId, spec->requestId);
+    YRLOG_INFO("InvokeOrderMgr::NotifyInvokeSuccess - instanceId={}, reqId={}, invokeSeqNo={}",
+               instanceId, spec->requestId, spec->invokeSeqNo);
     if (instanceId.empty()) {
         return;
     }
@@ -236,7 +247,8 @@ void InvokeOrderManager::UpdateFinishReqSeqNo(const std::string &instanceId, int
                 break;
             }
         }
-        YRLOG_DEBUG("current unfinished sequence No. is {}, instance id: {}", instOrder->unfinishedSeqNo, instanceId);
+        YRLOG_INFO("InvokeOrderMgr::UpdateFinishReqSeqNo - instanceId={}, finishedSeqNo={}, unfinishedSeqNo={}",
+                   instanceId, invokeSeqNo, instOrder->unfinishedSeqNo);
     }
 }
 

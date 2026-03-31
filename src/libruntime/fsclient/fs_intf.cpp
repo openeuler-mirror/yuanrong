@@ -273,28 +273,39 @@ void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnap
                 resp.set_message("PrepareSnap handler not registered");
                 callback(resp);
             }
-            // Read checkpoint file to verify snapshot readiness
-            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_ENV_FILE();
+            // Read seed file to verify snapshot restore barrier readiness.
+            // YR_SEED_FILE is the synchronization seed file used by runtimes to block until restore is ready.
+            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_SEED_FILE();
             if (!checkpointFile.empty()) {
                 YRLOG_INFO("ready to checkpoint. {}", checkpointFile);
                 std::ifstream file(checkpointFile);
+                if (!file.is_open()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
+                    YRLOG_ERROR("failed to open checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 file.peek();  // Trigger actual read() syscall
+                if (file.fail() && !file.eof()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
+                    YRLOG_ERROR("failed to read checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 YRLOG_INFO("restore from checkpoint. {}", checkpointFile);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10000));
-            // Refresh environment after snapshot restore
+
+            // After restore: do minimal operations only
+            // 1. Refresh environment variables (file IO, no network dependency)
+            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
             if (this->handlers.refreshEnv) {
                 YRLOG_INFO("calling refreshEnv callback");
                 this->handlers.refreshEnv();
             }
-            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
-            // Rebuild proxy connection with updated fsIp and fsPort from environment
-            auto info = ParseIpAddr(Config::Instance().YR_SERVER_ADDRESS());
-            YRLOG_INFO("Rebuilding proxy connection with fsIp: {}, fsPort: {}", info.ip, info.port);
-            auto reconnErr = this->ReconnectProxyClient(info.ip, info.port);
-            if (!reconnErr.OK()) {
-                YRLOG_ERROR("Failed to rebuild proxy connection: {}", reconnErr.CodeAndMsg());
-            }
+
+            // 2. Set re-init flag and stop callReceiver to exit ReceiveRequestLoop
+            needReInit_.store(true);
+            YRLOG_INFO("Set needReInit=true, shutting down callReceiver to trigger re-initialization loop");
+            // Stop callReceiver so that ReceiveRequestLoop() returns and main loop can check needReInit
+            callReceiver.Shutdown();
         },
         "");
 }

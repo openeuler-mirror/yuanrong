@@ -405,6 +405,20 @@ class Runtime(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def need_reinit(self) -> bool:
+        """
+        Check if re-initialization is needed after checkpoint restore.
+        :return: True if re-init is needed
+        """
+
+    @abstractmethod
+    def reinit(self) -> None:
+        """
+        Perform re-initialization after checkpoint restore.
+        :return: None
+        """
+
+    @abstractmethod
     def finalize(self) -> None:
         """
         finalize

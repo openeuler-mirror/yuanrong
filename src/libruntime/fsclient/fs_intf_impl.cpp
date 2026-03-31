@@ -915,14 +915,23 @@ void FSIntfImpl::NewRTIntfClient(const std::string &dstInstanceID, const NotifyR
     if (rtIntf != nullptr && rtIntf->Available()) {
         return;
     }
+    auto weakSelf = weak_from_this();
     rtIntf = fsInrfMgr->NewFsIntfClient(
         instanceID, dstInstanceID, runtimeID,
         ReaderWriterClientOption{.ip = req.runtimeinfo().serveripaddr(),
                                  .port = req.runtimeinfo().serverport(),
                                  .disconnectedTimeout = RT_DISCONNECT_TIMEOUT_MS,
                                  .security = security,
-                                 .resendCb = std::bind(&FSIntfImpl::ResendRequests, this, _1),
-                                 .disconnectedCb = std::bind(&FSIntfImpl::NotifyDisconnected, this, _1),
+                                 .resendCb = [weakSelf](const std::string &dstInstanceID) {
+                                     if (auto self = weakSelf.lock()) {
+                                         self->ResendRequests(dstInstanceID);
+                                     }
+                                 },
+                                 .disconnectedCb = [weakSelf](const std::string &dstInstanceID) {
+                                     if (auto self = weakSelf.lock()) {
+                                         self->NotifyDisconnected(dstInstanceID);
+                                     }
+                                 },
                                  .isKeepAlive = false},
         ProtocolType::GRPC);
     rtIntf->RegisterMessageHandler(rtMsgHdlrs);
@@ -955,14 +964,23 @@ std::shared_ptr<FSIntfReaderWriter> FSIntfImpl::NewOrGetEventIntfClient(const st
     YRLOG_DEBUG("Begin to NewEventIntfClient, ip: {}, port:{}", eventServerInfo->eventServerIp,
                 eventServerInfo->eventServerPort);
 
+    auto weakSelf = weak_from_this();
     eventIntf = fsInrfMgr->NewEventIntfClient(
         instanceID, dstInstanceID, runtimeID,
         ReaderWriterClientOption{.ip = eventServerInfo->eventServerIp,
                                  .port = eventServerInfo->eventServerPort,
                                  .disconnectedTimeout = RT_DISCONNECT_TIMEOUT_MS,
                                  .security = security,
-                                 .resendCb = std::bind(&FSIntfImpl::ResendRequests, this, _1),
-                                 .disconnectedCb = std::bind(&FSIntfImpl::NotifyDisconnected, this, _1),
+                                 .resendCb = [weakSelf](const std::string &dstInstanceID) {
+                                     if (auto self = weakSelf.lock()) {
+                                         self->ResendRequests(dstInstanceID);
+                                     }
+                                 },
+                                 .disconnectedCb = [weakSelf](const std::string &dstInstanceID) {
+                                     if (auto self = weakSelf.lock()) {
+                                         self->NotifyDisconnected(dstInstanceID);
+                                     }
+                                 },
                                  .isKeepAlive = false},
         ProtocolType::GRPC);
     eventIntf->RegisterMessageHandler(eventMsgHdlrs);
@@ -1373,8 +1391,16 @@ ErrorInfo FSIntfImpl::Start(const std::string &jobID, const std::string &instanc
                                      .port = fsPort,
                                      .disconnectedTimeout = PROXY_DISCONNECT_TIMEOUT_MS,
                                      .security = security,
-                                     .resendCb = std::bind(&FSIntfImpl::ResendRequests, this, _1),
-                                     .disconnectedCb = std::bind(&FSIntfImpl::NotifyDisconnected, this, _1)},
+                                     .resendCb = [weakPtr](const std::string &dstInstanceID) {
+                                         if (auto self = weakPtr.lock()) {
+                                             self->ResendRequests(dstInstanceID);
+                                         }
+                                     },
+                                     .disconnectedCb = [weakPtr](const std::string &dstInstanceID) {
+                                         if (auto self = weakPtr.lock()) {
+                                             self->NotifyDisconnected(dstInstanceID);
+                                         }
+                                     }},
             ProtocolType::GRPC);
         fsIntf->SetDiscoverDriverCb(discoverDriverCb);
         (void)fsInrfMgr->UpdateSystemIntf(fsIntf);
@@ -1404,6 +1430,108 @@ void FSIntfImpl::Stop(void)
         service->Stop();
     }
     Clear();
+}
+
+void FSIntfImpl::ReInit(void)
+{
+    YRLOG_INFO("FSIntfImpl::ReInit - start, old instanceID={}, old runtimeID={}", this->instanceID, this->runtimeID);
+
+    // Refresh member variables from Config (environment variables may have changed after restore)
+    auto &config = Config::Instance();
+    if (!config.INSTANCE_ID().empty()) {
+        this->instanceID = config.INSTANCE_ID();
+    }
+    if (!config.YR_RUNTIME_ID().empty()) {
+        this->runtimeID = config.YR_RUNTIME_ID();
+    }
+
+    // Refresh fsIp/fsPort for client mode (function-proxy address may have changed)
+    if (enableClientMode) {
+        auto parsedAddr = ParseIpAddr(config.YR_SERVER_ADDRESS());
+        this->fsIp = parsedAddr.ip;
+        this->fsPort = parsedAddr.port;
+    }
+
+    // Reset stopped flag
+    stopped = false;
+
+    // Clear all wired requests from previous session
+    ClearAllWiredRequests();
+
+    // Clear and reinitialize the interface manager (gRPC connections)
+    fsInrfMgr->Clear();
+
+    // Reinitialize service if in server mode
+    if (!enableClientMode && service != nullptr) {
+        service->Stop();
+        service.reset();
+        notification = std::make_shared<absl::Notification>();
+        service = std::make_shared<GrpcPosixService>(instanceID, runtimeID, listeningIpAddr, selfPort, timerWorker,
+                                                     notification, fsInrfMgr, security, enableDirectCall, enableEvent);
+        if (enableEvent) {
+            service->RegisterEventHdlrs(eventMsgHdlrs);
+        }
+        if (enableDirectCall || !enableEvent) {
+            service->RegisterFSHandler(fsMsgHdlrs);
+            service->RegisterRTHandler(rtMsgHdlrs);
+            auto weakPtr = weak_from_this();
+            service->RegisterResendCallback([weakPtr](const std::string &dstInstanceID) {
+                if (auto self = weakPtr.lock()) {
+                    self->ResendRequests(dstInstanceID);
+                }
+            });
+            service->RegisterDisconnectedCallback([weakPtr](const std::string &dstInstanceID) {
+                if (auto self = weakPtr.lock()) {
+                    self->NotifyDisconnected(dstInstanceID);
+                }
+            });
+        }
+        auto err = service->Start();
+        if (!err.OK()) {
+            YRLOG_ERROR("FSIntfImpl::ReInit - failed to restart service: {}", err.Msg());
+        } else {
+            this->selfPort = service->GetListeningPort();
+            YRLOG_INFO("FSIntfImpl::ReInit - service restarted on port {}", this->selfPort);
+        }
+    }
+
+    // Reestablish client connection if in client mode
+    if (enableClientMode) {
+        auto weakPtr = weak_from_this();
+        auto fsIntf = fsInrfMgr->NewFsIntfClient(
+            this->instanceID, "function-proxy", runtimeID,
+            ReaderWriterClientOption{.ip = fsIp,
+                                     .port = fsPort,
+                                     .disconnectedTimeout = PROXY_DISCONNECT_TIMEOUT_MS,
+                                     .security = security,
+                                     .resendCb = [weakPtr](const std::string &dstInstanceID) {
+                                         if (auto self = weakPtr.lock()) {
+                                             self->ResendRequests(dstInstanceID);
+                                         }
+                                     },
+                                     .disconnectedCb = [weakPtr](const std::string &dstInstanceID) {
+                                         if (auto self = weakPtr.lock()) {
+                                             self->NotifyDisconnected(dstInstanceID);
+                                         }
+                                     }},
+            ProtocolType::GRPC);
+        fsInrfMgr->UpdateSystemIntf(fsIntf);
+        fsIntf->RegisterMessageHandler(fsMsgHdlrs);
+        auto err = fsIntf->Start();
+        if (!err.OK()) {
+            YRLOG_ERROR("FSIntfImpl::ReInit - failed to restart client connection: {}", err.Msg());
+        } else {
+            YRLOG_INFO("FSIntfImpl::ReInit - client connection reestablished");
+        }
+        if (reSubscribeCb) {
+            reSubscribeCb();
+        }
+    }
+
+    // Reset the needReInit flag
+    ResetNeedReInit();
+
+    YRLOG_INFO("FSIntfImpl::ReInit - reinitialization completed");
 }
 
 void FSIntfImpl::RemoveInsRtIntf(const std::string &instanceId)

@@ -61,6 +61,8 @@ public:
     void EventAsync(const std::shared_ptr<EventMessageSpec> &req, int timeoutSec = -1);
     std::string GetEventServerIP();
     int GetEventServerPort();
+    bool NeedReInit() const;
+    void ReInit();
 
 private:
     std::shared_ptr<FSIntf> fsIntf;

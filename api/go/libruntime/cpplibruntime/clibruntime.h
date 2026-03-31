@@ -447,6 +447,8 @@ CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData);
 void CFinalize(void);
 CErrorInfo CInit(CLibruntimeConfig *config);
 void CReceiveRequestLoop(void);
+char CNeedReInit(void);
+void CReInit(void);
 void CExecShutdownHandler(int sigNum);
 char *CGetRealInstanceId(char *objectId, int timeout);
 void CSaveRealInstanceId(char *objectId, char *instanceId);

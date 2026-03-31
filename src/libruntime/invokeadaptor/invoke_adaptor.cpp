@@ -1684,6 +1684,35 @@ void InvokeAdaptor::Finalize(bool isDriver)
     }
 }
 
+void InvokeAdaptor::ReInit()
+{
+    // Reinitialize fsClient (gRPC connections)
+    if (fsClient) {
+        fsClient->ReInit();
+    }
+
+    // Reinitialize generator components
+    if (generatorReceiver_) {
+        generatorReceiver_->Initialize();
+    }
+
+    // Clear execution manager state (ordered execution queue)
+    if (execMgr) {
+        execMgr->Clear();
+    }
+
+    // Note: Do NOT clear invokeOrderMgr here!
+    // InvokeOrderManager is used on the Driver side (caller) to assign sequence numbers.
+    // If this instance is restored, the callers (drivers) need to clear their own
+    // InvokeOrderManager on their side. Clearing it here would only help if this
+    // instance is making calls to itself, which is not the typical case.
+    // The correct solution is for the Driver side to handle sequence number reset
+    // when it detects that the callee has been restored.
+
+    // Reset running state
+    isRunning = true;
+}
+
 void InvokeAdaptor::EraseFsIntf(const std::string &id)
 {
     fsClient->EraseIntf(id);
@@ -1797,6 +1826,11 @@ void InvokeAdaptor::KillAsyncCB(const std::string &instanceId, const std::string
 void InvokeAdaptor::ReceiveRequestLoop(void)
 {
     fsClient->ReceiveRequestLoop();
+}
+
+bool InvokeAdaptor::NeedReInit() const
+{
+    return fsClient ? fsClient->NeedReInit() : false;
 }
 
 ErrorInfo InvokeAdaptor::GroupCreate(const std::string &groupName, GroupOpts &opts)
@@ -2375,6 +2409,11 @@ ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, cons
 std::string InvokeAdaptor::GetActiveMasterAddr()
 {
     return functionMasterClient_->GetActiveMasterAddr();
+}
+
+void InvokeAdaptor::RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored)
+{
+    invokeOrderMgr->RegisterInstanceAndUpdateOrder(instanceId, restored);  // restored=true for snapstart
 }
 
 }  // namespace Libruntime

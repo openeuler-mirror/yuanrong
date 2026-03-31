@@ -470,6 +470,16 @@ void CReceiveRequestLoop(void)
     LibruntimeManager::Instance().ReceiveRequestLoop();
 }
 
+char CNeedReInit(void)
+{
+    return LibruntimeManager::Instance().NeedReInit() ? 1 : 0;
+}
+
+void CReInit(void)
+{
+    LibruntimeManager::Instance().ReInit();
+}
+
 void CExecShutdownHandler(int sigNum)
 {
     LibruntimeManager::Instance().ExecShutdownCallback(sigNum, false);

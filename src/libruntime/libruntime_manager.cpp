@@ -362,6 +362,20 @@ void LibruntimeManager::Finalize(const std::string &rtCtx)
     YR::utility::SpdLogger::GetInstance().Flush();
 }
 
+void LibruntimeManager::ReInit(const std::string &rtCtx)
+{
+    // Reset Config singleton to reload environment variables
+    // This must be done before ReInit so that the new environment variables are available
+    Config::Reset();
+
+    std::shared_ptr<Libruntime> librt = GetLibRuntime(rtCtx);
+    if (librt == nullptr) {
+        YRLOG_ERROR("LibruntimeManager::ReInit - Libruntime not initialized, cannot ReInit. rtCtx: {}", rtCtx);
+        return;
+    }
+    librt->ReInit();
+}
+
 std::shared_ptr<Libruntime> LibruntimeManager::GetLibRuntime(const std::string &rtCtx)
 {
     std::lock_guard<std::mutex> rtLk(rtMtx);
@@ -396,6 +410,12 @@ bool LibruntimeManager::IsInitialized(const std::string &rtCtx)
 void LibruntimeManager::ReceiveRequestLoop(const std::string &rtCtx)
 {
     return GetLibRuntime(rtCtx)->ReceiveRequestLoop();
+}
+
+bool LibruntimeManager::NeedReInit(const std::string &rtCtx)
+{
+    auto librt = GetLibRuntime(rtCtx);
+    return librt ? librt->NeedReInit() : false;
 }
 
 void LibruntimeManager::InstallSigtermHandler()

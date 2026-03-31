@@ -39,8 +39,10 @@ genrule(
         cp -ar $$DATASYSTEM_DIR/* $$GO_OUT_DIR &&
         cp -ar $$METRICS_DIR/* $$GO_OUT_DIR &&
         cd $$(realpath $$BASE_DIR/api/go/runtime/) &&
-        go mod tidy &&
-        LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH}:$$GO_OUT_DIR CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' go build -buildmode=pie -ldflags '-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"' -o $$GO_OUT_DIR/goruntime yr_runtime_main.go &&
+        # Build in module mode only. In CI/bazel execroot there is no sibling workspace
+        # (for example `../../../yuanrong-frontend`), so we must ignore repository-level go.work.
+        GOWORK=off go mod tidy &&
+        LD_LIBRARY_PATH=$${LD_LIBRARY_PATH:+$$LD_LIBRARY_PATH}:$$GO_OUT_DIR CC='gcc -fstack-protector-strong -D_FORTIFY_SOURCE=2 -O2' GOWORK=off go build -buildmode=pie -ldflags '-extldflags "-fPIC -fstack-protector-strong -Wl,-z,now,-z,relro,-z,noexecstack,-s -Wall -Werror"' -o $$GO_OUT_DIR/goruntime yr_runtime_main.go &&
         cd $$BASE_DIR &&
         chmod -R 750 $$GO_OUT_DIR &&
         GO_SDK_DIR=$$BASE_DIR/build/output/runtime/sdk/go/runtime &&

@@ -147,8 +147,10 @@ func loadFunctionConfig(GlobalConfig *types.Configuration) error {
 
 func setServiceAccountJwt(cfg *types.Configuration) error {
 	if cfg.RawStsConfig.StsEnable && len(cfg.ServiceAccountJwt.ServiceAccountKeyStr) > 0 {
-		if cfg.ServiceAccountJwt.ServiceAccount, err :=
-			serviceaccount.ParseServiceAccount(cfg.ServiceAccountJwt.ServiceAccountKeyStr); err != nil {
+		var err error
+		cfg.ServiceAccountJwt.ServiceAccount, err =
+			serviceaccount.ParseServiceAccount(cfg.ServiceAccountJwt.ServiceAccountKeyStr)
+		if err != nil {
 			return err
 		}
 	}

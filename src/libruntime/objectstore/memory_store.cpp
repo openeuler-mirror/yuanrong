@@ -897,7 +897,6 @@ bool MemoryStore::AddReadyCallback(const std::string &id, ObjectReadyCallback ca
     if (it == storeMap.end()) {
         lock.unlock();
         callback(ErrorInfo());
-        YRLOG_WARN("id {} does not exist in storeMap, exec callback directly.", id);
         return false;
     }
     std::shared_ptr<ObjectDetail> objDetail = it->second;

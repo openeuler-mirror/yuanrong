@@ -36,6 +36,8 @@ public:
 
     void Finalize(const std::string &rtCtx = "");
 
+    void ReInit(const std::string &rtCtx = "");
+
     std::shared_ptr<Libruntime> GetLibRuntime(const std::string &rtCtx = "");
 
     void SetLibRuntime(std::shared_ptr<Libruntime> libruntime, const std::string &rtCtx = "");
@@ -45,6 +47,8 @@ public:
     bool IsInitialized(const std::string &rtCtx = "");
 
     void ReceiveRequestLoop(const std::string &rtCtx = "");
+
+    bool NeedReInit(const std::string &rtCtx = "");
 
     ErrorInfo HandleInitialized(const LibruntimeConfig &config, const std::string &rtCtx);
 

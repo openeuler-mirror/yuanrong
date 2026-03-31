@@ -120,6 +120,20 @@ JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_Finalize(JNIEnv *, jclas
 
 /*
  * Class:     org_yuanrong_jni_LibRuntime
+ * Method:    NeedReInit
+ * Signature: ()Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_yuanrong_jni_LibRuntime_NeedReInit(JNIEnv *, jclass);
+
+/*
+ * Class:     org_yuanrong_jni_LibRuntime
+ * Method:    ReInit
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_ReInit(JNIEnv *, jclass);
+
+/*
+ * Class:     org_yuanrong_jni_LibRuntime
  * Method:    Exit
  * Signature: ()V
  */

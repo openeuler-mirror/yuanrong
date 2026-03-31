@@ -83,6 +83,8 @@ public:
 
     virtual void ReceiveRequestLoop(void);
 
+    bool NeedReInit() const;
+
     void CreateInstance(std::shared_ptr<InvokeSpec> spec);
 
     void RetryCreateInstance(std::shared_ptr<InvokeSpec> spec, bool isConsumeRetryTime);
@@ -118,6 +120,8 @@ public:
     virtual void Exit(const int code, const std::string &message);
 
     virtual void Finalize(bool isDriver = true);
+
+    virtual void ReInit(void);
 
     virtual ErrorInfo Kill(const std::string &instanceId, const std::string &payload, int signal);
 
@@ -196,6 +200,7 @@ public:
     ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
                                const std::string &instanceId);
     std::string GetActiveMasterAddr();
+    void RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored = false);
 
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);

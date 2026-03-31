@@ -124,6 +124,11 @@ void Libruntime::ReceiveRequestLoop(void)
     YRLOG_INFO("Request loop exited");
 }
 
+bool Libruntime::NeedReInit() const
+{
+    return invokeAdaptor ? invokeAdaptor->NeedReInit() : false;
+}
+
 std::string Libruntime::GetServerVersion()
 {
     return this->config->serverVersion;
@@ -1410,7 +1415,14 @@ std::pair<ErrorInfo, std::string> Libruntime::Snapstart(const std::string &check
                          "Snapstart response contains empty instanceID"), ""};
     }
 
-    YRLOG_DEBUG("Snapstart succeeded, new instanceID: {}", newInstanceId);
+    // Register the new instance in InvokeOrderManager so that subsequent invokes
+    // can get proper sequence numbers for ordered execution
+    if (invokeAdaptor != nullptr) {
+        invokeAdaptor->RegisterInstanceAndUpdateOrder(newInstanceId, true);
+        YRLOG_INFO("Registered new instance {} in InvokeOrderManager after snapstart", newInstanceId);
+    }
+
+    YRLOG_INFO("Snapstart succeeded, new instanceID: {}", newInstanceId);
     return {ErrorInfo(), newInstanceId};
 }
 
@@ -1456,6 +1468,75 @@ void Libruntime::Finalize(bool isDriver)
     // the plaintext authentication credential needs to be cleared when an abnormal branch or exit is complete.
     config->ClearPaaswd();
     security_->ClearPrivateKey();
+}
+
+void Libruntime::ReInit()
+{
+    YRLOG_INFO("Libruntime::ReInit - start, old dsAddr={}:{}", config->dataSystemIpAddr, config->dataSystemPort);
+
+    // Save old datasystem address for releasing old dsClients
+    std::string oldDsIpAddr = config->dataSystemIpAddr;
+    int oldDsPort = config->dataSystemPort;
+
+    // Update config from new environment variables
+    std::string dsAddr = Config::Instance().DATASYSTEM_ADDR();
+    if (!dsAddr.empty() && dsAddr != "0.0.0.0:0") {
+        size_t colonPos = dsAddr.find(':');
+        if (colonPos != std::string::npos) {
+            config->dataSystemIpAddr = dsAddr.substr(0, colonPos);
+            config->dataSystemPort = std::stoi(dsAddr.substr(colonPos + 1));
+            YRLOG_INFO("Updated datasystem address from env: {}:{}", config->dataSystemIpAddr, config->dataSystemPort);
+        }
+    }
+
+    // Reinitialize dsClients
+    if (config->inCluster) {
+        // First, release the old dsClients using OLD address to ensure we get fresh connections
+        if (dsClients.dsObjectStore || dsClients.dsStateStore || dsClients.dsStreamStore || dsClients.dsHeteroStore) {
+            auto err = clientsMgr->ReleaseDsClient(oldDsIpAddr, oldDsPort);
+            if (!err.OK()) {
+                YRLOG_WARN("Failed to release old dsClients ({}:{}): {}", oldDsIpAddr, oldDsPort, err.Msg());
+            } else {
+                YRLOG_INFO("Released old dsClients ({}:{})", oldDsIpAddr, oldDsPort);
+            }
+        }
+
+        std::string ak = "";
+        SensitiveValue sk = "";
+        security_->GetAKSK(ak, sk);
+        auto [newDsClients, err] = clientsMgr->GetOrNewDsClient(config, ak, sk, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
+        if (err.OK()) {
+            dsClients = newDsClients;
+            YRLOG_INFO("dsClients reinitialized successfully (new address: {}:{})", config->dataSystemIpAddr, config->dataSystemPort);
+        } else {
+            YRLOG_ERROR("failed to reinitialize dsClients, message({})", err.Msg());
+        }
+    }
+
+    // Reinitialize generatorNotifier_
+    if (dsClients.dsStreamStore) {
+        auto mapper = std::make_shared<GeneratorIdMap>();
+        generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(dsClients.dsStreamStore, mapper);
+    }
+
+    // Reinitialize generatorReceiver_
+    if (dsClients.dsStreamStore && memStore) {
+        generatorReceiver_ = std::make_shared<StreamGeneratorReceiver>(config, dsClients.dsStreamStore, memStore);
+        generatorReceiver_->Initialize();
+    }
+
+    // Reinitialize driverLogReceiver_
+    if (config->logToDriver && dsClients.dsStreamStore) {
+        driverLogReceiver_ = std::make_shared<DriverLogReceiver>();
+        driverLogReceiver_->Init(dsClients.dsStreamStore, config->jobId, config->dedupLogs);
+    }
+
+    // Reinitialize invokeAdaptor
+    if (invokeAdaptor) {
+        invokeAdaptor->ReInit();
+    }
+
+    
 }
 
 void Libruntime::WaitAsync(const std::string &objectId, WaitAsyncCallback callback, void *userData)

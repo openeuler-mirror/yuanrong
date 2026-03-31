@@ -456,6 +456,12 @@ public:
     virtual void Finalize(bool isDriver = true);
 
     /*!
+      @brief 重新初始化运行时状态（用于 checkpoint 恢复后）
+      重新初始化 gRPC 连接、dsClients、generatorNotifier/Receiver 等组件
+     */
+    virtual void ReInit();
+
+    /*!
       @brief Asynchronously wait for an object to be ready
       @param objectId the ID of the object to wait for
       @param callback the callback function to be called when the object is ready
@@ -484,6 +490,12 @@ public:
       @throw Exception if the loop fails to start or run
      */
     virtual void ReceiveRequestLoop(void);
+
+    /*!
+      @brief Check if re-initialization is needed after checkpoint restore
+      @return true if re-init is needed
+     */
+    bool NeedReInit() const;
 
     /*!
       @brief Get the real instance ID of an object

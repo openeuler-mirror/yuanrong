@@ -169,7 +169,7 @@ class TaskSummary:
         elif task_status == TaskStatus.COMPLETED:
             self.task_completed_num += 1
 
-    def get_task_status(self) -> int:
+    def get_task_status(self) -> tuple[int, int]:
         return self.task_started_num, self.task_completed_num
 
 if __name__ == '__main__':
@@ -182,7 +182,7 @@ if __name__ == '__main__':
     TOTAL_POINTS = TASKS_NUM * POINTS_PER_TASK
 
     # 创建负责任务统计的有状态函数实例
-    task_summary = TaskSummary.invoke(POINTS_PER_TASK)
+    task_summary = TaskSummary.invoke(TASKS_NUM)
 
     # 并行执行所有任务，这里也可以不指定资源需求
     opt = yr.InvokeOptions(cpu=1000, memory=1000)

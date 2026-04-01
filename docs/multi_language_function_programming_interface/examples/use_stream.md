@@ -11,6 +11,7 @@
 我们在主程序中创建消费者 `local_consumer`，该操作会隐式完成流 `exp-stream` 的创建。生产者为无状态函数，实例在远端运行。生产者和消费者协商使用字符串 `::END::` 作为流结束标志，处理完流后需要主动调用接口 `yr.delete_stream` 删除流，释放资源。
 
 ```python
+import sys
 import subprocess
 import yr
 import time
@@ -23,7 +24,7 @@ def send_stream(stream_name, end_marker):
         producer_config = yr.ProducerConfig(delay_flush_time=5, page_size=1024 * 1024, max_stream_size=1024 * 1024 * 1024, auto_clean_up=True)
         stream_producer = yr.create_stream_producer(stream_name, producer_config)
 
-        corpus = subprocess.check_output(["python", "-c", "import this"])
+        corpus = subprocess.check_output([sys.executable, "-c", "import this"])
         lines = corpus.decode().split("\n")
 
         i = 0
@@ -76,6 +77,7 @@ if __name__ == '__main__':
 
 ```python
 # producer.py
+import sys
 import subprocess
 import yr
 
@@ -91,7 +93,7 @@ def handler(event, context):
         producer_config = yr.ProducerConfig(delay_flush_time=5, page_size=1024 * 1024, max_stream_size=1024 * 1024 * 1024, auto_clean_up=True)
         stream_producer = yr.create_stream_producer(stream_name, producer_config)
 
-        corpus = subprocess.check_output(["python", "-c", "import this"])
+        corpus = subprocess.check_output([sys.executable, "-c", "import this"])
         lines = corpus.decode().split("\n")
 
         i = 0

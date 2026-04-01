@@ -241,7 +241,7 @@ print(yr.get(results_ref))
 # 销毁有状态函数实例
 [obj.terminate() for obj in objs]
 
-# 创建三个有状态函数实例
+# 释放环境资源
 yr.finalize()
 ```
 

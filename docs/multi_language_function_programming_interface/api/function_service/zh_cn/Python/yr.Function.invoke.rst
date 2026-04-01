@@ -16,7 +16,7 @@ yr.Function.invoke
     样例：
         >>> from functionsdk import Function, InvokeOptions
         >>> def my_handler(event, context)
-        >>>     f = Function(context, "hello")
+        >>>     f = Function("hello", context)
         >>>     objRef = f.invoke(event)
         >>>     res = objRef.get()
         >>>     return {

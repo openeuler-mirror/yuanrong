@@ -65,7 +65,7 @@ class InvokeOptions:
         >>>
         >>> def my_handler(event, context)
         >>>     f = Function(context, "hello")
-        >>>     objRef = f.options(opts).invoke(event)
+        >>>     objRef = f.options(opt).invoke(event)
         >>>     res = objRef.get()
         >>>     return {
         >>>        "statusCode": 200,
@@ -171,7 +171,7 @@ class Function:
         Examples:
             >>> from functionsdk import Function, InvokeOptions
             >>> def my_handler(event, context)
-            >>>     f = Function(context, "hello")
+            >>>     f = Function("hello", context)
             >>>     objRef = f.invoke(event)
             >>>     res = objRef.get()
             >>>     return {

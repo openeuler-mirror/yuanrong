@@ -51,6 +51,12 @@ source /etc/profile.d/buildtools.sh
 
 :::
 
+:::{Note}
+
+编译过程中部分三方件（如 opentelemetry 等）需要从外部网络下载依赖，请确保编译环境可以访问外网。国内网络环境下下载速度可能较慢，如有需要可提前配置网络代理。
+
+:::
+
 ## 编译
 
 openYuanrong 分为四个代码仓库：
@@ -181,7 +187,7 @@ git clone -b master https://atomgit.com/openeuler/yuanrong.git
 
 运行时的编译依赖数据系统和函数系统发布包：
 
-* 新建目录 `/opt/openyuanrong/yuanrong/datasystem/output`，拷贝已编译好的数据系统发布包 `yr-datasystem-vx.x.x.tar.gz` 到该目录并通过 `tar -zxf yr-datasystem-vx.x.x.tar.gz --strip-components=1` 命令解压。解压已编译好的函数系统发布包 `yr-functionsystem-vx.x.x.tar.gz`，拷贝包中 `metrics` 文件夹到 `/opt/openyuanrong/yuanrong/` 目录下。
+* 新建目录 `/opt/openyuanrong/yuanrong/datasystem/output`，拷贝已编译好的数据系统发布包 `yr-datasystem-vx.x.x.tar.gz` 到该目录并通过 `tar -zxf yr-datasystem-vx.x.x.tar.gz --strip-components=1` 命令解压。解压函数系统编译产物中的 `metrics.tar.gz`，拷贝其中的 `metrics` 文件夹到 `/opt/openyuanrong/yuanrong/` 目录下。
 
 执行如下脚本编译。
 

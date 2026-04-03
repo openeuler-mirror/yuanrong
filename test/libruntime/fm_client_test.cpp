@@ -85,7 +85,13 @@ public:
         resources::Value_Vectors_Category c2;
         c2.mutable_vectors()->insert({"uuid", ve2});
         r2.mutable_vectors()->mutable_values()->insert({"ids", c2});
-        ru.mutable_capacity()->mutable_resources()->insert({"NPU", r2});
+        ru.mutable_capacity()->mutable_resources()->insert({"NPU/", r2});
+
+        // Test resource name with trailing slash (should be removed)
+        resources::Resource r3;
+        r3.set_type(ResourceType::Value_Type_SCALAR);
+        r3.mutable_scalar()->set_value(100.00);
+        ru.mutable_capacity()->mutable_resources()->insert({"GPU/", r3});
 
         resources::Value::Counter cnter1;
         cnter1.mutable_items()->insert( { "value1_1", 1 } );
@@ -138,7 +144,9 @@ TEST_F(FmClientTest, TestGetResourcesSuccessfully)
     EXPECT_TRUE(res.first.OK());
     auto unit = res.second.at(0);
     EXPECT_TRUE(unit.capacity["CPU"] == 400.00);
+    // Trailing slash should be removed from resource name
     EXPECT_TRUE(unit.capacity["NPU"] == 2.00);
+    EXPECT_TRUE(unit.capacity["GPU"] == 100.00);
     EXPECT_TRUE(unit.nodeLabels.size() == 2);
     EXPECT_TRUE(unit.nodeLabels.count("key1"));
     EXPECT_TRUE(unit.nodeLabels["key1"].size() == 2);

@@ -129,6 +129,21 @@ async def read_stdin(ws, should_exit):
         pass
 
 
+async def heartbeat_loop(ws, should_exit, ping_interval=30, ping_timeout=10):
+    """定期发送 WebSocket ping，超时则退出。"""
+    while not should_exit.is_set():
+        await asyncio.sleep(ping_interval)
+        if should_exit.is_set():
+            return
+        try:
+            pong = await ws.ping()
+            await asyncio.wait_for(pong, timeout=ping_timeout)
+        except (asyncio.TimeoutError, websockets.ConnectionClosed):
+            print("\r\n[Connection lost: heartbeat timeout]", file=sys.stderr)
+            should_exit.set()
+            return
+
+
 async def read_websocket(ws, should_exit):
     """从 WebSocket 读取输出并写入标准输出"""
     try:
@@ -291,6 +306,7 @@ async def run_client(
                 tasks = [
                     asyncio.create_task(read_stdin(ws, should_exit)),
                     asyncio.create_task(read_websocket(ws, should_exit)),
+                    asyncio.create_task(heartbeat_loop(ws, should_exit)),
                 ]
                 if tty and sys.stdin.isatty():
                     tasks.append(asyncio.create_task(watch_terminal_resize(ws, should_exit)))

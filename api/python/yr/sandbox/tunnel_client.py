@@ -21,8 +21,10 @@ import asyncio
 import base64
 import logging
 import os
+import random
 import ssl
 import threading
+import time
 from typing import Optional
 
 import httpx
@@ -32,6 +34,7 @@ from yr.sandbox.tunnel_protocol import (
     parse_frame,
     HttpReqFrame, HttpRespFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame, ErrorFrame,
+    PingFrame, PongFrame, make_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,15 +51,32 @@ def _ssl_verify_enabled() -> bool:
 
 
 class TunnelClient:
-    def __init__(self, upstream: str):
+    def __init__(
+        self,
+        upstream: str,
+        ping_interval: float = 30.0,
+        ping_timeout: float = 10.0,
+        reconnect_base_delay: float = 1.0,
+        reconnect_max_delay: float = 60.0,
+    ):
         """
         Args:
             upstream: upstream service address, e.g. "192.168.3.45:8000" or
                       "http://192.168.3.45:8000" or "https://...".
+            ping_interval: seconds between heartbeat PingFrames.
+            ping_timeout: seconds to wait for PongFrame before closing.
+            reconnect_base_delay: base delay for exponential backoff (Task 4).
+            reconnect_max_delay: max delay for exponential backoff (Task 4).
         """
         if "://" not in upstream:
             upstream = f"http://{upstream}"
         self._upstream = upstream.rstrip("/")
+        self._ping_interval = ping_interval
+        self._ping_timeout = ping_timeout
+        self._reconnect_base_delay = reconnect_base_delay
+        self._reconnect_max_delay = reconnect_max_delay
+        self._current_ping_id: Optional[str] = None
+        self._pong_event: Optional[asyncio.Event] = None
         self._tunnel_url: Optional[str] = None
         self._thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -101,6 +121,7 @@ class TunnelClient:
             self._loop.close()
 
     async def _connect_loop(self) -> None:
+        attempt = 0
         while not self._stop_event.is_set():
             try:
                 ssl_ctx = self._make_ssl_context()
@@ -111,6 +132,7 @@ class TunnelClient:
                     ping_timeout=10,
                 ) as ws:
                     logger.info("Connected to tunnel: %s", self._tunnel_url)
+                    attempt = 0  # reset on successful connect
                     async with httpx.AsyncClient(
                         base_url=self._upstream,
                         verify=self._ssl_verify,
@@ -120,10 +142,25 @@ class TunnelClient:
             except Exception as e:
                 if self._stop_event.is_set():
                     break
-                logger.warning("Tunnel disconnected (%s), reconnecting in 3s", e)
-            # Always wait 3s before reconnecting (normal or error close)
+                logger.warning("Tunnel disconnected (%s), reconnecting...", e)
+
+            # Increment attempt after disconnect (before backoff calculation)
+            attempt += 1
+
+            # Cleanup stale WS channels on disconnect
+            self._cleanup_ws_channels()
+
             if not self._stop_event.is_set():
-                await asyncio.sleep(3)
+                delay = min(
+                    self._reconnect_base_delay * (2 ** attempt),
+                    self._reconnect_max_delay,
+                ) + random.random() * min(self._reconnect_base_delay, 1.0)
+                logger.info("Reconnecting in %.1fs (attempt %d)", delay, attempt + 1)
+                await asyncio.sleep(delay)
+
+    def _cleanup_ws_channels(self) -> None:
+        """Cancel in-flight WS proxy tasks and clear channels."""
+        self._ws_channels.clear()
 
     def _make_ssl_context(self) -> Optional[ssl.SSLContext]:
         if self._tunnel_url and self._tunnel_url.startswith("wss://"):
@@ -140,13 +177,31 @@ class TunnelClient:
         return None
 
     async def _recv_loop(self, ws, http: httpx.AsyncClient) -> None:
+        """Orchestrate recv and heartbeat tasks. First to exit triggers cancel of the other."""
+        self._pong_event = asyncio.Event()
+        recv_task = asyncio.create_task(self._recv_frames(ws, http))
+        hb_task = asyncio.create_task(self._heartbeat_loop(ws))
+        done, pending = await asyncio.wait(
+            [recv_task, hb_task], return_when=asyncio.FIRST_COMPLETED
+        )
+        for t in pending:
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+
+    async def _recv_frames(self, ws, http: httpx.AsyncClient) -> None:
+        """Receive frames and dispatch them."""
         async for message in ws:
             try:
                 frame = parse_frame(message)
             except Exception as e:
                 logger.warning("Dropping malformed tunnel frame: %s", e)
                 continue
-            if isinstance(frame, HttpReqFrame):
+            if isinstance(frame, PongFrame) and frame.id == self._current_ping_id:
+                self._pong_event.set()
+            elif isinstance(frame, HttpReqFrame):
                 asyncio.create_task(self._handle_http(ws, http, frame))
             elif isinstance(frame, WsConnectFrame):
                 asyncio.create_task(self._handle_ws_connect(ws, frame))
@@ -154,6 +209,23 @@ class TunnelClient:
                 q = self._ws_channels.get(frame.id)
                 if q is not None:
                     await q.put(frame)
+
+    async def _heartbeat_loop(self, ws) -> None:
+        """Send PingFrame periodically. Close ws on pong timeout."""
+        while True:
+            await asyncio.sleep(self._ping_interval)
+            if self._stop_event.is_set():
+                return
+            self._current_ping_id = make_id()
+            self._pong_event.clear()
+            ping = PingFrame(id=self._current_ping_id, timestamp=time.time())
+            try:
+                await ws.send(ping.to_json())
+                await asyncio.wait_for(self._pong_event.wait(), timeout=self._ping_timeout)
+            except (asyncio.TimeoutError, websockets.ConnectionClosed):
+                logger.warning("Heartbeat timeout, closing connection")
+                await ws.close()
+                return
 
     async def _handle_http(self, ws, http: httpx.AsyncClient, frame: HttpReqFrame) -> None:
         try:

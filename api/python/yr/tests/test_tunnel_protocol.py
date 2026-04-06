@@ -5,6 +5,7 @@ import unittest
 from yr.sandbox.tunnel_protocol import (
     HttpReqFrame, HttpRespFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame, ErrorFrame,
+    PingFrame, PongFrame,
     parse_frame, make_id,
 )
 
@@ -131,6 +132,24 @@ class TestWsFrames(unittest.TestCase):
         import json
         with self.assertRaises(ValueError):
             parse_frame(json.dumps({"type": "bogus", "id": "x"}))
+
+
+class TestPingPongFrames(unittest.TestCase):
+    def test_ping_frame_round_trip(self):
+        ping = PingFrame(id="ping-1", timestamp=1234567890.123)
+        raw = ping.to_json()
+        parsed = parse_frame(raw)
+        self.assertIsInstance(parsed, PingFrame)
+        self.assertEqual(parsed.id, "ping-1")
+        self.assertAlmostEqual(parsed.timestamp, 1234567890.123)
+
+    def test_pong_frame_round_trip(self):
+        pong = PongFrame(id="ping-1", timestamp=1234567890.123)
+        raw = pong.to_json()
+        parsed = parse_frame(raw)
+        self.assertIsInstance(parsed, PongFrame)
+        self.assertEqual(parsed.id, "ping-1")
+        self.assertAlmostEqual(parsed.timestamp, 1234567890.123)
 
 
 class TestMakeId(unittest.TestCase):

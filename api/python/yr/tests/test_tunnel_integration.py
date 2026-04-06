@@ -195,6 +195,77 @@ class TestIntegration(unittest.TestCase):
             client.stop()
             self._stop_upstream(upstream_runner)
 
+    def test_tunnel_reconnects_after_server_restart(self):
+        """TunnelClient reconnects after TunnelServer restart.
+
+        Full keepalive + reconnect flow:
+        1. Client connects with fast heartbeat
+        2. Verify tunnel works (HTTP roundtrip)
+        3. Kill server (simulate crash)
+        4. Client detects failure via heartbeat timeout
+        5. Restart server on same ports
+        6. Client reconnects with exponential backoff
+        7. Verify tunnel recovers (HTTP roundtrip succeeds again)
+        """
+        # Stop the server started by setUp so we can manage our own lifecycle.
+        stop_fut = asyncio.run_coroutine_threadsafe(self._server.stop(), self._server_loop)
+        stop_fut.result(timeout=5)
+
+        async def _run():
+            # Start mock upstream HTTP service
+            async def upstream_handler(request):
+                return web.Response(status=200, body=b"ok")
+            upstream_app = web.Application()
+            upstream_app.router.add_route("*", "/{path_info:.*}", upstream_handler)
+            upstream_runner = web.AppRunner(upstream_app)
+            await upstream_runner.setup()
+            await web.TCPSite(upstream_runner, "127.0.0.1", UPSTREAM_PORT).start()
+
+            # Start tunnel server
+            server = TunnelServer(ws_port=SRV_WS_PORT, http_port=SRV_HTTP_PORT)
+            await server.start()
+
+            # Start client with fast heartbeat for quick failure detection
+            client = TunnelClient(
+                upstream=f"http://127.0.0.1:{UPSTREAM_PORT}",
+                ping_interval=0.5,
+                ping_timeout=0.5,
+                reconnect_base_delay=0.2,
+                reconnect_max_delay=1.0,
+            )
+            client.start(f"ws://127.0.0.1:{SRV_WS_PORT}")
+            await asyncio.sleep(1)
+
+            # Verify tunnel works: send HTTP request through tunnel
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/test") as resp:
+                    self.assertEqual(resp.status, 200)
+                    body = await resp.read()
+                    self.assertEqual(body, b"ok")
+
+            # Kill server (simulate server crash)
+            await server.stop()
+            await asyncio.sleep(2)
+
+            # Restart server on same ports
+            server2 = TunnelServer(ws_port=SRV_WS_PORT, http_port=SRV_HTTP_PORT)
+            await server2.start()
+            await asyncio.sleep(2)
+
+            # Verify tunnel recovers: HTTP request should work again
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/test2") as resp:
+                    self.assertEqual(resp.status, 200)
+                    body = await resp.read()
+                    self.assertEqual(body, b"ok")
+
+            client.stop()
+            await server2.stop()
+            await upstream_runner.cleanup()
+
+        asyncio.run(_run())
+
     def test_ws_channel_cleanup_on_client_disconnect(self):
         """WS channel is removed from _ws_channels when client disconnects."""
         import time

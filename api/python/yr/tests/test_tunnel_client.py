@@ -11,6 +11,7 @@ from yr.sandbox.tunnel_client import TunnelClient
 from yr.sandbox.tunnel_protocol import (
     HttpReqFrame, HttpRespFrame, ErrorFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame,
+    PingFrame, PongFrame,
     parse_frame,
 )
 
@@ -113,6 +114,154 @@ class TestTunnelClientHttp(unittest.TestCase):
 
         asyncio.run(_run())
         self.assertGreaterEqual(connect_count["n"], 2)
+
+
+class TestTunnelClientHeartbeat(unittest.TestCase):
+    def test_client_sends_ping_and_expects_pong(self):
+        """Client sends PingFrame periodically and Server echoes PongFrame."""
+        received_pings = []
+
+        async def _run():
+            async def mock_server(ws):
+                async for msg in ws:
+                    frame = parse_frame(msg)
+                    if isinstance(frame, PingFrame):
+                        received_pings.append(frame)
+                        await ws.send(PongFrame(id=frame.id, timestamp=frame.timestamp).to_json())
+
+            server = await websockets.serve(mock_server, "127.0.0.1", MOCK_WS_PORT)
+            client = TunnelClient(
+                upstream=f"http://127.0.0.1:{MOCK_UPSTREAM_PORT}",
+                ping_interval=0.5,
+            )
+            client.start(f"ws://127.0.0.1:{MOCK_WS_PORT}")
+            await asyncio.sleep(2)
+            client.stop()
+            server.close()
+            await server.wait_closed()
+
+        asyncio.run(_run())
+        assert len(received_pings) >= 3
+
+    def test_client_reconnects_on_pong_timeout(self):
+        """Client detects dead connection (no pong) and reconnects."""
+        connect_count = 0
+
+        async def _run():
+            nonlocal connect_count
+
+            async def mock_server(ws):
+                nonlocal connect_count
+                connect_count += 1
+                if connect_count == 1:
+                    async for msg in ws:
+                        pass  # don't respond to pings
+                else:
+                    async for msg in ws:
+                        frame = parse_frame(msg)
+                        if isinstance(frame, PingFrame):
+                            await ws.send(PongFrame(id=frame.id, timestamp=frame.timestamp).to_json())
+
+            server = await websockets.serve(mock_server, "127.0.0.1", MOCK_WS_PORT)
+            client = TunnelClient(
+                upstream=f"http://127.0.0.1:{MOCK_UPSTREAM_PORT}",
+                ping_interval=0.3,
+                ping_timeout=0.5,
+                reconnect_base_delay=0.2,
+                reconnect_max_delay=1.0,
+            )
+            client.start(f"ws://127.0.0.1:{MOCK_WS_PORT}")
+            await asyncio.sleep(5)
+            client.stop()
+            server.close()
+            await server.wait_closed()
+
+        asyncio.run(_run())
+        assert connect_count >= 2
+
+
+class TestTunnelClientBackoff(unittest.TestCase):
+    def test_exponential_backoff_on_reconnect(self):
+        """Client eventually connects when server becomes available after failures."""
+        connect_times = []
+
+        async def _run():
+            # Start client first (server not running) -- it will fail and back off
+            client = TunnelClient(
+                upstream=f"http://127.0.0.1:{MOCK_UPSTREAM_PORT}",
+                ping_interval=30.0,
+                reconnect_base_delay=0.2,
+                reconnect_max_delay=1.0,
+            )
+            client.start(f"ws://127.0.0.1:{MOCK_WS_PORT}")
+            # Let client fail a few times with no server
+            await asyncio.sleep(0.5)
+
+            # Now start server -- client should connect on next retry
+            async def mock_server(ws):
+                connect_times.append(time.monotonic())
+                async for msg in ws:
+                    frame = parse_frame(msg)
+                    if isinstance(frame, PingFrame):
+                        await ws.send(PongFrame(id=frame.id, timestamp=frame.timestamp).to_json())
+
+            server = await websockets.serve(mock_server, "127.0.0.1", MOCK_WS_PORT)
+            await asyncio.sleep(2)  # wait for client to connect
+            client.stop()
+            server.close()
+            await server.wait_closed()
+
+        asyncio.run(_run())
+        # Client should have connected once server became available
+        self.assertGreaterEqual(len(connect_times), 1)
+
+    def test_exponential_backoff_delays_increase(self):
+        """Failed connect attempts show increasing delays (exponential backoff)."""
+        connect_attempts = []
+
+        async def _run():
+            # Record timestamps of each connect attempt
+            # by intercepting websockets.connect
+            original_connect = websockets.connect
+            attempt_times = []
+
+            class TrackingConnect:
+                """WS that always fails to simulate server-down."""
+                def __init__(self, *args, **kwargs):
+                    attempt_times.append(time.monotonic())
+
+                async def __aenter__(self):
+                    raise ConnectionRefusedError("simulated server down")
+
+                async def __aexit__(self, *args):
+                    pass
+
+            websockets.connect = TrackingConnect
+
+            try:
+                client = TunnelClient(
+                    upstream=f"http://127.0.0.1:{MOCK_UPSTREAM_PORT}",
+                    ping_interval=30.0,
+                    reconnect_base_delay=0.5,
+                    reconnect_max_delay=4.0,
+                )
+                client.start(f"ws://127.0.0.1:{MOCK_WS_PORT}")
+                await asyncio.sleep(8)
+                client.stop()
+            finally:
+                websockets.connect = original_connect
+
+            connect_attempts.extend(attempt_times)
+
+        asyncio.run(_run())
+        self.assertGreaterEqual(len(connect_attempts), 3, "Expected at least 3 connect attempts")
+        delay1 = connect_attempts[1] - connect_attempts[0]
+        delay2 = connect_attempts[2] - connect_attempts[1]
+        # delay1 should be ~1.0+s (attempt 1: base*2^1)
+        # delay2 should be ~2.0+s (attempt 2: base*2^2)
+        # delay2 should be clearly larger than delay1
+        self.assertGreater(delay2, delay1 * 1.1,
+                           f"Expected exponential growth: delay2={delay2:.3f} > delay1*1.1={delay1*1.1:.3f}")
 
 
 if __name__ == "__main__":

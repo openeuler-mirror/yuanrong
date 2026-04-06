@@ -163,6 +163,26 @@ class ErrorFrame:
         return json.dumps({"type": self.type, "id": self.id, "message": self.message})
 
 
+@dataclass
+class PingFrame:
+    id: str
+    timestamp: float
+    type: str = field(default="ping", init=False)
+
+    def to_json(self) -> str:
+        return json.dumps({"type": self.type, "id": self.id, "timestamp": self.timestamp})
+
+
+@dataclass
+class PongFrame:
+    id: str
+    timestamp: float
+    type: str = field(default="pong", init=False)
+
+    def to_json(self) -> str:
+        return json.dumps({"type": self.type, "id": self.id, "timestamp": self.timestamp})
+
+
 def parse_frame(raw: str):
     """Parse a JSON frame string into the appropriate frame dataclass."""
     if len(raw) > _MAX_FRAME_SIZE:
@@ -201,4 +221,8 @@ def parse_frame(raw: str):
         )
     if t == "error":
         return ErrorFrame(id=data["id"], message=data["message"])
+    if t == "ping":
+        return PingFrame(id=data["id"], timestamp=data["timestamp"])
+    if t == "pong":
+        return PongFrame(id=data["id"], timestamp=data["timestamp"])
     raise ValueError(f"Unknown frame type: {t!r}")

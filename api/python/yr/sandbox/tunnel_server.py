@@ -30,6 +30,7 @@ from yr.sandbox.tunnel_protocol import (
     parse_frame, make_id,
     HttpReqFrame, HttpRespFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame, ErrorFrame,
+    PingFrame, PongFrame,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,10 @@ class TunnelServer:
                 self._sdk_ws = None
 
     async def _dispatch_frame(self, frame):
+        # Ping/Pong is handled immediately, not via pending map
+        if isinstance(frame, PingFrame):
+            await self._send_frame(PongFrame(id=frame.id, timestamp=frame.timestamp))
+            return
         fid = frame.id
         if fid not in self._pending:
             return
@@ -158,7 +163,11 @@ class TunnelServer:
         queue: asyncio.Queue = asyncio.Queue()
         self._pending[fid] = queue
         try:
-            await self._send_frame(WsConnectFrame(id=fid, path=str(request.rel_url), headers=headers))
+            try:
+                await self._send_frame(WsConnectFrame(id=fid, path=str(request.rel_url), headers=headers))
+            except RuntimeError as e:
+                await ws_resp.close(code=1011, message=str(e).encode())
+                return ws_resp
             ack = await asyncio.wait_for(queue.get(), timeout=10)
             if not isinstance(ack, WsConnectedFrame):
                 msg = ack.message if isinstance(ack, ErrorFrame) else "tunnel error"
@@ -199,8 +208,15 @@ class TunnelServer:
                 task.cancel()
                 try:
                     await task
-                except asyncio.CancelledError:
+                except (asyncio.CancelledError, RuntimeError):
                     pass
+            # Propagate RuntimeError from completed tasks as a graceful close
+            for task in done:
+                exc = task.exception()
+                if isinstance(exc, RuntimeError):
+                    if not ws_resp.closed:
+                        await ws_resp.close(code=1011, message=str(exc).encode())
+                    break
         finally:
             self._pending.pop(fid, None)
         return ws_resp

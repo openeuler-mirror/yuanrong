@@ -1228,43 +1228,61 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
 
 bool MemoryStore::SetInstanceProxyID(const std::string &id, const std::string &instanceProxyID)
 {
-    std::lock_guard<std::mutex> lock(mu);
-    auto it = storeMap.find(id);
-    if (it == storeMap.end()) {
-        return false;
+    std::shared_ptr<ObjectDetail> objDetail;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        auto it = storeMap.find(id);
+        if (it == storeMap.end()) {
+            return false;
+        }
+        objDetail = it->second;
     }
-    std::shared_ptr<ObjectDetail> objDetail = it->second;
+
+    // Lock objectDetail outside of mu to avoid nested lock
     std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
     try {
         objDetail->instanceProxyID.set_value(instanceProxyID);
+        return true;
     } catch (const std::future_error &e) {
-        YRLOG_DEBUG("has already set value of objid : {}", id);
+        YRLOG_WARN("Failed to set instanceProxyID for objid {}: {}", id, e.what());
+        return false;
     }
-    return true;
 }
 
 std::string MemoryStore::GetInstanceProxyID(const std::string &objId, int timeoutSec)
 {
     std::shared_future<std::string> f;
-    std::string retInstanceProxyID;
     {
         std::unique_lock<std::mutex> lock(mu);
         auto it = storeMap.find(objId);
         if (it == storeMap.end()) {
             std::string msg = "objId " + objId + " does not exist in storeMap.";
             YRLOG_INFO("{} Return empty string as instanceProxyID.", msg);
-            return retInstanceProxyID;
+            return "";
         }
         std::shared_ptr<ObjectDetail> objDetail = it->second;
         std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
         f = objDetail->instanceProxyIDFuture;
     }
-    if (timeoutSec != NO_TIMEOUT && f.wait_for(std::chrono::seconds(timeoutSec)) != std::future_status::ready) {
+
+    // Handle NO_TIMEOUT case - wait indefinitely
+    if (timeoutSec == NO_TIMEOUT) {
+        try {
+            return f.get();
+        } catch (const std::future_error &e) {
+            YRLOG_WARN("Failed to get instanceProxyID for objId {}: {}", objId, e.what());
+            return "";
+        }
+    }
+
+    // Handle timeout case
+    if (f.wait_for(std::chrono::seconds(timeoutSec)) != std::future_status::ready) {
         if (timeoutSec != ZERO_TIMEOUT) {
             YRLOG_WARN("get instance proxyID timeout, return empty string as instanceProxyID. objectID is: {}.", objId);
         }
-        return retInstanceProxyID;
+        return "";
     }
+
     return f.get();
 }
 

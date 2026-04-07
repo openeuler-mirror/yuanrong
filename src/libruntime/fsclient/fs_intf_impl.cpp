@@ -639,8 +639,10 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
             KillRequest enrichedReq = req;
             if (enrichedReq.routeaddress().empty() || enrichedReq.proxyid().empty()) {
                 // Try to get routing info from memStore using instanceID
-                std::string route = memStore->GetInstanceRoute(enrichedReq.instanceid(), ZERO_TIMEOUT);
-                std::string proxyID = memStore->GetInstanceProxyID(enrichedReq.instanceid(), ZERO_TIMEOUT);
+                // Check if memStore is available before accessing
+                if (memStore != nullptr) {
+                    std::string route = memStore->GetInstanceRoute(enrichedReq.instanceid(), ZERO_TIMEOUT);
+                    std::string proxyID = memStore->GetInstanceProxyID(enrichedReq.instanceid(), ZERO_TIMEOUT);
                 if (!route.empty()) {
                     enrichedReq.set_routeaddress(route);
                 }

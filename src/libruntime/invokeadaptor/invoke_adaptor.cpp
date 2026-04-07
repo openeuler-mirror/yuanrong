@@ -858,7 +858,8 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
         case libruntime::Signal::GetInstance: {
             std::string serializedMeta;
             google::protobuf::util::JsonPrintOptions options;
-            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta, &serializedMeta, options);
+            auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta,
+                &serializedMeta, options);
             if (!status.ok()) {
                 YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
                 resp.set_code(::common::ErrorCode::ERR_INNER_SYSTEM_ERROR);
@@ -1177,8 +1178,17 @@ bool InvokeAdaptor::IsIdValid(const std::string &id)
 
 void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    CreateInstanceRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
     CreateRequest req;
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
+    if (!traceParent.empty()) {
+        (*req.mutable_createoptions())["traceparent"] = traceParent;
+        (*req.mutable_schedulingops()->mutable_extension())["traceparent"] = traceParent;
+    }
     YRLOG_DEBUG("start create instance raw request, req id is {}", req.requestid());
     if (!IsIdValid(req.requestid())) {
         YRLOG_ERROR("create raw req id: {} is invalid", req.requestid());
@@ -1226,8 +1236,17 @@ void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallbac
 
 void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    InvokeByInstanceIdRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent,
+                                          RawCallback cb)
+{
     InvokeRequest req;
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
+    if (!traceParent.empty()) {
+        (*req.mutable_invokeoptions()->mutable_customtag())["traceparent"] = traceParent;
+    }
     if (!IsIdValid(req.requestid())) {
         YRLOG_ERROR("invoke raw req id: {} is invalid", req.requestid());
         cb(ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "invalid req param"),
@@ -1235,7 +1254,7 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
         return;
     }
     auto messageSpec = std::make_shared<InvokeMessageSpec>(std::move(req));
-    this->fsClient->InvokeAsync(messageSpec, [this, cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
+    this->fsClient->InvokeAsync(messageSpec, [cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
         YRLOG_DEBUG("recieve invoke raw notify, code is {}, req id is {}, msg is {}", fmt::underlying(req.code()),
                     req.requestid(), req.message());
         size_t size = req.ByteSizeLong();
@@ -1247,11 +1266,17 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
 
 void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    KillRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    (void)traceParent;
     KillRequest req;
     req.set_requestid(YR::utility::IDGenerator::GenRequestId());
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
     EraseFsIntf(req.instanceid());
-    this->fsClient->KillAsync(req, [this, cb](const KillResponse &resp, const ErrorInfo &err) -> void {
+    this->fsClient->KillAsync(req, [cb](const KillResponse &resp, const ErrorInfo &err) -> void {
         YRLOG_DEBUG("recieve kill raw response, code is {}", fmt::underlying(resp.code()));
         size_t size = resp.ByteSizeLong();
         auto respRaw = std::make_shared<NativeBuffer>(size);
@@ -1664,6 +1689,35 @@ void InvokeAdaptor::Finalize(bool isDriver)
     }
 }
 
+void InvokeAdaptor::ReInit()
+{
+    // Reinitialize fsClient (gRPC connections)
+    if (fsClient) {
+        fsClient->ReInit();
+    }
+
+    // Reinitialize generator components
+    if (generatorReceiver_) {
+        generatorReceiver_->Initialize();
+    }
+
+    // Clear execution manager state (ordered execution queue)
+    if (execMgr) {
+        execMgr->Clear();
+    }
+
+    // Note: Do NOT clear invokeOrderMgr here!
+    // InvokeOrderManager is used on the Driver side (caller) to assign sequence numbers.
+    // If this instance is restored, the callers (drivers) need to clear their own
+    // InvokeOrderManager on their side. Clearing it here would only help if this
+    // instance is making calls to itself, which is not the typical case.
+    // The correct solution is for the Driver side to handle sequence number reset
+    // when it detects that the callee has been restored.
+
+    // Reset running state
+    isRunning = true;
+}
+
 void InvokeAdaptor::EraseFsIntf(const std::string &id)
 {
     fsClient->EraseIntf(id);
@@ -1777,6 +1831,11 @@ void InvokeAdaptor::KillAsyncCB(const std::string &instanceId, const std::string
 void InvokeAdaptor::ReceiveRequestLoop(void)
 {
     fsClient->ReceiveRequestLoop();
+}
+
+bool InvokeAdaptor::NeedReInit() const
+{
+    return fsClient ? fsClient->NeedReInit() : false;
 }
 
 ErrorInfo InvokeAdaptor::GroupCreate(const std::string &groupName, GroupOpts &opts)
@@ -2355,6 +2414,11 @@ ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, cons
 std::string InvokeAdaptor::GetActiveMasterAddr()
 {
     return functionMasterClient_->GetActiveMasterAddr();
+}
+
+void InvokeAdaptor::RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored)
+{
+    invokeOrderMgr->RegisterInstanceAndUpdateOrder(instanceId, restored);  // restored=true for snapstart
 }
 
 }  // namespace Libruntime

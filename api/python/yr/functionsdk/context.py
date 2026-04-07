@@ -39,6 +39,7 @@ _HEADER_SECURITY_ACCESS_KEY: str = "X-Security-Access-Key"
 _HEADER_SECURITY_SECRET_KEY: str = "X-Security-Secret-Key"
 _HEADER_SECURITY_TOKE: str = "X-Security-Token"
 _HEADER_REQUEST_ID: str = "X-Request-Id"
+_HEADER_TRACE_ID: str = "X-Trace-Id"
 
 _logger = logging.getLogger(__name__)
 
@@ -75,8 +76,9 @@ def init_context_invoke(stage: str, header: dict):
     global _ENV_STORAGE
     _ENV_STORAGE.update_user_agency(header)
     context = init_context(stage)
-    if _HEADER_REQUEST_ID in header:
-        context.set_trace_id(header[_HEADER_REQUEST_ID])
+    trace_id = header.get(_HEADER_TRACE_ID) or header.get(_HEADER_REQUEST_ID, "")
+    if trace_id:
+        context.set_trace_id(trace_id)
     return context
 
 
@@ -93,21 +95,27 @@ class Context:
         self.__memory = _ENV_STORAGE.env_memory
         self.__cpu = _ENV_STORAGE.env_cpu
         self.__start_time = int(time.time() * 1000)
-        self.__logger = options.get('logger', logging.getLogger(__name__))
-        self.__request_id = options.get('requestId', "")
-        self.__tenant_id = options.get('tenantId', _ENV_STORAGE.env_project_id)
-        self.__access_key = options.get('accessKey', _ENV_STORAGE.env_access_key)
-        self.__secret_key = options.get('secretKey', _ENV_STORAGE.env_secret_key)
-        self.__auth_token = options.get('authToken', _ENV_STORAGE.env_auth_token)
-        self.__security_access_key = options.get('securityAccessKey', _ENV_STORAGE.env_security_access_key)
-        self.__security_secret_key = options.get('securitySecretKey', _ENV_STORAGE.env_security_secret_key)
-        self.__security_token = options.get('securityToken', _ENV_STORAGE.env_security_token)
-        self.__alias = options.get('alias', _ENV_STORAGE.env_alias)
+        self.__logger = options.get("logger", logging.getLogger(__name__))
+        self.__request_id = options.get("requestId", "")
+        self.__tenant_id = options.get("tenantId", _ENV_STORAGE.env_project_id)
+        self.__access_key = options.get("accessKey", _ENV_STORAGE.env_access_key)
+        self.__secret_key = options.get("secretKey", _ENV_STORAGE.env_secret_key)
+        self.__auth_token = options.get("authToken", _ENV_STORAGE.env_auth_token)
+        self.__security_access_key = options.get(
+            "securityAccessKey", _ENV_STORAGE.env_security_access_key
+        )
+        self.__security_secret_key = options.get(
+            "securitySecretKey", _ENV_STORAGE.env_security_secret_key
+        )
+        self.__security_token = options.get(
+            "securityToken", _ENV_STORAGE.env_security_token
+        )
+        self.__alias = options.get("alias", _ENV_STORAGE.env_alias)
         self.state = None
         self.instance_id = None
         self.invoke_property = None
-        self.future_id = options.get('future_id', "")
-        self.invoke_id = options.get('invoke_id', "")
+        self.future_id = options.get("future_id", "")
+        self.invoke_id = options.get("invoke_id", "")
 
     # Gets the request ID associated with the request.
     def getRequestID(self):
@@ -182,7 +190,7 @@ class Context:
     # about Memory Size(M)/128 * 100
     def getCPUNumber(self):
         """
-        Get the number of cpu distributed to the running function the cpu number scale by millicores, 
+        Get the number of cpu distributed to the running function the cpu number scale by millicores,
         one cpu cores equals 1000 millicores. In function stage runtime, every function have base of 200 millicores,
         and increased by memory size distributed to function. The offset is about Memory Size(M)/128 * 100
 
@@ -224,7 +232,7 @@ class Context:
         self.__security_access_key = security_access_key
 
     def getSecuritySecretKey(self):
-        """Method getSecuritySecretKey, not exposed"""      
+        """Method getSecuritySecretKey, not exposed"""
         return self.__security_secret_key
 
     def setSecuritySecretKey(self, security_secret_key):
@@ -232,7 +240,7 @@ class Context:
         self.__security_secret_key = security_secret_key
 
     def getSecurityToken(self):
-        """Method getSecurityToken, not exposed"""      
+        """Method getSecurityToken, not exposed"""
         return self.__security_token
 
     def setSecurityToken(self, security_token):
@@ -270,7 +278,7 @@ class Context:
     # interface must be provided in SDK
     def getLogger(self):
         """
-        Get the logger for user to log out in standard output, 
+        Get the logger for user to log out in standard output,
         The Logger interface must be provided in SDK
 
         Returns:
@@ -320,6 +328,7 @@ class EnvStorage:
     """
     env storage
     """
+
     env_project_id: str = ""
     env_package: str = ""
     env_function_name: str = ""
@@ -347,27 +356,35 @@ class EnvStorage:
         """
         load context
         """
-        func_meta_data = _check_map_value(context_meta, 'funcMetaData', {})
-        resource_meta_data = _check_map_value(context_meta, 'resourceMetaData', {})
-        extended_meta_data = _check_map_value(context_meta, 'extendedMetaData', {})
-        initializer = _check_map_value(extended_meta_data, 'initializer', {})
+        func_meta_data = _check_map_value(context_meta, "funcMetaData", {})
+        resource_meta_data = _check_map_value(context_meta, "resourceMetaData", {})
+        extended_meta_data = _check_map_value(context_meta, "extendedMetaData", {})
+        initializer = _check_map_value(extended_meta_data, "initializer", {})
         pre_stop = _check_map_value(extended_meta_data, "pre_stop", {})
 
-        self.env_project_id = _check_map_value(func_meta_data, 'tenantId', "")
-        self.env_package = _check_map_value(func_meta_data, 'service', "")
-        self.env_function_name = _check_map_value(func_meta_data, 'func_name', "")
-        self.env_function_version = _check_map_value(func_meta_data, 'version', "")
-        self.env_timeout = int(_check_map_value(func_meta_data, 'timeout', "3"))
-        self.env_cpu = int(_check_map_value(resource_meta_data, 'cpu', "0"))
-        self.env_memory = int(_check_map_value(resource_meta_data, 'memory', "0"))
-        self.env_alias = context_meta.get('alias', "")
-        self.env_pre_stop_handler = str(_check_map_value(pre_stop, "pre_stop_handler", ""))
-        self.env_pre_stop_timeout = str(_check_map_value(pre_stop, "pre_stop_timeout", ""))
+        self.env_project_id = _check_map_value(func_meta_data, "tenantId", "")
+        self.env_package = _check_map_value(func_meta_data, "service", "")
+        self.env_function_name = _check_map_value(func_meta_data, "func_name", "")
+        self.env_function_version = _check_map_value(func_meta_data, "version", "")
+        self.env_timeout = int(_check_map_value(func_meta_data, "timeout", "3"))
+        self.env_cpu = int(_check_map_value(resource_meta_data, "cpu", "0"))
+        self.env_memory = int(_check_map_value(resource_meta_data, "memory", "0"))
+        self.env_alias = context_meta.get("alias", "")
+        self.env_pre_stop_handler = str(
+            _check_map_value(pre_stop, "pre_stop_handler", "")
+        )
+        self.env_pre_stop_timeout = str(
+            _check_map_value(pre_stop, "pre_stop_timeout", "")
+        )
 
-        initializer_handler = str(_check_map_value(initializer, 'initializer_handler', ""))
-        initializer_timeout = str(_check_map_value(initializer, 'initializer_timeout', ""))
-        name = _check_map_value(func_meta_data, 'name', "")
-        hander = _check_map_value(func_meta_data, 'handler', "")
+        initializer_handler = str(
+            _check_map_value(initializer, "initializer_handler", "")
+        )
+        initializer_timeout = str(
+            _check_map_value(initializer, "initializer_timeout", "")
+        )
+        name = _check_map_value(func_meta_data, "name", "")
+        hander = _check_map_value(func_meta_data, "handler", "")
         self.__write_env(initializer_handler, initializer_timeout, name, hander)
 
     def load_user_data(self, user_data: Dict):
@@ -430,22 +447,28 @@ def _decrypt_user_data() -> dict:
         dict: A dictionary containing the decrypted user data.
     """
     env_map = {}
-    delegate_decrypt = parse_json_data_to_dict(os.environ.get('ENV_DELEGATE_DECRYPT', ""))
+    delegate_decrypt = parse_json_data_to_dict(
+        os.environ.get("ENV_DELEGATE_DECRYPT", "")
+    )
     # 'environment' could be None or '{}' string after parsing, to be compatible with these two cases,
     # the default value is '{}' (not {}) and still have to be parsed.
-    environment = parse_json_data_to_dict(delegate_decrypt.get('environment', '{}'))
-    encrypted_user_data = parse_json_data_to_dict(delegate_decrypt.get('encrypted_user_data', '{}'))
+    environment = parse_json_data_to_dict(delegate_decrypt.get("environment", "{}"))
+    encrypted_user_data = parse_json_data_to_dict(
+        delegate_decrypt.get("encrypted_user_data", "{}")
+    )
 
     _logger.debug(
         f"Succeeded to read from ENV_DELEGATE_DECRYPT, delegate_decrypt={delegate_decrypt}, "
-        f"environment={environment}, encrypted_user_data={encrypted_user_data}")
+        f"environment={environment}, encrypted_user_data={encrypted_user_data}"
+    )
 
     # write environment values
     for key in environment:
         if key == constants.ENV_KEY_LD_LIBRARY_PATH:
             new_path = encrypted_user_data.get(
                 constants.ENV_KEY_LD_LIBRARY_PATH,
-                environment.get(constants.ENV_KEY_LD_LIBRARY_PATH, ""))
+                environment.get(constants.ENV_KEY_LD_LIBRARY_PATH, ""),
+            )
             env_map[key] = os.environ.get(key, "") + f":{new_path}"
             os.environ[key] = os.environ.get(key, "") + f":{new_path}"
         else:

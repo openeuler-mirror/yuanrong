@@ -1,0 +1,420 @@
+# Buildkite Pipeline for YuanRong
+# 支持 Linux ARM64 (容器) 和 macOS ARM64 (主机) 双平台构建
+
+env:
+  BUILDER_IMAGE: "yuanrong/builder:arm64"
+  BUILD_VERSION: "v0.0.1"
+  JOBS: "4"
+  GOPROXY: "https://goproxy.cn,direct"
+  # 华为云 OBS 配置
+  OBS_ENDPOINT: "${OBS_ENDPOINT}"
+  OBS_BUCKET: "${OBS_BUCKET}"
+  OBS_ACCESS_KEY: "${OBS_ACCESS_KEY}"
+  OBS_SECRET_KEY: "${OBS_SECRET_KEY}"
+  OBS_PATH_PREFIX: "yuanrong/builds"
+
+# ============================================
+# 默认构建：Linux + macOS 并行
+# ============================================
+steps:
+  # ========== Linux ARM64 构建 (Docker 容器) ==========
+
+  - label: ":linux: ARM64 - Frontend"
+    command: |
+      #!/bin/bash
+      echo "=== Building Frontend for Linux ARM64 ==="
+      make frontend
+      mkdir -p output-linux
+      cp -r output/* output-linux/ || true
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+    retry:
+      automatic:
+        - limit: 1
+    artifact_paths: "output-linux/**/*"
+    timeout_in_minutes: 30
+
+  - label: ":linux: ARM64 - DataSystem"
+    command: |
+      #!/bin/bash
+      echo "=== Building DataSystem for Linux ARM64 ==="
+      make datasystem
+      mkdir -p output-linux
+      cp -r output/* output-linux/ || true
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+    retry:
+      automatic:
+        - limit: 1
+    timeout_in_minutes: 60
+
+  - label: ":linux: ARM64 - FunctionSystem"
+    command: |
+      #!/bin/bash
+      echo "=== Building FunctionSystem for Linux ARM64 ==="
+      make functionsystem
+      mkdir -p output-linux
+      cp -r output/* output-linux/ || true
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+    retry:
+      automatic:
+        - limit: 1
+    timeout_in_minutes: 90
+
+  - label: ":linux: ARM64 - Runtime"
+    command: |
+      #!/bin/bash
+      echo "=== Building Runtime for Linux ARM64 ==="
+      make yuanrong
+      mkdir -p output-linux
+      cp -r output/* output-linux/ || true
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+    retry:
+      automatic:
+        - limit: 1
+    timeout_in_minutes: 60
+
+  # ========== macOS ARM64 构建 (主机直接运行) ==========
+
+  - label: ":mac: ARM64 - Frontend"
+    command: |
+      #!/bin/bash
+      echo "=== Building Frontend for macOS ARM64 ==="
+      make frontend
+      mkdir -p output-macos
+      cp -r output/* output-macos/ || true
+    agents:
+      os: "macos"
+      arch: "arm64"
+    retry:
+      automatic:
+        - limit: 1
+    artifact_paths: "output-macos/**/*"
+    timeout_in_minutes: 30
+
+  - label: ":mac: ARM64 - DataSystem"
+    command: |
+      #!/bin/bash
+      echo "=== Building DataSystem for macOS ARM64 ==="
+      make datasystem
+      mkdir -p output-macos
+      cp -r output/* output-macos/ || true
+    agents:
+      os: "macos"
+      arch: "arm64"
+    retry:
+      automatic:
+        - limit: 1
+    timeout_in_minutes: 60
+
+  - label: ":mac: ARM64 - FunctionSystem"
+    command: |
+      #!/bin/bash
+      echo "=== Building FunctionSystem for macOS ARM64 ==="
+      make functionsystem
+      mkdir -p output-macos
+      cp -r output/* output-macos/ || true
+    agents:
+      os: "macos"
+      arch: "arm64"
+    retry:
+      automatic:
+        - limit: 1
+    timeout_in_minutes: 90
+
+  - label: ":mac: ARM64 - Runtime"
+    command: |
+      #!/bin/bash
+      echo "=== Building Runtime for macOS ARM64 ==="
+      make yuanrong
+      mkdir -p output-macos
+      cp -r output/* output-macos/ || true
+    agents:
+      os: "macos"
+      arch: "arm64"
+    retry:
+      automatic:
+        - limit: 1
+    timeout_in_minutes: 60
+
+  # ========== 等待所有构建完成 ==========
+
+  - wait: ~
+
+  # ========== 合并产物并打包 ==========
+
+  - label: ":package: 合并产物"
+    command: |
+      #!/bin/bash
+      set -e
+
+      echo "=========================================="
+      echo "  合并构建产物"
+      echo "=========================================="
+
+      # 创建最终输出目录
+      mkdir -p output-final/{linux,macos}
+
+      # 合并 Linux 产物
+      if [ -d "output-linux" ]; then
+        echo "=== Linux ARM64 产物 ==="
+        ls -lah output-linux/
+        cp -r output-linux/* output-final/linux/
+      fi
+
+      # 合并 macOS 产物
+      if [ -d "output-macos" ]; then
+        echo ""
+        echo "=== macOS ARM64 产物 ==="
+        ls -lah output-macos/
+        cp -r output-macos/* output-final/macos/
+      fi
+
+      # 创建发布包 (使用 Commit ID)
+      echo ""
+      echo "=== 创建发布包 ==="
+
+      # 短 Commit ID (8 位)
+      COMMIT_SHORT="${BUILDKITE_COMMIT:0:8}"
+      COMMIT_FULL="${BUILDKITE_COMMIT}"
+
+      if [ -d "output-final/linux" ]; then
+        tar -czf yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz -C output-final/linux .
+        echo "✓ Linux 包: yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz"
+      fi
+
+      if [ -d "output-final/macos" ]; then
+        tar -czf yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz -C output-final/macos .
+        echo "✓ macOS 包: yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz"
+      fi
+
+      # 创建带完整 Commit ID 的软链接（便于追溯）
+      if [ -f "yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz" ]; then
+        ln -sf "yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz" \
+               "yuanrong-latest-linux-arm64.tar.gz"
+      fi
+      if [ -f "yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz" ]; then
+        ln -sf "yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz" \
+               "yuanrong-latest-macos-arm64.tar.gz"
+      fi
+
+      echo ""
+      echo "=========================================="
+      echo "  构建完成!"
+      echo "=========================================="
+      echo "版本: ${BUILD_VERSION}"
+      echo "Commit: ${BUILDKITE_COMMIT:0:8}"
+      echo "构建: #${BUILDKITE_BUILD_NUMBER}"
+      echo "=========================================="
+
+      # 显示产物大小
+      echo ""
+      echo "产物大小:"
+      ls -lh *.tar.gz 2>/dev/null || echo "无产物包"
+    agents:
+      os: "macos"
+    artifact_paths:
+      - "output-final/**/*"
+      - "yuanrong-*.tar.gz"
+
+  # ========== 上传到华为云 OBS ==========
+
+  - label: ":cloud: 上传 OBS"
+    command: |
+      #!/bin/bash
+      set -e
+
+      echo "=========================================="
+      echo "  上传到华为云 OBS"
+      echo "=========================================="
+
+      # 检查环境变量
+      if [ -z "$OBS_ENDPOINT" ] || [ -z "$OBS_BUCKET" ]; then
+        echo "⚠️  OBS 配置缺失，跳过上传"
+        echo "   需要设置: OBS_ENDPOINT, OBS_BUCKET"
+        echo "   可选: OBS_ACCESS_KEY, OBS_SECRET_KEY"
+        exit 0
+      fi
+
+      # 短 Commit ID
+      COMMIT_SHORT="${BUILDKITE_COMMIT:0:8}"
+      TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+      OBS_UPLOAD_PATH="${OBS_PATH_PREFIX}/${BUILDKITE_BRANCH}/${TIMESTAMP}-${COMMIT_SHORT}"
+
+      echo "Bucket: ${OBS_BUCKET}"
+      echo "Endpoint: ${OBS_ENDPOINT}"
+      echo "上传路径: ${OBS_UPLOAD_PATH}"
+      echo ""
+
+      # 安装 AWS CLI (如果不存在)
+      if ! command -v aws &> /dev/null; then
+        echo "安装 AWS CLI..."
+        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip -q awscliv2.zip
+        sudo ./aws/install
+        rm -rf aws awscliv2.zip
+      fi
+
+      # 配置 AWS CLI (使用华为云 OBS 兼容模式)
+      AWS_SHARED_CREDENTIALS_FILE="/tmp/aws-credentials"
+      cat > "$AWS_SHARED_CREDENTIALS_FILE" << EOF
+[default]
+aws_access_key_id = ${OBS_ACCESS_KEY}
+aws_secret_access_key = ${OBS_SECRET_KEY}
+EOF
+
+      export AWS_SHARED_CREDENTIALS_FILE
+      export AWS_DEFAULT_REGION=auto
+
+      # 上传函数
+      upload_to_obs() {
+        local file="$1"
+        local remote_name="$2"
+
+        if [ ! -f "$file" ]; then
+          echo "⚠️  文件不存在: $file"
+          return
+        fi
+
+        local obs_path="s3://${OBS_BUCKET}/${OBS_UPLOAD_PATH}/${remote_name}"
+        echo "上传: $file -> $obs_path"
+
+        aws s3 cp "$file" "$obs_path" \
+          --endpoint-url="$OBS_ENDPOINT" \
+          --region=auto \
+          --acl=public-read
+
+        if [ $? -eq 0 ]; then
+          echo "✓ 上传成功"
+        else
+          echo "✗ 上传失败"
+        fi
+      }
+
+      # 上传构建产物
+      echo "=========================================="
+      echo "  开始上传"
+      echo "=========================================="
+
+      # 上传 Linux 包
+      upload_to_obs \
+        "yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz" \
+        "yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz"
+
+      upload_to_obs \
+        "yuanrong-latest-linux-arm64.tar.gz" \
+        "yuanrong-latest-linux-arm64.tar.gz"
+
+      # 上传 macOS 包
+      upload_to_obs \
+        "yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz" \
+        "yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz"
+
+      upload_to_obs \
+        "yuanrong-latest-macos-arm64.tar.gz" \
+        "yuanrong-latest-macos-arm64.tar.gz"
+
+      # 生成构建信息文件
+      cat > build-info-${COMMIT_SHORT}.json << EOF
+{
+  "version": "${BUILD_VERSION}",
+  "commit": {
+    "short": "${COMMIT_SHORT}",
+    "full": "${BUILDKITE_COMMIT}",
+    "message": $(echo "${BUILDKITE_MESSAGE}" | jq -Rs .),
+    "branch": "${BUILDKITE_BRANCH}",
+    "author": "${BUILDKITE_AUTHOR}"
+  },
+  "build": {
+    "id": "${BUILDKITE_BUILD_NUMBER}",
+    "url": "${BUILDKITE_BUILD_URL}",
+    "agent": "${BUILDKITE_AGENT_NAME}",
+    "timestamp": "${TIMESTAMP}"
+  },
+  "artifacts": {
+    "linux": "https://${OBS_BUCKET}.${OBS_ENDPOINT}/${OBS_UPLOAD_PATH}/yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz",
+    "macos": "https://${OBS_BUCKET}.${OBS_ENDPOINT}/${OBS_UPLOAD_PATH}/yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz"
+  }
+}
+EOF
+
+      upload_to_obs \
+        "build-info-${COMMIT_SHORT}.json" \
+        "build-info-${COMMIT_SHORT}.json"
+
+      echo ""
+      echo "=========================================="
+      echo "  上传完成!"
+      echo "=========================================="
+      echo "下载链接:"
+      echo "  Linux: https://${OBS_BUCKET}.${OBS_ENDPOINT}/${OBS_UPLOAD_PATH}/yuanrong-${BUILD_VERSION}-linux-arm64-${COMMIT_SHORT}.tar.gz"
+      echo "  macOS: https://${OBS_BUCKET}.${OBS_ENDPOINT}/${OBS_UPLOAD_PATH}/yuanrong-${BUILD_VERSION}-macos-arm64-${COMMIT_SHORT}.tar.gz"
+      echo ""
+      echo "构建信息: https://${OBS_BUCKET}.${OBS_ENDPOINT}/${OBS_UPLOAD_PATH}/build-info-${COMMIT_SHORT}.json"
+      echo "=========================================="
+    agents:
+      docker: "true"
+      arch: "arm64"
+    plugins:
+      - docker-compose#v5.0.0:
+          config: scripts/docker-compose.builder.yml
+          run: builder
+    retry:
+      automatic:
+        - limit: 2
+    timeout_in_minutes: 10
+
+  # ========== 构建摘要 ==========
+
+  - label: ":memo: 构建摘要"
+    command: |
+      #!/bin/bash
+      cat << EOF
+      ### YuanRong 双平台构建完成 :rocket:
+
+      | 项目 | 值 |
+      |------|-----|
+      | **构建** | #${BUILDKITE_BUILD_NUMBER} |
+      | **分支** | \`${BUILDKITE_BRANCH}\` |
+      | **提交** | \`${BUILDKITE_COMMIT:0:8}\` |
+      | **版本** | ${BUILD_VERSION} |
+      | **Agent** | ${BUILDKITE_AGENT_NAME} |
+      | **消息** | ${BUILDKITE_MESSAGE} |
+
+      #### 构建平台 :computer:
+
+      - ✅ Linux ARM64 (Docker 容器)
+      - ✅ macOS ARM64 (主机)
+
+      #### 产物列表 :package:
+
+      \`\`\`
+      $(ls -lh *.tar.gz 2>/dev/null | awk '{print $9, $5}')
+      \`\`\`
+
+      构建时间: $((BUILDKITE_BUILD_FINISHED_AT - BUILDKITE_BUILD_STARTED_AT)) 秒
+      EOF
+    agents:
+      os: "macos"

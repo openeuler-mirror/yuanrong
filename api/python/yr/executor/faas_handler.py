@@ -47,9 +47,9 @@ class FaasHandler(HandlerIntf):
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
 
     def before_snapshot(self) -> ErrorInfo:
-        """FaaS handler does not support snapshot; return success."""
+        """faas has no snapshot hook by default"""
         return ErrorInfo()
 
     def after_snapstart(self) -> ErrorInfo:
-        """FaaS handler does not support snapstart; return success."""
+        """faas has no snapstart hook by default"""
         return ErrorInfo()

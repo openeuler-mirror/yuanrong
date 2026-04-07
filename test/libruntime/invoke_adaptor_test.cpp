@@ -306,7 +306,8 @@ TEST_F(InvokeAdaptorTest, CallTest)
     req.add_args();
     auto arg2 = req.add_args();
     arg2->set_type(Arg_ArgType::Arg_ArgType_VALUE);
-    arg2->set_value("{\"schedulerFuncK{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\",\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
+    arg2->set_value("{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\","
+        "\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
 
     options.functionExecuteCallback = [](const FunctionMeta &function, const libruntime::InvokeType invokeType,
                                          const std::vector<std::shared_ptr<DataObject>> &rawArgs,
@@ -797,7 +798,8 @@ TEST_F(InvokeAdaptorTest, SignalHandlerTest)
     ASSERT_EQ(invokeAdaptor->metaMap.size() == 0, true);
 
     req.set_signal(libruntime::Signal::UpdateSchedulerHash);
-    req.set_payload("{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\",\"schedulerIDList\":null,\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
+    req.set_payload("{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\",\"schedulerIDList\":null,"
+        "\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
     response = invokeAdaptor->SignalHandler(req);
     ASSERT_EQ(response.code(), ::common::ErrorCode::ERR_NONE);
 
@@ -857,59 +859,6 @@ TEST_F(InvokeAdaptorTest, SignalHandlerTest)
     req.set_payload(serializedEventPayload);
     response = invokeAdaptor->SignalHandler(req);
     ASSERT_EQ(response.code(), ::common::ErrorCode::ERR_NONE);
-}
-
-TEST_F(InvokeAdaptorTest, SignalHandlerCancelWithPayloadTest)
-{
-    SignalRequest req;
-    req.set_signal(libruntime::Signal::Cancel);
-
-    req.set_payload("invalid json");
-    auto response1 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response1.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response1.message().empty());
-
-    req.set_payload("{\"requestId\":\"test-req-id\"}");  // 缺少 instanceId
-    auto response2 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response2.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response2.message().empty());
-
-    auto execMgr = std::make_shared<OrderedExecutionManager>(1, nullptr);
-    auto err = execMgr->DoInit(1);
-    ASSERT_EQ(err.OK(), true);
-    invokeAdaptor->execMgr = execMgr;
-
-    json cancelReqJson;
-    cancelReqJson["requestId"] = "test-req-id";
-    cancelReqJson["instanceId"] = "";
-    req.set_payload(cancelReqJson.dump());
-    auto response3 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response3.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response3.message().empty());
-
-    cancelReqJson["instanceId"] = "non-existent-instance-id";
-    req.set_payload(cancelReqJson.dump());
-    auto response4 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response4.code(), ::common::ErrorCode::ERR_PARAM_INVALID);
-    ASSERT_FALSE(response4.message().empty());
-
-    auto generalExecMgr = std::make_shared<GeneralExecutionManager>(1, nullptr);
-    err = generalExecMgr->DoInit(1);
-    ASSERT_EQ(err.OK(), true);
-    invokeAdaptor->execMgr = generalExecMgr;
-
-    cancelReqJson["requestId"] = "test-req-id-2";
-    cancelReqJson["instanceId"] = "test-instance-id";
-    req.set_payload(cancelReqJson.dump());
-    auto response5 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response5.code(), ::common::ErrorCode::ERR_NONE);
-
-    invokeAdaptor->execMgr = nullptr;
-    cancelReqJson["requestId"] = "test-req-id-3";
-    cancelReqJson["instanceId"] = "test-instance-id-2";
-    req.set_payload(cancelReqJson.dump());
-    auto response6 = invokeAdaptor->SignalHandler(req);
-    ASSERT_EQ(response6.code(), ::common::ErrorCode::ERR_NONE);
 }
 
 TEST_F(InvokeAdaptorTest, SignalHandlerCancelWithPayloadTest)

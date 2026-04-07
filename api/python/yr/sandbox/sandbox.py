@@ -23,6 +23,7 @@ import os
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
 import yr
+from yr.config_manager import ConfigManager
 
 if TYPE_CHECKING:
     from yr.config import PortForwarding
@@ -53,7 +54,9 @@ def _get_gateway_host() -> str:
     if host:
         return host
     addr = os.environ.get("YR_SERVER_ADDRESS", "").strip()
-    return addr
+    if addr:
+        return addr
+    return ConfigManager().server_address.strip()
 
 
 def _build_gateway_url(instance_id: str, sandbox_port: int, gateway_host: str, path: str = "") -> str:
@@ -89,9 +92,9 @@ def _print_gateway_urls(instance_id: str, port_forwardings: List["PortForwarding
 
 
 @yr.instance
-class SandBoxInstance:
+class SandboxInstance:
     """
-    SandBoxInstance class provides isolated environment for code execution.
+    SandboxInstance class provides isolated environment for code execution.
 
     This class creates a sandboxed environment where code can be executed
     with limited permissions and resource constraints.
@@ -213,6 +216,34 @@ class SandBoxInstance:
         """
         return os.environ.get("INSTANCE_ID", "")
 
+    def start_tunnel_server(self, ws_port: int = 8765, http_port: int = 8766) -> None:
+        """Start TunnelServer in a background thread within this sandbox instance."""
+        import asyncio
+        import threading
+        import time
+
+        from yr.sandbox.tunnel_server import TunnelServer
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            server = TunnelServer(ws_port=ws_port, http_port=http_port)
+            loop.run_until_complete(server.start())
+            loop.run_forever()
+
+        t = threading.Thread(target=_run, name="tunnel-server", daemon=True)
+        t.start()
+        # Wait until both ports are actually bound (up to 5s)
+        import socket as _socket
+        deadline = time.time() + 5.0
+        for port in (ws_port, http_port):
+            while time.time() < deadline:
+                try:
+                    _socket.create_connection(("127.0.0.1", port), timeout=0.1).close()
+                    break
+                except OSError:
+                    time.sleep(0.1)
+
     def __del__(self):
         """Destructor to ensure cleanup on object deletion."""
         self.cleanup()
@@ -222,53 +253,51 @@ def create(
     working_dir: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     port_forwardings: Optional[List["PortForwarding"]] = None,
+    upstream: Optional[str] = None,
+    proxy_port: int = 8766,
 ):
     """
     Create a new SandBox instance.
 
-    This is a convenience function to create a sandbox without using the class directly.
-
     Args:
-        working_dir (Optional[str]): The working directory for sandbox execution.
-            If None, a temporary directory will be created.
-        env (Optional[Dict[str, str]]): Environment variables for the sandbox.
-            If None, inherits from parent process.
-        port_forwardings (Optional[List[PortForwarding]]): Port forwarding rules.
-            If set, Gateway URLs will be printed after creation.
+        working_dir: Working directory for sandbox execution.
+        env: Environment variables for the sandbox.
+        port_forwardings: Additional port forwarding rules.
+        upstream: Local service address to tunnel to, e.g. "192.168.3.45:8000".
+            When set, starts a reverse tunnel so sandbox code can reach the
+            local service via http://127.0.0.1:{proxy_port}.
+        proxy_port: Port B — the HTTP proxy port inside the sandbox
+            (default 8766). Port A (WS tunnel) = proxy_port - 1.
 
     Returns:
         SandBox wrapper instance.
-
-    Examples:
-        >>> import yr
-        >>> yr.init()
-        >>>
-        >>> sandbox = yr.sandbox.create()
-        >>> result = yr.get(sandbox.exec("pwd"))
-        >>> print(result['stdout'])
-        >>>
-        >>> sandbox.terminate()
-        >>> yr.finalize()
     """
-    return SandBox(working_dir, env, port_forwardings)
+    return SandBox(working_dir, env, port_forwardings, upstream=upstream, proxy_port=proxy_port)
 
 
 class SandBox:
     """
     SandBox wrapper class for convenient sandbox operations.
 
-    This class wraps the SandBoxInstance to provide a simpler interface
-    for sandbox operations.
+    When upstream is provided, starts a reverse tunnel:
+    - Port B (proxy_port, loopback): sandbox code calls http://127.0.0.1:{proxy_port}
+    - Port A (proxy_port-1, 0.0.0.0): WebSocket tunnel endpoint registered with Traefik
 
     Examples:
         >>> import yr
         >>> yr.init()
         >>>
-        >>> sandbox = yr.sandbox.SandBox()
-        >>> result = yr.get(sandbox.exec("echo 'Hello from sandbox'"))
+        >>> # Basic sandbox
+        >>> sb = yr.sandbox.SandBox()
+        >>> result = yr.get(sb.exec("echo hello"))
         >>> print(result['stdout'])
         >>>
-        >>> sandbox.terminate()
+        >>> # Sandbox with reverse tunnel to local service
+        >>> sb = yr.sandbox.create(upstream="192.168.3.45:8000")
+        >>> url = sb.get_tunnel_url()   # "http://127.0.0.1:8766"
+        >>> result = yr.get(sb.exec(f"curl {url}/api/data"))
+        >>>
+        >>> sb.terminate()
         >>> yr.finalize()
     """
 
@@ -277,93 +306,81 @@ class SandBox:
         working_dir: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         port_forwardings: Optional[List["PortForwarding"]] = None,
+        upstream: Optional[str] = None,
+        proxy_port: int = 8766,
     ):
-        """
-        Initialize the SandBox wrapper.
+        self._proxy_port = proxy_port
+        self._tunnel_client = None
 
-        Args:
-            working_dir (Optional[str]): The working directory for sandbox execution.
-                If None, a temporary directory will be created.
-            env (Optional[Dict[str, str]]): Environment variables for the sandbox.
-                If None, inherits from parent process.
-            port_forwardings (Optional[List[PortForwarding]]): Port forwarding rules.
-                If set, Gateway URLs will be printed after creation.
-        """
-        # Create InvokeOptions with skip_serialize=True for cross-version compatibility
         opt = yr.InvokeOptions()
         opt.skip_serialize = True
-        if port_forwardings:
-            opt.port_forwardings = port_forwardings
-        self._instance = SandBoxInstance.options(opt).invoke(working_dir, env)
-        if port_forwardings:
+
+        if upstream is not None:
+            tunnel_port = proxy_port - 1
+            tunnel_pf = yr.PortForwarding(port=tunnel_port)
+            all_pf = (list(port_forwardings) if port_forwardings else []) + [tunnel_pf]
+            opt.port_forwardings = all_pf
+            self._instance = SandboxInstance.options(opt).invoke(working_dir, env)
+            if port_forwardings:
+                instance_id = yr.get(self._instance.get_name.invoke())
+                _print_gateway_urls(instance_id, port_forwardings)
+            # Start tunnel server inside sandbox as a background thread
+            yr.get(self._instance.start_tunnel_server.invoke(tunnel_port, proxy_port))
+            # Build WSS URL for tunnel Port A via Traefik
             instance_id = yr.get(self._instance.get_name.invoke())
-            _print_gateway_urls(instance_id, port_forwardings)
+            gateway_host = _get_gateway_host()
+            tunnel_url = _build_gateway_url(instance_id, tunnel_port, gateway_host)
+            tunnel_ws_url = tunnel_url.replace("https://", "wss://").replace("http://", "ws://")
+            # Start local TunnelClient in background thread
+            from yr.sandbox.tunnel_client import TunnelClient
+            self._tunnel_client = TunnelClient(upstream)
+            self._tunnel_client.start(tunnel_ws_url)
+        else:
+            if port_forwardings:
+                opt.port_forwardings = port_forwardings
+            self._instance = SandboxInstance.options(opt).invoke(working_dir, env)
+            if port_forwardings:
+                instance_id = yr.get(self._instance.get_name.invoke())
+                _print_gateway_urls(instance_id, port_forwardings)
 
     def exec(self, command: str, timeout: Optional[int] = None):
-        """
-        Execute a command in the sandbox environment.
-
-        Args:
-            command (str): The command to execute.
-            timeout (Optional[int]): Timeout in seconds for command execution.
-                If None, no timeout is set.
-
-        Returns:
-            ObjectRef: Reference to the execution result that needs to be unwrapped with yr.get().
-                The result is a dictionary containing:
-                - returncode (int): The return code of the command.
-                - stdout (str): Standard output of the command.
-                - stderr (str): Standard error of the command.
-
-        Examples:
-            >>> sandbox = yr.sandbox.SandBox()
-            >>> result_ref = sandbox.exec("ls -la")
-            >>> result = yr.get(result_ref)
-            >>> print(result['stdout'])
-        """
+        """Execute a command in the sandbox. Returns ObjectRef; unwrap with yr.get()."""
         return self._instance.execute.invoke(command, timeout)
 
     def get_working_dir(self):
-        """
-        Get the working directory of the sandbox.
-
-        Returns:
-            ObjectRef: Reference to the working directory path.
-        """
+        """Get the working directory of the sandbox."""
         return self._instance.get_working_dir.invoke()
 
     def cleanup(self):
-        """
-        Cleanup the sandbox environment.
-
-        Returns:
-            ObjectRef: Reference to the cleanup result.
-        """
+        """Cleanup temp files in the sandbox."""
         return self._instance.cleanup.invoke()
 
     def terminate(self):
-        """
-        Terminate the sandbox instance.
-
-        This will cleanup resources and terminate the remote instance.
-        """
+        """Stop tunnel client (if any) and terminate the sandbox instance."""
+        if self._tunnel_client is not None:
+            self._tunnel_client.stop()
+            self._tunnel_client = None
         self._instance.terminate()
 
     def __del__(self):
-        """
-        Destructor to ensure cleanup and termination on object deletion.
-
-        Automatically calls cleanup() and terminate() when the SandBox object is deleted.
-        """
         try:
             if hasattr(self, "_instance") and self._instance is not None:
-                # Call cleanup first
                 yr.get(self.cleanup())
-                # Then terminate the instance
                 self.terminate()
         except Exception:
-            # Silently catch exceptions during cleanup to avoid errors in destructor
             pass
+
+    def get_tunnel_url(self) -> str:
+        """Return the internal HTTP proxy URL for sandbox code to call.
+
+        Returns:
+            str: e.g. "http://127.0.0.1:8766"
+        Raises:
+            RuntimeError: if no upstream was configured.
+        """
+        if self._tunnel_client is None:
+            raise RuntimeError("No upstream configured. Pass upstream= to create().")
+        return f"http://127.0.0.1:{self._proxy_port}"
 
 
 def main():
@@ -396,7 +413,7 @@ def main():
             import uuid
             opt.name = str(uuid.uuid4())
 
-        sandbox = SandBoxInstance.options(opt).invoke()
+        sandbox = SandboxInstance.options(opt).invoke()
         try:
             name = yr.get(sandbox.get_name.invoke())
             print(f"sandbox created, instance_name={name}")

@@ -78,16 +78,16 @@ func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte, 
 	return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
 }
 
-func (l *libruntimeSDKImpl) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
-	return clibruntime.CreateInstanceRaw(createReqRaw)
+func (l *libruntimeSDKImpl) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return clibruntime.CreateInstanceRaw(createReqRaw, option)
 }
 
-func (l *libruntimeSDKImpl) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
-	return clibruntime.InvokeByInstanceIdRaw(invokeReqRaw)
+func (l *libruntimeSDKImpl) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return clibruntime.InvokeByInstanceIdRaw(invokeReqRaw, option)
 }
 
-func (l *libruntimeSDKImpl) KillRaw(killReqRaw []byte) ([]byte, error) {
-	return clibruntime.KillRaw(killReqRaw)
+func (l *libruntimeSDKImpl) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return clibruntime.KillRaw(killReqRaw, option)
 }
 
 func (l *libruntimeSDKImpl) SaveState(state []byte) (string, error) {

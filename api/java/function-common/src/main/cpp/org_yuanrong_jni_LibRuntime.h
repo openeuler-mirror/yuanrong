@@ -39,6 +39,7 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_Init(JNIEnv *, jclass
  * Method:    CreateInstance
  * Signature:
  * (Lorg/yuanrong/libruntime/generated/Libruntime$FunctionMeta;Ljava/util/List;Lorg/yuanrong/InvokeOptions;)Lorg/yuanrong/errorcode/Pair;
+
  */
 JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_CreateInstance(JNIEnv *, jclass, jobject, jobject,
                                                                                  jobject);
@@ -48,6 +49,7 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_CreateInstance(JNIEnv
  * Method:    InvokeInstance
  * Signature:
  * (Lorg/yuanrong/libruntime/generated/Libruntime$FunctionMeta;Ljava/lang/String;Ljava/util/List;Lorg/yuanrong/InvokeOptions;)Lorg/yuanrong/errorcode/Pair;
+
  */
 JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_InvokeInstance(JNIEnv *, jclass, jobject, jstring,
                                                                                  jobject, jobject);
@@ -115,6 +117,20 @@ JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_FinalizeWithCtx(JNIEnv *
  * Signature: ()V
  */
 JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_Finalize(JNIEnv *, jclass);
+
+/*
+ * Class:     org_yuanrong_jni_LibRuntime
+ * Method:    NeedReInit
+ * Signature: ()Z
+ */
+JNIEXPORT jboolean JNICALL Java_org_yuanrong_jni_LibRuntime_NeedReInit(JNIEnv *, jclass);
+
+/*
+ * Class:     org_yuanrong_jni_LibRuntime
+ * Method:    ReInit
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_ReInit(JNIEnv *, jclass);
 
 /*
  * Class:     org_yuanrong_jni_LibRuntime

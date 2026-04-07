@@ -335,6 +335,20 @@ class LocalModeRuntime(Runtime, ABC):
         """
         raise RuntimeError("not support in local mode")
 
+    def need_reinit(self) -> bool:
+        """
+        Check if re-initialization is needed after checkpoint restore.
+        :return: always False in local mode
+        """
+        return False
+
+    def reinit(self) -> None:
+        """
+        Perform re-initialization after checkpoint restore.
+        :return: None
+        """
+        raise RuntimeError("not support in local mode")
+
     def finalize(self) -> None:
         """
         finalize

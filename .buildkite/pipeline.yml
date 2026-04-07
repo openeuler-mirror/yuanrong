@@ -1,62 +1,30 @@
-# Buildkite Pipeline - 修复路径检测
+# Buildkite Pipeline - K8s Native
 
 env:
   BUILD_ARCH: "${BUILD_ARCH:-amd64}"
   BUILDER_IMAGE: "${BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-${BUILD_ARCH:-amd64}}"
 
 steps:
-  - label: ":linux: K8s 原生构建 Frontend"
+  - label: ":linux: K8s 原生构建"
     command: |
       set -e
-      echo "=== 容器内调试信息 ==="
-      echo "工作目录: \$(pwd)"
-      ls -la | head -20
-
-      if [ -f "Makefile" ]; then
-        echo "✓ Makefile 存在"
-      else
-        echo "❌ Makefile 不存在"
-        exit 1
-      fi
-
-      # 加载构建工具环境 (如果存在)
-      [ -f "/etc/profile.d/buildtools.sh" ] && source /etc/profile.d/buildtools.sh
-
+      echo "=== 环境初始化 ==="
+      [ -f "/etc/profile.d/buildtools.sh" ] && . /etc/profile.d/buildtools.sh
+      
       echo "=== 环境信息 ==="
       go version || echo "go not found"
-
-      echo "=== 开始构建 frontend ==="
-      make frontend
-
-      echo ""
-      echo "=== 构建产物 ==="
-      ls -lah output/ 2>/dev/null || echo "无 output 目录"
-
+      
+      echo "=== 加载动态流水线 ==="
+      buildkite-agent pipeline upload .buildkite/pipeline.dynamic.yml
     plugins:
-      - kubernetes#v0.12.0:
+      - kubernetes:
           podSpec:
             containers:
-              - image: "${BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-amd64}"
+              - image: "${BUILDER_IMAGE}"
                 env:
                   - name: GO111MODULE
                     value: "on"
-                  - name: CGO_ENABLED
-                    value: "1"
                   - name: GOPROXY
                     value: "https://goproxy.cn,direct"
     agents:
-      queue: "${BUILD_QUEUE:-default}"
-    timeout_in_minutes: 30
-
-  - label: ":memo: 摘要"
-    command: |
-      echo "### 构建完成"
-      echo ""
-      echo "| 项目 | 值 |"
-      echo "|------|-----|"
-      echo "| **镜像** | ${BUILDER_IMAGE} |"
-      echo "| **提交** | ${BUILDKITE_COMMIT:0:8} |"
-    agents:
-      os: "${BUILD_OS:-linux}"
-      arch: "${BUILD_ARCH:-amd64}"
       queue: "${BUILD_QUEUE:-default}"

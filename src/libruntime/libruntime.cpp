@@ -56,6 +56,26 @@ thread_local std::string threadLocalTraceId;
 thread_local std::string threadLocalRequestId;
 thread_local std::string threadLocalInstanceId;
 
+namespace {
+ErrorInfo MakeStateStoreNotInitializedError()
+{
+    return ErrorInfo(ErrorCode::ERR_DATASYSTEM_FAILED, ModuleCode::DATASYSTEM, "StateStore is not initialized");
+}
+
+// Use std::atomic_load to prevent the compiler from optimizing away the null check
+// and to ensure a happens-before relationship with Finalize()'s std::atomic_store.
+std::shared_ptr<StateStore> GetRequiredStateStore(DatasystemClients &clients, ErrorInfo &err)
+{
+    auto stateStore = std::atomic_load(&clients.dsStateStore);
+    if (!stateStore) {
+        err = MakeStateStoreNotInitializedError();
+        return nullptr;
+    }
+    err = ErrorInfo();
+    return stateStore;
+}
+}  // namespace
+
 Libruntime::Libruntime(std::shared_ptr<LibruntimeConfig> librtCfg, std::shared_ptr<ClientsManager> clientsMgr,
                        std::shared_ptr<MetricsAdaptor> metricsAdaptor, std::shared_ptr<Security> security,
                        std::shared_ptr<DomainSocketClient> socketClient)
@@ -72,6 +92,10 @@ Libruntime::Libruntime(std::shared_ptr<LibruntimeConfig> librtCfg, std::shared_p
 ErrorInfo Libruntime::Init(std::shared_ptr<FSClient> fsClient, YR::Libruntime::DatasystemClients &datasystemClients,
                            FinalizeCallback cb)
 {
+    if (config->inCluster && datasystemClients.dsObjectStore == nullptr) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                         "Init datasystemClients.dsObjectStore is nullptr!");
+    }
     this->runtimeContext = std::make_shared<RuntimeContext>(config->jobId);
     this->dispatcherThread_ = std::make_shared<ThreadPool>();
     this->dispatcherThread_->Init(NUM_DISPATCHER, config->jobId + "." + DISPATCHER);
@@ -122,6 +146,11 @@ void Libruntime::ReceiveRequestLoop(void)
 {
     invokeAdaptor->ReceiveRequestLoop();
     YRLOG_INFO("Request loop exited");
+}
+
+bool Libruntime::NeedReInit() const
+{
+    return invokeAdaptor ? invokeAdaptor->NeedReInit() : false;
 }
 
 std::string Libruntime::GetServerVersion()
@@ -663,19 +692,34 @@ void Libruntime::AddGeneratorReceiver(std::shared_ptr<InvokeSpec> spec)
     }
 }
 
+void Libruntime::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    this->invokeAdaptor->CreateInstanceRaw(reqRaw, traceParent, cb);
+}
+
 void Libruntime::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
-    this->invokeAdaptor->CreateInstanceRaw(reqRaw, cb);
+    CreateInstanceRaw(reqRaw, "", cb);
+}
+
+void Libruntime::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    this->invokeAdaptor->InvokeByInstanceIdRaw(reqRaw, traceParent, cb);
 }
 
 void Libruntime::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
-    this->invokeAdaptor->InvokeByInstanceIdRaw(reqRaw, cb);
+    InvokeByInstanceIdRaw(reqRaw, "", cb);
+}
+
+void Libruntime::KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    this->invokeAdaptor->KillRaw(reqRaw, traceParent, cb);
 }
 
 void Libruntime::KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
-    this->invokeAdaptor->KillRaw(reqRaw, cb);
+    KillRaw(reqRaw, "", cb);
 }
 
 std::pair<ErrorInfo, std::string> Libruntime::Put(std::shared_ptr<DataObject> dataobj,
@@ -716,11 +760,12 @@ ErrorInfo Libruntime::Put(std::shared_ptr<Buffer> data, const std::string &objID
 ErrorInfo Libruntime::PutRaw(const std::string &objId, std::shared_ptr<Buffer> data,
                              const std::unordered_set<std::string> &nestedId, const CreateParam &createParam)
 {
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "PutRaw dsClients.dsObjectStore is nullptr!");
     }
     SetTraceId();
-    return dsClients.dsObjectStore->Put(data, objId, nestedId, createParam);
+    return objStore->Put(data, objId, nestedId, createParam);
 }
 
 ErrorInfo Libruntime::IncreaseReference(const std::vector<std::string> &objIds, bool toDatasystem)
@@ -741,11 +786,12 @@ ErrorInfo Libruntime::IncreaseReferenceRaw(const std::vector<std::string> &objId
     if (objIds.empty()) {
         return ErrorInfo();
     }
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "IncreaseReferenceRaw dsObjectStore is nullptr!");
     }
     SetTraceId();
-    return dsClients.dsObjectStore->IncreGlobalReference(objIds);
+    return objStore->IncreGlobalReference(objIds);
 }
 
 std::pair<ErrorInfo, std::vector<std::string>> Libruntime::IncreaseReferenceRaw(const std::vector<std::string> &objIds,
@@ -754,13 +800,14 @@ std::pair<ErrorInfo, std::vector<std::string>> Libruntime::IncreaseReferenceRaw(
     if (objIds.empty()) {
         return std::make_pair(ErrorInfo(), std::vector<std::string>());
     }
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         return std::make_pair(
             ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "IncreaseReferenceRaw dsObjectStore is nullptr!"),
             std::vector<std::string>());
     }
     SetTraceId();
-    return dsClients.dsObjectStore->IncreGlobalReference(objIds, remoteId);
+    return objStore->IncreGlobalReference(objIds, remoteId);
 }
 
 void Libruntime::DecreaseReference(const std::vector<std::string> &objIds)
@@ -790,12 +837,13 @@ void Libruntime::DecreaseReferenceRaw(const std::vector<std::string> &objIds)
     if (objIds.empty()) {
         return;
     }
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         YRLOG_ERROR("DecreaseReferenceRaw dsObjectStore is nullptr!");
         return;
     }
     SetTraceId();
-    ErrorInfo err = dsClients.dsObjectStore->DecreGlobalReference(objIds);
+    ErrorInfo err = objStore->DecreGlobalReference(objIds);
     if (err.Code() != ErrorCode::ERR_OK) {
         YRLOG_ERROR("ErrCode: {}, ModuleCode: {}, ErrMsg: {}", fmt::underlying(err.Code()),
                     fmt::underlying(err.MCode()), err.Msg());
@@ -809,13 +857,14 @@ std::pair<ErrorInfo, std::vector<std::string>> Libruntime::DecreaseReferenceRaw(
     if (objIds.empty()) {
         return std::make_pair(ErrorInfo(), std::vector<std::string>());
     }
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         return std::make_pair(
             ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DecreaseReferenceRaw dsObjectStore is nullptr!"),
             std::vector<std::string>());
     }
     SetTraceId();
-    return dsClients.dsObjectStore->DecreGlobalReference(objIds, remoteId);
+    return objStore->DecreGlobalReference(objIds, remoteId);
 }
 
 // timeout < 0 : wait without timeout
@@ -926,12 +975,13 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<DataObject>>> Libruntime::Get(c
 std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> Libruntime::GetRaw(const std::vector<std::string> &ids,
                                                                               int timeoutMs, bool allowPartial)
 {
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         return std::make_pair(ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "GetRaw dsObjectStore is nullptr!"),
                               std::vector<std::shared_ptr<Buffer>>());
     }
     SetTraceId();
-    MultipleResult res = dsClients.dsObjectStore->Get(ids, timeoutMs);
+    MultipleResult res = objStore->Get(ids, timeoutMs);
     return MakeGetResult(res, ids, timeoutMs, allowPartial);
 }
 
@@ -1135,145 +1185,214 @@ std::pair<ErrorInfo, std::vector<std::shared_ptr<DataObject>>> Libruntime::GetDa
 ErrorInfo Libruntime::KVWrite(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam)
 {
     SetTraceId();
-    return dsClients.dsStateStore->Write(key, value, setParam);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return err;
+    }
+    return stateStore->Write(key, value, setParam);
 }
 
 ErrorInfo Libruntime::KVMSetTx(const std::vector<std::string> &keys, const std::vector<std::shared_ptr<Buffer>> &vals,
                                const MSetParam &mSetParam)
 {
     SetTraceId();
-    return dsClients.dsStateStore->MSetTx(keys, vals, mSetParam);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return err;
+    }
+    return stateStore->MSetTx(keys, vals, mSetParam);
 }
 
 SingleReadResult Libruntime::KVRead(const std::string &key, int timeoutMS)
 {
     SetTraceId();
-    return dsClients.dsStateStore->Read(key, timeoutMS);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return std::make_pair(nullptr, err);
+    }
+    return stateStore->Read(key, timeoutMS);
 }
 
 MultipleReadResult Libruntime::KVRead(const std::vector<std::string> &keys, int timeoutMS, bool allowPartial)
 {
     SetTraceId();
-    return dsClients.dsStateStore->Read(keys, timeoutMS, allowPartial);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return std::make_pair(std::vector<std::shared_ptr<Buffer>>{}, err);
+    }
+    return stateStore->Read(keys, timeoutMS, allowPartial);
 }
 
 MultipleReadResult Libruntime::KVGetWithParam(const std::vector<std::string> &keys, const GetParams &params,
                                               int timeoutMs)
 {
     SetTraceId();
-    return dsClients.dsStateStore->GetWithParam(keys, params, timeoutMs);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return std::make_pair(std::vector<std::shared_ptr<Buffer>>{}, err);
+    }
+    return stateStore->GetWithParam(keys, params, timeoutMs);
 }
 
 ErrorInfo Libruntime::KVDel(const std::string &key)
 {
     SetTraceId();
-    return dsClients.dsStateStore->Del(key);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return err;
+    }
+    return stateStore->Del(key);
 }
 
 MultipleDelResult Libruntime::KVDel(const std::vector<std::string> &keys)
 {
     SetTraceId();
-    return dsClients.dsStateStore->Del(keys);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return std::make_pair(std::vector<std::string>{}, err);
+    }
+    return stateStore->Del(keys);
 }
 
 MultipleExistResult Libruntime::KVExist(const std::vector<std::string> &keys)
 {
-    return dsClients.dsStateStore->Exist(keys);
+    ErrorInfo err;
+    auto stateStore = GetRequiredStateStore(dsClients, err);
+    if (stateStore == nullptr) {
+        return std::make_pair(std::vector<bool>{}, err);
+    }
+    return stateStore->Exist(keys);
 }
 
 ErrorInfo Libruntime::DevDelete(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
 {
     SetTraceId();
-    return dsClients.dsHeteroStore->DevDelete(objectIds, failedObjectIds);
+    auto heteroStore = std::atomic_load(&dsClients.dsHeteroStore);
+    if (!heteroStore) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DevDelete dsHeteroStore is nullptr!");
+    }
+    return heteroStore->DevDelete(objectIds, failedObjectIds);
 }
 
 ErrorInfo Libruntime::DevLocalDelete(const std::vector<std::string> &objectIds,
                                      std::vector<std::string> &failedObjectIds)
 {
     SetTraceId();
-    return dsClients.dsHeteroStore->DevLocalDelete(objectIds, failedObjectIds);
+    auto heteroStore = std::atomic_load(&dsClients.dsHeteroStore);
+    if (!heteroStore) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DevLocalDelete dsHeteroStore is nullptr!");
+    }
+    return heteroStore->DevLocalDelete(objectIds, failedObjectIds);
 }
 
 ErrorInfo Libruntime::DevSubscribe(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                                    std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec)
 {
     SetTraceId();
-    return dsClients.dsHeteroStore->DevSubscribe(keys, blob2dList, futureVec);
+    auto heteroStore = std::atomic_load(&dsClients.dsHeteroStore);
+    if (!heteroStore) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DevSubscribe dsHeteroStore is nullptr!");
+    }
+    return heteroStore->DevSubscribe(keys, blob2dList, futureVec);
 }
 
 ErrorInfo Libruntime::DevPublish(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                                  std::vector<std::shared_ptr<YR::Libruntime::HeteroFuture>> &futureVec)
 {
     SetTraceId();
-    return dsClients.dsHeteroStore->DevPublish(keys, blob2dList, futureVec);
+    auto heteroStore = std::atomic_load(&dsClients.dsHeteroStore);
+    if (!heteroStore) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DevPublish dsHeteroStore is nullptr!");
+    }
+    return heteroStore->DevPublish(keys, blob2dList, futureVec);
 }
 
 ErrorInfo Libruntime::DevMSet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                               std::vector<std::string> &failedKeys)
 {
     SetTraceId();
-    return dsClients.dsHeteroStore->DevMSet(keys, blob2dList, failedKeys);
+    auto heteroStore = std::atomic_load(&dsClients.dsHeteroStore);
+    if (!heteroStore) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DevMSet dsHeteroStore is nullptr!");
+    }
+    return heteroStore->DevMSet(keys, blob2dList, failedKeys);
 }
 
 ErrorInfo Libruntime::DevMGet(const std::vector<std::string> &keys, const std::vector<DeviceBlobList> &blob2dList,
                               std::vector<std::string> &failedKeys, int32_t timeoutSec)
 {
     SetTraceId();
-    return dsClients.dsHeteroStore->DevMGet(keys, blob2dList, failedKeys, timeoutSec * S_TO_MS);
+    auto heteroStore = std::atomic_load(&dsClients.dsHeteroStore);
+    if (!heteroStore) {
+        return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, "DevMGet dsHeteroStore is nullptr!");
+    }
+    return heteroStore->DevMGet(keys, blob2dList, failedKeys, timeoutSec * S_TO_MS);
 }
 
 ErrorInfo Libruntime::CreateStreamProducer(const std::string &streamName, ProducerConf producerConf,
                                            std::shared_ptr<StreamProducer> &producer)
 {
     producer = std::make_shared<StreamProducer>();
-    if (dsClients.dsStreamStore == nullptr) {
+    auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+    if (!streamStore) {
         return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                          "the datasystem stream store is empty, outcluster operations are not supported by now");
     }
     SetTraceId(producerConf.traceId);
-    return dsClients.dsStreamStore->CreateStreamProducer(streamName, producer, producerConf);
+    return streamStore->CreateStreamProducer(streamName, producer, producerConf);
 }
 
 ErrorInfo Libruntime::CreateStreamConsumer(const std::string &streamName, const SubscriptionConfig &config,
                                            std::shared_ptr<StreamConsumer> &consumer, bool autoAck)
 {
     consumer = std::make_shared<StreamConsumer>();
-    if (dsClients.dsStreamStore == nullptr) {
+    auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+    if (!streamStore) {
         return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                          "the datasystem stream store is empty, outcluster operations are not supported by now");
     }
     SetTraceId(config.traceId);
-    return dsClients.dsStreamStore->CreateStreamConsumer(streamName, config, consumer, autoAck);
+    return streamStore->CreateStreamConsumer(streamName, config, consumer, autoAck);
 }
 
 ErrorInfo Libruntime::DeleteStream(const std::string &streamName)
 {
-    if (dsClients.dsStreamStore == nullptr) {
+    auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+    if (!streamStore) {
         return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                          "the datasystem stream store is empty, outcluster operations are not supported by now");
     }
     SetTraceId();
-    return dsClients.dsStreamStore->DeleteStream(streamName);
+    return streamStore->DeleteStream(streamName);
 }
 
 ErrorInfo Libruntime::QueryGlobalProducersNum(const std::string &streamName, uint64_t &gProducerNum)
 {
-    if (dsClients.dsStreamStore == nullptr) {
+    auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+    if (!streamStore) {
         return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                          "the datasystem stream store is empty, outcluster operations are not supported by now");
     }
     SetTraceId();
-    return dsClients.dsStreamStore->QueryGlobalProducersNum(streamName, gProducerNum);
+    return streamStore->QueryGlobalProducersNum(streamName, gProducerNum);
 }
 
 ErrorInfo Libruntime::QueryGlobalConsumersNum(const std::string &streamName, uint64_t &gConsumerNum)
 {
-    if (dsClients.dsStreamStore == nullptr) {
+    auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+    if (!streamStore) {
         return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                          "the datasystem stream store is empty, outcluster operations are not supported by now");
     }
     SetTraceId();
-    return dsClients.dsStreamStore->QueryGlobalConsumersNum(streamName, gConsumerNum);
+    return streamStore->QueryGlobalConsumersNum(streamName, gConsumerNum);
 }
 
 std::string Libruntime::GetInvokingRequestId(void)
@@ -1395,7 +1514,14 @@ std::pair<ErrorInfo, std::string> Libruntime::Snapstart(const std::string &check
                          "Snapstart response contains empty instanceID"), ""};
     }
 
-    YRLOG_DEBUG("Snapstart succeeded, new instanceID: {}", newInstanceId);
+    // Register the new instance in InvokeOrderManager so that subsequent invokes
+    // can get proper sequence numbers for ordered execution
+    if (invokeAdaptor != nullptr) {
+        invokeAdaptor->RegisterInstanceAndUpdateOrder(newInstanceId, true);
+        YRLOG_INFO("Registered new instance {} in InvokeOrderManager after snapstart", newInstanceId);
+    }
+
+    YRLOG_INFO("Snapstart succeeded, new instanceID: {}", newInstanceId);
     return {ErrorInfo(), newInstanceId};
 }
 
@@ -1412,17 +1538,18 @@ void Libruntime::Finalize(bool isDriver)
         driverLogReceiver_.reset();
     }
     if (memStore) {
-        memStore->Clear();
+        try {
+            memStore->Clear();
+        } catch (const std::exception& e) {
+            YRLOG_ERROR("Error during MemoryStore::Clear: {}", e.what());
+        } catch (...) {
+            YRLOG_ERROR("Unknown error during MemoryStore::Clear");
+        }
     }
-    if (dsClients.dsObjectStore != nullptr) {
-        dsClients.dsObjectStore.reset();
-    }
-    if (dsClients.dsStateStore != nullptr) {
-        dsClients.dsStateStore.reset();
-    }
-    if (dsClients.dsStreamStore != nullptr) {
-        dsClients.dsStreamStore.reset();
-    }
+    std::atomic_store(&dsClients.dsObjectStore, std::shared_ptr<ObjectStore>{});
+    std::atomic_store(&dsClients.dsStateStore, std::shared_ptr<StateStore>{});
+    std::atomic_store(&dsClients.dsStreamStore, std::shared_ptr<StreamStore>{});
+    std::atomic_store(&dsClients.dsHeteroStore, std::shared_ptr<HeteroStore>{});
     if (invokeAdaptor != nullptr) {
         invokeAdaptor->Finalize(isDriver);
     }
@@ -1432,15 +1559,103 @@ void Libruntime::Finalize(bool isDriver)
             YRLOG_ERROR("failed to release http client, message({})", err.Msg());
         }
     } else {
+#ifdef ENABLE_DATASYSTEM
         auto err = clientsMgr->ReleaseDsClient(config->dataSystemIpAddr, config->dataSystemPort);
         if (!err.OK()) {
             YRLOG_ERROR("failed to release data system client, message({})", err.Msg());
         }
+#endif  // ENABLE_DATASYSTEM
     }
     // If there are service requirements, the plaintext authentication credential can be stored in the memory. However,
     // the plaintext authentication credential needs to be cleared when an abnormal branch or exit is complete.
     config->ClearPaaswd();
     security_->ClearPrivateKey();
+}
+
+void Libruntime::ReInit()
+{
+    YRLOG_INFO("Libruntime::ReInit - start");
+
+#ifdef ENABLE_DATASYSTEM
+    // Save old datasystem address before updating config
+    std::string oldDsIpAddr = config->dataSystemIpAddr;
+    int oldDsPort = config->dataSystemPort;
+#endif  // ENABLE_DATASYSTEM
+
+    // Update config from new environment variables
+    std::string dsAddr = Config::Instance().DATASYSTEM_ADDR();
+    if (!dsAddr.empty() && dsAddr != "0.0.0.0:0") {
+        size_t colonPos = dsAddr.find(':');
+        if (colonPos != std::string::npos) {
+            config->dataSystemIpAddr = dsAddr.substr(0, colonPos);
+            config->dataSystemPort = std::stoi(dsAddr.substr(colonPos + 1));
+            YRLOG_INFO("Updated datasystem address from env: {}:{}", config->dataSystemIpAddr, config->dataSystemPort);
+        }
+    }
+
+#ifdef ENABLE_DATASYSTEM
+    // Reinitialize dsClients
+    if (config->inCluster) {
+        // First, release the old dsClients using OLD address to ensure we get fresh connections
+        if (std::atomic_load(&dsClients.dsObjectStore) || std::atomic_load(&dsClients.dsStateStore) ||
+            std::atomic_load(&dsClients.dsStreamStore) || std::atomic_load(&dsClients.dsHeteroStore)) {
+            auto err = clientsMgr->ReleaseDsClient(oldDsIpAddr, oldDsPort);
+            if (!err.OK()) {
+                YRLOG_WARN("Failed to release old dsClients ({}:{}): {}", oldDsIpAddr, oldDsPort, err.Msg());
+            } else {
+                YRLOG_INFO("Released old dsClients ({}:{})", oldDsIpAddr, oldDsPort);
+            }
+        }
+
+        std::string ak = "";
+        SensitiveValue sk = "";
+        security_->GetAKSK(ak, sk);
+        auto [newDsClients, err] = clientsMgr->GetOrNewDsClient(config, ak, sk, Config::Instance().DS_CONNECT_TIMEOUT_SEC());
+        if (err.OK()) {
+            std::atomic_store(&dsClients.dsObjectStore, newDsClients.dsObjectStore);
+            std::atomic_store(&dsClients.dsStateStore, newDsClients.dsStateStore);
+            std::atomic_store(&dsClients.dsStreamStore, newDsClients.dsStreamStore);
+            std::atomic_store(&dsClients.dsHeteroStore, newDsClients.dsHeteroStore);
+            YRLOG_INFO("dsClients reinitialized successfully (new address: {}:{})", config->dataSystemIpAddr, config->dataSystemPort);
+        } else {
+            YRLOG_ERROR("failed to reinitialize dsClients, message({})", err.Msg());
+        }
+    }
+
+    // Reinitialize generatorNotifier_
+    {
+        auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+        if (streamStore) {
+            auto mapper = std::make_shared<GeneratorIdMap>();
+            generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(streamStore, mapper);
+        }
+    }
+
+    // Reinitialize generatorReceiver_
+    {
+        auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+        if (streamStore && memStore) {
+            generatorReceiver_ = std::make_shared<StreamGeneratorReceiver>(config, streamStore, memStore);
+            generatorReceiver_->Initialize();
+        }
+    }
+
+    // Reinitialize driverLogReceiver_
+    {
+        auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+        if (config->logToDriver && streamStore) {
+            driverLogReceiver_ = std::make_shared<DriverLogReceiver>();
+            driverLogReceiver_->Init(streamStore, config->jobId, config->dedupLogs);
+        }
+    }
+#endif  // ENABLE_DATASYSTEM
+
+    // Reinitialize invokeAdaptor
+    if (invokeAdaptor) {
+        invokeAdaptor->ReInit();
+    }
+
+    
 }
 
 void Libruntime::WaitAsync(const std::string &objectId, WaitAsyncCallback callback, void *userData)
@@ -1559,6 +1774,7 @@ ErrorInfo Libruntime::CreateStateStore(const DsConnectOptions &opts, std::shared
 
 ErrorInfo Libruntime::SetTraceId(const std::string &traceId)
 {
+#ifdef ENABLE_DATASYSTEM
     datasystem::Status rc;
     if (!traceId.empty()) {
         rc = datasystem::Context::SetTraceId(traceId);
@@ -1570,6 +1786,12 @@ ErrorInfo Libruntime::SetTraceId(const std::string &traceId)
                          rc.ToString());
     }
     return ErrorInfo();
+#else  // ENABLE_DATASYSTEM
+    // Trace ID setting through datasystem is not supported without datasystem
+    (void)traceId;
+    (void)threadLocalTraceId;
+    return ErrorInfo();
+#endif  // ENABLE_DATASYSTEM
 }
 
 ErrorInfo Libruntime::SetTenantId(const std::string &tenantId, bool isReturnErrWhenTenantIDEmpty)
@@ -1582,12 +1804,13 @@ ErrorInfo Libruntime::SetTenantId(const std::string &tenantId, bool isReturnErrW
         YRLOG_ERROR("failed to set tenantId, err: {}", msg);
         return ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, YR::Libruntime::ModuleCode::RUNTIME, msg);
     }
-    if (!dsClients.dsObjectStore) {
+    auto objStore = std::atomic_load(&dsClients.dsObjectStore);
+    if (!objStore) {
         return ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                          "failed to set tenantId, err: datasystem client is empty, please check whether runtime is "
                          "initialized or exiting gracefully.");
     }
-    this->dsClients.dsObjectStore->SetTenantId(tenantId);
+    objStore->SetTenantId(tenantId);
     this->config->tenantId = tenantId;
     YRLOG_DEBUG("succeed to set tenant id, tenant id is {}", tenantId);
     return ErrorInfo();
@@ -1995,10 +2218,15 @@ bool Libruntime::IsHealth()
 
 bool Libruntime::IsDsHealth()
 {
-    if (!dsClients.dsStreamStore && !dsClients.dsStateStore) {
+    auto streamStore = std::atomic_load(&dsClients.dsStreamStore);
+    auto stateStore = std::atomic_load(&dsClients.dsStateStore);
+    if (!streamStore && !stateStore) {
         return true;
     }
-    auto err = dsClients.dsStateStore->HealthCheck();
+    if (!stateStore) {
+        return false;
+    }
+    auto err = stateStore->HealthCheck();
     if (err.OK()) {
         return true;
     }

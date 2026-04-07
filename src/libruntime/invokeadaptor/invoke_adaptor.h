@@ -83,6 +83,8 @@ public:
 
     virtual void ReceiveRequestLoop(void);
 
+    bool NeedReInit() const;
+
     void CreateInstance(std::shared_ptr<InvokeSpec> spec);
 
     void RetryCreateInstance(std::shared_ptr<InvokeSpec> spec, bool isConsumeRetryTime);
@@ -95,9 +97,15 @@ public:
 
     bool IsIdValid(const std::string &id);
 
+    void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
+
     void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
+    void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
+
     void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
+
+    void KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
 
     void KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
@@ -112,6 +120,8 @@ public:
     virtual void Exit(const int code, const std::string &message);
 
     virtual void Finalize(bool isDriver = true);
+
+    virtual void ReInit(void);
 
     virtual ErrorInfo Kill(const std::string &instanceId, const std::string &payload, int signal);
 
@@ -190,6 +200,9 @@ public:
     ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
                                const std::string &instanceId);
     std::string GetActiveMasterAddr();
+    void RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored = false);
+
+    virtual ~InvokeAdaptor() = default;
 
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);

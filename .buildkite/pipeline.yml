@@ -1,0 +1,101 @@
+# Buildkite Pipeline - 修复路径检测
+
+env:
+  BUILDER_IMAGE: "swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:latest-arm64"
+
+steps:
+  - label: ":linux: Docker 容器构建 Frontend"
+    command: |
+      #!/bin/bash
+      set -e
+      set -o pipefail
+
+      echo "=========================================="
+      echo "  在 Docker 容器中构建 Frontend"
+      echo "=========================================="
+
+      # 直接使用当前目录
+      PROJECT_ROOT="$(pwd)"
+
+      echo "=== 宿主机信息 ==="
+      echo "项目根目录: $(readlink -f ./)"
+      echo ""
+
+      # 清理旧容器
+      echo "=== 清理旧容器 ==="
+      docker ps -a --filter "name=yr-build-" -q | xargs -r docker rm -f 2>/dev/null || true
+
+      # 拉取镜像
+      echo "=== 拉取镜像 ==="
+      docker pull ${BUILDER_IMAGE}
+
+      # 在容器中运行构建
+      echo "=== 在容器中执行构建 ==="
+      docker run --rm \
+        --name yr-build-frontend-${BUILDKITE_BUILD_NUMBER} \
+        --init \
+        --platform linux/arm64 \
+        -v ./:/workspace \
+        -w /workspace \
+        -e GO111MODULE=on \
+        -e CGO_ENABLED=1 \
+        -e GOOS=linux \
+        -e GOARCH=arm64 \
+        -e GOPROXY=https://goproxy.cn,direct \
+        ${BUILDER_IMAGE} \
+        bash -c '
+          set -e
+          echo "=== 容器内调试信息 ==="
+          echo "工作目录: $(pwd)"
+          echo "目录内容:"
+          ls -la | head -20
+          echo ""
+
+          if [ -f "Makefile" ]; then
+            echo "✓ Makefile 存在"
+            echo "可用目标:"
+            grep "^[a-z_-]*:" Makefile | head -10
+          else
+            echo "❌ Makefile 不存在"
+            exit 1
+          fi
+          echo ""
+
+          # 加载构建工具环境
+          if [ -f "/etc/profile.d/buildtools.sh" ]; then
+            source /etc/profile.d/buildtools.sh
+            echo "✓ 已加载 buildtools.sh"
+          else
+            echo "⚠️  buildtools.sh 不存在"
+          fi
+          echo ""
+
+          echo "=== 环境信息 ==="
+          go version
+          echo ""
+
+          echo "=== 开始构建 frontend ==="
+          make frontend
+
+          echo ""
+          echo "=== 构建产物 ==="
+          ls -lah output/ 2>/dev/null || echo "无 output 目录"
+        '
+
+      echo ""
+      echo "✓ 容器已退出"
+    agents:
+      os: "macos"
+      arch: "arm64"
+    timeout_in_minutes: 30
+
+  - label: ":memo: 摘要"
+    command: |
+      echo "### 构建完成"
+      echo ""
+      echo "| 项目 | 值 |"
+      echo "|------|-----|"
+      echo "| **镜像** | ${BUILDER_IMAGE} |"
+      echo "| **提交** | ${BUILDKITE_COMMIT:0:8} |"
+    agents:
+      os: "macos"

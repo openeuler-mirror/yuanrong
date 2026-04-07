@@ -28,9 +28,9 @@ type LibruntimeAPI interface {
 	ReleaseInstance(allocation InstanceAllocation, stateID string, abnormal bool, option InvokeOptions)
 	Kill(instanceID string, signal int, payload []byte, invokeOpt InvokeOptions) error
 
-	CreateInstanceRaw(createReqRaw []byte) ([]byte, error)
-	InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error)
-	KillRaw(killReqRaw []byte) ([]byte, error)
+	CreateInstanceRaw(createReqRaw []byte, option RawRequestOption) ([]byte, error)
+	InvokeByInstanceIdRaw(invokeReqRaw []byte, option RawRequestOption) ([]byte, error)
+	KillRaw(killReqRaw []byte, option RawRequestOption) ([]byte, error)
 
 	SaveState(state []byte) (string, error)
 	LoadState(checkpointID string) ([]byte, error)
@@ -76,6 +76,10 @@ type LibruntimeAPI interface {
 	IsHealth() bool
 	IsDsHealth() bool
 	GetActiveMasterAddr() string
+}
+
+type RawRequestOption struct {
+	TraceParent string
 }
 
 // KvClient -

@@ -718,6 +718,16 @@ func ReceiveRequestLoop() {
 	C.CReceiveRequestLoop()
 }
 
+// NeedReInit checks if re-initialization is needed after checkpoint restore.
+func NeedReInit() bool {
+	return C.CNeedReInit() != 0
+}
+
+// ReInit reinitializes runtime after checkpoint restore.
+func ReInit() {
+	C.CReInit()
+}
+
 // ExecShutdownHandler exec shutdown handler.
 func ExecShutdownHandler(signum int) {
 	cSignum := C.int(signum)
@@ -1129,7 +1139,7 @@ func getRawCallback(key string) (RawCallback, bool) {
 }
 
 // CreateInstanceRaw Raw interface provided for the frontend.
-func CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	createReqRawPtr, createReqRawLen := ByteSliceToCBinaryDataNoCopy(createReqRaw)
 	cCreateReqRaw := C.CBuffer{
 		buffer:              createReqRawPtr,
@@ -1150,7 +1160,9 @@ func CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
 
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
-	C.CCreateInstanceRaw(cCreateReqRaw, cKey)
+	cTraceParent := C.CString(option.TraceParent)
+	defer C.free(unsafe.Pointer(cTraceParent))
+	C.CCreateInstanceRaw(cCreateReqRaw, cTraceParent, cKey)
 
 	resultErr, ok := <-errChan
 	if !ok {
@@ -1164,7 +1176,7 @@ func CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
 }
 
 // InvokeByInstanceIdRaw Raw interface provided for the frontend.
-func InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	invokeReqRawPtr, invokeReqRawLen := ByteSliceToCBinaryDataNoCopy(invokeReqRaw)
 	cInvokeReqRaw := C.CBuffer{
 		buffer:              invokeReqRawPtr,
@@ -1185,7 +1197,9 @@ func InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
 
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
-	C.CInvokeByInstanceIdRaw(cInvokeReqRaw, cKey)
+	cTraceParent := C.CString(option.TraceParent)
+	defer C.free(unsafe.Pointer(cTraceParent))
+	C.CInvokeByInstanceIdRaw(cInvokeReqRaw, cTraceParent, cKey)
 
 	resultErr, ok := <-errChan
 	if !ok {
@@ -1199,7 +1213,7 @@ func InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
 }
 
 // KillRaw Raw interface provided for the frontend.
-func KillRaw(killReqRaw []byte) ([]byte, error) {
+func KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	killReqRawPtr, killReqRawLen := ByteSliceToCBinaryDataNoCopy(killReqRaw)
 	cKillReqRaw := C.CBuffer{
 		buffer:              killReqRawPtr,
@@ -1219,7 +1233,9 @@ func KillRaw(killReqRaw []byte) ([]byte, error) {
 	rawCallbacks.Store(key, rawCallback)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
-	C.CKillRaw(cKillReqRaw, cKey)
+	cTraceParent := C.CString(option.TraceParent)
+	defer C.free(unsafe.Pointer(cTraceParent))
+	C.CKillRaw(cKillReqRaw, cTraceParent, cKey)
 
 	resultErr, ok := <-errChan
 	if !ok {
@@ -1848,17 +1864,29 @@ func freeCArgs(cArgs *C.CInvokeArg, cArgsLen C.int) {
 	C.free(unsafe.Pointer(cArgs))
 }
 
-func cAcquireOptions(acquireOpt api.InvokeOptions) *C.CInvokeOptions {
-	cSchedInstIDs, cSchedInstIDsLen := CStrings(acquireOpt.SchedulerInstanceIDs)
-	cAcquireOpt := C.CInvokeOptions{
-		schedulerFunctionId:       CSafeString(acquireOpt.SchedulerFunctionID),
+func cBaseInvokeOptions(invokeOpt api.InvokeOptions) C.CInvokeOptions {
+	cRes, cResLen := cCustomResources(invokeOpt.CustomResources)
+	cExts, cExtsLen := cCustomExtensions(invokeOpt.CustomExtensions)
+	cSchedInstIDs, cSchedInstIDsLen := CStrings(invokeOpt.SchedulerInstanceIDs)
+	return C.CInvokeOptions{
+		cpu:                       C.int(invokeOpt.Cpu),
+		memory:                    C.int(invokeOpt.Memory),
+		customResources:           cRes,
+		size_customResources:      cResLen,
+		customExtensions:          cExts,
+		size_customExtensions:     cExtsLen,
+		schedulerFunctionId:       CSafeString(invokeOpt.SchedulerFunctionID),
 		schedulerInstanceIds:      cSchedInstIDs,
 		size_schedulerInstanceIds: cSchedInstIDsLen,
-		traceId:                   CSafeString(acquireOpt.TraceID),
-		timeout:                   C.int(acquireOpt.Timeout),
-		acquireTimeout:            C.int(acquireOpt.AcquireTimeout),
-		trafficLimited:            C.char(btoi(acquireOpt.TrafficLimited)),
+		traceId:                   CSafeString(invokeOpt.TraceID),
+		timeout:                   C.int(invokeOpt.Timeout),
+		acquireTimeout:            C.int(invokeOpt.AcquireTimeout),
+		trafficLimited:            C.char(btoi(invokeOpt.TrafficLimited)),
 	}
+}
+
+func cAcquireOptions(acquireOpt api.InvokeOptions) *C.CInvokeOptions {
+	cAcquireOpt := cBaseInvokeOptions(acquireOpt)
 	return &cAcquireOpt
 }
 
@@ -1885,42 +1913,26 @@ func freeCInstanceAllocation(cInstanceAllocation *C.CInstanceAllocation) {
 }
 
 func cInvokeOptions(invokeOpt api.InvokeOptions) *C.CInvokeOptions {
-	cRes, cResLen := cCustomResources(invokeOpt.CustomResources)
-	cExts, cExtsLen := cCustomExtensions(invokeOpt.CustomExtensions)
 	cCreate, cCreateLen := cCreateOpt(invokeOpt.CreateOpt)
 	cLabels, cLabelsLen := CStrings(invokeOpt.Labels)
 	cSchedAffs, cSchedAffsLen := cScheduleAffinities(invokeOpt.ScheduleAffinities)
 	cCodePaths, cCodePathsLen := CStrings(invokeOpt.CodePaths)
-	cSchedInstIDs, cSchedInstIDsLen := CStrings(invokeOpt.SchedulerInstanceIDs)
 	cIvkLabel, cIvkLabelLen := cInvokeLabels(invokeOpt.InvokeLabels)
-	cInvokeOpt := C.CInvokeOptions{
-		cpu:                       C.int(invokeOpt.Cpu),
-		memory:                    C.int(invokeOpt.Memory),
-		customResources:           cRes,
-		size_customResources:      cResLen,
-		customExtensions:          cExts,
-		size_customExtensions:     cExtsLen,
-		createOpt:                 cCreate,
-		size_createOpt:            cCreateLen,
-		labels:                    cLabels,
-		size_labels:               cLabelsLen,
-		schedAffinities:           cSchedAffs,
-		size_schedAffinities:      cSchedAffsLen,
-		codePaths:                 cCodePaths,
-		size_codePaths:            cCodePathsLen,
-		schedulerFunctionId:       C.CString(invokeOpt.SchedulerFunctionID),
-		schedulerInstanceIds:      cSchedInstIDs,
-		size_schedulerInstanceIds: cSchedInstIDsLen,
-		traceId:                   C.CString(invokeOpt.TraceID),
-		timeout:                   C.int(invokeOpt.Timeout),
-		acquireTimeout:            C.int(invokeOpt.AcquireTimeout),
-		RetryTimes:                C.int(invokeOpt.RetryTimes),
-		RecoverRetryTimes:         C.int(invokeOpt.RecoverRetryTimes),
-		invokeLabels:              cIvkLabel,
-		size_invokeLabels:         cIvkLabelLen,
-		scheduleTimeoutMs:         C.int64_t(invokeOpt.ScheduleTimeoutMs),
-		forceInvoke:               C.char(btoi(invokeOpt.ForceInvoke)),
-	}
+	cInvokeOpt := cBaseInvokeOptions(invokeOpt)
+	cInvokeOpt.createOpt = cCreate
+	cInvokeOpt.size_createOpt = cCreateLen
+	cInvokeOpt.labels = cLabels
+	cInvokeOpt.size_labels = cLabelsLen
+	cInvokeOpt.schedAffinities = cSchedAffs
+	cInvokeOpt.size_schedAffinities = cSchedAffsLen
+	cInvokeOpt.codePaths = cCodePaths
+	cInvokeOpt.size_codePaths = cCodePathsLen
+	cInvokeOpt.RetryTimes = C.int(invokeOpt.RetryTimes)
+	cInvokeOpt.RecoverRetryTimes = C.int(invokeOpt.RecoverRetryTimes)
+	cInvokeOpt.invokeLabels = cIvkLabel
+	cInvokeOpt.size_invokeLabels = cIvkLabelLen
+	cInvokeOpt.scheduleTimeoutMs = C.int64_t(invokeOpt.ScheduleTimeoutMs)
+	cInvokeOpt.forceInvoke = C.char(btoi(invokeOpt.ForceInvoke))
 	if invokeOpt.InstanceSession != nil {
 		cCInstanceSession := (*C.CInstanceSession)(C.malloc(C.sizeof_CInstanceSession))
 		cCInstanceSession.sessionId = C.CString(invokeOpt.InstanceSession.SessionID)

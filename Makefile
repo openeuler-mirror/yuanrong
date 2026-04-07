@@ -1,7 +1,14 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg aio all
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg image all clean
+
+# Bazel remote cache server (optional, can be set via environment variable)
+# Example: REMOTE_CACHE=http://192.168.3.45:9090 make yuanrong
+REMOTE_CACHE ?=
+NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+FUNCTIONSYSTEM_JOBS ?= $(shell jobs=$$(($(NPROCS) / 2)); if [ $$jobs -lt 1 ]; then jobs=1; fi; echo $$jobs)
 
 help:
 	@echo "Available targets:"
+	@echo "  make clean          - Clean build outputs"
 	@echo "  make frontend        - Build frontend (auto-fixes go.mod path)"
 	@echo "  make datasystem     - Build datasystem"
 	@echo "  make functionsystem - Build functionsystem"
@@ -9,20 +16,26 @@ help:
 	@echo "  make yuanrong       - Build runtime"
 	@echo "  make dashboard      - Build dashboard"
 	@echo "  make pkg           - Copy packages to example/aio/pkg/"
-	@echo "  make aio           - Build (cd example/aio && docker build)"
-	@echo "  make all           - Build all targets and copy outputs to output/"
+	@echo "  make image         - Build aio images after make all"
+	@echo "  make all           - Build all targets and prepare example/aio/pkg/"
 	@echo ""
 	@echo "Parameters (optional):"
 	@echo "  REMOTE_CACHE       - Remote cache server address"
 	@echo "                      Example: make yuanrong REMOTE_CACHE=grpc://192.168.3.45:9092"
 	@echo "                      If not provided, build will proceed without remote cache"
-	@echo "  JOBS               - Number of parallel jobs for compilation (default: auto/2)"
-	@echo "                      Example: make functionsystem JOBS=8"
+	@echo "  FUNCTIONSYSTEM_JOBS - Functionsystem jobs (default: auto/2)"
+	@echo "                      Example: make functionsystem FUNCTIONSYSTEM_JOBS=8"
 
-# Default values
-REMOTE_CACHE ?=
-NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-JOBS ?= $(shell echo $$(($(NPROCS) / 2)))
+clean:
+	@echo "Cleaning build outputs..."
+	@cd frontend && bash build.sh clean 2>/dev/null || true && cd ..
+	@cd datasystem && bash build.sh clean 2>/dev/null || true && cd ..
+	@rm -rf functionsystem/output/
+	@rm -rf go/output/
+	@bash build.sh -C clean 2>/dev/null || true
+	@rm -rf output/
+	@rm -f functionsystem/vendor/src/yr-datasystem.tar.gz
+	@echo "Clean completed!"
 
 frontend:
 	@if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
@@ -65,7 +78,7 @@ runtime_launcher:
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
+	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) && bash run.sh pack && cd -
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
 
@@ -75,16 +88,14 @@ dashboard:
 	cp go/output/yr-faas*.tar.gz output/
 
 yuanrong:
-	@echo "Building runtime..."
-	@if [ -n "$(REMOTE_CACHE)" ]; then \
-		echo "Using remote cache: $(REMOTE_CACHE)"; \
-		bash build.sh -P -r $(REMOTE_CACHE); \
-	else \
-		echo "Building without remote cache (REMOTE_CACHE not provided)"; \
-		bash build.sh -P; \
-	fi
+	@echo "Building yuanrong runtime..."
+ifeq ($(strip $(REMOTE_CACHE)),)
+	bash build.sh -P
+else
+	bash build.sh -P -r $(REMOTE_CACHE)
+endif
 
-aio:
+pkg:
 	@echo "Copying packages to example/aio/pkg/..."
 	@mkdir -p example/aio/pkg
 	@cp datasystem/output/sdk/openyuanrong_datasystem_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
@@ -94,14 +105,13 @@ aio:
 	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
 	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
 	@mkdir -p example/aio/docs
-	@cp example/aio/TRAEFIK_ETCD.md example/aio/docs/ 2>/dev/null || true
 	@echo "Packages copied successfully!"
 	@ls -la example/aio/pkg/
-	@echo "Building Docker image aio:latest..."
-	@cd example/aio && docker build -t openyuanrongaio:latest -f Dockerfile . && cd - || (cd -; exit 1)
 
-all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
+image:
+	@echo "Building aio images via example/aio/build-images.sh..."
+	@./example/aio/build-images.sh
+
+all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong pkg
 	@echo "Build completed!"
-	@echo "Copying outputs to output/..."
-	@mkdir -p example/aio/pkg
-	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher
+	@echo "Artifacts and example/aio/pkg are ready."

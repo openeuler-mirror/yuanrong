@@ -63,6 +63,8 @@ const char *const RGROUP_BUNDLE_SUFFIX = "_bundle";
 typedef void *StateStorePtr;
 class Libruntime {
 public:
+    virtual ~Libruntime() = default;
+
     /*!
         @brief Libruntime 构造函数
         @param config Libruntime的参数配置，详细参考：@ref LibruntimeConfig
@@ -129,22 +131,28 @@ public:
     /*!
       @brief Create an instance using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
       @brief Invoke a function by instance ID using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
       @brief Kill an instance using raw data
       @param reqRaw Raw request data
+      @param traceParent W3C traceparent propagated out-of-band
       @param cb Callback for raw response
      */
+    virtual void KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
     virtual void KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
     /*!
@@ -450,6 +458,12 @@ public:
     virtual void Finalize(bool isDriver = true);
 
     /*!
+      @brief 重新初始化运行时状态（用于 checkpoint 恢复后）
+      重新初始化 gRPC 连接、dsClients、generatorNotifier/Receiver 等组件
+     */
+    virtual void ReInit();
+
+    /*!
       @brief Asynchronously wait for an object to be ready
       @param objectId the ID of the object to wait for
       @param callback the callback function to be called when the object is ready
@@ -478,6 +492,12 @@ public:
       @throw Exception if the loop fails to start or run
      */
     virtual void ReceiveRequestLoop(void);
+
+    /*!
+      @brief Check if re-initialization is needed after checkpoint restore
+      @return true if re-init is needed
+     */
+    bool NeedReInit() const;
 
     /*!
       @brief Get the real instance ID of an object

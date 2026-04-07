@@ -1397,6 +1397,16 @@ cdef class Fnruntime:
         with nogil:
             CLibruntimeManager.Instance().ReceiveRequestLoop()
 
+    def need_reinit(self):
+        cdef bool result
+        with nogil:
+            result = CLibruntimeManager.Instance().NeedReInit()
+        return result
+
+    def reinit(self):
+        with nogil:
+            CLibruntimeManager.Instance().ReInit()
+
     def finalize(self):
         with nogil:
             CLibruntimeManager.Instance().Finalize()

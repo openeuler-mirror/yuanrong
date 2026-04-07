@@ -799,6 +799,8 @@ cdef extern from "src/libruntime/libruntime_manager.h" nogil:
         @ staticmethod
         bool IsInitialized()
         void ReceiveRequestLoop()
+        bool NeedReInit()
+        void ReInit()
 
 cdef extern from "src/libruntime/auto_init.h" namespace "YR::Libruntime" nogil:
     cdef cppclass CClusterAccessInfo "YR::Libruntime::ClusterAccessInfo":

@@ -108,21 +108,21 @@ func TestLibruntimeSDKImpl(t *testing.T) {
 			convey.Convey(
 				"CreateInstanceRaw success", func() {
 					convey.So(func() {
-						go libruntimeAPI.CreateInstanceRaw([]byte{})
+						go libruntimeAPI.CreateInstanceRaw([]byte{}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)
 			convey.Convey(
 				"InvokeByInstanceIdRaw success", func() {
 					convey.So(func() {
-						go libruntimeAPI.InvokeByInstanceIdRaw([]byte{})
+						go libruntimeAPI.InvokeByInstanceIdRaw([]byte{}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)
 			convey.Convey(
 				"KillRaw success", func() {
 					convey.So(func() {
-						go libruntimeAPI.KillRaw([]byte{})
+						go libruntimeAPI.KillRaw([]byte{}, api.RawRequestOption{})
 					}, convey.ShouldNotPanic)
 				},
 			)

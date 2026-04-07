@@ -287,6 +287,9 @@ public:
                             const std::string &runtimeID = "", const std::string &functionName = "",
                             const SubscribeFunc &subScribeCb = nullptr) = 0;
     virtual void Stop(void) = 0;
+    // Re-initialize after checkpoint restore. Only reinitializes network connections
+    // and thread pools, without clearing user data.
+    virtual void ReInit(void) {}
     void ReceiveRequestLoop(void);
     virtual void GroupCreateAsync(const CreateRequests &reqs, CreateRespsCallback respCallback, CreateCallBack callback,
                                   int timeoutSec = -1) = 0;
@@ -322,6 +325,8 @@ public:
     void HandleEventRequest(const std::shared_ptr<EventMessageSpec> &req);
     int WaitRequestEmpty(uint64_t gracePeriodSec);
     void SetInitialized();
+    bool NeedReInit() const { return needReInit_.load(); }
+    void ResetNeedReInit() { needReInit_.store(false); }
     virtual void EventAsync(const std::shared_ptr<EventMessageSpec> &req, int timeoutSec = -1) {}
     virtual bool IsHealth() = 0;
     virtual void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instaceId) {}
@@ -352,7 +357,8 @@ private:
     absl::Mutex mu;
     absl::CondVar cv_;
     std::atomic<bool> isShutdownDone{false};
-    std::unordered_set<std::string> processingRequestIds ABSL_GUARDED_BY(mu);
+    std::unordered_set<std::string> processingRequestIds;
+    std::atomic<bool> needReInit_{false};  // checkpoint restore 后需要重新初始化
 
     class InstanceStatus {
     public:

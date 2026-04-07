@@ -54,6 +54,7 @@ message RuntimeInfo {
     string route        = 3;  // litebus bus URL of owner proxy
     string proxyID      = 4;  // functionProxyID of owner proxy (new)
 }
+
 ```
 
 - [ ] **Step 2: Add routing fields to `KillRequest` in core_service.proto**
@@ -68,6 +69,7 @@ message KillRequest {
     string routeAddress  = 5;  // litebus bus URL of owner proxy (new, used when DR enabled)
     string proxyID       = 6;  // functionProxyID of owner proxy (new, used when DR enabled)
 }
+
 ```
 
 - [ ] **Step 3: Regenerate proto bindings**
@@ -85,6 +87,7 @@ Expected: Build succeeds (new fields are added, no existing code references them
 git add go/proto/posix/common.proto go/proto/posix/core_service.proto
 # add regenerated pb files
 git commit --signoff -m "feat: add proxyID to RuntimeInfo and route fields to KillRequest proto"
+
 ```
 
 ---
@@ -131,6 +134,7 @@ TEST_F(ObserverTest, DRModeLocalOnlySyncFiltersNonLocalInstances) {
     EXPECT_NE(nullptr, instanceControlView_->GetInstance("local-inst-001"));
     EXPECT_EQ(nullptr, instanceControlView_->GetInstance("remote-inst-002"));
 }
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -147,6 +151,7 @@ auto synced = metaStorageAccessor_->Sync(INSTANCE_PATH_PREFIX, true);
 UpdateInstanceEvent(synced.first, true);
 YRLOG_DEBUG("sync key({}) finished", INSTANCE_PATH_PREFIX);
 instanceSyncDone_.SetValue(true);
+
 ```
 
 With:
@@ -174,6 +179,7 @@ if (!DirectRoutingConfig::IsEnabled()) {
                 INSTANCE_PATH_PREFIX, localEvents.size());
     instanceSyncDone_.SetValue(true);
 }
+
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -192,6 +198,7 @@ Expected: All existing tests still pass
 git add functionsystem/src/function_proxy/common/observer/observer_actor.cpp
 git add functionsystem/tests/unit/function_proxy/common/observer/control_plane_observer_test.cpp
 git commit --signoff -m "feat(gap1): DR mode local-only instance sync in observer_actor"
+
 ```
 
 ---
@@ -252,6 +259,7 @@ TEST(GetPersistenceTypeTest, NonDRModeSchedulingUnchanged) {
     // Existing behavior: PERSISTENT_ALL when metaStore disabled
     EXPECT_EQ(PersistenceType::PERSISTENT_ALL, GetPersistenceTypeForTest(info, false));
 }
+
 ```
 
 Note: `GetPersistenceType()` is a private static function. If it's not testable directly, test through the public interface that calls it (e.g., `TransitionTo()` or the persistence mock). Alternatively, expose it as a `friend` or move it to a testable utility.
@@ -286,6 +294,7 @@ In `instance_state_machine.cpp` lines 73–85, add at the top of the function bo
     // Existing non-DR logic unchanged
     bool needPersistentRoute = functionsystem::NeedUpdateRouteState(state, isMetaStoreEnable);
     // ... rest of existing code
+
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -304,6 +313,7 @@ Expected: All existing tests pass
 git add functionsystem/src/function_proxy/common/state_machine/instance_state_machine.cpp
 git add functionsystem/tests/unit/function_proxy/common/state_machine/state_machine_test.cpp
 git commit --signoff -m "feat(gap2): DR mode single-write persistence at RUNNING in GetPersistenceType"
+
 ```
 
 ---
@@ -334,6 +344,7 @@ TEST_F(InstanceCtrlActorTest, DRModeNotifyResultSetsProxyID) {
     EXPECT_EQ(nodeID_, callResult.runtimeinfo().proxyid());
     EXPECT_FALSE(callResult.runtimeinfo().route().empty());
 }
+
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -349,6 +360,7 @@ In `instance_ctrl_actor.cpp` line 6020–6022, change:
 if (instanceInfo.lowreliability() || function_proxy::DirectRoutingConfig::IsEnabled()) {
     callResult->mutable_runtimeinfo()->set_route(aid.Url());
 }
+
 ```
 
 To:
@@ -358,6 +370,7 @@ if (instanceInfo.lowreliability() || function_proxy::DirectRoutingConfig::IsEnab
     callResult->mutable_runtimeinfo()->set_route(aid.Url());
     callResult->mutable_runtimeinfo()->set_proxyid(nodeID);  // nodeID is captured from nodeID_
 }
+
 ```
 
 Note: `nodeID` is the lambda capture of `nodeID_` at line 6008: `nodeID(nodeID_)`.
@@ -373,6 +386,7 @@ Expected: PASS
 git add functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp
 git add functionsystem/tests/unit/function_proxy/local_scheduler/instance_control/instance_ctrl_actor_test.cpp
 git commit --signoff -m "feat(gap3): set proxyID in notifyresult runtimeInfo for DR mode"
+
 ```
 
 ---
@@ -386,8 +400,10 @@ git commit --signoff -m "feat(gap3): set proxyID in notifyresult runtimeInfo for
 **Context:** `SignalRoute()` at line 693 determines kill locality by accessing `killCtx->instanceContext->GetInstanceInfo().functionproxyid()`. In DR mode, a non-owner proxy has no state machine, so `instanceContext` may be null. We need to add a DR fast-path at the top of `SignalRoute()` that uses `KillRequest.routeAddress` and `KillRequest.proxyID` directly.
 
 The AID for forwarding is constructed as:
+
 ```cpp
 litebus::AID(proxyID + LOCAL_SCHED_INSTANCE_CTRL_ACTOR_NAME_POSTFIX, routeAddress)
+
 ```
 
 **Prerequisite:** Task 1 (routeAddress and proxyID fields in KillRequest).
@@ -441,6 +457,7 @@ TEST_F(InstanceCtrlActorTest, NonDRModeKillFallsBackToStateMachinePath) {
     auto result = TriggerKill(killReq);
     EXPECT_TRUE(WasStateMachinePathUsed());
 }
+
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -500,6 +517,7 @@ litebus::Future<std::shared_ptr<KillContext>> InstanceCtrlActor::SignalRoute(
         killCtx->isLocal = true;
     }
     ...
+
 ```
 
 Note: Check the actual signature of `SendForwardCustomSignalRequest` — it takes `litebus::Option<litebus::AID>` as its first parameter (see line 797–799 in the source).
@@ -519,6 +537,7 @@ if (killCtx->instanceContext == nullptr) {
 }
 // Existing state machine path (non-DR, or DR with local owner having a state machine):
 auto &instanceInfo = killCtx->instanceContext->GetInstanceInfo();
+
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -537,6 +556,7 @@ Expected: All existing tests pass
 git add functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp
 git add functionsystem/tests/unit/function_proxy/local_scheduler/instance_control/instance_ctrl_actor_test.cpp
 git commit --signoff -m "feat(gap3): DR mode kill locality check using KillRequest route fields"
+
 ```
 
 ---
@@ -573,6 +593,7 @@ func TestGenerateInstanceResponsePopulatesRouteFields(t *testing.T) {
     assert.Equal(t, "proxy-abc", resp.InstanceAllocationInfo.ProxyID)
     assert.Equal(t, "10.0.0.1:7788", resp.InstanceAllocationInfo.RouteAddress)
 }
+
 ```
 
 Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && go test ./pkg/functionscaler/... -run TestGenerateInstanceResponsePopulatesRouteFields -v"`
@@ -588,16 +609,21 @@ type Instance struct {
     FunctionProxyID   string
     RouteAddress      string  // litebus bus URL of owner proxy, for DR kill routing (new)
 }
+
 ```
 
 Also update `Copy()` at line 414 to include the new field:
+
 ```go
 RouteAddress:      i.RouteAddress,
+
 ```
 
 Find where `Instance` is populated from proto `InstanceInfo` (search for assignments of `.FunctionProxyID =`) and add:
+
 ```go
 instance.RouteAddress = instanceInfo.RouteAddress  // InstanceInfo.routeAddress proto field 38
+
 ```
 
 - [ ] **Step 3: Add `RouteAddress` and `ProxyID` to `InstanceAllocationInfo` in lease.go**
@@ -613,6 +639,7 @@ type InstanceAllocationInfo struct {
     ProxyID         string `json:"proxyID"`       // functionProxyID of owner proxy
     // ... rest ...
 }
+
 ```
 
 - [ ] **Step 4: Populate in `generateInstanceResponse()` in faasscheduler.go**
@@ -629,6 +656,7 @@ return &commonTypes.InstanceResponse{
     },
     // ...
 }
+
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
@@ -648,6 +676,7 @@ git add go/pkg/functionscaler/types/types.go
 git add go/pkg/common/faas_common/types/lease.go
 git add go/pkg/functionscaler/faasscheduler.go
 git commit --signoff -m "feat(gap3): add RouteAddress to Instance and propagate through InstanceAllocationInfo"
+
 ```
 
 ---
@@ -676,6 +705,7 @@ Find the file first: `grep -rl "CKill\|CAcquireInstance" --include="*.cpp"` in t
 - [ ] **Step 1: Write failing tests (behavioral + compile)**
 
 **Test A — behavioral: AcquireInstance returns RouteAddress/ProxyID**
+
 ```go
 // api/go/libruntime/clibruntime/clibruntime_test.go
 func TestAcquireInstanceReturnsRouteFields(t *testing.T) {
@@ -691,15 +721,18 @@ func TestAcquireInstanceReturnsRouteFields(t *testing.T) {
     assert.Equal(t, "10.0.0.1:7788", result.RouteAddress)
     assert.Equal(t, "proxy-abc", result.ProxyID)
 }
+
 ```
 
 **Test B — compile validation: Kill() accepts route params**
+
 ```go
 func TestKillSignatureAcceptsRouteParams(t *testing.T) {
     // Primary purpose: verify Kill() compiles with 5 params
     err := Kill("test-inst", 9, nil, "10.0.0.1:7788", "proxy-abc")
     _ = err  // CKill may fail if C runtime not initialized — expected in unit test
 }
+
 ```
 
 Run: `docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/api/go && go build ./libruntime/..."`
@@ -721,11 +754,13 @@ typedef struct tagCInstanceAllocation {
 
 // Update CKill signature:
 CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID);
+
 ```
 
 - [ ] **Step 3: Update all CGo helper functions in clibruntime.go**
 
 **`AcquireInstance()`** — read new fields from C struct:
+
 ```go
 return api.InstanceAllocation{
     FuncSig:       CSafeGoString(instanceAllocation.funcSig),
@@ -736,9 +771,11 @@ return api.InstanceAllocation{
     RouteAddress:  CSafeGoString(instanceAllocation.routeAddress),  // new
     ProxyID:       CSafeGoString(instanceAllocation.proxyID),       // new
 }, nil
+
 ```
 
 **`Kill()`** — add route params, pass to `C.CKill`:
+
 ```go
 func Kill(instanceID string, signo int, data []byte, routeAddress string, proxyID string) error {
     cInstanceID := C.CString(instanceID)
@@ -761,9 +798,11 @@ func Kill(instanceID string, signo int, data []byte, routeAddress string, proxyI
     }
     return nil
 }
+
 ```
 
 **`freeCInstanceAllocation()`** — free new fields:
+
 ```go
 func freeCInstanceAllocation(cInstanceAllocation *C.CInstanceAllocation) {
     CSafeFree(cInstanceAllocation.funcSig)
@@ -773,9 +812,11 @@ func freeCInstanceAllocation(cInstanceAllocation *C.CInstanceAllocation) {
     CSafeFree(cInstanceAllocation.routeAddress)  // new
     CSafeFree(cInstanceAllocation.proxyID)       // new
 }
+
 ```
 
 **`cCInstanceAllocation()`** — set new fields when converting Go→C (used in `ReleaseInstance`):
+
 ```go
 func cCInstanceAllocation(instanceAllocation api.InstanceAllocation) *C.CInstanceAllocation {
     cInstanceAlloc := C.CInstanceAllocation{
@@ -789,6 +830,7 @@ func cCInstanceAllocation(instanceAllocation api.InstanceAllocation) *C.CInstanc
     }
     return &cInstanceAlloc
 }
+
 ```
 
 Note: `C.CString("")` for empty strings is safe — it allocates a 1-byte null-terminated string. `CSafeFree` handles null checks.
@@ -829,25 +871,31 @@ func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte, 
     }
     return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
 }
+
 ```
 
 - [ ] **Step 5: Update C++ ABI helpers in `cpplibruntime.cpp`**
 
 Find the C++ libruntime implementation file:
+
 ```bash
 grep -rl "CKill\|CAcquireInstance" --include="*.cpp"
+
 ```
 
 Two functions require changes:
 
 **`CAcquireInstance` (or equivalent):** After obtaining the schedule response that contains `InstanceInfo`, populate the new fields:
+
 ```cpp
 // In CAcquireInstance or InsAllocationToCInsAllocation helper:
 cInstanceAlloc.routeAddress = strdup(instanceInfo.routeaddress().c_str());
 cInstanceAlloc.proxyID      = strdup(instanceInfo.functionproxyid().c_str());
+
 ```
 
 **`CKill`:** Accept and forward route params to the `KillRequest` proto:
+
 ```cpp
 CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID)
 {
@@ -863,6 +911,7 @@ CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress,
     }
     // Existing send logic ...
 }
+
 ```
 
 - [ ] **Step 6: Verify build compiles cleanly**
@@ -884,6 +933,7 @@ git add api/go/libruntime/libruntimesdkimpl/libruntimesdkimpl.go
 git add api/go/libruntime/clibruntime/clibruntime_test.go
 # also add the cpplibruntime.cpp file once located
 git commit --signoff -m "feat(gap3): propagate route info through Go CGo Kill chain for DR mode"
+
 ```
 
 ---
@@ -936,6 +986,7 @@ TEST_F(InstanceCtrlActorTest, NonDRModeDeleteRequestFutureOnFailureReleasesOwner
     ASSERT_NE(nullptr, sm);
     EXPECT_FALSE(sm->HasOwner());
 }
+
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -978,6 +1029,7 @@ litebus::Future<ScheduleResponse> InstanceCtrlActor::DeleteRequestFuture(
 
     return scheduleResponse;
 }
+
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -991,6 +1043,7 @@ Expected: Both tests PASS
 git add functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp
 git add functionsystem/tests/unit/function_proxy/local_scheduler/instance_control/instance_ctrl_actor_test.cpp
 git commit --signoff -m "feat(gap4b): DR mode immediate SM cleanup on schedule failure in DeleteRequestFuture"
+
 ```
 
 ---
@@ -1065,6 +1118,7 @@ TEST_F(InstanceCtrlActorTest, NonDRModeGCOrphanStateMachineIsNoOp) {
     actor_->GCOrphanStateMachine(instanceID, requestID);
     EXPECT_NE(nullptr, instanceControlView_->GetInstance(instanceID));
 }
+
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1080,6 +1134,7 @@ Expected: FAIL (`GCOrphanStateMachine` doesn't exist yet)
 // GC timer for DR mode: cleans up orphaned state machines that were scheduled to remote proxy
 static constexpr uint64_t INSTANCE_CREATE_GC_TIMEOUT_MS = 120000;  // 120 seconds
 void GCOrphanStateMachine(const std::string &instanceID, const std::string &requestID);
+
 ```
 
 **In `instance_ctrl_actor.cpp`**, add the method implementation:
@@ -1102,6 +1157,7 @@ void InstanceCtrlActor::GCOrphanStateMachine(const std::string &instanceID,
         instanceControlView_->Delete(instanceID, 0);
     }
 }
+
 ```
 
 **In `DeleteRequestFuture()`**, after the `scheduleFailed` block (after Task 8 code), add:
@@ -1115,6 +1171,7 @@ if (!scheduleFailed && DirectRoutingConfig::IsEnabled() && stateMachine != nullp
     litebus::AsyncAfter(INSTANCE_CREATE_GC_TIMEOUT_MS, GetAID(),
                         &InstanceCtrlActor::GCOrphanStateMachine, instanceID, requestID);
 }
+
 ```
 
 Note: `litebus::AsyncAfter(delayMs, aid, methodPtr, args...)` is the correct API (verified at line 239 and 822 in instance_ctrl_actor.cpp). Do NOT use `litebus::Delay` — it does not exist.
@@ -1141,6 +1198,7 @@ git add functionsystem/src/function_proxy/local_scheduler/instance_control/insta
 git add functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp
 git add functionsystem/tests/unit/function_proxy/local_scheduler/instance_control/instance_ctrl_actor_test.cpp
 git commit --signoff -m "feat(gap4a): DR mode AsyncAfter GC timer for remote-owner orphan SM"
+
 ```
 
 ---

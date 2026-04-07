@@ -86,6 +86,7 @@
 ```bash
 find /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_proxy -name "*.h" | xargs grep -l "config\|Config" | head -5
 # 找到现有配置类，复用其加载模式（JSON config, env var, 或 CLI flag）
+
 ```
 
 - [ ] **Step 2: 创建开关定义**
@@ -111,6 +112,7 @@ private:
 };
 
 }  // namespace functionsystem::function_proxy
+
 ```
 
 - [ ] **Step 3: 在启动配置解析时读取开关**
@@ -122,12 +124,14 @@ private:
 bool enableDirectRouting = config.GetBool("enable_direct_routing", false);
 DirectRoutingConfig::SetEnabled(enableDirectRouting);
 YRLOG_INFO("DirectRouting feature flag: {}", enableDirectRouting);
+
 ```
 
 - [ ] **Step 4: 编译验证**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+
 ```
 
 - [ ] **Step 5: Commit**
@@ -135,6 +139,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add functionsystem/src/function_proxy/config/
 git commit --signoff -m "feat(config): add enable_direct_routing feature flag for routing optimization"
+
 ```
 
 ---
@@ -155,6 +160,7 @@ cd /Users/robbluo/code/yuanrong-functionsystem
 git log remotes/robb/001-generic-lru-module --oneline | head -5
 # 找到 LRU 相关 commit hash（通常是最新的那个）
 git cherry-pick <lru-commit-hash>
+
 ```
 
 - [ ] **Step 2: 验证文件存在**
@@ -162,13 +168,16 @@ git cherry-pick <lru-commit-hash>
 ```bash
 ls functionsystem/src/common/lru/
 # 预期：lru_cache.h  thread_safe_lru_cache.h  CMakeLists.txt
+
 ```
 
 - [ ] **Step 3: 运行 LRU 单元测试**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -s LruCacheTest"
+
 ```
+
 预期：所有 LRU 测试通过（约 20 个测试用例）
 
 - [ ] **Step 4: Commit**
@@ -176,6 +185,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add functionsystem/src/common/lru/ functionsystem/src/common/CMakeLists.txt
 git commit --signoff -m "feat(common): merge LRU cache module from feature branch"
+
 ```
 
 ---
@@ -198,20 +208,25 @@ git commit --signoff -m "feat(common): merge LRU cache module from feature branc
 ```bash
 grep -n "readyinstance\|readyInstance\|mutable_readyinstance" \
   /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_proxy/local_scheduler/instance_control/instance_ctrl_actor.cpp | head -10
+
 ```
+
 预期：第 2665 行附近已有 `forwardCallResultRequest->mutable_readyinstance()->CopyFrom(...)` ✓ 无需改动
 
 - [ ] **Step 2: 修改 runtime_service.proto（同节点路径）**
 
 在 `proto/posix/runtime_service.proto` 的 `NotifyRequest` 末尾添加 `readyInstance` 字段：
+
 ```protobuf
 // Add after existing fields (check current max field number first)
 resources.InstanceInfo readyInstance = 8;  // Route info for local create path
+
 ```
 
 - [ ] **Step 3: 在 SendNotifyResult() 中填充 readyInstance**
 
 `SendNotifyResult()` 位于 `instance_ctrl_actor.cpp` 第 2729-2765 行，在构建 `runtime_service::NotifyRequest` 时填充：
+
 ```cpp
 // Populate route info for local notify path (mirrors ForwardCallResultRequest.readyInstance).
 // Called from ExecuteStateChangeCallback chain after RUNNING state is confirmed.
@@ -220,6 +235,7 @@ if (DirectRoutingConfig::IsEnabled() &&
     !callResult->instanceinfo().proxygRPCaddress().empty()) {
     notifyReq.mutable_readyinstance()->CopyFrom(callResult->instanceinfo());
 }
+
 ```
 
 > **时序说明**：`InstanceOperator::Create()` 在 `TransitionTo()` 内部执行，`SendNotifyResult` 在 `TransInstanceState()` 的 `.Then()` 回调中调用（即 `Create()` 完成后）。因此 SDK 收到 `readyInstance` 时，etcd CAS 写入已完成。时序正确，无需额外调整。
@@ -227,11 +243,13 @@ if (DirectRoutingConfig::IsEnabled() &&
 - [ ] **Step 4: 在 function_proxy create 响应中提取 proxyGrpcAddress 返回给 SDK**
 
 在处理 create 请求完成的回调处，提取 `proxyGrpcAddress`（`ip:port` 格式）并通过 litebus call response 返回：
+
 ```cpp
 // Extract route address from readyInstance (ip:port, used as YR_ROUTE value)
 if (result.has_readyinstance() && !result.readyinstance().proxygRPCaddress().empty()) {
     responseRouteAddress = result.readyinstance().proxygRPCaddress();
 }
+
 ```
 
 - [ ] **Step 5: 重新生成 runtime_service proto stubs（手动）**
@@ -243,6 +261,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
          --plugin=protoc-gen-grpc=$(which grpc_cpp_plugin) \
          -I proto/posix -I vendor/src/protobuf/include \
          proto/posix/runtime_service.proto"
+
 ```
 
 - [ ] **Step 5a: 清点所有镜像副本（search-driven，不硬编码路径）**
@@ -251,6 +270,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 # Find ALL runtime_service.proto copies across all repos
 find /Users/robbluo/code/yuanrong /Users/robbluo/code/yuanrong-functionsystem \
   -name "runtime_service.proto" 2>/dev/null
+
 ```
 
 对每个找到的副本，手动同步 `NotifyRequest` 的 `readyInstance` 字段添加（保持 field number 一致）。已知可能包含：
@@ -263,6 +283,7 @@ find /Users/robbluo/code/yuanrong /Users/robbluo/code/yuanrong-functionsystem \
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+
 ```
 
 - [ ] **Step 7: Commit**
@@ -270,6 +291,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add proto/posix/runtime_service.proto functionsystem/src/common/proto/pb/posix/runtime_service.pb.*
 git commit --signoff -m "feat(proto): add readyInstance to runtime NotifyRequest for local routing propagation"
+
 ```
 
 ---
@@ -296,6 +318,7 @@ grep -n "InstanceRouterInfo\|NotifyChanged\|proxyGrpc\|proxyGrpcAddress\|readyin
   functionsystem/src/function_proxy/busproxy/instance_view/instance_view.cpp | head -30
 grep -n "InstanceRouterInfo" \
   functionsystem/src/function_proxy/busproxy/request_dispatcher/request_dispatcher.h | head -20
+
 ```
 
 确认 `InstanceRouterInfo` 是否已有 `proxyGrpcAddress` 字段（`ip:port` 格式）；若无，查看 `InstanceInfo` proto 的 `proxyGrpcAddress` 字段如何在 `NotifyChanged` 时更新到内存。
@@ -309,6 +332,7 @@ grep -n "InstanceRouterInfo" \
 if (!instanceInfo.proxygRPCaddress().empty()) {
     routerInfo.proxyGrpcAddress = instanceInfo.proxygRPCaddress();
 }
+
 ```
 
 - [ ] **Step 3: 验证 GetInstanceRouterInfo 可返回 proxyGrpcAddress**
@@ -316,6 +340,7 @@ if (!instanceInfo.proxygRPCaddress().empty()) {
 ```bash
 grep -n "GetInstanceRouterInfo\|GetRouterInfo\|proxyGrpcAddress" \
   functionsystem/src/function_proxy/busproxy/instance_view/instance_view.h | head -10
+
 ```
 
 确认 `ObserverActor` 可通过已有接口拿到 `routerInfo.proxyGrpcAddress`，无需额外变更。
@@ -324,6 +349,7 @@ grep -n "GetInstanceRouterInfo\|GetRouterInfo\|proxyGrpcAddress" \
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+
 ```
 
 - [ ] **Step 5: Commit**
@@ -331,6 +357,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add functionsystem/src/function_proxy/busproxy/instance_view/
 git commit --signoff -m "feat(instance_view): ensure proxyGrpcAddress stored in InstanceRouterInfo for on-demand query"
+
 ```
 
 ---
@@ -360,9 +387,11 @@ git commit --signoff -m "feat(instance_view): ensure proxyGrpcAddress stored in 
 grep -n "TransToRouteInfoFromInstanceInfo\|TransRouteInfo\|set_functionproxyid\|set_proxygRPCaddress\|proxyGrpcAddress" \
   functionsystem/src/common/metadata/metadata.cpp \
   functionsystem/src/function_proxy/common/state_machine/instance_state_machine.cpp
+
 ```
 
 当前实现（已确认）：
+
 ```cpp
 // metadata.cpp:109
 void TransToRouteInfoFromInstanceInfo(const InstanceInfo &instanceInfo, resources::RouteInfo &routeInfo) {
@@ -372,6 +401,7 @@ void TransToRouteInfoFromInstanceInfo(const InstanceInfo &instanceInfo, resource
     routeInfo.set_functionagentid(instanceInfo.functionagentid());
     // ...
 }
+
 ```
 
 - [ ] **Step 2: 检查 RouteInfo proto 是否有 proxyGrpcAddress 字段**
@@ -379,6 +409,7 @@ void TransToRouteInfoFromInstanceInfo(const InstanceInfo &instanceInfo, resource
 ```bash
 grep -n "proxyGrpcAddress\|proxygRPCaddress\|functionproxyid" \
   /Users/robbluo/code/yuanrong-functionsystem/proto/posix/resource.proto
+
 ```
 
 **预期二选一**：
@@ -397,9 +428,12 @@ grep -n "proxyGrpcAddress\|proxygRPCaddress\|functionproxyid" \
 **若 B**（只有 node ID，无 proxyGrpcAddress）：无需改动。Phase 4 验证完成，直接进入 Phase 5。etcd routeInfo 中的 `functionproxyid`（node ID）继续服务原有 watch 路径，与 LRU 路径无交集。
 
 **若 A**（已有 proxyGrpcAddress 字段但未填充）：可选地在 `TransToRouteInfoFromInstanceInfo` 补充：
+
 ```cpp
 routeInfo.set_proxygRPCaddress(instanceInfo.proxygRPCaddress());
+
 ```
+
 **此变更是可选优化**，有助于 Phase 3 的内存 `InstanceRouterInfo.proxyGrpcAddress` 在 etcd 同步场景下有值可用，但不是 LRU 路由的关键路径。若此字段不存在于 proto 中，跳过此步骤。
 
 - [ ] **Step 4: 确认 CAS 失败的错误传播路径**
@@ -407,6 +441,7 @@ routeInfo.set_proxygRPCaddress(instanceInfo.proxygRPCaddress());
 ```bash
 grep -n "IsFirstPersistence\|OperateResult\|INSTANCE_TRANSACTION\|TransitionResult" \
   functionsystem/src/function_proxy/common/state_machine/instance_state_machine.cpp | head -20
+
 ```
 
 确认 `InstanceOperator::Create()` 失败时（CAS 条件不满足），`OperateResult.status` 如何传播到 `TransInstanceState` 的调用方，调用方是否已经走 FATAL/FAILED 状态机路径。无需新增错误处理代码。
@@ -420,6 +455,7 @@ grep -n "IsFirstPersistence\|OperateResult\|INSTANCE_TRANSACTION\|TransitionResu
 ```bash
 git add functionsystem/src/common/metadata/metadata.cpp
 git commit --signoff -m "feat(metadata): include proxyGrpcAddress in RouteInfo for direct routing path"
+
 ```
 
 - [ ] **Step 5: 同样修改终态写入（FATAL/EXITED/EVICTED）**
@@ -434,6 +470,7 @@ git commit --signoff -m "feat(metadata): include proxyGrpcAddress in RouteInfo f
 ```bash
 grep -n "static TxnOperation\|PutOption\|Create.*PutOption\|CreatePut\|Put(" \
   /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/meta_store/client/cpp/include/meta_store_client/txn_transaction.h
+
 ```
 
 预期：找到 `TxnOperation::Create(key, value, PutOption)` 的静态工厂方法签名；当传入 `PutOption` 时为 PUT（upsert），而非 create-only 语义。
@@ -454,12 +491,14 @@ txn.If(TxnCompare::OfValue(instanceStateKey,
 //   Option B: TxnOperation::Create(key, value, PutOption{.leaseID=0})  -- if Create+PutOption is the PUT form
 // Do NOT blindly copy either form; verify the API signature first.
 txn.Then(/* PUT_API_FROM_STEP_5A */ (instanceStateKey, SerializeState(newTerminalState)));
+
 ```
 
 - [ ] **Step 6: 编译验证**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+
 ```
 
 - [ ] **Step 7: Commit**
@@ -467,6 +506,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add functionsystem/src/function_proxy/local_scheduler/instance_control/
 git commit --signoff -m "feat(instance_control): use TXN CAS for route/state writes, rollback on conflict"
+
 ```
 
 ---
@@ -486,6 +526,7 @@ git commit --signoff -m "feat(instance_control): use TXN CAS for route/state wri
 
 ```bash
 cat /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_proxy/common/observer/data_plane_observer/data_plane_observer.h
+
 ```
 
 - [ ] **Step 2: 只添加 QueryInstanceRoute 虚函数到接口**
@@ -496,6 +537,7 @@ cat /Users/robbluo/code/yuanrong-functionsystem/functionsystem/src/function_prox
 // Query instance route on-demand (no watch). Used when LRU cache misses (rule 3.3/3.4).
 virtual litebus::Future<std::shared_ptr<resources::RouteInfo>> QueryInstanceRoute(
     const std::string &instanceID);
+
 ```
 
 - [ ] **Step 3: 实现 data_plane_observer.cpp 中的转发**
@@ -507,6 +549,7 @@ DataPlaneObserver::QueryInstanceRoute(const std::string &instanceID)
     return litebus::Async(observerActor_->GetAID(),
                           &ObserverActor::QueryInstanceRoute, instanceID);
 }
+
 ```
 
 - [ ] **Step 4: 更新 mock_data_observer.h**
@@ -515,12 +558,14 @@ DataPlaneObserver::QueryInstanceRoute(const std::string &instanceID)
 MOCK_METHOD(litebus::Future<std::shared_ptr<resources::RouteInfo>>,
             QueryInstanceRoute, (const std::string &instanceID), (override));
 // Note: EvictRoutesForNode is NOT on this interface; eviction uses direct call chain.
+
 ```
 
 - [ ] **Step 5: 编译验证**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+
 ```
 
 - [ ] **Step 6: Commit**
@@ -529,6 +574,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 git add functionsystem/src/function_proxy/common/observer/data_plane_observer/ \
         functionsystem/tests/unit/mocks/mock_data_observer.h
 git commit --signoff -m "feat(observer): add QueryInstanceRoute to DataPlaneObserver interface"
+
 ```
 
 ---
@@ -551,6 +597,7 @@ git commit --signoff -m "feat(observer): add QueryInstanceRoute to DataPlaneObse
 
 ```bash
 cat functionsystem/src/function_proxy/busproxy/instance_proxy/instance_proxy.h
+
 ```
 
 - [ ] **Step 2: 写失败测试（LRU 缓存命中场景）**
@@ -576,13 +623,16 @@ TEST_F(InstanceProxyTest, FallbackToObserverWhenLRUCacheMiss) {
     // Action: Call()
     // Verify: SubscribeInstanceEvent is called on observer
 }
+
 ```
 
 - [ ] **Step 3: 运行测试确认失败**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -s InstanceProxyTest"
+
 ```
+
 预期：新测试 FAIL（功能尚未实现）
 
 - [ ] **Step 4: 在 instance_proxy.h 添加 LRU cache 成员**
@@ -598,6 +648,7 @@ private:
     static constexpr size_t ROUTE_CACHE_CAPACITY = 1024;
     ThreadSafeLruCache<std::string, std::string> routeCache_{ROUTE_CACHE_CAPACITY};
 };
+
 ```
 
 - [ ] **Step 5: 修改 Call() 方法实现 3.1-3.3 路由规则**
@@ -605,6 +656,7 @@ private:
 在 `instance_proxy.cpp` 的 `Call()` 方法中，按如下逻辑修改（参考当前代码结构）：
 
 **规则 3.1**：请求携带路由 → 更新 LRU + 直接转发（扩展现有逻辑）
+
 ```cpp
 if (const auto it = callReq.createoptions().find(YR_ROUTE_KEY);
     it != callReq.createoptions().end() && !it->second.empty()) {
@@ -613,9 +665,11 @@ if (const auto it = callReq.createoptions().find(YR_ROUTE_KEY);
     auto remoteAID = litebus::AID(dstInstanceID, it->second);
     // ... existing forward logic ...
 }
+
 ```
 
 **规则 3.2**（仅 flag=true 时走新路径）：无路由 + LRU 命中 → 用缓存路由直接转发
+
 ```cpp
 // 3.2: Check LRU cache (only when direct routing is enabled)
 if (DirectRoutingConfig::IsEnabled()) {
@@ -624,15 +678,18 @@ if (DirectRoutingConfig::IsEnabled()) {
         return ForwardWithRouteAndFallback(remoteAID, dstInstanceID, callerInfo, request);
     }
 }
+
 ```
 
 **规则 3.3**：无路由 + LRU miss → subscribe observer（flag=false 时的原有行为保留）
+
 ```cpp
 // 3.3: No cache entry, subscribe to observer for route resolution
 // This is the original path, kept for both flag=false and flag=true LRU miss cases
 if (remoteDispatchers_.find(dstInstanceID) == remoteDispatchers_.end()) {
     // ... existing subscribe logic (unchanged) ...
 }
+
 ```
 
 同样，`DoForwardCall()` (line 155) 和 `CallResult()` (line 236) 中的订阅点保持原逻辑不变，新路径只在 `Call()` 方法中通过 LRU cache 提前短路。
@@ -679,13 +736,16 @@ void InstanceProxy::OnForwardResult(
               &InstanceProxy::OnQueryRouteResult,
               dstInstanceID, request, promise, std::placeholders::_1));
 }
+
 ```
 
 - [ ] **Step 7: 运行测试确认通过**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -s InstanceProxyTest"
+
 ```
+
 预期：所有 InstanceProxyTest 通过
 
 - [ ] **Step 8: Commit**
@@ -693,6 +753,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add functionsystem/src/function_proxy/busproxy/instance_proxy/
 git commit --signoff -m "feat(instance_proxy): add LRU route cache with 3.1-3.4 routing rules"
+
 ```
 
 ### Task 6：ObserverActor 按需查询 + 节点异常订阅（3.4 故障检测）
@@ -707,19 +768,23 @@ git commit --signoff -m "feat(instance_proxy): add LRU route cache with 3.1-3.4 
 ```bash
 grep -n "INSTANCE_ROUTE_PATH_PREFIX\|RegisterObserver\|UpdateInstanceRouteEvent\|ABNORMAL" \
   functionsystem/src/function_proxy/common/observer/observer_actor.cpp | head -20
+
 ```
 
 - [ ] **Step 2: 添加 QueryInstanceRoute 方法（按需 GET，非 watch）**
 
 在 `observer_actor.h` 添加接口：
+
 ```cpp
 // Query instance route on-demand from metastore (no watch).
 // Returns RouteInfo if found, or error if not found/terminal.
 litebus::Future<std::shared_ptr<resources::RouteInfo>> QueryInstanceRoute(
     const std::string &instanceID);
+
 ```
 
 在 `observer_actor.cpp` 实现（从 `InstanceView` 内存查询，不走 etcd）：
+
 ```cpp
 litebus::Future<std::shared_ptr<resources::RouteInfo>>
 ObserverActor::QueryInstanceRoute(const std::string &instanceID)
@@ -737,16 +802,19 @@ ObserverActor::QueryInstanceRoute(const std::string &instanceID)
     result->set_proxygRPCaddress(routerInfo->proxyGrpcAddress);
     return litebus::MakeReadyFuture(result);
 }
+
 ```
 
 - [ ] **Step 3: 订阅节点异常事件（3.4 故障检测核心）**
 
 在 `observer_actor.h` 添加：
+
 ```cpp
 // Callback for remote node abnormal events (for LRU eviction).
 // Registered as subscriber via InstanceView.
 using NodeAbnormalCallback = std::function<void(const std::string &nodeID)>;
 void RegisterNodeAbnormalCallback(NodeAbnormalCallback cb);
+
 ```
 
 在 `observer_actor.cpp` 中，新增 `/yr/abnormal/localscheduler/` 前缀 watch（在 `enable_direct_routing` 开启时注册）：
@@ -765,9 +833,11 @@ if (DirectRoutingConfig::IsEnabled()) {
         },
         nullptr);
 }
+
 ```
 
 实现 `OnNodeAbnormalEvent`：
+
 ```cpp
 void ObserverActor::OnNodeAbnormalEvent(const std::vector<WatchEvent> &events)
 {
@@ -783,6 +853,7 @@ void ObserverActor::OnNodeAbnormalEvent(const std::vector<WatchEvent> &events)
         }
     }
 }
+
 ```
 
 - [ ] **Step 4: 在开关开启时禁用 INSTANCE_ROUTE watch（不删除，用 if 包裹）**
@@ -799,6 +870,7 @@ if (!DirectRoutingConfig::IsEnabled()) {
         },
         instanceInfoSyncer);
 }
+
 ```
 
 - [ ] **Step 5: InstanceView 注册 NodeAbnormal 回调，维护 nodeID→instanceIDs 映射**
@@ -806,12 +878,14 @@ if (!DirectRoutingConfig::IsEnabled()) {
 > **淘汰路径**：`ObserverActor::OnNodeAbnormalEvent` → 回调 → `InstanceView::OnNodeAbnormal` → `InstanceProxy::EvictRoute(instanceID)`（直接调用链，不走 `DataPlaneObserver` 接口）。
 
 在 `instance_view.h` 添加：
+
 ```cpp
 // Maintain nodeID -> [instanceIDs] reverse mapping for batch LRU eviction.
 // nodeID extracted from proxyGrpcAddress host part (ip:port -> ip).
 std::unordered_map<std::string, std::unordered_set<std::string>> nodeInstanceMap_;
 
 void OnNodeAbnormal(const std::string &nodeID);
+
 ```
 
 在 `instance_view.cpp` 实现：
@@ -822,13 +896,16 @@ void OnNodeAbnormal(const std::string &nodeID);
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4"
+
 ```
 
 - [ ] **Step 5: 运行全量测试**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4"
+
 ```
+
 预期：所有原有测试通过，无回归
 
 - [ ] **Step 6: Commit**
@@ -836,6 +913,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 ```bash
 git add functionsystem/src/function_proxy/common/observer/
 git commit --signoff -m "feat(observer): add QueryInstanceRoute on-demand query, remove route watch"
+
 ```
 
 ---
@@ -853,11 +931,13 @@ git commit --signoff -m "feat(observer): add QueryInstanceRoute on-demand query,
 ```bash
 grep -n "CreateInstance\|GetAsync\|routeInfo\|YR_ROUTE" \
   /Users/robbluo/code/yuanrong/api/go/faassdk/runtime.go | head -30
+
 ```
 
 - [ ] **Step 2: 在 InstanceAllocation 添加路由地址字段**
 
 编辑 `api/go/libruntime/api/types.go`：
+
 ```go
 type InstanceAllocation struct {
     FuncKey       string
@@ -867,6 +947,7 @@ type InstanceAllocation struct {
     LeaseInterval int64
     RouteAddress  string  // functionProxyID or litebus AID address for direct forwarding
 }
+
 ```
 
 - [ ] **Step 3: 在 runtime.go 添加路由缓存（map + mutex）**
@@ -877,11 +958,13 @@ type SDK struct {
     routeCache   map[string]string  // instanceID -> route address
     routeCacheMu sync.RWMutex
 }
+
 ```
 
 - [ ] **Step 4: CreateInstance 返回后缓存路由**
 
 在 GetAsync 回调中，当实例创建成功时，从 allocation 的 RouteAddress 缓存：
+
 ```go
 globalSdkClient.GetAsync(objID, func(result []byte, err error) {
     if err == nil {
@@ -893,6 +976,7 @@ globalSdkClient.GetAsync(objID, func(result []byte, err error) {
     }
     // ... existing logic ...
 })
+
 ```
 
 - [ ] **Step 5: Invoke 时从缓存取路由并写入 CreateOpt**
@@ -907,12 +991,14 @@ func (s *SDK) invokeInstance(instanceID string, opts InvokeOptions) error {
     }
     return s.globalSdkClient.Invoke(instanceID, opts)
 }
+
 ```
 
 - [ ] **Step 6: 编译验证**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/api/go && go build ./..."
+
 ```
 
 - [ ] **Step 7: Commit**
@@ -921,6 +1007,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 cd /Users/robbluo/code/yuanrong
 git add api/go/faassdk/runtime.go api/go/libruntime/api/types.go
 git commit --signoff -m "feat(faassdk): cache route from CreateInstance response, pass YR_ROUTE in invoke"
+
 ```
 
 ### Task 8：Kill 链路添加路由参数
@@ -946,14 +1033,17 @@ git commit --signoff -m "feat(faassdk): cache route from CreateInstance response
 grep -rn "\.Kill(" /Users/robbluo/code/yuanrong/api/go \
   /Users/robbluo/code/yuanrong/go \
   /Users/robbluo/code/yuanrong-frontend/pkg --include="*.go" | grep -v "_test.go" | grep -v "mock"
+
 ```
 
 - [ ] **Step 2: 修改 Kill 接口添加 InvokeOptions 参数**
 
 编辑 `api/go/libruntime/api/api.go`：
+
 ```go
 // Kill terminates an instance. Providing invokeOpt with YR_ROUTE enables direct routing.
 Kill(instanceID string, signal int, payload []byte, invokeOpt InvokeOptions) error
+
 ```
 
 - [ ] **Step 2: 更新 clibruntime.go 中 Kill 的 C binding**
@@ -975,6 +1065,7 @@ func (s *SDK) Kill(instanceID string, signal int, payload []byte) error {
     }
     return err
 }
+
 ```
 
 - [ ] **Step 4: instance_operation_kernel.go 更新调用签名**
@@ -984,12 +1075,14 @@ func killInstanceAndIgnoreNotFoundError(instanceId string) error {
     err := globalSdkClient.Kill(instanceId, killSignalVal, []byte{}, sdk.InvokeOptions{})
     // ...
 }
+
 ```
 
 - [ ] **Step 5: 编译验证**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && bash build.sh"
+
 ```
 
 - [ ] **Step 6: Commit**
@@ -998,6 +1091,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 cd /Users/robbluo/code/yuanrong
 git add api/go/libruntime/api/api.go api/go/faassdk/runtime.go go/pkg/functionscaler/
 git commit --signoff -m "feat(sdk): add route parameter to Kill path, clean route cache on kill"
+
 ```
 
 ---
@@ -1021,6 +1115,7 @@ grep -n "FunctionProxyID\|functionProxyID" \
   /Users/robbluo/code/yuanrong/go/pkg/functionscaler/types/types.go \
   /Users/robbluo/code/yuanrong/go/pkg/functionscaler/instancepool/instancepool.go | head -20
 # 期望：FunctionProxyID 已在 Instance 对象中，从 etcd/registry 读取后填充
+
 ```
 
 - [ ] **Step 2: 确认 InstanceAllocation.Instance.FunctionProxyID 在创建后可用**
@@ -1030,11 +1125,13 @@ grep -n "FunctionProxyID\|functionProxyID" \
   /Users/robbluo/code/yuanrong/go/pkg/functionscaler/instancepool/*.go | head -20
 # 如果 CreateInstance 后返回的 Instance 对象已有 FunctionProxyID（从 registry 读取），
 # 则跳过 notifyresult 路由解析步骤，直接使用
+
 ```
 
 - [ ] **Step 3: 在 InstanceAllocationInfo 添加 FunctionProxyID 字段**
 
 编辑 `go/pkg/common/faas_common/types/lease.go`：
+
 ```go
 type InstanceAllocationInfo struct {
     FuncKey          string `json:"funcKey"`
@@ -1051,6 +1148,7 @@ type InstanceAllocationInfo struct {
     Memory           int64  `json:"memory"`
     ForceInvoke      bool   `json:"forceInvoke"`
 }
+
 ```
 
 - [ ] **Step 4: generateInstanceResponse 填充 FunctionProxyID**
@@ -1069,23 +1167,27 @@ func generateInstanceResponse(...) *commonTypes.InstanceResponse {
         // ...
     }
 }
+
 ```
 
 - [ ] **Step 5: 如果 FunctionProxyID 为空（未被填充），则从 notifyresult 路由补充**
 
 这是 fallback 路径：
+
 ```go
 // If FunctionProxyID not populated from InstanceSpecification,
 // extract from notifyresult readyInstance.proxyGrpcAddress
 if insAlloc.Instance.FunctionProxyID == "" && notifyResult != nil {
     insAlloc.Instance.FunctionProxyID = notifyResult.GetReadyInstance().GetProxyGrpcAddress()
 }
+
 ```
 
 - [ ] **Step 5: 编译验证**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && bash build.sh"
+
 ```
 
 - [ ] **Step 6: Commit**
@@ -1094,6 +1196,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 cd /Users/robbluo/code/yuanrong
 git add go/pkg/common/faas_common/types/lease.go go/pkg/functionscaler/
 git commit --signoff -m "feat(faasscheduler): propagate FunctionProxyID from notifyresult to lease response"
+
 ```
 
 ---
@@ -1109,16 +1212,19 @@ git commit --signoff -m "feat(faasscheduler): propagate FunctionProxyID from not
 - [ ] **Step 1: InvokeRequest 添加 RouteAddress 字段**
 
 编辑 `pkg/frontend/common/util/client.go`：
+
 ```go
 type InvokeRequest struct {
     // ... existing fields ...
     RouteAddress string  // YR_ROUTE value for direct routing (functionProxyID)
 }
+
 ```
 
 - [ ] **Step 2: 写失败测试**
 
 在 `pkg/frontend/invocation/function_invoke_for_kernel_test.go`：
+
 ```go
 func TestConvert_PopulatesRouteFromLease(t *testing.T) {
     lease := &commontype.InstanceAllocationInfo{
@@ -1130,17 +1236,20 @@ func TestConvert_PopulatesRouteFromLease(t *testing.T) {
     assert.NoError(t, err)
     assert.Equal(t, "10.0.0.1:5000", req.RouteAddress)  // YR_ROUTE == ip:port
 }
+
 ```
 
 - [ ] **Step 3: 运行测试确认失败**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && go test ./pkg/frontend/invocation/..."
+
 ```
 
 - [ ] **Step 4: 修改 convert() 从租约填充 RouteAddress**
 
 在 `function_invoke_for_kernel.go` 的 `convert()` 函数中：
+
 ```go
 func convert(ctx *types.InvokeProcessContext, funcSpec *commontype.FuncSpec,
     instanceId string, forceInvoke bool,
@@ -1159,16 +1268,19 @@ func convert(ctx *types.InvokeProcessContext, funcSpec *commontype.FuncSpec,
 
     return req, nil
 }
+
 ```
 
 - [ ] **Step 5: 修改 NewClient().Invoke() 将 RouteAddress 写入 CreateOpt**
 
 在 invoke 发起前，将路由写入 args 的 createopt：
+
 ```go
 if request.RouteAddress != "" {
     // Add YR_ROUTE to the invoke args' create options
     invokeArgs = appendCreateOpt(invokeArgs, "YR_ROUTE", request.RouteAddress)
 }
+
 ```
 
 > **注意**：具体 arg 格式需参考 `util.NewClient().Invoke()` 的实现和 functionsystem 期望的 createopt 注入方式。
@@ -1177,12 +1289,14 @@ if request.RouteAddress != "" {
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && go test ./pkg/frontend/invocation/..."
+
 ```
 
 - [ ] **Step 7: 编译 frontend**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && bash build.sh"
+
 ```
 
 - [ ] **Step 8: Commit**
@@ -1191,6 +1305,7 @@ docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/ro
 cd /Users/robbluo/code/yuanrong-frontend
 git add pkg/frontend/common/util/client.go pkg/frontend/invocation/
 git commit --signoff -m "feat(frontend): pass FunctionProxyID as YR_ROUTE in invoke for direct routing"
+
 ```
 
 ---
@@ -1203,24 +1318,28 @@ git commit --signoff -m "feat(frontend): pass FunctionProxyID as YR_ROUTE in inv
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh build -j 4 && bash run.sh pack"
+
 ```
 
 - [ ] **Step 2: 运行 functionsystem 全量测试**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-functionsystem && bash run.sh test -j 4"
+
 ```
 
 - [ ] **Step 3: 编译 yuanrong faas 组件（Go）**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong/go && bash build.sh"
+
 ```
 
 - [ ] **Step 4: 编译 frontend**
 
 ```bash
 docker exec compile bash -c "source /etc/profile.d/buildtools.sh && cd /Users/robbluo/code/yuanrong-frontend && bash build.sh"
+
 ```
 
 - [ ] **Step 5: 部署验证（yr 环境）**
@@ -1233,6 +1352,7 @@ yr start
 
 # 触发一个 FaaS 函数调用，观察日志
 # 确认：1. 路由出现在 notifyresult 2. invoke 携带 YR_ROUTE 3. kill 携带路由
+
 ```
 
 - [ ] **Step 6: 观察关键日志**
@@ -1244,6 +1364,7 @@ grep "YR_ROUTE\|LRU\|route cache\|CAS write" /path/to/function_proxy.log | head 
 # 确认不再有 INSTANCE_ROUTE watch 相关日志
 grep "UpdateInstanceRouteEvent\|INSTANCE_ROUTE" /path/to/function_proxy.log | head -5
 # 预期：无输出（watch 已移除）
+
 ```
 
 ---

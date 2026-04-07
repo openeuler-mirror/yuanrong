@@ -3,6 +3,7 @@
 import asyncio
 import threading
 import unittest
+from unittest import mock
 from aiohttp import web
 import websockets
 from yr.sandbox.tunnel_server import TunnelServer
@@ -220,51 +221,156 @@ class TestIntegration(unittest.TestCase):
             upstream_runner = web.AppRunner(upstream_app)
             await upstream_runner.setup()
             await web.TCPSite(upstream_runner, "127.0.0.1", UPSTREAM_PORT).start()
+            server = None
+            server2 = None
+            client = None
+            try:
+                # Start tunnel server
+                server = TunnelServer(ws_port=SRV_WS_PORT, http_port=SRV_HTTP_PORT)
+                await server.start()
 
-            # Start tunnel server
-            server = TunnelServer(ws_port=SRV_WS_PORT, http_port=SRV_HTTP_PORT)
-            await server.start()
+                # Start client with fast heartbeat for quick failure detection
+                client = TunnelClient(
+                    upstream=f"http://127.0.0.1:{UPSTREAM_PORT}",
+                    ping_interval=0.5,
+                    ping_timeout=0.5,
+                    reconnect_base_delay=0.2,
+                    reconnect_max_delay=1.0,
+                )
+                client.start(f"ws://127.0.0.1:{SRV_WS_PORT}")
+                await asyncio.sleep(1)
 
-            # Start client with fast heartbeat for quick failure detection
-            client = TunnelClient(
-                upstream=f"http://127.0.0.1:{UPSTREAM_PORT}",
-                ping_interval=0.5,
-                ping_timeout=0.5,
-                reconnect_base_delay=0.2,
-                reconnect_max_delay=1.0,
-            )
-            client.start(f"ws://127.0.0.1:{SRV_WS_PORT}")
-            await asyncio.sleep(1)
+                # Verify tunnel works: send HTTP request through tunnel
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/test") as resp:
+                        self.assertEqual(resp.status, 200)
+                        body = await resp.read()
+                        self.assertEqual(body, b"ok")
 
-            # Verify tunnel works: send HTTP request through tunnel
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/test") as resp:
-                    self.assertEqual(resp.status, 200)
-                    body = await resp.read()
-                    self.assertEqual(body, b"ok")
+                # Kill server (simulate server crash)
+                await server.stop()
+                server = None
+                await asyncio.sleep(2)
 
-            # Kill server (simulate server crash)
-            await server.stop()
-            await asyncio.sleep(2)
+                # Restart server on same ports
+                server2 = TunnelServer(ws_port=SRV_WS_PORT, http_port=SRV_HTTP_PORT)
+                await server2.start()
+                await asyncio.sleep(2)
 
-            # Restart server on same ports
-            server2 = TunnelServer(ws_port=SRV_WS_PORT, http_port=SRV_HTTP_PORT)
-            await server2.start()
-            await asyncio.sleep(2)
-
-            # Verify tunnel recovers: HTTP request should work again
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/test2") as resp:
-                    self.assertEqual(resp.status, 200)
-                    body = await resp.read()
-                    self.assertEqual(body, b"ok")
-
-            client.stop()
-            await server2.stop()
-            await upstream_runner.cleanup()
+                # Verify tunnel recovers: HTTP request should work again
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"http://127.0.0.1:{SRV_HTTP_PORT}/test2") as resp:
+                        self.assertEqual(resp.status, 200)
+                        body = await resp.read()
+                        self.assertEqual(body, b"ok")
+            finally:
+                if client is not None:
+                    client.stop()
+                if server is not None:
+                    await server.stop()
+                if server2 is not None:
+                    await server2.stop()
+                await upstream_runner.cleanup()
 
         asyncio.run(_run())
+
+    def test_tunnel_reconnect_restart_cleans_up_on_restart_failure(self):
+        """Restart failures still stop the client and clean up the upstream app."""
+        cleanup = {
+            "client_stopped": False,
+            "upstream_cleaned": False,
+        }
+
+        class _DoneFuture:
+            def result(self, timeout=None):
+                return None
+
+        def _run_coroutine_threadsafe(coro, loop):
+            asyncio.run(coro)
+            return _DoneFuture()
+
+        class _FakeExistingServer:
+            async def stop(self):
+                return None
+
+        class _FakeTunnelServer:
+            start_calls = 0
+
+            def __init__(self, ws_port, http_port):
+                self.ws_port = ws_port
+                self.http_port = http_port
+
+            async def start(self):
+                type(self).start_calls += 1
+                if type(self).start_calls == 2:
+                    raise RuntimeError("restart failed")
+
+            async def stop(self):
+                return None
+
+        class _FakeTunnelClient:
+            def __init__(self, upstream, **kwargs):
+                pass
+
+            def start(self, url):
+                return None
+
+            def stop(self):
+                cleanup["client_stopped"] = True
+
+        class _FakeRunner:
+            async def setup(self):
+                return None
+
+            async def cleanup(self):
+                cleanup["upstream_cleaned"] = True
+
+        class _FakeTCPSite:
+            def __init__(self, runner, host, port):
+                pass
+
+            async def start(self):
+                return None
+
+        class _FakeResponse:
+            status = 200
+
+            async def read(self):
+                return b"ok"
+
+        class _FakeRequestContext:
+            async def __aenter__(self):
+                return _FakeResponse()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class _FakeClientSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def get(self, url):
+                return _FakeRequestContext()
+
+        self._server = _FakeExistingServer()
+        self._server_loop = object()
+
+        with mock.patch(__name__ + ".TunnelServer", _FakeTunnelServer), \
+             mock.patch(__name__ + ".TunnelClient", _FakeTunnelClient), \
+             mock.patch(__name__ + ".web.AppRunner", side_effect=lambda app: _FakeRunner()), \
+             mock.patch(__name__ + ".web.TCPSite", _FakeTCPSite), \
+             mock.patch(__name__ + ".asyncio.run_coroutine_threadsafe", side_effect=_run_coroutine_threadsafe), \
+             mock.patch(__name__ + ".asyncio.sleep", new=mock.AsyncMock()), \
+             mock.patch("aiohttp.ClientSession", _FakeClientSession):
+            with self.assertRaisesRegex(RuntimeError, "restart failed"):
+                self.test_tunnel_reconnects_after_server_restart()
+
+        self.assertTrue(cleanup["client_stopped"])
+        self.assertTrue(cleanup["upstream_cleaned"])
 
     def test_ws_channel_cleanup_on_client_disconnect(self):
         """WS channel is removed from _ws_channels when client disconnects."""

@@ -25,6 +25,7 @@ import zipfile
 
 import setuptools
 from packaging import tags
+from packaging.version import Version
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
@@ -302,6 +303,11 @@ class DevelopImpl(develop):
 
 class BinaryDistribution(setuptools.Distribution):
     """binary distribution"""
+
+    def __init__(self, attrs=None):
+        super().__init__(attrs)
+        # Keep generated metadata compatible with older upload validators.
+        self.metadata.metadata_version = Version("2.2")
 
     def has_ext_modules(self):
         """has ext modules"""

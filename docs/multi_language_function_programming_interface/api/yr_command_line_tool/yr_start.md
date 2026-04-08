@@ -1,4 +1,4 @@
-# `start`
+# start
 
 启动 openYuanrong 集群，支持 `master` 和 `agent` 两种模式。
 
@@ -54,7 +54,7 @@ yr start [OPTIONS]
 * `master` 默认启动：`etcd`、`ds_master`、`ds_worker`、`function_master`、`function_proxy`、`function_agent`
 * `agent` 默认启动：`ds_worker`、`function_proxy`、`function_agent`
 
-## Example
+## 样例
 
 启动主节点：
 

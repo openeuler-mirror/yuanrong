@@ -1,4 +1,4 @@
-# `launch`
+# launch
 
 仅启动单个组件，通常用于容器 entrypoint 场景。
 
@@ -19,7 +19,7 @@ yr launch [OPTIONS] COMPONENT
 * `launch` 只拉起一个组件，不会自动拉起依赖组件。
 * 生产部署请优先使用 `yr start`，以获得完整的依赖编排、健康检查与会话管理能力。
 
-## Example
+## 样例
 
 ```shell
 yr launch etcd

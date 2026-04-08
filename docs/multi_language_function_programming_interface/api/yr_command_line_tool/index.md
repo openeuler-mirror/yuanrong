@@ -1,4 +1,4 @@
-# CLI - the `yr` command
+# CLI - the yr command
 
 `yr` 是 openYuanrong Python 部署与运维 CLI，用于主机模式下的组件启动、停止、状态检查与配置渲染。
 

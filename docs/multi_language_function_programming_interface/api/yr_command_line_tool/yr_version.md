@@ -1,4 +1,4 @@
-# `--version`
+# --version
 
 查看 `yr` CLI 版本。
 
@@ -8,7 +8,7 @@
 yr --version
 ```
 
-## Example
+## 样例
 
 ```shell
 yr --version

@@ -1,4 +1,4 @@
-# `config`
+# config
 
 查看或导出 CLI 生效配置。
 
@@ -28,7 +28,7 @@ yr config template
 2. `-c/--config` 指定或默认路径的用户配置文件
 3. 内置默认模板
 
-## 基于内置 `config.toml.jinja` 自定义配置
+## 基于内置 config.toml.jinja 自定义配置
 
 `yr` 的最终生效配置是由以下两份内置文件渲染合并得到：
 
@@ -82,7 +82,7 @@ yr -c /path/to/config.toml start --master
 yr start --master -s 'function_proxy.args.enable_metrics=true'
 ```
 
-## `values.toml` 字段说明
+## values.toml 字段说明
 
 内置默认值文件路径：`api/python/yr/cli/values.toml`。
 
@@ -96,7 +96,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 
 :::
 
-### `[values]` 核心字段
+### [values] 核心字段
 
 :::{tip}
 下表中带 `{{ ... }}` 的默认值表示该字段会在运行时自动填充，无需手动配置。
@@ -116,7 +116,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `ld_library_path` | `{{ ld_library_path }}` | 启动时继承到模板渲染上下文中的 `LD_LIBRARY_PATH`。 |
 | `python_path` | `{{ python_path }}` | 启动时继承到模板渲染上下文中的 `PYTHONPATH`。 |
 
-### `[values.meta_store]`
+### [values.meta_store]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -124,13 +124,13 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `address` | `""` | meta store 地址。 |
 | `mode` | `local` | meta store 模式。 |
 
-### `[values.fs]` 与函数系统相关字段
+### [values.fs] 与函数系统相关字段
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
 | `schedule_plugins` | `["Label","ResourceSelector","Default","Heterogeneous","NUMA"]` | 调度插件链。 |
 
-#### `[values.fs.log]`
+#### [values.fs.log]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -145,7 +145,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `rolling_retention_days` | `30` | 日志保留天数。 |
 | `compress_enable` | `false` | 是否压缩日志。 |
 
-#### `[values.fs.tls]`
+#### [values.fs.tls]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -155,14 +155,14 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `cert_file` | `module.crt` | 证书文件名。 |
 | `key_file` | `module.key` | 私钥文件名。 |
 
-#### `[values.fs.metrics]`
+#### [values.fs.metrics]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
 | `metrics_config` | `""` | metrics 配置字符串。 |
 | `metrics_config_file` | `{{ values.yr_package_path }}/functionsystem/config/metrics/metrics_config.json` | metrics 配置文件路径。 |
 
-### `[values.ds.curve]`
+### [values.ds.curve]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -171,7 +171,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `cache_storage_auth_type` | `Noauth` | 缓存认证方式（`Noauth`/`ZMQ`/`AK/SK`）。 |
 | `cache_storage_auth_enable` | `false` | 是否启用缓存认证。 |
 
-### `[values.etcd]` 与 etcd 安全配置
+### [values.etcd] 与 etcd 安全配置
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -179,7 +179,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `auth_type` | `Noauth` | etcd 认证类型（如 `Noauth`、`TLS`）。 |
 | `table_prefix` | `""` | etcd 表前缀。 |
 
-#### `[values.etcd.auth]`
+#### [values.etcd.auth]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -190,7 +190,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `client_cert_file` | `client.crt` | etcd 客户端证书文件名。 |
 | `client_key_file` | `client.key` | etcd 客户端私钥文件名。 |
 
-#### `[[values.etcd.address]]`
+#### [[values.etcd.address]]
 
 | 字段 | 默认值 | 说明 |
 | ---- | ---- | ---- |
@@ -231,7 +231,7 @@ yr start --master -s 'function_proxy.args.enable_metrics=true'
 | `[values.dashboard.prometheus.auth]` | `cert_file` | `""` | prometheus 客户端证书。 |
 | `[values.dashboard.prometheus.auth]` | `key_file` | `""` | prometheus 客户端私钥。 |
 
-## Example
+## 样例
 
 ```shell
 yr config dump

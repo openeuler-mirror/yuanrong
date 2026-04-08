@@ -1,4 +1,4 @@
-# `health`
+# health
 
 检查当前节点组件健康状态。
 
@@ -17,7 +17,7 @@ yr health [OPTIONS]
 * `health` 会读取会话文件中的组件 PID，并检查进程是否仍在运行。
 * 若会话不存在或组件未运行，将返回非零退出码。
 
-## Example
+## 样例
 
 ```shell
 yr health

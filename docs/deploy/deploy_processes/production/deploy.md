@@ -2,7 +2,7 @@
 
 本节将介绍常见场景下主机部署 openYuanrong 时的配置，配置参数详细说明请参考[部署参数表](../parameters.md)。
 
-## 使用命令行工具 `yr` 部署 openYuanrong
+## 使用命令行工具 yr 部署 openYuanrong
 
 ### 用法
 
@@ -33,7 +33,7 @@
 2. 用户配置文件（默认：`/etc/yuanrong/config.toml`，若存在）
 3. 内置默认值
 
-#### 基于内置 `config.toml.jinja` 编写自定义 `config.toml`
+#### 基于内置 config.toml.jinja 编写自定义 config.toml
 
 Python `yr` CLI 的最终组件配置由内置模板渲染得到：
 
@@ -76,7 +76,7 @@ node_dead_timeout_s = 120
 
 如需在不改文件的情况下临时覆盖，可叠加 `-s/--set`（例如 `-s 'function_proxy.args.enable_metrics=true'`）。
 
-#### 使用 `[mode.*]` 控制组件启停
+#### 使用 [mode.*] 控制组件启停
 
 `yr start --master` 启动主节点模式，`yr start` 启动从节点模式。默认组件如下：
 
@@ -96,7 +96,7 @@ collector = true
 
 `yr -c /path/to/config.toml start --master`
 
-#### 使用 `[values.*]` 覆盖运行时参数
+#### 使用 [values.*] 覆盖运行时参数
 
 `values` 主要承载运行时参数（IP、端口、TLS 路径、日志路径等），并用于渲染组件配置模板。
 
@@ -126,7 +126,7 @@ client_key_file = "client.key"
 
 `yr -c /path/to/config.toml start --master`
 
-#### 使用 `[component.*]` 覆盖组件启动参数
+#### 使用 [component.*] 覆盖组件启动参数
 
 除 `mode.*` 和 `values.*` 外，还可直接覆盖组件级配置（例如 `etcd`、`ds_master`、`function_master`、`function_proxy`）。
 这些配置会直接影响组件进程启动参数、环境变量和健康检查行为。
@@ -178,7 +178,7 @@ runtime_recover_enable = true
 
 `yr -c /path/to/config.toml start --master`
 
-### 使用 `-s` 的命令行覆盖（TOML 片段）
+### 使用 -s 的命令行覆盖（TOML 片段）
 
 启动时可通过 `-s/--set` 临时覆盖配置，避免修改文件。
 

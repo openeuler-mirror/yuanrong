@@ -1,4 +1,4 @@
-# `stop`
+# stop
 
 停止当前会话中的 openYuanrong 进程。
 
@@ -19,7 +19,7 @@ yr stop [OPTIONS]
 * `--force` 行为：先 `SIGKILL` daemon，再基于会话文件对组件 PID 执行强制停止。
 * 如果会话文件不存在或无效，命令会返回失败。
 
-## Example
+## 样例
 
 ```shell
 yr stop

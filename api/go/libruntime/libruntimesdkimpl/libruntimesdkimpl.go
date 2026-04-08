@@ -20,6 +20,7 @@ package libruntimesdkimpl
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
 	"yuanrong.org/kernel/runtime/libruntime/clibruntime"
@@ -27,7 +28,9 @@ import (
 	"yuanrong.org/kernel/runtime/libruntime/common/utils"
 )
 
-type libruntimeSDKImpl struct{}
+type libruntimeSDKImpl struct {
+	routeCache sync.Map
+}
 
 // NewLibruntimeSDKImpl creates and returns a new libruntimeSDK instance
 func NewLibruntimeSDKImpl() api.LibruntimeAPI {
@@ -51,18 +54,28 @@ func (l *libruntimeSDKImpl) InvokeByFunctionName(
 	return clibruntime.InvokeByFunctionName(funcMeta, args, invokeOpt)
 }
 
-func (l libruntimeSDKImpl) AcquireInstance(state string, funcMeta api.FunctionMeta,
+func (l *libruntimeSDKImpl) AcquireInstance(state string, funcMeta api.FunctionMeta,
 	acquireOpt api.InvokeOptions) (api.InstanceAllocation, error) {
-	return clibruntime.AcquireInstance(state, funcMeta, acquireOpt)
+	allocation, err := clibruntime.AcquireInstance(state, funcMeta, acquireOpt)
+	if err == nil && allocation.InstanceID != "" {
+		l.routeCache.Store(allocation.InstanceID, [2]string{allocation.RouteAddress, allocation.ProxyID})
+	}
+	return allocation, err
 }
 
-func (l libruntimeSDKImpl) ReleaseInstance(allocation api.InstanceAllocation, stateID string,
+func (l *libruntimeSDKImpl) ReleaseInstance(allocation api.InstanceAllocation, stateID string,
 	abnormal bool, option api.InvokeOptions) {
 	clibruntime.ReleaseInstance(allocation, stateID, abnormal, option)
 }
 
-func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte) error {
-	return clibruntime.Kill(instanceID, signal, payload)
+func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
+	_ = invokeOpt
+	routeAddress, proxyID := "", ""
+	if v, ok := l.routeCache.Load(instanceID); ok {
+		pair := v.([2]string)
+		routeAddress, proxyID = pair[0], pair[1]
+	}
+	return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
 }
 
 func (l *libruntimeSDKImpl) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {

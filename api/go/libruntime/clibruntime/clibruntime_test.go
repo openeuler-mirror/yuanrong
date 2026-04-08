@@ -468,13 +468,13 @@ func TestSetTenantID(t *testing.T) {
 func TestKillInstance(t *testing.T) {
 	convey.Convey(
 		"Test KillInstance successfully", t, func() {
-			err := Kill("instanceid", 1, []byte{})
+			err := Kill("instanceid", 1, []byte{}, "10.0.0.1:7788", "proxy-abc")
 			convey.So(err, convey.ShouldBeNil)
 		},
 	)
 	convey.Convey(
 		"Test KillInstance failed", t, func() {
-			err := Kill("instanceid", 128, []byte{})
+			err := Kill("instanceid", 128, []byte{}, "10.0.0.1:7788", "proxy-abc")
 			convey.So(err.Error(), convey.ShouldEqual, "kill instance: failed to kill")
 		},
 	)
@@ -581,9 +581,18 @@ func TestAcquireInstance(t *testing.T) {
 		"Test AcquireInstance", t, func() {
 			allocation, err := AcquireInstance("", api.FunctionMeta{}, api.InvokeOptions{})
 			convey.So(allocation, convey.ShouldNotBeNil)
+			convey.So(allocation.RouteAddress, convey.ShouldEqual, "10.0.0.1:7788")
+			convey.So(allocation.ProxyID, convey.ShouldEqual, "proxy-abc")
 			convey.So(err, convey.ShouldBeNil)
 		},
 	)
+}
+
+func TestKillSignatureAcceptsRouteParams(t *testing.T) {
+	convey.Convey("Test Kill signature accepts route params", t, func() {
+		err := Kill("test-inst", 9, nil, "10.0.0.1:7788", "proxy-abc")
+		convey.So(err, convey.ShouldBeNil)
+	})
 }
 
 func TestReleaseInstance(t *testing.T) {

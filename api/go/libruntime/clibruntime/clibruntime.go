@@ -866,6 +866,8 @@ func AcquireInstance(stateID string, funcMeta api.FunctionMeta, acquireOpt api.I
 		InstanceID:    CSafeGoString(instanceAllocation.instanceId),
 		LeaseID:       CSafeGoString(instanceAllocation.leaseId),
 		LeaseInterval: int64(instanceAllocation.tLeaseInterval),
+		RouteAddress:  CSafeGoString(instanceAllocation.routeAddress),
+		ProxyID:       CSafeGoString(instanceAllocation.proxyID),
 	}, nil
 }
 
@@ -884,9 +886,13 @@ func ReleaseInstance(allocation api.InstanceAllocation, stateID string, abnormal
 }
 
 // Kill instances
-func Kill(instanceID string, signo int, data []byte) error {
+func Kill(instanceID string, signo int, data []byte, routeAddress string, proxyID string) error {
 	cInstanceID := C.CString(instanceID)
 	defer C.free(unsafe.Pointer(cInstanceID))
+	cRouteAddress := C.CString(routeAddress)
+	defer C.free(unsafe.Pointer(cRouteAddress))
+	cProxyID := C.CString(proxyID)
+	defer C.free(unsafe.Pointer(cProxyID))
 
 	cSigno := C.int(signo)
 
@@ -899,7 +905,7 @@ func Kill(instanceID string, signo int, data []byte) error {
 		buffer:      cData,
 		size_buffer: C.int64_t(cDataLen),
 	}
-	cErr := C.CKill(cInstanceID, cSigno, cBuf)
+	cErr := C.CKill(cInstanceID, cSigno, cBuf, cRouteAddress, cProxyID)
 	code := int(cErr.code)
 	if code != 0 {
 		return codeNotZeroErr(code, cErr, "kill instance: ")
@@ -1891,6 +1897,8 @@ func cCInstanceAllocation(instanceAllocation api.InstanceAllocation) *C.CInstanc
 		instanceId:     C.CString(instanceAllocation.InstanceID),
 		leaseId:        C.CString(instanceAllocation.LeaseID),
 		tLeaseInterval: C.int(instanceAllocation.LeaseInterval),
+		routeAddress:   C.CString(instanceAllocation.RouteAddress),
+		proxyID:        C.CString(instanceAllocation.ProxyID),
 	}
 	return &cInstanceAlloc
 }
@@ -1900,6 +1908,8 @@ func freeCInstanceAllocation(cInstanceAllocation *C.CInstanceAllocation) {
 	CSafeFree(cInstanceAllocation.functionId)
 	CSafeFree(cInstanceAllocation.instanceId)
 	CSafeFree(cInstanceAllocation.leaseId)
+	CSafeFree(cInstanceAllocation.routeAddress)
+	CSafeFree(cInstanceAllocation.proxyID)
 }
 
 func cInvokeOptions(invokeOpt api.InvokeOptions) *C.CInvokeOptions {

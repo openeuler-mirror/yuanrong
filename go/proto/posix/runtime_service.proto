@@ -90,6 +90,7 @@ message NotifyRequest {
   repeated common.SmallObject    smallObjects    = 4;
   repeated common.StackTraceInfo stackTraceInfos = 5;
   common.RuntimeInfo             runtimeInfo     = 7;
+  string                         instanceID      = 8;
 }
 
 message NotifyResponse {}

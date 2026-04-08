@@ -77,7 +77,7 @@ func SetGlobalSdkClient(sdkClient api.LibruntimeAPI) {
 }
 
 func killInstanceAndIgnoreNotFoundError(instanceId string) error {
-	err := globalSdkClient.Kill(instanceId, killSignalVal, []byte{})
+	err := globalSdkClient.Kill(instanceId, killSignalVal, []byte{}, api.InvokeOptions{})
 	if err != nil {
 		if strings.Contains(err.Error(), "instance not found") {
 			return nil

@@ -1358,8 +1358,13 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
     } else {
         YRLOG_DEBUG("Succeed to create instance, request ID: {}, instance ID: {}", req.requestid(), spec->instanceId);
         invokeOrderMgr->NotifyInvokeSuccess(spec);
-        if (req.has_runtimeinfo() && !req.runtimeinfo().route().empty()) {
-            memStore->SetInstanceRoute(spec->returnIds[0].id, req.runtimeinfo().route());
+        if (req.has_runtimeinfo()) {
+            if (!req.runtimeinfo().route().empty()) {
+                memStore->SetInstanceRoute(spec->returnIds[0].id, req.runtimeinfo().route());
+            }
+            if (!req.runtimeinfo().proxyid().empty()) {
+                memStore->SetInstanceProxyID(spec->returnIds[0].id, req.runtimeinfo().proxyid());
+            }
         }
         memStore->SetReady(spec->returnIds[0].id);
         if (spec->functionMeta.apiType != libruntime::ApiType::Posix) {

@@ -198,6 +198,20 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
+func TestGenerateInstanceResponsePopulatesRouteFields(t *testing.T) {
+	instance := &types.Instance{
+		InstanceID:      "test-inst-001",
+		FunctionProxyID: "proxy-abc",
+		RouteAddress:    "10.0.0.1:7788",
+	}
+	insAlloc := &types.InstanceAllocation{Instance: instance}
+
+	resp := generateInstanceResponse(insAlloc, nil, time.Now())
+
+	assert.Equal(t, "proxy-abc", resp.InstanceAllocationInfo.ProxyID)
+	assert.Equal(t, "10.0.0.1:7788", resp.InstanceAllocationInfo.RouteAddress)
+}
+
 func TestProcessSubscription(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)

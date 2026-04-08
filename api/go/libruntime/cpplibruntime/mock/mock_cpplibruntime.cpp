@@ -129,6 +129,8 @@ CErrorInfo CInvokeByInstanceId(CFunctionMeta *cFuncMeta, char *cInstanceId, CInv
 CErrorInfo CAcquireInstance(char *stateId, CFunctionMeta *cFuncMeta, CInvokeOptions *cInvokeOpts,
                             CInstanceAllocation *cInsAlloc)
 {
+    cInsAlloc->routeAddress = CString("10.0.0.1:7788");
+    cInsAlloc->proxyID = CString("proxy-abc");
     return ErrorInfoToCError(ErrorInfo());
 }
 
@@ -183,8 +185,12 @@ void CGetEvent(char *objectId, void *userData)
     return;
 }
 
-CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData)
+CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID)
 {
+    (void)instanceId;
+    (void)cData;
+    (void)routeAddress;
+    (void)proxyID;
     if (sigNo == 128) {
         return ErrorInfoToCError(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
                                            YR::Libruntime::ModuleCode::RUNTIME, "failed to kill"));

@@ -191,6 +191,19 @@ def init(conf: Config = None) -> ClientInfo:
 
     conf = Config() if conf is None else conf
 
+    # Auto-start: if no server_address specified, try to start local cluster
+    if not conf.server_address and not os.environ.get("YR_SERVER_ADDRESS"):
+        try:
+            from yr.service_manager import ServiceManager
+            endpoints = ServiceManager.ensure_services()
+            conf.server_address = endpoints.server_address
+            if endpoints.ds_address:
+                conf.ds_address = endpoints.ds_address
+            _logger.info("Auto-started local cluster: server=%s ds=%s",
+                         endpoints.server_address, endpoints.ds_address)
+        except Exception:
+            _logger.debug("Auto-start not available, falling back to default init", exc_info=True)
+
     conf = _auto_get_cluster_access_info(conf)
     ConfigManager().init(conf, is_initialized())
     runtime_holder.init()

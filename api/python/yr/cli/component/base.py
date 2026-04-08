@@ -141,7 +141,7 @@ class ComponentLauncher:
 
             time.sleep(1)
 
-    def launch(self) -> subprocess.Popen:
+    def launch(self, preexec_fn=None) -> subprocess.Popen:
         self.prestart_hook()
 
         cmd = self.prepare_command()
@@ -159,16 +159,19 @@ class ComponentLauncher:
         with log_file.open("a") as log:
             log.write(f"\n=== Started at {time.ctime()} ===\n")
             log.write(f"Command: {' '.join(cmd)}\n\n")
-        stdout_file = log_file.open("a")
-        stderr_file = log_file.open("a")
+        stdout_fd = os.open(str(log_file), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
 
-        process = subprocess.Popen(
-            cmd,
-            env=env,
-            cwd=cwd,
-            stdout=stdout_file,
-            stderr=stderr_file,
-        )
+        try:
+            process = subprocess.Popen(
+                cmd,
+                env=env,
+                cwd=cwd,
+                stdout=stdout_fd,
+                stderr=stdout_fd,
+                preexec_fn=preexec_fn,
+            )
+        finally:
+            os.close(stdout_fd)
 
         self.component_config.process = process
         self.component_config.pid = process.pid
@@ -215,7 +218,7 @@ class ComponentLauncher:
             env,
         )
 
-    def restart(self) -> subprocess.Popen:
+    def restart(self, preexec_fn=None) -> subprocess.Popen:
         """
         Restart the component if monitoring finds it has exited. Component will be re-launched with the
         same command line args and environment as before.
@@ -230,16 +233,19 @@ class ComponentLauncher:
         with log_file.open("a") as log:
             log.write(f"\n=== Started at {time.ctime()} ===\n")
             log.write(f"Command: {' '.join(cmd)}\n\n")
-        stdout_file = log_file.open("a")
-        stderr_file = log_file.open("a")
+        stdout_fd = os.open(str(log_file), os.O_WRONLY | os.O_CREAT | os.O_APPEND)
 
-        process = subprocess.Popen(
-            cmd,
-            env=full_env,
-            cwd=cwd,
-            stdout=stdout_file,
-            stderr=stderr_file,
-        )
+        try:
+            process = subprocess.Popen(
+                cmd,
+                env=full_env,
+                cwd=cwd,
+                stdout=stdout_fd,
+                stderr=stdout_fd,
+                preexec_fn=preexec_fn,
+            )
+        finally:
+            os.close(stdout_fd)
 
         self.component_config.process = process
         self.component_config.pid = process.pid

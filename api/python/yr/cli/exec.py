@@ -31,7 +31,8 @@ def create_ssl_context(
     cert_file=None,
     key_file=None,
     ca_file=None,
-    verify_server=True
+    verify_server=True,
+    quiet=False
 ):
     """Create SSL context for mutual TLS authentication.
     
@@ -76,7 +77,8 @@ def create_ssl_context(
         if not verify_server:
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
-            print("Warning: Server certificate verification is disabled (insecure)", file=sys.stderr)
+            if not quiet:
+                print("Warning: Server certificate verification is disabled (insecure)", file=sys.stderr)
         
         return ssl_context
     except Exception as e:
@@ -144,16 +146,17 @@ async def heartbeat_loop(ws, should_exit, ping_interval=30, ping_timeout=10):
             return
 
 
-async def read_websocket(ws, should_exit):
+async def read_websocket(ws, should_exit, quiet=False):
     """从 WebSocket 读取输出并写入标准输出"""
     try:
         async for message in ws:
             if should_exit.is_set():
                 break
-            if isinstance(message, bytes):
-                os.write(sys.stdout.fileno(), message)
-            else:
-                os.write(sys.stdout.fileno(), message.encode("utf-8"))
+            text = message if isinstance(message, str) else message.decode("utf-8", errors="replace")
+            if quiet and text.strip() == "[Process exited]":
+                should_exit.set()
+                break
+            os.write(sys.stdout.fileno(), text.encode("utf-8"))
     except Exception:
         pass
     finally:
@@ -234,7 +237,7 @@ async def send_terminal_resize(ws, rows=None, cols=None):
 
 async def run_client(
     host, port, instance=None, command=None, tty=None, stdin=None, rows=None, cols=None, user=None,
-    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None
+    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None, quiet=False
 ):
     # 获取当前终端的实际尺寸作为默认值
     if rows is None or cols is None:
@@ -275,10 +278,11 @@ async def run_client(
     if query_string:
         uri += f"?{query_string}"
 
-    if instance:
-        print(f"Connecting to {instance}...\nPress Ctrl+] to disconnect", file=sys.stderr)
-    else:
-        print("Connecting...\nPress Ctrl+] to disconnect", file=sys.stderr)
+    if tty:
+        if instance:
+            print(f"Connecting to {instance}...\nPress Ctrl+] to disconnect", file=sys.stderr)
+        else:
+            print("Connecting...\nPress Ctrl+] to disconnect", file=sys.stderr)
     
     # Create SSL context if needed
     ssl_context = None
@@ -287,28 +291,34 @@ async def run_client(
             cert_file=cert_file,
             key_file=key_file,
             ca_file=ca_file,
-            verify_server=verify_server
+            verify_server=verify_server,
+            quiet=quiet
         )
-        if ssl_context:
+        if ssl_context and tty:
             print("Using mutual TLS authentication", file=sys.stderr)
-        else:
+        elif not ssl_context and tty:
             print("Warning: SSL requested but failed to create SSL context", file=sys.stderr)
 
     try:
         async with websockets.connect(uri, ssl=ssl_context) as ws:
             should_exit = asyncio.Event()
 
-            with RawTerminal(sys.stdin.fileno()):
-                if tty and sys.stdin.isatty():
-                    await send_terminal_resize(ws, rows=rows, cols=cols)
+            interactive = tty and sys.stdin.isatty()
 
+            if interactive:
+                raw_term = RawTerminal(sys.stdin.fileno())
+                raw_term.__enter__()
+                await send_terminal_resize(ws, rows=rows, cols=cols)
+
+            try:
                 # 同时处理输入和输出
                 tasks = [
-                    asyncio.create_task(read_stdin(ws, should_exit)),
-                    asyncio.create_task(read_websocket(ws, should_exit)),
+                    asyncio.create_task(read_websocket(ws, should_exit, quiet=quiet)),
                     asyncio.create_task(heartbeat_loop(ws, should_exit)),
                 ]
-                if tty and sys.stdin.isatty():
+                if stdin or interactive:
+                    tasks.append(asyncio.create_task(read_stdin(ws, should_exit)))
+                if interactive:
                     tasks.append(asyncio.create_task(watch_terminal_resize(ws, should_exit)))
 
                 await should_exit.wait()
@@ -322,6 +332,9 @@ async def run_client(
                         await task
                     except asyncio.CancelledError:
                         pass
+            finally:
+                if interactive:
+                    raw_term.__exit__(None, None, None)
     except KeyboardInterrupt:
         print("\n[Interrupted]", file=sys.stderr)
     except Exception as e:

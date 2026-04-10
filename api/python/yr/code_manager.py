@@ -317,9 +317,9 @@ class CodeManager:
             self.module_cache[module_name] = module
             return module
 
-        file_path = os.path.join(code_dir, module_name + ".py")
+        file_path = os.path.join(code_dir, module_name.replace(".", os.sep) + ".py")
         if not os.path.exists(file_path):
-            admin_path = os.path.join(_DEFAULT_ADMIN_FUNC_PATH, module_name + ".py")
+            admin_path = os.path.join(_DEFAULT_ADMIN_FUNC_PATH, module_name.replace(".", os.sep) + ".py")
             if not os.path.exists(admin_path):
                 raise ValueError("entry file does not exist: [{}]".format(file_path))
             file_path = admin_path

@@ -529,13 +529,6 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
     help="Skip server TLS certificate verification (connects via HTTPS without cert check)",
 )
 @click.option(
-    "--insecure",
-    is_flag=True,
-    default=False,
-    envvar="YR_INSECURE",
-    help="Skip server TLS certificate verification (connects via HTTPS without cert check)",
-)
-@click.option(
     "--client-auth-type",
     required=False,
     type=click.Choice(["mutual", "one-way"], case_sensitive=False),
@@ -1279,7 +1272,7 @@ def run_spark(script, args):
         sys.exit(1)
 
 
-@cli.command("exec")
+@cli.command("exec", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.option(
     "-i",
     "--stdin",
@@ -1298,17 +1291,17 @@ def run_spark(script, args):
     default=False,
     help="Whether to allocate a TTY for the instance",
 )
-@click.option(
-    "--verify-server",
-    required=False,
-    type=bool,
-    is_flag=True,
-    default=True,
-    help="Verify server certificate (default: True)",
-)
-@click.argument("instance", type=str)
-@click.argument("command", type=str)
-def exec(stdin, tty, verify_server, instance, command):
+@click.pass_context
+def exec(ctx, stdin, tty):
+    args = ctx.args
+    # Strip leading "--" if present
+    if args and args[0] == "--":
+        args = args[1:]
+    if len(args) < 2:
+        click.echo("Error: INSTANCE and COMMAND are required", err=True)
+        sys.exit(1)
+    instance = args[0]
+    command = " ".join(args[1:])
     use_ssl = __client_cert is not None and __client_key is not None
     try:
         host, port = __server_address.split(":")
@@ -1325,8 +1318,9 @@ def exec(stdin, tty, verify_server, instance, command):
                 cert_file=__client_cert,
                 key_file=__client_key,
                 ca_file=__ca_cert,
-                verify_server=verify_server,
+                verify_server=not __insecure,
                 token=__jwt_token,
+                quiet=not tty,
             )
         )
     except KeyboardInterrupt:

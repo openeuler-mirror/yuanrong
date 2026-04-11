@@ -26,7 +26,7 @@ POST /serverless/v1/functions/{functionVersionURN}/invocations
 | X-Instance-Custom-Resource | 否 | string | 函数实例所需自定义资源。 |
 | X-Pool-Label               | 否 | string | 函数实例所需亲和的资源池标签。 |
 | X-Instance-Label           | 否 | string | 在具有该标签的函数实例上运行。 |
-| X-Instance-Session         | 否 | string | 指定实例会话调用，会话与实例唯一绑定。<br> 样例：{"sessionID":"abc","sessionTTL":10,"concurrency": 5}，其中，sessionID 不超过 63 位，sessionTTL 不小于 0，单位：秒，concurrency 不能超过函数中配置的 concurrentNum。 |
+| X-Instance-Session         | 否 | string | 指定实例会话调用，会话与实例唯一绑定。<br> 样例：{"sessionID":"abc","sessionTTL":10,"concurrency": 5}，其中，sessionID 不超过 63 位，sessionTTL 不小于 0，单位：秒，concurrency 不能超过函数中配置的 concurrentNum，当 concurrency 为 -1 时，表示独占整个函数实例。 |
 
 <br> 请求 Body 参数
 

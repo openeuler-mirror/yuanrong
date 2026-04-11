@@ -628,12 +628,13 @@ func parseExtraData(extraData []byte) (*extraDataInfo, snerror.SNError) {
 		if err != nil {
 			return nil, snerror.NewWithError(statuscode.StatusInternalServerError, err)
 		}
+		if insSessConfig.Concurrency == 0 || insSessConfig.Concurrency < -1 {
+			return nil, snerror.New(statuscode.InstanceSessionInvalidErrCode,
+				fmt.Sprintf("invalid session concurrency %d, only -1 or positive integer is allowed",
+					insSessConfig.Concurrency))
+		}
 		if !utils.CheckInstanceSessionValid(insSessConfig) {
 			return nil, snerror.New(statuscode.InstanceSessionInvalidErrCode, "session config invalid")
-		}
-		if insSessConfig.Concurrency <= 0 {
-			log.GetLogger().Warnf("user session concurrency is invalid: %d, will set to default 1", insSessConfig.Concurrency)
-			insSessConfig.Concurrency = 1
 		}
 		dataInfo.instanceSession = insSessConfig
 	}

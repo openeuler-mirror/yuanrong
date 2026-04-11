@@ -807,6 +807,11 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 			if insElem.instance.InstanceStatus.Code != int32(constant.KernelInstanceStatusRunning) {
 				return true
 			}
+			if insAcqReq.InstanceSession.Concurrency == -1 {
+				// Full-concurrency session must monopolize the whole instance, so only fully idle instances
+				// are eligible for binding.
+				return len(insElem.threadMap) != insElem.instance.ConcurrentNum
+			}
 			if len(insElem.threadMap) >= insAcqReq.InstanceSession.Concurrency {
 				return false
 			}
@@ -947,6 +952,16 @@ func acquireInstanceThread(designateThreadID string, insQue queue.Queue,
 
 func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, insElem *instanceElement,
 	session commonTypes.InstanceSessionConfig) (*sessionRecord, error) {
+	requestedConcurrency := session.Concurrency
+	if session.Concurrency == -1 {
+		// Reject binding when the instance is not fully idle.
+		if len(insElem.threadMap) != insElem.instance.ConcurrentNum {
+			return nil, scheduler.ErrNoInsAvailable
+		}
+		session.Concurrency = insElem.instance.ConcurrentNum
+		log.GetLogger().Debugf("session %s uses full concurrency mode, binding %d threads for function %s",
+			session.SessionID, session.Concurrency, bcs.funcKeyWithRes)
+	}
 	if len(insElem.threadMap) < session.Concurrency {
 		return nil, scheduler.ErrNoInsAvailable
 	}
@@ -984,8 +999,10 @@ func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, ins
 		}
 		metrics.OnAcquireLease(insAlloc)
 	}
-	log.GetLogger().Infof("bind session %s with instance %s for function %s", record.sessionID,
-		insElem.instance.InstanceID, bcs.funcKeyWithRes)
+	log.GetLogger().Infof("bind session %s with instance %s for function %s, " +
+	    "requestedConcurrency=%d boundConcurrency=%d, instanceConcurrency=%d availableAfterBind=%d", record.sessionID,
+		insElem.instance.InstanceID, bcs.funcKeyWithRes, requestedConcurrency, record.concurrency,
+		insElem.instance.ConcurrentNum, len(insElem.threadMap))
 	return record, nil
 }
 

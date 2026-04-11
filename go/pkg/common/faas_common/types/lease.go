@@ -106,7 +106,11 @@ type LeaseEvent struct {
 	TraceID        string `json:"traceId"`
 }
 
-// InstanceSessionConfig -
+// InstanceSessionConfig defines the session configuration for an instance.
+// Concurrency semantics:
+//   - > 0: binds the specified number of threads
+//   - = -1: binds all available threads of the instance
+//   - = 0 or other negative values: invalid value
 type InstanceSessionConfig struct {
 	SessionID   string `json:"sessionID"`
 	SessionTTL  int    `json:"sessionTTL"`

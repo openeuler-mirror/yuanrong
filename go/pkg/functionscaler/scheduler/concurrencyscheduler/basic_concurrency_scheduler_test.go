@@ -1720,3 +1720,286 @@ func TestSaveSessionRecord(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	assert.Equal(t, 1, i)
 }
+
+func TestAcquireInstanceWithSessionFullConcurrency(t *testing.T) {
+	defer gomonkey.ApplyFunc((*sessionManager).saveSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
+		return map[string][]commonTypes.InstanceSessionConfig{}
+	}).Reset()
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	bcs.HandleFuncOwnerUpdate(true)
+	checkInUseInsThd := 0
+	checkAvailInsThd := 0
+	bcs.addObservers(scheduler.InUseInsThdTopic, func(obj interface{}) {
+		delta := obj.(int)
+		checkInUseInsThd += delta
+	})
+	bcs.addObservers(scheduler.AvailInsThdTopic, func(obj interface{}) {
+		delta := obj.(int)
+		checkAvailInsThd += delta
+	})
+	bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		ConcurrentNum:  4,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	})
+	acqIns, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID:   "session1",
+			Concurrency: -1,
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance1", acqIns.Instance.InstanceID)
+	assert.Equal(t, 4, checkInUseInsThd)
+	assert.Equal(t, 0, checkAvailInsThd)
+	record, exist := bcs.sessionManager.getSession("session1")
+	assert.True(t, exist)
+	assert.Equal(t, 4, record.concurrency)
+}
+
+func TestAcquireInstanceWithSessionFullConcurrencyInsufficient(t *testing.T) {
+	defer gomonkey.ApplyFunc((*sessionManager).saveSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
+		return map[string][]commonTypes.InstanceSessionConfig{}
+	}).Reset()
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	bcs.HandleFuncOwnerUpdate(true)
+	bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		ConcurrentNum:  4,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	})
+	acqIns1, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance1", acqIns1.Instance.InstanceID)
+	acqIns2, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID:   "session1",
+			Concurrency: -1,
+		},
+	})
+	assert.Equal(t, scheduler.ErrNoInsAvailable, err)
+	assert.Nil(t, acqIns2)
+}
+
+func TestAcquireReleaseSessionFullConcurrency(t *testing.T) {
+	defer gomonkey.ApplyFunc((*sessionManager).saveSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
+		return map[string][]commonTypes.InstanceSessionConfig{}
+	}).Reset()
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	bcs.HandleFuncOwnerUpdate(true)
+	bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		ConcurrentNum:  4,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	})
+	acqIns1, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID:   "session1",
+			Concurrency: -1,
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance1", acqIns1.Instance.InstanceID)
+	record, exist := bcs.sessionManager.getSession("session1")
+	assert.True(t, exist)
+	assert.Equal(t, 3, len(record.availThdMap))
+	acqIns2, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID:   "session1",
+			Concurrency: -1,
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance1", acqIns2.Instance.InstanceID)
+	assert.Equal(t, 2, len(record.availThdMap))
+	err = bcs.ReleaseInstance(acqIns1)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(record.availThdMap))
+	err = bcs.ReleaseInstance(acqIns2)
+	assert.Nil(t, err)
+	assert.Equal(t, 4, len(record.availThdMap))
+}
+
+func TestAcquireInstanceWithSessionFullConcurrencyMonopolyChoosesFullyIdleInstance(t *testing.T) {
+	defer gomonkey.ApplyFunc((*sessionManager).saveSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
+		return map[string][]commonTypes.InstanceSessionConfig{}
+	}).Reset()
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	bcs.HandleFuncOwnerUpdate(true)
+	assert.NoError(t, bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		ConcurrentNum:  4,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.NoError(t, bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance2",
+		ConcurrentNum:  4,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	// Occupy one thread on instance2 so it is no longer fully idle.
+	normalAlloc, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{DesignateInstanceID: "instance2"})
+	assert.NoError(t, err)
+	assert.Equal(t, "instance2", normalAlloc.Instance.InstanceID)
+	fullAlloc, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID:   "session-full",
+			Concurrency: -1,
+		},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "instance1", fullAlloc.Instance.InstanceID)
+	record, exist := bcs.sessionManager.getSession("session-full")
+	assert.True(t, exist)
+	assert.Equal(t, 4, record.concurrency)
+	assert.Equal(t, 4, len(record.allocThdMap))
+}
+
+func TestSessionFullConcurrencyTTLExpire(t *testing.T) {
+	mockTimer := time.NewTimer(100 * time.Millisecond)
+	defer gomonkey.ApplyFunc(time.NewTimer, func(d time.Duration) *time.Timer {
+		mockTimer.Reset(100 * time.Millisecond)
+		return mockTimer
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).saveSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).deleteSessionRecordToDataSystem, func(_ *sessionManager) {
+		return
+	}).Reset()
+	defer gomonkey.ApplyFunc((*sessionManager).loadSessionFromDataSystem, func(_ *sessionManager) map[string][]commonTypes.InstanceSessionConfig {
+		return map[string][]commonTypes.InstanceSessionConfig{}
+	}).Reset()
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	bcs.HandleFuncOwnerUpdate(true)
+	checkInUseInsThd := 0
+	checkAvailInsThd := 0
+	bcs.addObservers(scheduler.InUseInsThdTopic, func(obj interface{}) {
+		delta := obj.(int)
+		checkInUseInsThd += delta
+	})
+	bcs.addObservers(scheduler.AvailInsThdTopic, func(obj interface{}) {
+		delta := obj.(int)
+		checkAvailInsThd += delta
+	})
+	bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		ConcurrentNum:  4,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	})
+	acqIns, err := bcs.AcquireInstance(&types.InstanceAcquireRequest{
+		InstanceSession: commonTypes.InstanceSessionConfig{
+			SessionID:   "session1",
+			SessionTTL:  1,
+			Concurrency: -1,
+		},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance1", acqIns.Instance.InstanceID)
+	assert.Equal(t, 4, checkInUseInsThd)
+	assert.Equal(t, 0, checkAvailInsThd)
+	err = bcs.ReleaseInstance(acqIns)
+	assert.Nil(t, err)
+	assert.Equal(t, 4, checkInUseInsThd)
+	assert.Equal(t, 0, checkAvailInsThd)
+	time.Sleep(150 * time.Millisecond)
+	assert.Equal(t, 0, checkInUseInsThd)
+	assert.Equal(t, 4, checkAvailInsThd)
+	_, exist := bcs.sessionManager.getSession("session1")
+	assert.False(t, exist)
+}
+
+func TestRecoverSessionRecordFullConcurrency(t *testing.T) {
+	config.GlobalConfig.EnableSessionRecover = true
+	defer gomonkey.ApplyFunc(datasystemclient.KVGetWithRetry, func(key string, option *datasystemclient.Option, traceID string) ([]byte, error) {
+		return []byte("{\"instance1\":[{\"sessionID\":\"session1\",\"sessionTTL\":3600,\"concurrency\":4}]}"), nil
+	}).Reset()
+	config.GlobalConfig.DataSystemConfig = types.DataSystemConfig{
+		CurrentCluster:  "",
+		UploadWriteMode: 0,
+		UploadTTLSec:    10,
+	}
+	sc := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commonTypes.InstanceMetaData{ConcurrentNum: 4},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	sc.HandleFuncOwnerUpdate(true)
+	instance := &types.Instance{
+		InstanceID:        "instance1",
+		ConcurrentNum:     4,
+		ResKey:            resspeckey.ResSpecKey{},
+		Permanent:         true,
+		CreateSchedulerID: "abc",
+		InstanceStatus:    commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}
+	assert.NoError(t, sc.AddInstance(instance))
+	defer gomonkey.ApplyFunc(datasystemclient.KVPutWithRetry, func(key string, value []byte, option *datasystemclient.Option, traceID string) error {
+		return nil
+	}).Reset()
+	defer gomonkey.ApplyFunc(datasystemclient.KVDelWithRetry, func(key string, option *datasystemclient.Option, traceID string) error {
+		return nil
+	}).Reset()
+	sc.RecoverSessionRecordFromDataSystem(func(sessInfo *types.SessionInfo, instance *types.Instance) {})
+	assert.Equal(t, 1, len(sc.sessionManager.sessionMap))
+	record, exist := sc.sessionManager.getSession("session1")
+	assert.True(t, exist)
+	assert.Equal(t, 4, record.concurrency)
+	assert.Equal(t, 4, len(record.allocThdMap))
+	sc.sessionManager.delSession("session1")
+}

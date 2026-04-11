@@ -1358,14 +1358,30 @@ func TestFaaSScheduler_parseExtraData(t *testing.T) {
 			_, err := parseExtraData(dataBytes)
 			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
 		})
-		convey.Convey("invalid session concurrency", func() {
+		convey.Convey("session full concurrency", func() {
 			data := map[string][]byte{
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-1}`),
 			}
 			dataBytes, _ := json.Marshal(data)
 			dataInfo, err := parseExtraData(dataBytes)
 			convey.So(err, convey.ShouldBeNil)
-			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, -1)
+		})
+		convey.Convey("invalid session concurrency zero", func() {
+			data := map[string][]byte{
+				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":0}`),
+			}
+			dataBytes, _ := json.Marshal(data)
+			_, err := parseExtraData(dataBytes)
+			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+		})
+		convey.Convey("invalid session concurrency less than -1", func() {
+			data := map[string][]byte{
+				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-2}`),
+			}
+			dataBytes, _ := json.Marshal(data)
+			_, err := parseExtraData(dataBytes)
+			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
 		})
 	})
 }

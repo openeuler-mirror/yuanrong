@@ -417,6 +417,9 @@ func CheckInstanceSessionValid(insSess commonTypes.InstanceSessionConfig) bool {
 	if insSess.SessionTTL < 0 {
 		return false
 	}
+	if insSess.Concurrency == 0 || insSess.Concurrency < -1 {
+		return false
+	}
 	return true
 }
 

@@ -38,7 +38,10 @@ class RuntimeHolder:
 
     def get_runtime(self) -> BaseRuntime:
         """get runtime"""
-        return self.yr_runtime
+        runtime = self.yr_runtime
+        if runtime is None:
+            raise RuntimeError("yr runtime not initialized, please call yr.init() first")
+        return runtime
 
 
 global_runtime = RuntimeHolder()

@@ -238,6 +238,7 @@ def finalize() -> None:
     if not __g_is_init:
         return
     runtime_holder.global_runtime.get_runtime().finalize()
+    runtime_holder.global_runtime.yr_runtime = None
     CodeManager().clear()
     __g_is_init = False
     _logger.info("Succeeded to finalize, jobID is %s", ConfigManager().job_id)

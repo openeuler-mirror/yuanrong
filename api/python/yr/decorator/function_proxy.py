@@ -291,14 +291,18 @@ class FunctionProxy:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", func.__qualname__)
-                self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
+                runtime = global_runtime.get_runtime()
+                code_id = runtime.put_serialized(serialized_object)
+                if not isinstance(code_id, str):
+                    code_id = runtime.put(serialized_object)
+                self._code_ref = ObjectRef(code_id, need_incre=False)
                 _logger.debug("[Reference Counting] put code with id = %s, functionName = %s",
                               self._code_ref.id, func.__qualname__)
         with self._lock:
             if self._initializer and self._initializer_code_ref is None:
                 self._initializer_code_ref = yr.put(self._initializer)
 
-        initializer_code_id = self._initializer_code_ref if self._initializer_code_ref is not None else ""
+        initializer_code_id = self._initializer_code_ref.id if self._initializer_code_ref is not None else ""
         func_meta = FunctionMeta(functionID=function_id,  # if designated_urn is not set,
                                  # use function id in the config
                                  moduleName=self.function_descriptor.module_name,

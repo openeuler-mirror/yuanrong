@@ -72,13 +72,13 @@ public:
 
     std::string logLevel = "INFO";
 
-    bool logCompress;
+    bool logCompress = true;
 
-    uint32_t maxLogFileNum;
+    uint32_t maxLogFileNum = 0;
 
-    uint32_t maxLogFileSize;
+    uint32_t maxLogFileSize = 0;
 
-    uint32_t logFlushInterval;
+    uint32_t logFlushInterval = 5;
 
     uint32_t threadPoolSize = 0;
 
@@ -86,11 +86,11 @@ public:
 
     uint32_t defaultGetTimeoutSec = 0;
 
-    bool isDriver;
+    bool isDriver = true;
 
-    int recycleTime;
+    int recycleTime = DEFAULT_RECYCLETIME;
 
-    int maxTaskInstanceNum;
+    int maxTaskInstanceNum = -1;
 
     std::string autoFunctionName;
 
@@ -100,9 +100,9 @@ public:
 
     std::string functionIdJava;
 
-    bool enableMetrics;
+    bool enableMetrics = true;
 
-    int maxConcurrencyCreateNum;
+    int maxConcurrencyCreateNum = 100;
 
     bool enableMTLS = false;
 
@@ -128,9 +128,9 @@ public:
 
     std::string standbyKeyStoreFile;
 
-    std::shared_ptr<void> tlsContext;
+    std::shared_ptr<void> tlsContext = nullptr;
 
-    uint32_t httpIocThreadsNum;
+    uint32_t httpIocThreadsNum = DEFAULT_HTTP_IOC_THREADS_NUM;
 
     std::string serverName = "";
 

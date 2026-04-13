@@ -107,7 +107,7 @@ TEST_F(TaskTest, TestResource)
     option.cpu = 1.0;
     try {
         auto r1 = YR::Function(&AddOne).Options(std::move(option)).Invoke(2);
-        auto res = *YR::Get(r1);
+        auto res = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         ASSERT_EQ(0, 1);
     }
@@ -116,7 +116,7 @@ TEST_F(TaskTest, TestResource)
     optionMem.memory = 1.0;
     try {
         auto r1 = YR::Function(&AddOne).Options(std::move(optionMem)).Invoke(2);
-        auto res = *YR::Get(r1);
+        auto res = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         ASSERT_EQ(0, 1);
     }
@@ -181,7 +181,7 @@ TEST_F(TaskTest, InvalidConcurrency)
     try {
         option.customExtensions.insert({YR::CONCURRENCY_KEY, "0"});
         auto r1 = YR::Function(&AddOne).Options(option).Invoke(1);
-        int r2 = *YR::Get(r1);
+        int r2 = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "1001";
@@ -193,7 +193,7 @@ TEST_F(TaskTest, InvalidConcurrency)
     try {
         option.customExtensions[YR::CONCURRENCY_KEY] = "101";
         auto r3 = YR::Function(&AddOne).Options(option).Invoke(1);
-        int r4 = *YR::Get(r3);
+        int r4 = *YR::Get(r3, 5);
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "1001";
@@ -205,7 +205,7 @@ TEST_F(TaskTest, InvalidConcurrency)
     try {
         option.customExtensions[YR::CONCURRENCY_KEY] = "-1";
         auto r5 = YR::Function(&AddOne).Options(option).Invoke(1);
-        int r6 = *YR::Get(r5);
+        int r6 = *YR::Get(r5, 5);
     } catch (YR::Exception &e) {
         printf("Exception:%s,\n", e.what());
         std::string errorCode = "1001";
@@ -262,7 +262,7 @@ TEST_F(TaskTest, DependentTwoFuncRetRefError)
     auto r1 = YR::Function(&RaiseRuntimeError).Invoke();
     auto r2 = YR::Function(&AddTwo).Invoke(2);
     auto r3 = YR::Function(&Add).Invoke(r1, r2);
-    ASSERT_THROW(YR::Get(r3), YR::Exception);
+    ASSERT_THROW(YR::Get(r3, 5), YR::Exception);
 }
 
 /*case
@@ -296,7 +296,7 @@ TEST_F(TaskTest, DependentMutliRefError)
     YR::ObjectRef<int> ret = YR::Function(&RaiseRuntimeError).Invoke();
     YR::ObjectRef<int> ret2 = YR::Function(&AddOne).Invoke(ret);
     YR::ObjectRef<int> ret3 = YR::Function(&AddOne).Invoke(ret2);
-    ASSERT_THROW(YR::Get(ret3), YR::Exception);
+    ASSERT_THROW(YR::Get(ret3, 5), YR::Exception);
 }
 
 /*case
@@ -333,8 +333,8 @@ TEST_F(TaskTest, DependentSameErrorRef)
     YR::ObjectRef<int> ret = YR::Function(&RaiseRuntimeError).Invoke();
     YR::ObjectRef<int> ret2 = YR::Function(&AddOne).Invoke(ret);
     YR::ObjectRef<int> ret3 = YR::Function(&AddOne).Invoke(ret);
-    ASSERT_THROW(YR::Get(ret2), YR::Exception);
-    ASSERT_THROW(YR::Get(ret3), YR::Exception);
+    ASSERT_THROW(YR::Get(ret2, 5), YR::Exception);
+    ASSERT_THROW(YR::Get(ret3, 5), YR::Exception);
 }
 
 /*case
@@ -348,7 +348,7 @@ TEST_F(TaskTest, ExceptionChain)
     printf("=====云上invoke 错误的算术运算=====\n");
     auto r1 = YR::Function(ExcChain).Invoke();
     try {
-        int n1 = *YR::Get(r1);
+        int n1 = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -369,7 +369,7 @@ TEST_F(TaskTest, ExceptionDying)
     printf("=====云上invoke 程序的异常终止=====\n");
     auto r1 = YR::Function(Excdying).Invoke();
     try {
-        int n1 = *YR::Get(r1);
+        int n1 = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -390,7 +390,7 @@ TEST_F(TaskTest, ExceptionMethod)
     printf("=====云上invoke 用户函数构造异常=====\n");
     auto r1 = YR::Function(ExcMethod).Invoke();
     try {
-        int n1 = *YR::Get(r1);
+        int n1 = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -589,14 +589,14 @@ TEST_F(TaskTest, RetryChecker)
     // too few retry time
     opt.retryTimes = n - 1;
     obj = YR::Function(FailedForNTimesAndThenSuccess).Options(opt).Invoke(n);
-    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(obj), 2002, "failed for " + std::to_string(n) + " times");
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(obj, 5), 2002, "failed for " + std::to_string(n) + " times");
     YR::KV().Del(key);
 
     // wrong retry checker, failed for the 1st time
     opt.retryTimes = n;
     opt.retryChecker = RetryForNothing;
     obj = YR::Function(FailedForNTimesAndThenSuccess).Options(opt).Invoke(n);
-    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(obj), 2002, "failed for 1 times");
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(obj, 5), 2002, "failed for 1 times");
     YR::KV().Del(key);
 }
 
@@ -618,7 +618,7 @@ TEST_F(TaskTest, Test_After_Retry_Args_Should_Not_DecreaseRef)
     option.retryTimes = 1;
     auto r1 = YR::Function(ExecBigArgsAndFailed).Options(option).Invoke(v);
     try {
-        int n1 = *YR::Get(r1);
+        int n1 = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -664,7 +664,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
         auto ret = YR::CppFunction<std::string>("AddOne")
                        .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                        .Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 4003";
@@ -676,7 +676,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
         auto ret = YR::CppFunction<int>("AddTen")
                        .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                        .Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
@@ -688,7 +688,7 @@ TEST_F(TaskTest, InvokeCppFuncFailed)
         auto ret = YR::CppFunction<int>("AddOne")
                        .SetUrn("sn:cn:yrk:default:function:0-yr-stcpp:$latest")
                        .Invoke(std::string("one"));
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 4003";
@@ -766,7 +766,7 @@ TEST_F(TaskTest, DISABLED_InvokeJavaFuncFailed)
         auto ret = YR::JavaFunction<std::string>("org.yuanrong.testutils.TestUtils", "returnInt")
                        .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 4003";
@@ -778,7 +778,7 @@ TEST_F(TaskTest, DISABLED_InvokeJavaFuncFailed)
         auto ret = YR::JavaFunction<int>("TestUtils", "returnInt")
                        .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 3003";
@@ -790,7 +790,7 @@ TEST_F(TaskTest, DISABLED_InvokeJavaFuncFailed)
         auto ret = YR::JavaFunction<int>("org.yuanrong.testutils.TestUtils", "addOne")
                        .SetUrn("sn:cn:yrk:default:function:0-yr-stjava:$latest")
                        .Invoke(1);
-        YR::Get(ret);
+        YR::Get(ret, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 3003";
@@ -1122,7 +1122,7 @@ TEST_F(TaskTest, HybridLocalCallClusterEmptyThreadPool)
     EXPECT_THROW(
         {
             try {
-                YR::Get(obj);
+                YR::Get(obj, 5);
             } catch (const YR::Exception &e) {
                 std::cout << "exception: " << e.what() << std::endl;
                 EXPECT_THAT(e.what(), HasSubstr("cannot submit task to empty thread pool"));
@@ -1252,7 +1252,7 @@ TEST_F(TaskTest, CppFinalizeFailedCloud)
     int res = 0;
     try {
         auto r1 = YR::Function(PlusOneFinalize).Invoke(1);
-        res = *YR::Get(r1);
+        res = *YR::Get(r1, 5);
     } catch (YR::Exception &e) {
         printf("error: %s\n", e.what());
         std::string error_code = "ErrCode: 4006, ModuleCode: 20";

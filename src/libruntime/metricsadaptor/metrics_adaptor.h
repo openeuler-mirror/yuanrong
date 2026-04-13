@@ -28,7 +28,6 @@
 #include "metrics/api/alarm.h"
 #include "metrics/api/counter.h"
 #include "metrics/api/gauge.h"
-#include "metrics/sdk/metric_exporter.h"
 #include "metrics/plugin/dynamic_library_handle_unix.h"
 #include "metrics/sdk/meter_provider.h"
 #include "metrics/sdk/metric_processor.h"
@@ -49,13 +48,10 @@ namespace MetricsPlugin = observability::plugin::metrics;
 class MetricsAdaptor {
 public:
     MetricsAdaptor();
+    ~MetricsAdaptor();
     MetricsAdaptor(const MetricsAdaptor&) = delete;
     MetricsAdaptor& operator=(const MetricsAdaptor&) = delete;
-    static std::shared_ptr<MetricsAdaptor> GetInstance()
-    {
-        std::call_once(initFlag, []() { instance = std::make_shared<MetricsAdaptor>(); });
-        return instance;
-    }
+    static std::shared_ptr<MetricsAdaptor> GetInstance();
     bool IsInited() const;
     void Init(const nlohmann::json &json, bool userEnable);
     void SetContextAttr(const std::string &attr, const std::string &value);

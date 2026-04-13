@@ -69,7 +69,7 @@ public:
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         lc->tenantId = "tenantId";
         auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
-        auto metricsAdaptor = std::make_shared<YR::Libruntime::MetricsAdaptor>();
+        auto metricsAdaptor = YR::Libruntime::MetricsAdaptor::GetInstance();
         sec_ = std::make_shared<MockSecurity>();
         auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
         lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
@@ -143,7 +143,7 @@ TEST_F(LibruntimeTest, PutTest)
 
     lc->jobId = YR::utility::IDGenerator::GenApplicationId();
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
     auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
@@ -161,7 +161,7 @@ TEST_F(LibruntimeTest, KVDelReturnsErrorWhenStateStoreIsMissing)
     auto localConfig = std::make_shared<LibruntimeConfig>();
     localConfig->jobId = YR::utility::IDGenerator::GenApplicationId();
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     auto localRuntime =
         std::make_shared<YR::Libruntime::Libruntime>(localConfig, clientsMgr, metricsAdaptor, sec_, socketClient);
@@ -228,7 +228,7 @@ TEST_F(LibruntimeTest, When_Not_Driver_Finalize_Should_Kill_Instances)
     lc->dataSystemIpAddr = "127.0.0.1";
     lc->dataSystemPort = 1100;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
     auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
@@ -358,7 +358,7 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
     lc->dataSystemIpAddr = "127.0.0.1";
     lc->dataSystemPort = 1100;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec_, socketClient);
     auto fsClient = std::make_shared<YR::Libruntime::FSClient>(gwClient_);
@@ -383,25 +383,21 @@ TEST_F(LibruntimeTest, AllocReturnObjectBigTest)
 
 TEST_F(LibruntimeTest, ConstructTraceIdTest)
 {
-    struct TestParam {
-        std::string userTraceId;
-        std::string expectTraceId;
-    } tps[] = {
-        {
-            .userTraceId = "",
-            .expectTraceId = YR::utility::IDGenerator::GenTraceId(lc->jobId),
-        },
-        {
-            .userTraceId = "traceid_test",
-            .expectTraceId = "traceid_test",
-        },
-    };
-
-    for (auto &tp : tps) {
+    // Empty traceId: auto-generated from jobId; verify format, not the random suffix
+    {
         YR::Libruntime::InvokeOptions opts;
-        opts.traceId = tp.userTraceId;
         auto traceId = lr->ConstructTraceId(opts);
-        ASSERT_EQ(traceId, tp.expectTraceId);
+        ASSERT_FALSE(traceId.empty());
+        ASSERT_NE(traceId.find(lc->jobId.substr(4)), std::string::npos);
+        ASSERT_NE(traceId.find("-trace-"), std::string::npos);
+    }
+
+    // Non-empty traceId: returned as-is
+    {
+        YR::Libruntime::InvokeOptions opts;
+        opts.traceId = "traceid_test";
+        auto traceId = lr->ConstructTraceId(opts);
+        ASSERT_EQ(traceId, "traceid_test");
     }
 }
 
@@ -412,7 +408,7 @@ TEST_F(LibruntimeTest, NonDriverSecurityInitTest)
     lc->inCluster = true;
     lc->isDriver = false;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto sec = std::make_shared<MockSecurity>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
@@ -428,7 +424,7 @@ TEST_F(LibruntimeTest, DriverSecurityInitTest)
     lc->inCluster = true;
     lc->isDriver = true;
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto sec = std::make_shared<MockSecurity>();
     auto socketClient = std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock");
     lr = std::make_shared<YR::Libruntime::Libruntime>(lc, clientsMgr, metricsAdaptor, sec, socketClient);
@@ -852,7 +848,7 @@ TEST_F(LibruntimeTest, TestGetRaw)
 
 TEST_F(LibruntimeTest, GetCredentialTest)
 {
-    datasystem::SensitiveValue sk = std::string("sk");
+    YR::Libruntime::SensitiveValue sk = std::string("sk");
     lr->security_->SetAKSKAndCredential("ak", sk);
     auto result = lr->GetCredential();
     ASSERT_EQ(result.ak, "ak");
@@ -1208,6 +1204,16 @@ TEST_F(LibruntimeTest, KillTest)
 {
     lr->invokeAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
     ASSERT_EQ(lr->Kill("instanceId", 1).OK(), true);
+}
+
+TEST_F(LibruntimeTest, KillWithRoutingTest)
+{
+    auto mockAdaptor = std::make_shared<YR::Libruntime::MockInvokeAdaptor>();
+    lr->invokeAdaptor = mockAdaptor;
+    EXPECT_CALL(*mockAdaptor, EraseFsIntf(_));
+    EXPECT_CALL(*mockAdaptor, KillWithRouting(_, "", 1, "10.0.0.1:7788", "proxy-abc"))
+        .WillOnce(Return(ErrorInfo()));
+    ASSERT_TRUE(lr->KillWithRouting("instanceId", 1, "10.0.0.1:7788", "proxy-abc").OK());
 }
 
 TEST_F(LibruntimeTest, GetThreadPoolSizeTest)

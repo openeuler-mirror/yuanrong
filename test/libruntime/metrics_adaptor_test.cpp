@@ -20,10 +20,14 @@
 #include <boost/beast/http.hpp>
 #include <string>
 #include <unistd.h>
-#include <dlfcn.h>
 #include <climits>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
+
+#ifndef ENABLE_OBSERVABILITY
+#define ENABLE_OBSERVABILITY
+#endif
 
 #define private public
 #include "metrics/api/provider.h"
@@ -207,18 +211,14 @@ nlohmann::json GetExportConfigs()
     return nlohmann::json::parse(jsonStr);
 }
 
-static std::string GetSelfPathForTest()
+static std::filesystem::path GetRunfilesRoot()
 {
-    Dl_info info;
-    if (dladdr((void*)&GetSelfPathForTest, &info) == 0) {
-        return "";
+    const char *testSrcDir = std::getenv("TEST_SRCDIR");
+    const char *testWorkspace = std::getenv("TEST_WORKSPACE");
+    if (testSrcDir == nullptr || testWorkspace == nullptr) {
+        return {};
     }
-    std::string path(info.dli_fname);
-    auto pos = path.find_last_of('/');
-    if (pos == std::string::npos) {
-        return "";
-    }
-    return path.substr(0, pos);
+    return std::filesystem::path(testSrcDir) / testWorkspace;
 }
 
 static void PrepareExporterSo()
@@ -229,15 +229,11 @@ static void PrepareExporterSo()
     }
     prepared = true;
 
-    auto path = GetSelfPathForTest();
-
-    auto idx = path.find("yuanrong/");
-    if (idx == std::string::npos) {
-        std::cerr << "cannot find '/yuanrong/' in path: " << path << "\n";
+    auto runfilesRoot = GetRunfilesRoot();
+    if (runfilesRoot.empty()) {
+        std::cerr << "failed to get Bazel runfiles root\n";
         return;
     }
-
-    std::string srcDir = path.substr(0, idx) + "yuanrong/metrics/lib";
     std::string dstDir = std::filesystem::current_path().string() + "/test";
 
     std::filesystem::create_directories(dstDir);
@@ -248,7 +244,7 @@ static void PrepareExporterSo()
     };
 
     for (const auto& so : exporters) {
-        std::filesystem::path src = srcDir + "/" + so;
+        std::filesystem::path src = runfilesRoot / "src/utility/metrics" / so;
         std::filesystem::path dst = dstDir + "/" +so;
 
         try {
@@ -258,7 +254,7 @@ static void PrepareExporterSo()
                 std::filesystem::copy_options::overwrite_existing
             );
         } catch (const std::filesystem::filesystem_error & e) {
-            std::cerr << "Failed to copy " << "\n";
+            std::cerr << "Failed to copy " << src << " to " << dst << ": " << e.what() << "\n";
         }
     }
 }

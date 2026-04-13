@@ -102,7 +102,7 @@ public:
         this->taskSubmitter = std::make_shared<MockTaskSubmitter>();
         auto cb = []() { return; };
         auto clientsMgr = std::make_shared<ClientsManager>();
-        auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+        auto metricsAdaptor = MetricsAdaptor::GetInstance();
         auto fsClient = std::make_shared<FSClient>(this->gwClient);
         auto mapper = std::make_shared<GeneratorIdMap>();
         auto dsStreamStore = std::shared_ptr<StreamStore>();
@@ -125,6 +125,7 @@ public:
         this->gwClient.reset();
         this->libConfig.reset();
         this->memoryStore.reset();
+        this->taskSubmitter.reset();
         this->invokeAdaptor.reset();
     }
     std::shared_ptr<MockFsIntf> gwClient;
@@ -227,7 +228,7 @@ TEST_F(InvokeAdaptorTest, PrepareCallExecutorTest)
     auto gwClient = std::make_shared<GwClient>(librtCfg->functionIds[libruntime::LanguageType::Cpp], handlers);
     auto cb = []() { return; };
     auto clientsMgr = std::make_shared<ClientsManager>();
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    auto metricsAdaptor = MetricsAdaptor::GetInstance();
     auto fsClient = std::make_shared<FSClient>(gwClient);
     auto mapper = std::make_shared<GeneratorIdMap>();
     auto dsStreamStore = std::shared_ptr<StreamStore>();
@@ -306,7 +307,10 @@ TEST_F(InvokeAdaptorTest, CallTest)
     req.add_args();
     auto arg2 = req.add_args();
     arg2->set_type(Arg_ArgType::Arg_ArgType_VALUE);
-    arg2->set_value("{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\","
+    // DataObject::SetBuffer treats the first MetaDataLen (16) bytes as metadata header;
+    // prepend 16 zero bytes so rawArgs[SCHEDULER_DATA_INDEX]->data points to the JSON.
+    arg2->set_value(std::string(16, '\0') +
+        "{\"schedulerFuncKey\":\"0/0-system-faasscheduler/$latest\","
         "\"schedulerInstanceList\":[{\"instanceName\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"},{\"instanceName\":\"2db4a71b-157c-4ec2-95d7-c70fccc85dfa\",\"instanceId\":\"abfe9e68-9221-4b97-8e85-87b5b5faf69c\"}]}");
 
     options.functionExecuteCallback = [](const FunctionMeta &function, const libruntime::InvokeType invokeType,
@@ -499,6 +503,34 @@ TEST_F(InvokeAdaptorTest, CreateResponseHandlerTest)
     resp.set_code(common::ERR_RESOURCE_NOT_ENOUGH);
     invokeAdaptor->CreateResponseHandler(spec, resp);
     ASSERT_EQ(spec->opts.retryTimes, 0);
+}
+
+TEST_F(InvokeAdaptorTest, CreateNotifyHandlerCachesNamedInstanceCodeTest)
+{
+    NotifyRequest req;
+    req.set_code(common::ERR_NONE);
+    req.set_requestid("cae7c30c8d63f5ed00");
+
+    auto spec = std::make_shared<InvokeSpec>();
+    spec->invokeType = libruntime::InvokeType::CreateInstance;
+    spec->requestId = "cae7c30c8d63f5ed00";
+    spec->functionMeta.moduleName = "test_yr_api";
+    spec->functionMeta.className = "test_get_instance.<locals>.Instance";
+    spec->functionMeta.languageType = libruntime::LanguageType::Python;
+    spec->functionMeta.apiType = libruntime::ApiType::Function;
+    spec->functionMeta.name = "actor";
+    spec->functionMeta.ns = "ns";
+    spec->functionMeta.code.assign({'s', 'e', 'r', 'i', 'a', 'l', 'i', 'z', 'e', 'd'});
+    spec->returnIds = {DataObject("returnID")};
+    invokeAdaptor->requestManager->PushRequest(spec);
+
+    invokeAdaptor->CreateNotifyHandler(req);
+
+    auto [cachedMeta, exists] = invokeAdaptor->GetCachedInsMeta("ns-actor");
+    ASSERT_TRUE(exists);
+    ASSERT_EQ(cachedMeta.modulename(), "test_yr_api");
+    ASSERT_EQ(cachedMeta.classname(), "test_get_instance.<locals>.Instance");
+    ASSERT_EQ(cachedMeta.code(), "serialized");
 }
 
 TEST_F(InvokeAdaptorTest, CreateGroupInstanceTest)
@@ -1307,6 +1339,57 @@ TEST_F(InvokeAdaptorTest, AdaptorGetInsTest)
     this->gwClient->isGetInstance = false;
 }
 
+TEST_F(InvokeAdaptorTest, AdaptorGetInsPreservesCodeTest)
+{
+    auto mockGwClient = std::make_shared<MockGwClient>();
+    auto fsClient = std::make_shared<FSClient>(mockGwClient);
+    invokeAdaptor->fsClient = fsClient;
+
+    EXPECT_CALL(*mockGwClient, KillAsync(_, _, _))
+        .WillRepeatedly(Invoke([](const KillRequest &req, KillCallBack callback, int) {
+            KillResponse resp;
+            resp.set_code(::common::ErrorCode::ERR_NONE);
+            if (req.signal() == libruntime::Signal::GetInstance) {
+                libruntime::FunctionMeta meta;
+                meta.set_modulename("test_yr_api");
+                meta.set_classname("test_get_instance.<locals>.Instance");
+                meta.set_language(libruntime::LanguageType::Python);
+                meta.set_code("serialized-code");
+                std::string serializedMeta;
+                ASSERT_TRUE(google::protobuf::util::MessageToJsonString(meta, &serializedMeta).ok());
+                resp.set_message(serializedMeta);
+            }
+            callback(resp, ErrorInfo());
+        }));
+
+    auto [res, err] = invokeAdaptor->GetInstance("actor", "ns", 60);
+    ASSERT_TRUE(err.OK());
+    ASSERT_EQ(res.moduleName, "test_yr_api");
+    ASSERT_EQ(res.className, "test_get_instance.<locals>.Instance");
+    ASSERT_EQ(std::string(res.code.begin(), res.code.end()), "serialized-code");
+}
+
+TEST_F(InvokeAdaptorTest, KillWithRoutingSetsKillRequestFieldsTest)
+{
+    auto mockGwClient = std::make_shared<MockGwClient>();
+    auto fsClient = std::make_shared<FSClient>(mockGwClient);
+    invokeAdaptor->fsClient = fsClient;
+
+    EXPECT_CALL(*mockGwClient, KillAsync(_, _, _))
+        .WillOnce(Invoke([](const KillRequest &req, KillCallBack callback, int) {
+            EXPECT_EQ(req.instanceid(), "instance-id");
+            EXPECT_EQ(req.routeaddress(), "10.0.0.1:7788");
+            EXPECT_EQ(req.proxyid(), "proxy-abc");
+            KillResponse resp;
+            resp.set_code(::common::ErrorCode::ERR_NONE);
+            callback(resp, ErrorInfo());
+        }));
+
+    auto err = invokeAdaptor->KillWithRouting("instance-id", "", libruntime::Signal::KillInstance,
+                                              "10.0.0.1:7788", "proxy-abc");
+    EXPECT_TRUE(err.OK());
+}
+
 TEST_F(InvokeAdaptorTest, UpdateAndSubcribeInsStatusTest)
 {
     libruntime::FunctionMeta funcMeta;
@@ -1379,10 +1462,10 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     )";
     // empty metric -> expect init not to be called
     invokeAdaptor->InitMetricsAdaptor(true);
-    ASSERT_EQ(MetricsAdaptor::GetInstance()->userEnable_, false);
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), false);
     Config::Instance().METRICS_CONFIG_ = "invalid json";
     invokeAdaptor->InitMetricsAdaptor(true);
-    ASSERT_EQ(MetricsAdaptor::GetInstance()->userEnable_, false);
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), false);
     // 创建输出文件流
     std::string file = "./metric.json";
     std::ofstream outFile(file);
@@ -1395,7 +1478,11 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     Config::Instance().METRICS_CONFIG_ = "";
     // valid metric file -> expected successful called
     invokeAdaptor->InitMetricsAdaptor(true);
-    ASSERT_EQ(MetricsAdaptor::GetInstance()->userEnable_, true);
+#ifdef ENABLE_OBSERVABILITY
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), true);
+#else
+    ASSERT_EQ(MetricsAdaptor::GetInstance()->IsInited(), false);
+#endif
     Config::Instance().ENABLE_METRICS_ = true;
     invokeAdaptor->ReportMetrics("request", "trace", 1);
     std::remove(file.c_str());

@@ -79,7 +79,30 @@ static std::string GetLibraryPath(const std::string &exporterType)
 std::once_flag MetricsAdaptor::initFlag;
 std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
 
+std::shared_ptr<MetricsAdaptor> MetricsAdaptor::GetInstance()
+{
+    std::call_once(initFlag, []() { instance = std::make_shared<MetricsAdaptor>(); });
+    return instance;
+}
+
 MetricsAdaptor::MetricsAdaptor() {}
+
+MetricsAdaptor::~MetricsAdaptor()
+{
+#ifdef ENABLE_OBSERVABILITY
+    try {
+        if (Initialized_) {
+            CleanMetrics();
+        }
+        alarmMap_.clear();
+        doubleGaugeMap_.clear();
+        doubleCounterMap_.clear();
+        uInt64CounterMap_.clear();
+        enabledBackends_.clear();
+    } catch (...) {
+    }
+#endif
+}
 
 bool MetricsAdaptor::IsInited() const
 {

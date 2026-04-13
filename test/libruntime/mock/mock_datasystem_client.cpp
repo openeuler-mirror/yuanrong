@@ -17,8 +17,10 @@
 #include "mock_datasystem_client.h"
 
 #include <cstdlib>
+#include <mutex>
 #include <msgpack.hpp>
 #include <string>
+#include <unordered_map>
 
 #define private public
 #include "datasystem/hetero_client.h"
@@ -28,6 +30,14 @@
 
 namespace datasystem {
 class ThreadPool {};
+
+constexpr int64_t defaultBufferSize = 32;
+std::mutex gBufferDataMutex;
+struct BufferState {
+    void *data = nullptr;
+    int64_t size = defaultBufferSize;
+};
+std::unordered_map<const Buffer *, BufferState> gBufferData;
 
 StreamClient::StreamClient(ConnectOptions options) {}
 
@@ -134,6 +144,10 @@ Status ObjectClient::Create(const std::string &objectId, uint64_t size, const Cr
         return Status(StatusCode::K_RPC_DEADLINE_EXCEEDED, "error");
     }
     buffer = std::make_shared<Buffer>();
+    {
+        std::lock_guard<std::mutex> lock(gBufferDataMutex);
+        gBufferData[buffer.get()].size = static_cast<int64_t>(size);
+    }
     return Status::OK();
 }
 
@@ -186,8 +200,11 @@ Status ObjectClient::ShutDown()
 {
     return Status::OK();
 }
-constexpr int64_t bufferSize = 32;
-void *mutableData = nullptr;
+void ReleaseBufferData(const Buffer *buffer)
+{
+    std::lock_guard<std::mutex> lock(gBufferDataMutex);
+    gBufferData.erase(buffer);
+}
 
 Status Buffer::WLatch(uint64_t timeout)
 {
@@ -196,6 +213,19 @@ Status Buffer::WLatch(uint64_t timeout)
 
 Status Buffer::MemoryCopy(const void *data, uint64_t length)
 {
+    if (data == nullptr || length == 0) {
+        return Status::OK();
+    }
+    auto dst = MutableData();
+    if (dst == nullptr) {
+        return Status(StatusCode::K_RUNTIME_ERROR, "mock buffer alloc failed");
+    }
+    auto size = GetSize();
+    if (length > static_cast<uint64_t>(size)) {
+        return Status(StatusCode::K_INVALID, "copy length exceeds mock buffer size");
+    }
+    // Keep the mock tolerant of fake source pointers used by unit tests.
+    std::memset(dst, 0, length);
     return Status::OK();
 }
 
@@ -206,10 +236,6 @@ Status Buffer::Seal(const std::unordered_set<std::string> &nestedIds)
 
 Status Buffer::UnWLatch()
 {
-    if (mutableData != nullptr) {
-        free(mutableData);
-    }
-    mutableData = nullptr;
     return Status::OK();
 }
 
@@ -225,16 +251,22 @@ const void *Buffer::ImmutableData()
 
 void *Buffer::MutableData()
 {
-    if (mutableData == nullptr) {
-        mutableData = (void *)std::malloc(bufferSize);
-        return mutableData;
+    std::lock_guard<std::mutex> lock(gBufferDataMutex);
+    auto &state = gBufferData[this];
+    if (state.data == nullptr) {
+        state.data = std::calloc(1, state.size);
     }
-    return mutableData;
+    return state.data;
 }
 
 int64_t Buffer::GetSize() const
 {
-    return bufferSize;
+    std::lock_guard<std::mutex> lock(gBufferDataMutex);
+    auto it = gBufferData.find(this);
+    if (it == gBufferData.end()) {
+        return defaultBufferSize;
+    }
+    return it->second.size;
 }
 
 Status Buffer::UnRLatch()
@@ -417,18 +449,161 @@ void Status::Assign(const Status &other) noexcept
     *state_ = *other.state_;
 }
 
-SensitiveValue::SensitiveValue(char const *) {}
-
-SensitiveValue::~SensitiveValue() {}
-
-SensitiveValue &SensitiveValue::operator=(const std::string &str)
+SensitiveValue::SensitiveValue(const char *str)
 {
+    SetData(str, str == nullptr ? 0 : std::strlen(str));
+}
+
+SensitiveValue::SensitiveValue(const std::string &str)
+{
+    SetData(str.data(), str.length());
+}
+
+SensitiveValue::SensitiveValue(const char *str, size_t size)
+{
+    SetData(str, size);
+}
+
+SensitiveValue::SensitiveValue(std::unique_ptr<char[]> data, size_t size) : data_(std::move(data)), size_(size) {}
+
+SensitiveValue::SensitiveValue(SensitiveValue &&other) noexcept : data_(std::move(other.data_)), size_(other.size_)
+{
+    other.size_ = 0;
+}
+
+SensitiveValue::SensitiveValue(const SensitiveValue &other)
+{
+    if (!other.Empty()) {
+        SetData(other.data_.get(), other.size_);
+    }
+}
+
+SensitiveValue::~SensitiveValue()
+{
+    Clear();
+}
+
+SensitiveValue &SensitiveValue::operator=(const SensitiveValue &other)
+{
+    Clear();
+    if (!other.Empty()) {
+        SetData(other.data_.get(), other.size_);
+    }
     return *this;
 }
 
-Buffer::Buffer(Buffer &&other) noexcept {}
+SensitiveValue &SensitiveValue::operator=(SensitiveValue &&other) noexcept
+{
+    Clear();
+    data_ = std::move(other.data_);
+    size_ = other.size_;
+    other.size_ = 0;
+    return *this;
+}
 
-Buffer::~Buffer() {}
+SensitiveValue &SensitiveValue::operator=(const char *str)
+{
+    Clear();
+    SetData(str, str == nullptr ? 0 : std::strlen(str));
+    return *this;
+}
+
+SensitiveValue &SensitiveValue::operator=(const std::string &str)
+{
+    Clear();
+    SetData(str.data(), str.length());
+    return *this;
+}
+
+bool SensitiveValue::operator==(const SensitiveValue &other) const
+{
+    if (size_ != other.size_) {
+        return false;
+    }
+    if (size_ == 0) {
+        return true;
+    }
+    if (data_ == nullptr || other.data_ == nullptr) {
+        return false;
+    }
+    return std::memcmp(data_.get(), other.data_.get(), size_) == 0;
+}
+
+bool SensitiveValue::Empty() const
+{
+    return data_ == nullptr || size_ == 0;
+}
+
+const char *SensitiveValue::GetData() const
+{
+    return Empty() ? "" : data_.get();
+}
+
+size_t SensitiveValue::GetSize() const
+{
+    return size_;
+}
+
+bool SensitiveValue::MoveTo(std::unique_ptr<char[]> &outData, size_t &outSize)
+{
+    if (Empty()) {
+        return false;
+    }
+    outData = std::move(data_);
+    outSize = size_;
+    size_ = 0;
+    return true;
+}
+
+void SensitiveValue::Clear()
+{
+    if (data_ != nullptr && size_ > 0) {
+        std::memset(data_.get(), 0, size_);
+    }
+    size_ = 0;
+    data_ = nullptr;
+}
+
+void SensitiveValue::SetData(const char *str, size_t size)
+{
+    if (str == nullptr || size == 0) {
+        return;
+    }
+    data_ = std::make_unique<char[]>(size + 1);
+    size_ = size;
+    std::memcpy(data_.get(), str, size_);
+    data_[size_] = '\0';
+}
+
+Buffer::Buffer(Buffer &&other) noexcept
+{
+    std::lock_guard<std::mutex> lock(gBufferDataMutex);
+    auto it = gBufferData.find(&other);
+    if (it != gBufferData.end()) {
+        gBufferData.emplace(this, it->second);
+        gBufferData.erase(it);
+    }
+}
+
+Buffer &Buffer::operator=(Buffer &&other) noexcept
+{
+    if (this == &other) {
+        return *this;
+    }
+    ReleaseBufferData(this);
+    std::lock_guard<std::mutex> lock(gBufferDataMutex);
+    auto it = gBufferData.find(&other);
+    if (it != gBufferData.end()) {
+        gBufferData.emplace(this, it->second);
+        gBufferData.erase(it);
+    }
+    return *this;
+}
+
+Buffer::~Buffer()
+{
+    ReleaseBufferData(this);
+}
 
 class HeteroClientImpl {};
 

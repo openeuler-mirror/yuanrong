@@ -40,7 +40,10 @@ http_archive(
     name = "rules_jvm_external",
     sha256 = "b17d7388feb9bfa7f2fa09031b32707df529f26c91ab9e5d909eb1676badd9a6",
     strip_prefix = "rules_jvm_external-4.5",
-    url = "https://github.com/bazel-contrib/rules_jvm_external/archive/refs/tags/4.5.zip",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/bazel-contrib/rules_jvm_external/4.5.zip",
+        "https://github.com/bazel-contrib/rules_jvm_external/archive/refs/tags/4.5.zip",
+    ],
 )
 
 load("@rules_jvm_external//:defs.bzl", "maven_install")
@@ -78,7 +81,10 @@ http_archive(
     build_file = "@//bazel:spdlog.bzl",
     sha256 = "6174bf8885287422a6c6a0312eb8a30e8d22bcfcee7c48a6d02d1835d7769232",
     strip_prefix = "spdlog-1.12.0",
-    urls = ["https://github.com/gabime/spdlog/archive/refs/tags/v1.12.0.zip"],
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/gabime/spdlog/v1.12.0.zip",
+        "https://github.com/gabime/spdlog/archive/refs/tags/v1.12.0.zip",
+    ],
     patches = [
          "@//patch:spdlog-change-namespace-and-library-name-with-yr.patch",
     ]
@@ -89,14 +95,20 @@ http_archive(
     build_file = "@//bazel:nlohmann_json.bzl",
     sha256 = "04022b05d806eb5ff73023c280b68697d12b93e1b7267a0b22a1a39ec7578069",
     strip_prefix = "json-3.11.3",
-    urls = ["https://github.com/nlohmann/json/archive/v3.11.3.zip"],
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/nlohmann/json/v3.11.3.zip",
+        "https://github.com/nlohmann/json/archive/v3.11.3.zip",
+    ],
 )
 
 http_archive(
     name = "gtest",
     sha256 = "ffa17fbc5953900994e2deec164bb8949879ea09b411e07f215bfbb1f87f4632",
     strip_prefix = "googletest-1.13.0",
-    urls = ["https://github.com/google/googletest/archive/refs/tags/v1.13.0.zip"],
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/google/googletest/v1.13.0.zip",
+        "https://github.com/google/googletest/archive/refs/tags/v1.13.0.zip",
+    ],
 )
 
 http_archive(
@@ -114,6 +126,94 @@ preload_grpc()
 load("//bazel:preload_opentelemetry.bzl", "preload_opentelemetry")
 
 preload_opentelemetry()
+
+http_archive(
+    name = "rules_foreign_cc",
+    sha256 = "69023642d5781c68911beda769f91fcbc8ca48711db935a75da7f6536b65047f",
+    strip_prefix = "rules_foreign_cc-0.6.0",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/bazelbuild/rules_foreign_cc/0.6.0.tar.gz",
+        "https://github.com/bazelbuild/rules_foreign_cc/archive/0.6.0.tar.gz",
+    ],
+)
+
+http_archive(
+    name = "ninja_1.10.2_linux",
+    sha256 = "763464859c7ef2ea3a0a10f4df40d2025d3bb9438fcb1228404640410c0ec22d",
+    strip_prefix = "",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/ninja-build/ninja/v1.10.2/ninja-linux.zip",
+        "https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "ninja_bin",
+    srcs = ["ninja"],
+)
+
+native_tool_toolchain(
+    name = "ninja_tool",
+    path = "$(execpath :ninja_bin)",
+    target = ":ninja_bin",
+)
+""",
+)
+
+http_archive(
+    name = "ninja_1.10.2_mac",
+    sha256 = "6fa359f491fac7e5185273c6421a000eea6a2f0febf0ac03ac900bd4d80ed2a5",
+    strip_prefix = "",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/ninja-build/ninja/v1.10.2/ninja-mac.zip",
+        "https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-mac.zip",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "ninja_bin",
+    srcs = ["ninja"],
+)
+
+native_tool_toolchain(
+    name = "ninja_tool",
+    path = "$(execpath :ninja_bin)",
+    target = ":ninja_bin",
+)
+""",
+)
+
+http_archive(
+    name = "ninja_1.10.2_win",
+    sha256 = "bbde850d247d2737c5764c927d1071cbb1f1957dcabda4a130fa8547c12c695f",
+    strip_prefix = "",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/ninja-build/ninja/v1.10.2/ninja-win.zip",
+        "https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-win.zip",
+    ],
+    build_file_content = """
+load("@rules_foreign_cc//toolchains/native_tools:native_tools_toolchain.bzl", "native_tool_toolchain")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "ninja_bin",
+    srcs = ["ninja.exe"],
+)
+
+native_tool_toolchain(
+    name = "ninja_tool",
+    path = "$(execpath :ninja_bin)",
+    target = ":ninja_bin",
+)
+""",
+)
 
 http_archive(
     name = "opentelemetry_cpp",
@@ -139,7 +239,10 @@ http_archive(
     build_file = "@//bazel:boost.bzl",
     sha256 = "f55c340aa49763b1925ccf02b2e83f35fdcf634c9d5164a2acb87540173c741d",
     strip_prefix = "boost_1_87_0",
-    url = "https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.gz",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/boost/1.87.0/boost_1_87_0.tar.gz",
+        "https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.gz",
+    ],
 )
 
 # Pre-built Boost libraries for macOS (static libraries built separately)
@@ -154,7 +257,10 @@ http_archive(
     build_file = "@//bazel:msgpack.bzl",
     sha256 = "b68cf63b0bc1d1a84e81252ed44c60528eb60670e81518428804d3d36da57621",
     strip_prefix = "msgpack-c-cpp-5.0.0",
-    url = "https://github.com/msgpack/msgpack-c/archive/refs/tags/cpp-5.0.0.zip",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/msgpack/msgpack-c/cpp-5.0.0.zip",
+        "https://github.com/msgpack/msgpack-c/archive/refs/tags/cpp-5.0.0.zip",
+    ],
 )
 
 http_archive(
@@ -162,6 +268,7 @@ http_archive(
     sha256 = "fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16",
     strip_prefix = "yaml-cpp-0.8.0",
     urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/jbeder/yaml-cpp/0.8.0.tar.gz",
         "https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz",
     ],
     build_file = "@//bazel:yaml_cpp.BUILD",
@@ -201,7 +308,10 @@ http_archive(
 http_archive(
     name = "jacoco",
     sha256 = "6859d4deecc9fdd44f742bb8ff8e4ca71afca442cc8ce67aeb668dda951e8498",
-    urls = ["https://github.com/jacoco/jacoco/releases/download/v0.8.8/jacoco-0.8.8.zip"],
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/jacoco/jacoco/jacoco-0.8.8.zip",
+        "https://github.com/jacoco/jacoco/releases/download/v0.8.8/jacoco-0.8.8.zip",
+    ],
     build_file = "@//bazel:jacoco.bzl"
 )
 
@@ -231,6 +341,7 @@ http_archive(
     build_file = "//bazel:etcd.BUILD",
     strip_prefix = "etcd-3.5.24",
     urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/etcd-io/etcd/v3.5.24.zip",
         "https://github.com/etcd-io/etcd/archive/refs/tags/v3.5.24.zip",
         "https://gitee.com/mirrors/etcd/repository/archive/v3.5.24.zip",
     ],

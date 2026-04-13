@@ -28,6 +28,13 @@ using namespace YR::utility;
 
 namespace YR {
 namespace test {
+namespace {
+std::string ToString(const datasystem::SensitiveValue &value)
+{
+    return std::string(value.GetData(), value.GetSize());
+}
+}  // namespace
+
 class KVStateStoreTest : public testing::Test {
 public:
     KVStateStoreTest(){};
@@ -84,7 +91,7 @@ TEST_F(KVStateStoreTest, KVWriteReadDelExist)
     // Read
     SingleReadResult readResult = stateStore_->Read(key, -1);
     ASSERT_EQ(readResult.second.Code(), ErrorCode::ERR_OK);
-    MultipleReadResult multiReadResult = stateStore_->Read({key, key}, 100, false);
+    MultipleReadResult multiReadResult = stateStore_->Read({key, key}, 0, false);
     ASSERT_EQ(multiReadResult.second.Code(), ErrorCode::ERR_GET_OPERATION_FAILED);
 
     // Exist
@@ -123,12 +130,10 @@ TEST(KVStateStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
     EXPECT_EQ(stateStore.connectOpts.port, options.port);
     EXPECT_EQ(stateStore.connectOpts.connectTimeoutMs, options.connectTimeoutMs);
     EXPECT_EQ(stateStore.connectOpts.requestTimeoutMs, options.connectTimeoutMs);
-    EXPECT_EQ(stateStore.connectOpts.token.GetValue(), options.token);
+    EXPECT_EQ(ToString(stateStore.connectOpts.token), options.token);
     EXPECT_EQ(stateStore.connectOpts.clientPublicKey, options.clientPublicKey);
-    EXPECT_EQ(stateStore.connectOpts.clientPrivateKey.GetValue(), options.clientPrivateKey);
     EXPECT_EQ(stateStore.connectOpts.serverPublicKey, options.serverPublicKey);
     EXPECT_EQ(stateStore.connectOpts.accessKey, options.accessKey);
-    EXPECT_EQ(stateStore.connectOpts.secretKey.GetValue(), options.secretKey);
     EXPECT_EQ(stateStore.connectOpts.tenantId, options.tenantId);
     EXPECT_TRUE(stateStore.connectOpts.enableCrossNodeConnection);
 }

@@ -635,23 +635,18 @@ void FSIntfImpl::KillAsync(const KillRequest &req, KillCallBack callback, int ti
     std::weak_ptr<WiredRequest> weak(wr);
     auto sendMsgHandler = [this, req, reqId, weak]() {
         if (auto thisPtr = weak.lock(); thisPtr) {
-            // Try to populate routing info if not already present
             KillRequest enrichedReq = req;
-            if (enrichedReq.routeaddress().empty() || enrichedReq.proxyid().empty()) {
-                // Try to get routing info from memStore using instanceID
-                // Check if memStore is available before accessing
-                if (memStore != nullptr) {
-                    std::string route = memStore->GetInstanceRoute(enrichedReq.instanceid(), ZERO_TIMEOUT);
-                    std::string proxyID = memStore->GetInstanceProxyID(enrichedReq.instanceid(), ZERO_TIMEOUT);
+            const auto &handlers = this->GetHandlers();
+            if (enrichedReq.routeaddress().empty() && handlers.getInstanceRoute != nullptr) {
+                auto route = handlers.getInstanceRoute(enrichedReq.instanceid());
                 if (!route.empty()) {
                     enrichedReq.set_routeaddress(route);
                 }
+            }
+            if (enrichedReq.proxyid().empty() && handlers.getInstanceProxyID != nullptr) {
+                auto proxyID = handlers.getInstanceProxyID(enrichedReq.instanceid());
                 if (!proxyID.empty()) {
                     enrichedReq.set_proxyid(proxyID);
-                }
-                if (!route.empty() || !proxyID.empty()) {
-                    YRLOG_DEBUG("Enriched kill request {} with routing info - route: {}, proxyID: {}",
-                               reqId, route, proxyID);
                 }
             }
             auto msgId = YR::utility::IDGenerator::GenMessageId(reqId, static_cast<uint8_t>(thisPtr->retryCount));

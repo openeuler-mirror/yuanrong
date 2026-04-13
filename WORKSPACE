@@ -1,13 +1,21 @@
 workspace(name = "yuanrong_multi_language_runtime")
 
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("//bazel:hazel_workspace.bzl", "hw_rules")
 
 hw_rules()
 
 # Note: rules_foreign_cc and rules_go are not needed for macOS C++/Python builds
 # They require network downloads which may fail without proxy
-# load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
-# rules_foreign_cc_dependencies()
+http_archive(
+    name = "rules_foreign_cc",
+    sha256 = "69023642d5781c68911beda769f91fcbc8ca48711db935a75da7f6536b65047f",
+    strip_prefix = "rules_foreign_cc-0.6.0",
+    urls = [
+        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/bazelbuild/rules_foreign_cc/0.6.0.tar.gz",
+        "https://github.com/bazelbuild/rules_foreign_cc/archive/0.6.0.tar.gz",
+    ],
+)
 
 # load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
 # go_rules_dependencies()

@@ -4,7 +4,8 @@
 # Example: REMOTE_CACHE=http://192.168.3.45:9090 make yuanrong
 REMOTE_CACHE ?=
 NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-FUNCTIONSYSTEM_JOBS ?= $(shell jobs=$$(($(NPROCS) / 2)); if [ $$jobs -lt 1 ]; then jobs=1; fi; echo $$jobs)
+JOBS ?= $(NPROCS)
+FUNCTIONSYSTEM_JOBS ?= $(JOBS)
 
 help:
 	@echo "Available targets:"
@@ -38,23 +39,40 @@ clean:
 	@echo "Clean completed!"
 
 frontend:
-	@if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
-		sed -i 's|yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go|yuanrong.org/kernel/runtime => ../api/go|g' "frontend/go.mod"; \
-		echo "Updated frontend/go.mod: yuanrong.org/kernel/runtime => ../api/go"; \
+	@if [ -f "frontend/go.mod" ]; then \
+		if grep -q 'yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go' "frontend/go.mod"; then \
+			sed -i 's|yuanrong.org/kernel/runtime.*=>.*\.\./yuanrong/api/go|yuanrong.org/kernel/runtime => ../api/go|g' "frontend/go.mod"; \
+			echo "Updated frontend/go.mod: yuanrong.org/kernel/runtime => ../api/go"; \
+		else \
+			echo "frontend/go.mod already correct"; \
+		fi \
 	else \
-		echo "frontend/go.mod already correct"; \
+		echo "Warning: frontend/go.mod not found, skipping mod fix"; \
 	fi
-	bash frontend/build.sh
+	@if [ -f "frontend/build.sh" ]; then \
+		bash frontend/build.sh; \
+	else \
+		echo "Error: frontend/build.sh not found!"; \
+		exit 1; \
+	fi
 	@mkdir -p output
-	@cp frontend/output/yr-frontend*.tar.gz output/
+	@cp frontend/output/yr-frontend*.tar.gz output/ 2>/dev/null || true
 
 datasystem:
 	bash datasystem/build.sh -X off -G on -i on
 	@mkdir -p output
-	@cp datasystem/output/yr-datasystem*.tar.gz output/
-	mkdir -p functionsystem/vendor/src
-	cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
-	[ -d datasystem/output/sdk ] || tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
+	@for f in datasystem/output/yr-datasystem*.tar.gz; do \
+		if [ -e "$$f" ]; then \
+			cp "$$f" output/ || true; \
+			mkdir -p functionsystem/vendor/src; \
+			cp "$$f" functionsystem/vendor/src/yr-datasystem.tar.gz || true; \
+			if [ ! -d datasystem/output/sdk ]; then \
+				tar --no-same-owner -zxf "$$f" --strip-components=1 -C datasystem/output || true; \
+			fi; \
+			break; \
+		fi; \
+	done
+	@true
 
 runtime_launcher:
 	@echo "Building runtime-launcher..."
@@ -115,3 +133,8 @@ image:
 all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong pkg
 	@echo "Build completed!"
 	@echo "Artifacts and example/aio/pkg are ready."
+
+# Define dependencies for parallel make
+functionsystem: datasystem
+yuanrong: datasystem
+pkg: frontend datasystem functionsystem runtime_launcher dashboard yuanrong

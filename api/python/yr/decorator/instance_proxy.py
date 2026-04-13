@@ -226,7 +226,12 @@ class InstanceCreator:
         Returns:
             InstanceProxy.
         """
-        return self._invoke(name=name, args=args, kwargs=kwargs)
+        timeout = kwargs.pop("timeout", 30)
+        function_meta = global_runtime.get_runtime().get_instance_by_name(
+            name, self.__invoke_options__.namespace, timeout)
+        if not function_meta.className and not function_meta.functionName and not function_meta.functionID:
+            raise RuntimeError(f"failed to get instance: {name} by name")
+        return get_instance_by_name(name, self.__invoke_options__.namespace, timeout)
 
     def _inner_create_instance(self, invoke_options, function_id, name, args_list, group_info):
         # For skip_serialize mode, use original class name instead of YRInstance(...) wrapper name
@@ -272,10 +277,9 @@ class InstanceCreator:
                 if len(serialized_object) <= 102400:
                     self._code = serialized_object.to_bytes()
                     _logger.debug("[Reference Counting] pass code by request, functionName = %s", self.__user_class__.__qualname__)
-                else:
-                    self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
-                    _logger.info("[Reference Counting] put code with id = %s, className = %s",
-                             self._code_ref.id, self.__user_class_descriptor__.class_name)
+                self._code_ref = ObjectRef(global_runtime.get_runtime().put_serialized(serialized_object), need_incre=False)
+                _logger.info("[Reference Counting] put code with id = %s, className = %s",
+                         self._code_ref.id, self.__user_class_descriptor__.class_name)
             elif getattr(invoke_options, "skip_serialize", False):
                 # For pre-deployed classes, skip serialization
                 class_path = f"{self.__user_class__.__module__}.{self.__user_class__.__qualname__}"

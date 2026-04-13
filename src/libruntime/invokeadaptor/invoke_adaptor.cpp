@@ -68,6 +68,7 @@ libruntime::FunctionMeta convertFuncMetaToProto(std::shared_ptr<InvokeSpec> spec
     meta.set_applicationname(spec->functionMeta.appName);
     meta.set_apitype(spec->functionMeta.apiType);
     meta.set_classname(spec->functionMeta.className);
+    meta.set_code(spec->functionMeta.code.data(), spec->functionMeta.code.size());
     meta.set_codeid(spec->functionMeta.codeId);
     meta.set_functionid(spec->functionMeta.functionId);
     meta.set_functionname(spec->functionMeta.funcName);
@@ -97,6 +98,8 @@ YR::Libruntime::FunctionMeta convertProtoToFuncMeta(const libruntime::FunctionMe
     funcMeta.isAsync = funcMetaProto.isasync();
     funcMeta.isGenerator = funcMetaProto.isgenerator();
     funcMeta.codeId = funcMetaProto.codeid();
+    auto code = funcMetaProto.code();
+    funcMeta.code.assign(code.begin(), code.end());
     funcMeta.needOrder = funcMetaProto.needorder();
     return funcMeta;
 }
@@ -481,6 +484,12 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     }
     handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, this, _1);
     handlers.event = std::bind(&InvokeAdaptor::EventHandler, this, _1);
+    handlers.getInstanceRoute = [this](const std::string &instanceId) -> std::string {
+        return this->memStore == nullptr ? "" : this->memStore->GetInstanceRoute(instanceId, ZERO_TIMEOUT);
+    };
+    handlers.getInstanceProxyID = [this](const std::string &instanceId) -> std::string {
+        return this->memStore == nullptr ? "" : this->memStore->GetInstanceProxyID(instanceId, ZERO_TIMEOUT);
+    };
     if (librtConfig->libruntimeOptions.healthCheckCallback) {
         handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
     }
@@ -1730,6 +1739,12 @@ void InvokeAdaptor::PushInvokeSpec(std::shared_ptr<InvokeSpec> spec)
 
 ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &payload, int signal)
 {
+    return KillWithRouting(instanceId, payload, signal, "", "");
+}
+
+ErrorInfo InvokeAdaptor::KillWithRouting(const std::string &instanceId, const std::string &payload, int signal,
+                                         const std::string &routeAddress, const std::string &proxyID)
+{
     invokeOrderMgr->ClearInsOrderMsg(instanceId, signal);
     if (instanceId.empty()) {
         return ErrorInfo(YR::Libruntime::ERR_INSTANCE_ID_EMPTY, YR::Libruntime::ModuleCode::RUNTIME,
@@ -1741,6 +1756,8 @@ ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &
     killReq.set_instanceid(instanceId);
     killReq.set_payload(payload);
     killReq.set_signal(signal);
+    killReq.set_routeaddress(routeAddress);
+    killReq.set_proxyid(proxyID);
 
     auto killPromise = std::make_shared<std::promise<KillResponse>>();
     std::shared_future<KillResponse> killFuture = killPromise->get_future().share();

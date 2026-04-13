@@ -1419,16 +1419,29 @@ void Libruntime::Exit(const int code, const std::string &message)
 
 ErrorInfo Libruntime::Kill(const std::string &instanceId, int sigNo)
 {
+    return KillWithRouting(instanceId, sigNo, "", "");
+}
+
+ErrorInfo Libruntime::KillWithRouting(const std::string &instanceId, int sigNo, const std::string &routeAddress,
+                                      const std::string &proxyID)
+{
     auto realInsId = memStore->GetInstanceId(instanceId);
     invokeAdaptor->EraseFsIntf(realInsId);
-    return invokeAdaptor->Kill(realInsId, "", sigNo);
+    return invokeAdaptor->KillWithRouting(realInsId, "", sigNo, routeAddress, proxyID);
 }
 
 ErrorInfo Libruntime::Kill(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data)
 {
+    return KillWithRouting(instanceId, sigNo, data, "", "");
+}
+
+ErrorInfo Libruntime::KillWithRouting(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data,
+                                      const std::string &routeAddress, const std::string &proxyID)
+{
     auto realInsId = memStore->GetInstanceId(instanceId);
-    return invokeAdaptor->Kill(realInsId, std::string(static_cast<char *>(data->MutableData()), data->GetSize()),
-                               sigNo);
+    return invokeAdaptor->KillWithRouting(realInsId,
+                                          std::string(static_cast<char *>(data->MutableData()), data->GetSize()),
+                                          sigNo, routeAddress, proxyID);
 }
 
 std::pair<ErrorInfo, std::string> Libruntime::Snapshot(const std::string &instanceId, const SnapOptions &snapOpts)

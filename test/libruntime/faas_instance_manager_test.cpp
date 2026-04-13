@@ -17,7 +17,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "mock/mock_fs_intf.h"
-#include "src/libruntime/objectstore/datasystem_object_store.h"
+#include "mock/mock_datasystem.h"
+#include "src/libruntime/gwclient/http/http_client.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/logger/logger.h"
 
@@ -25,6 +26,8 @@
 #define private public
 #include "mock/mock_fs_intf_with_callback.h"
 #include "src/libruntime/invokeadaptor/faas_instance_manager.h"
+#undef private
+#undef protected
 
 namespace YR {
 namespace Libruntime {
@@ -70,8 +73,7 @@ public:
         mockFsIntf = std::make_shared<MockFsIntf>();
         auto fsClient = std::make_shared<FSClient>(mockFsIntf);
         std::shared_ptr<MemoryStore> memoryStore = std::make_shared<MemoryStore>();
-        auto dsObjectStore = std::make_shared<DSCacheObjectStore>();
-        dsObjectStore->Init("127.0.0.1", 8080);
+        auto dsObjectStore = std::make_shared<MockObjectStore>();
         auto wom = std::make_shared<WaitingObjectManager>();
         memoryStore->Init(dsObjectStore, wom);
         insManager = std::make_shared<FaasInsManager>(cb, fsClient, memoryStore, reqMgr, librtCfg);

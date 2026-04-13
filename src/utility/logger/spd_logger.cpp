@@ -55,7 +55,7 @@ std::string FormatTimePoint()
     return ss.str();
 }
 
-SpdLogger::~SpdLogger() {}
+SpdLogger::~SpdLogger() = default;
 
 std::string SpdLogger::GetLogDir(void) const
 {
@@ -120,6 +120,11 @@ std::string SpdLogger::GetLogFile(const LogParam &logParam)
 
 void SpdLogger::CreateLogger(const LogParam &logParam, const std::string &nodeName, const std::string &modelName)
 {
+    auto logger = yr_spdlog::get(LOGGER_NAME);
+    if (!logParam.isLogMerge && logger && this->logDir == logParam.logDir && this->nodeName == nodeName &&
+        this->modelName == modelName && this->logLevel == GetLogLevel(logParam.logLevel)) {
+        return;
+    }
     ConstructLoggerInfo(logParam);
     try {
         std::string logFile = GetLogFile(logParam);
@@ -169,8 +174,10 @@ void SpdLogger::RegisterLogger(const LogParam &logParam, const std::string &logg
             auto consoleSink = std::make_shared<yr_spdlog::sinks::stdout_color_sink_mt>();
             sinks = {consoleSink};
         } else {
+            const auto maxSize = logParam.maxSize > 0 ? logParam.maxSize : DEFAULT_MAX_SIZE;
+            const auto maxFiles = logParam.maxFiles > 0 ? logParam.maxFiles : DEFAULT_MAX_FILES;
             auto rotatingSink = std::make_shared<yr_spdlog::sinks::rotating_file_sink_mt>(
-                logFile, logParam.maxSize * SIZE_MEGA_BYTES, logParam.maxFiles);
+                logFile, maxSize * SIZE_MEGA_BYTES, maxFiles);
             auto dupFilter = std::make_shared<yr_spdlog::sinks::dup_filter_sink_mt>(std::chrono::seconds(DUP_FILTER_TIME));
 
             sinks = {rotatingSink, dupFilter};

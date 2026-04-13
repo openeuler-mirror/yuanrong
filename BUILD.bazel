@@ -100,6 +100,9 @@ cc_library(
     copts = COPTS + select({
         "//:disable_datasystem": [],
         "//conditions:default": ["-DENABLE_DATASYSTEM"],
+    }) + select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
     }),
     linkopts = [],
     deps = [
@@ -178,6 +181,10 @@ cc_library(
         "src/dto/*.h",
     ]),
     visibility = ["//visibility:public"],
+    copts = select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+    }),
     deps = [
         "//src/libruntime/fsclient/protobuf:posix_cc_grpc_hdrs",
         "//src/proto:libruntime_cc_proto_hdrs",

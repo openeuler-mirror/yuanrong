@@ -37,6 +37,16 @@ using namespace YR::internal;
 using namespace Function;
 using namespace YR::utility;
 namespace fs = std::filesystem;
+
+namespace {
+YR::Libruntime::ErrorInfo MockAllocReturnObject(std::shared_ptr<YR::Libruntime::DataObject> &returnObj, size_t metaSize,
+                                                size_t dataSize, const std::vector<std::string> &, uint64_t &)
+{
+    returnObj = std::make_shared<YR::Libruntime::DataObject>(metaSize, dataSize);
+    return {};
+}
+}  // namespace
+
 class FaasExecutorTest : public testing::Test {
 public:
     FaasExecutorTest(){};
@@ -44,20 +54,6 @@ public:
 
     void SetUp() override
     {
-        LogParam g_logParam = {
-            .logLevel = "DEBUG",
-            .logDir = "/tmp/log",
-            .nodeName = "test-runtime",
-            .modelName = "test",
-            .maxSize = 100,
-            .maxFiles = 1,
-            .logFileWithTime = false,
-            .logBufSecs = 30,
-            .maxAsyncQueueSize = 1048510,
-            .asyncThreadCount = 1,
-            .alsoLog2Stderr = true,
-        };
-        InitLog(g_logParam);
         auto lc = std::make_shared<YR::Libruntime::LibruntimeConfig>();
         lc->jobId = YR::utility::IDGenerator::GenApplicationId();
         auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
@@ -223,9 +219,8 @@ TEST_F(FaasExecutorTest, ExecuteFunctionSuccessFullyTest)
     traceIdObj->data->MemoryCopy(traceId.data(), traceId.size());
     rawArgs.push_back(traceIdObj);
 
-    auto returnObj2 = std::make_shared<Libruntime::DataObject>(0, 200);
     EXPECT_CALL(*lr.get(), AllocReturnObject(Matcher<std::shared_ptr<YR::Libruntime::DataObject> &>(_), _, _, _, _))
-        .WillOnce(DoAll(SetArgReferee<0>(returnObj2), Return(YR::Libruntime::ErrorInfo())));
+        .WillOnce(Invoke(MockAllocReturnObject));
     err = exec_->ExecuteFunction(function, libruntime::InvokeType::InvokeFunction, rawArgs, returnObjects);
     ASSERT_TRUE(err.OK()) << err.Msg();
     auto result = std::string(static_cast<const char *>(returnObjects[0]->data->ImmutableData()),
@@ -245,9 +240,8 @@ TEST_F(FaasExecutorTest, ExecuteFunctionFailedTest)
     auto contextMetaObj = std::make_shared<YR::Libruntime::DataObject>(0, contextMetaStr.size());
     contextMetaObj->data->MemoryCopy(contextMetaStr.data(), contextMetaStr.size());
     rawArgs.push_back(contextMetaObj);
-    auto returnObj = std::make_shared<Libruntime::DataObject>(0, 200);
     EXPECT_CALL(*lr.get(), AllocReturnObject(Matcher<std::shared_ptr<YR::Libruntime::DataObject> &>(_), _, _, _, _))
-        .WillRepeatedly(DoAll(SetArgReferee<0>(returnObj), Return(YR::Libruntime::ErrorInfo())));
+        .WillRepeatedly(Invoke(MockAllocReturnObject));
 
     auto handlerPtr = std::make_unique<RegisterRuntimeHandler>();
     SetRuntimeHandler(std::move(handlerPtr));

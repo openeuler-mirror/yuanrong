@@ -17,6 +17,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -112,9 +113,8 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        PowerMockito.verifyStatic(System.class, times(2));
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
+        assertEquals("VALUE1", RuntimeUtils.getEnvOrProperty("KEY1"));
+        assertEquals("VALUE2", RuntimeUtils.getEnvOrProperty("KEY2"));
         verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
     }
 
@@ -136,12 +136,12 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        PowerMockito.verifyStatic(System.class, times(2));
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
+        assertEquals("VALUE1", RuntimeUtils.getEnvOrProperty("KEY1"));
+        assertEquals("VALUE2", RuntimeUtils.getEnvOrProperty("KEY2"));
+        assertEquals("VALUE3", RuntimeUtils.getEnvOrProperty("KEY3"));
         verify(logger).warn("{}:{}  invalid line, missing '=': {}", "/test/.env", 2, "INVALID_LINE_WITHOUT_EQUALS");
         verify(logger).warn("{}:{}  empty key", "/test/.env", 4);
-        verify(logger).debug("Loaded {} environment variables from {}", 2, "/test/.env");
+        verify(logger).debug("Loaded {} environment variables from {}", 3, "/test/.env");
     }
 
     @Test
@@ -181,10 +181,9 @@ public class TestRuntimeUtils {
 
         RuntimeUtils.loadEnvFromFile("/test/.env");
 
-        PowerMockito.verifyStatic(System.class, times(3));
-        System.setProperty("KEY1", "VALUE1");
-        System.setProperty("KEY2", "VALUE2");
-        System.setProperty("KEY3", "VALUE3");
+        assertEquals("VALUE1", RuntimeUtils.getEnvOrProperty("KEY1"));
+        assertEquals("VALUE2", RuntimeUtils.getEnvOrProperty("KEY2"));
+        assertEquals("VALUE3", RuntimeUtils.getEnvOrProperty("KEY3"));
         verify(logger).debug("Loaded {} environment variables from {}", 3, "/test/.env");
     }
 

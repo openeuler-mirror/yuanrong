@@ -24,13 +24,24 @@ import warnings
 import zipfile
 
 import setuptools
-from packaging import tags
-from packaging.version import Version
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
 from setuptools import Extension
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+
+try:
+    from packaging import tags
+    from packaging.version import Version
+except ImportError:  # pragma: no cover
+    try:
+        from wheel.vendored.packaging import tags
+        from wheel.vendored.packaging.version import Version
+    except ImportError:  # pragma: no cover
+        raise ImportError(
+            "Neither 'packaging' nor 'wheel.vendored.packaging' is available. "
+            "Please install the 'packaging' package."
+        )
 
 ROOT_DIR = os.path.dirname(__file__)
 

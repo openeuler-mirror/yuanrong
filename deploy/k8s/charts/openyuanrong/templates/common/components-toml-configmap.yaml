@@ -201,8 +201,8 @@ data:
     etcd_target_name_override={{ quote .Values.global.etcdManagement.targetNameOverride }}
     schedule_plugins={{ quote .Values.global.common.schedulePlugins.local }}
     cluster_id={{ quote .Values.global.clusterId }}
-    enable_tenant_affinity=""
-    tenant_pod_reuse_time_window=""
+    enable_tenant_affinity={{ quote .Values.global.tenantIsolation.affinity.enable }}
+    tenant_pod_reuse_time_window={{ quote .Values.global.tenantIsolation.affinity.tenantPodReuseTimeWindow }}
     enable_ipv4_tenant_isolation=""
     runtime_ds_encrypt_enable={{ quote .Values.global.runtime.dataSystem.encryptEnable }}
     runtime_ds_auth_enable={{ quote .Values.global.runtime.dataSystem.authEnable }}

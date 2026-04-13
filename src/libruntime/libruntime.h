@@ -415,6 +415,8 @@ public:
       @return error information if the operation fails
      */
     virtual ErrorInfo Kill(const std::string &instanceId, int sigNo = libruntime::Signal::KillInstance);
+    virtual ErrorInfo KillWithRouting(const std::string &instanceId, int sigNo, const std::string &routeAddress,
+                                      const std::string &proxyID);
 
     /*!
       @brief 向一个函数实例或一组任务发送一个指定的信号并携带特定的数据，当前不支持向一组任务发送特定数据
@@ -424,6 +426,8 @@ public:
       @return error information if the operation fails
      */
     virtual ErrorInfo Kill(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data);
+    virtual ErrorInfo KillWithRouting(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data,
+                                      const std::string &routeAddress, const std::string &proxyID);
 
     /*!
     @brief 向一个函数实例或一组任务发送一个指定的信号并携带特定的数据，并通过callback返回执行结果

@@ -92,7 +92,7 @@ TEST_F(TraceAdapterTest, InitTrace)
 
 TEST_F(TraceAdapterTest, StartSpan)
 {
-    const std::string configStr = "{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\":\"127.0.0.1:4317\"}}";
+    const std::string configStr = "{\"logFileExporter\":{\"enable\":true}}";
     const std::string traceServiceName = "testService";
     TraceAdapter::GetInstance().InitTrace(traceServiceName, false, configStr);
     EXPECT_FALSE(TraceAdapter::GetInstance().enableTrace_);
@@ -112,7 +112,7 @@ TEST_F(TraceAdapterTest, StartSpan)
 
 TEST_F(TraceAdapterTest, StartSpanWithTraceParent)
 {
-    const std::string configStr = "{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\":\"127.0.0.1:4317\"}}";
+    const std::string configStr = "{\"logFileExporter\":{\"enable\":true}}";
     TraceAdapter::GetInstance().InitTrace("testService", true, configStr);
     auto span = TraceAdapter::GetInstance().StartSpan(
         "span-with-parent",
@@ -125,7 +125,7 @@ TEST_F(TraceAdapterTest, StartSpanWithTraceParent)
 
 TEST_F(TraceAdapterTest, StartSpanWithoutParentSpanKeepsGeneratedTrace)
 {
-    const std::string configStr = "{\"otlpGrpcExporter\":{\"enable\":true,\"endpoint\":\"127.0.0.1:4317\"}}";
+    const std::string configStr = "{\"logFileExporter\":{\"enable\":true}}";
     TraceAdapter::GetInstance().InitTrace("testService", true, configStr);
     const std::string expectedTraceID = "94d281f56ed2735fb45a9e2542578837";
     auto span = TraceAdapter::GetInstance().StartSpan(

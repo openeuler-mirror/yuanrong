@@ -13,7 +13,10 @@ def preload_opentelemetry():
         name = "com_github_jupp0r_prometheus_cpp",
         sha256 = "8104d3b216aae60a1d0bca04adea4ba9ac1748eb1ed8646e123cf8e1591d99a3",
         strip_prefix = "prometheus-cpp-1.1.0",
-        urls = ["https://github.com/jupp0r/prometheus-cpp/archive/refs/tags/v1.1.0.zip"],
+        urls = [
+            "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/jupp0r/prometheus-cpp/v1.1.0.zip",
+            "https://github.com/jupp0r/prometheus-cpp/archive/refs/tags/v1.1.0.zip",
+        ],
     )
 
     http_archive(
@@ -23,4 +26,3 @@ def preload_opentelemetry():
         strip_prefix = "nlohmann-json-v3.11.3",
         urls = ["https://gitee.com/mirrors/nlohmann-json/repository/archive/v3.11.3.zip"],
     )
-

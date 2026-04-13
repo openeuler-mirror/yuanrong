@@ -22,6 +22,7 @@
 #include "src/libruntime/fsclient/fs_intf.h"
 #include "src/utility/logger/logger.h"
 #include "gmock/gmock.h"
+#include <google/protobuf/util/json_util.h>
 
 using namespace YR::Libruntime;
 namespace YR {
@@ -163,7 +164,7 @@ public:
             std::string serializedMeta;
             libruntime::FunctionMeta meta;
             meta.set_classname("classname");
-            meta.SerializeToString(&serializedMeta);
+            google::protobuf::util::MessageToJsonString(meta, &serializedMeta);
             resp.set_message(serializedMeta);
         } else {
             AccelerateMsgQueueHandle handler{.name = "name"};

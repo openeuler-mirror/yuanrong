@@ -262,6 +262,8 @@ using CallResultCallBack = std::function<void(const CallResultAck &)>;
 using ExitCallBack = std::function<void(const ExitResponse &)>;
 using StateSaveCallBack = std::function<void(const StateSaveResponse &)>;
 using StateLoadCallBack = std::function<void(const StateLoadResponse &)>;
+using InstanceRouteGetter = std::function<std::string(const std::string &)>;
+using InstanceProxyIDGetter = std::function<std::string(const std::string &)>;
 
 struct FSIntfHandlers {
     CallHandler init = nullptr;
@@ -275,6 +277,8 @@ struct FSIntfHandlers {
     SignalHandler signal = nullptr;
     HeartbeatHandler heartbeat = nullptr;
     EventHandler event = nullptr;
+    InstanceRouteGetter getInstanceRoute = nullptr;
+    InstanceProxyIDGetter getInstanceProxyID = nullptr;
 };
 
 class FSIntf {
@@ -334,6 +338,7 @@ public:
 
 protected:
     void Clear();
+    const FSIntfHandlers &GetHandlers() const { return handlers; }
     std::string serverVersion_;
     std::string nodeIp_;
     std::string nodeId_;

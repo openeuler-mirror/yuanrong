@@ -75,7 +75,7 @@ public:
     static std::vector<std::string> masterAddrList;  // for function master cluster
 
     // is in cluster
-    bool inCluster;
+    bool inCluster = true;
     static bool isMasterCluster;
 
 public:

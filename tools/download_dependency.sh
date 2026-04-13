@@ -39,6 +39,7 @@ YR_DASHBOARD_SRC_DIR="${RUNTIME_SRC_DIR}/go"
 YR_METRICS_BIN_DIR="${RUNTIME_SRC_DIR}/metrics"
 THIRD_PARTY_DIR="${RUNTIME_SRC_DIR}/thirdparty/"
 RUNTIME_OUTPUT_DIR="${RUNTIME_SRC_DIR}/output"
+THIRD_PARTY_LOG_DIR="${RUNTIME_OUTPUT_DIR}/logs/thirdparty"
 MODULES="runtime"
 bash ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
 RUNTIME_THIRD_PARTY_CACHE=${RUNTIME_THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/runtime_deps/"}
@@ -60,6 +61,18 @@ function check_metrics(){
     fi
 }
 
+function run_logged() {
+    local name="$1"
+    shift
+    mkdir -p "${THIRD_PARTY_LOG_DIR}"
+    local log_file="${THIRD_PARTY_LOG_DIR}/${name}.log"
+    echo "[thirdparty] ${name} -> ${log_file}"
+    if ! "$@" >"${log_file}" 2>&1; then
+        echo "[thirdparty] ${name} failed, see ${log_file}"
+        return 1
+    fi
+}
+
 function download_datasystem() {
     # check whether datasystem exist
     if [ -d "${YR_DATASYSTEM_BIN_DIR}"/output/sdk/cpp/include ]; then
@@ -69,7 +82,7 @@ function download_datasystem() {
     DS_OUT_DIR="${YR_DATASYSTEM_BIN_DIR}/output"
     mkdir -p "${DS_OUT_DIR}"
     pushd "${DS_OUT_DIR}"
-    wget -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
+    wget -q -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
     tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
     popd
 }
@@ -81,7 +94,7 @@ function download_metrics() {
         return
     fi
     cd ${RUNTIME_SRC_DIR}
-    wget -O metrics.tar.gz ${METRICS_CACHE}
+    wget -q -O metrics.tar.gz ${METRICS_CACHE}
     tar --no-same-owner -zxf metrics.tar.gz
 }
 
@@ -130,15 +143,15 @@ function compile_all(){
   if [ ! -d "${THIRD_PARTY_DIR}/boost/lib" ]; then
     pushd "${THIRD_PARTY_DIR}/boost/"
     chmod -R 700 "${THIRD_PARTY_DIR}/boost/"
-    ./bootstrap.sh --without-libraries=python
-    ./b2 cxxflags=-fPIC cflags=-fPIC  link=static install --with-fiber --with-atomic --prefix=${THIRD_PARTY_DIR}/boost
+    run_logged boost-bootstrap ./bootstrap.sh --without-libraries=python
+    run_logged boost-build ./b2 cxxflags=-fPIC cflags=-fPIC link=static install --with-fiber --with-atomic --prefix="${THIRD_PARTY_DIR}/boost"
     popd
   fi
   if [ ! -d "${THIRD_PARTY_DIR}/openssl/install" ]; then
     pushd "${THIRD_PARTY_DIR}/openssl/"
     chmod -R 700 "${THIRD_PARTY_DIR}/openssl/"
-    ./config enable-ssl3 enable-ssl3-method --prefix="${THIRD_PARTY_DIR}/openssl/install"
-    make -j build_libs install_dev
+    run_logged openssl-config ./config enable-ssl3 enable-ssl3-method --prefix="${THIRD_PARTY_DIR}/openssl/install"
+    run_logged openssl-build make -j build_libs install_dev
     if [[ -d ${THIRD_PARTY_DIR}/openssl/install/lib64 && ! -d ${THIRD_PARTY_DIR}/openssl/install/lib ]];then
       cp -fr ${THIRD_PARTY_DIR}/openssl/install/lib64 ${THIRD_PARTY_DIR}/openssl/install/lib
     fi
@@ -148,7 +161,7 @@ function compile_all(){
 
 function download_third_party_cache() {
     if [ -n "${RUNTIME_THIRD_PARTY_CACHE}" ]; then
-      wget -r -np -nH --no-directories ${RUNTIME_THIRD_PARTY_CACHE}
+      wget -q -r -np -nH --no-directories ${RUNTIME_THIRD_PARTY_CACHE}
     fi
 }
 

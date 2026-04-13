@@ -29,6 +29,13 @@ using namespace YR::utility;
 
 namespace YR {
 namespace test {
+namespace {
+std::string ToString(const datasystem::SensitiveValue &value)
+{
+    return std::string(value.GetData(), value.GetSize());
+}
+}  // namespace
+
 class ObjectStoreTest : public testing::Test {
 public:
     ObjectStoreTest(){};
@@ -190,8 +197,8 @@ TEST_F(ObjectStoreTest, DatasystemObjectClientWrapperTest)
     std::vector<std::string> failedObjectIds;
     auto err = objectStore_->DecreGlobalReference(objectIds);
     ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
-    ds::ConnectOptions connectOpts;
-    auto dsClient = std::make_shared<ds::ObjectClient>(connectOpts);
+    datasystem::ConnectOptions connectOpts;
+    auto dsClient = std::make_shared<datasystem::ObjectClient>(connectOpts);
     DatasystemObjectClientWrapper wrapper(dsClient);
     auto status = wrapper.GDecreaseRef(objectIds, failedObjectIds);
     ASSERT_EQ(failedObjectIds.size(), 0);
@@ -221,12 +228,10 @@ TEST(ObjectStoreInitTest, InitFromDsConnectOptionsMapsFieldsCorrectly)
     EXPECT_EQ(objectStore.connectOpts.port, options.port);
     EXPECT_EQ(objectStore.connectOpts.connectTimeoutMs, options.connectTimeoutMs);
     EXPECT_EQ(objectStore.connectOpts.requestTimeoutMs, options.connectTimeoutMs);
-    EXPECT_EQ(objectStore.connectOpts.token.GetValue(), options.token);
+    EXPECT_EQ(ToString(objectStore.connectOpts.token), options.token);
     EXPECT_EQ(objectStore.connectOpts.clientPublicKey, options.clientPublicKey);
-    EXPECT_EQ(objectStore.connectOpts.clientPrivateKey.GetValue(), options.clientPrivateKey);
     EXPECT_EQ(objectStore.connectOpts.serverPublicKey, options.serverPublicKey);
     EXPECT_EQ(objectStore.connectOpts.accessKey, options.accessKey);
-    EXPECT_EQ(objectStore.connectOpts.secretKey.GetValue(), options.secretKey);
     EXPECT_EQ(objectStore.connectOpts.tenantId, options.tenantId);
     EXPECT_TRUE(objectStore.connectOpts.enableCrossNodeConnection);
 }

@@ -127,7 +127,6 @@ ErrorInfo CErrorToErrorInfo(CErrorInfo *cerr)
         stackTraces.emplace_back(std::move(stackTrace));
     }
     err.SetStackTraceInfos(stackTraces);
-    free(cerr->stackTracesInfo->stackTraces);
     free(cerr->stackTracesInfo);
     free(cerr);
     return err;
@@ -980,17 +979,12 @@ CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress,
     if (!err.OK()) {
         return ErrorInfoToCError(err);
     }
-    InvokeOptions invokeOpts;
-    if (routeAddress != nullptr && strlen(routeAddress) > 0) {
-        invokeOpts.createOptions.emplace("YR_ROUTE", routeAddress);
-    }
-    if (proxyID != nullptr && strlen(proxyID) > 0) {
-        invokeOpts.createOptions.emplace("YR_PROXY_ID", proxyID);
-    }
+    std::string route = routeAddress == nullptr ? "" : std::string(routeAddress);
+    std::string proxy = proxyID == nullptr ? "" : std::string(proxyID);
     if (data) {
-        err = lrt->Kill(instanceId, sigNo, data, invokeOpts);
+        err = lrt->KillWithRouting(instanceId, sigNo, data, route, proxy);
     } else {
-        err = lrt->Kill(instanceId, sigNo, invokeOpts);
+        err = lrt->KillWithRouting(instanceId, sigNo, route, proxy);
     }
     return ErrorInfoToCError(err);
 }

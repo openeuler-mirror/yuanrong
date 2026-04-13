@@ -34,6 +34,8 @@ public:
     MOCK_METHOD1(Finalize, void(bool isDriver));
 
     MOCK_METHOD3(Kill, ErrorInfo(const std::string &instanceId, const std::string &payload, int sigNo));
+    MOCK_METHOD5(KillWithRouting, ErrorInfo(const std::string &instanceId, const std::string &payload, int sigNo,
+                                            const std::string &routeAddress, const std::string &proxyID));
 
     MOCK_METHOD3(Cancel, ErrorInfo(const std::vector<std::string> &objids, bool isForce, bool isRecursive));
 

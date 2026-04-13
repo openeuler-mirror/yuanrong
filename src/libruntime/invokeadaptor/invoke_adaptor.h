@@ -124,6 +124,8 @@ public:
     virtual void ReInit(void);
 
     virtual ErrorInfo Kill(const std::string &instanceId, const std::string &payload, int signal);
+    virtual ErrorInfo KillWithRouting(const std::string &instanceId, const std::string &payload, int signal,
+                                      const std::string &routeAddress, const std::string &proxyID);
 
     virtual std::pair<ErrorInfo, KillResponse> KillWithResponse(const std::string &instanceId,
                                                                  const std::string &payload, int signal);

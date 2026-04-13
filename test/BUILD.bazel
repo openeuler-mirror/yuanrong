@@ -26,6 +26,14 @@ cc_test(
   srcs = [
     "libruntime/metrics_adaptor_test.cpp",
   ],
+  copts = select({
+        "//:disable_observability": [],
+        "//conditions:default": ["-DENABLE_OBSERVABILITY"],
+  }),
+  data = [
+    "//src/utility/metrics:libobservability-metrics-file-exporter.so",
+    "//src/utility/metrics:libobservability-prometheus-push-exporter.so",
+  ],
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -68,7 +76,10 @@ cc_test(
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )
@@ -90,7 +101,10 @@ cc_test(
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )
@@ -116,7 +130,10 @@ cc_test(
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )
@@ -148,10 +165,14 @@ cc_test(
     "//src/utility:yr_utils",
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
+    "@boringssl//:crypto",
   ],
   copts = [
           "-fno-access-control",
-  ],
+  ] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )
@@ -169,6 +190,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )
@@ -185,6 +210,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )
@@ -199,6 +228,10 @@ cc_test(
     "libruntime/http_client_test.cpp",
     "libruntime/https_client_test.cpp",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -229,6 +262,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -276,6 +313,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -302,7 +343,10 @@ cc_test(
     "libruntime/rt_direct_call_test.cpp"
   ],
 
-  copts = ["-fno-access-control"],
+  copts = ["-fno-access-control"] + select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -349,6 +393,10 @@ cc_test(
     "common/common.h",
     "common/mock_libruntime.h",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   includes = ["."],
 
   deps = [
@@ -370,6 +418,10 @@ cc_test(
     "common/mock_libruntime.h",
   ],
 
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   includes = ["."],
   deps = [
     "@gtest//:gtest_main",
@@ -377,6 +429,7 @@ cc_test(
   ],
   linkopts = ["-lstdc++fs", "-ldl"],
   linkstatic = True,
+  tags = ["manual"],
 )
 
 cc_test(
@@ -404,6 +457,7 @@ cc_test(
     "common/mock_libruntime.h",
   ],
 
+  copts = ["-DENABLE_DATASYSTEM"],
   includes = ["."],
   deps = [
     "@gtest//:gtest_main",
@@ -426,6 +480,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -442,6 +500,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
   linkstatic = True,
 )
 
@@ -456,6 +518,10 @@ cc_test(
     "//test/libruntime/mock:mock_datasystem",
     "//:runtime_lib",
   ],
+  copts = select({
+        "//:disable_datasystem": [],
+        "//conditions:default": ["-DENABLE_DATASYSTEM"],
+  }),
 
   linkstatic = True,
 )

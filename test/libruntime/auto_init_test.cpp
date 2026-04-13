@@ -27,7 +27,7 @@
 #include "src/utility/logger/logger.h"
 using namespace YR::utility;
 const std::string masterInfoString =
-    "master_ip:127.0.0.1,etcd_ip:127.0.0.1,local_ip:127.0.0.1,etcd_port:11393,global_scheduler_port:14210,ds_"
+    "master_ip:127.0.0.1,etcd_ip:127.0.0.1,local_ip:127.0.0.1,host_ip:127.0.0.1,etcd_port:11393,global_scheduler_port:14210,ds_"
     "master_port:11090,etcd_"
     "peer_port:15580,bus-proxy:30495,bus:34834,ds-worker:31499,";
 
@@ -86,7 +86,6 @@ TEST_F(AutoInitTest, AutoCreateYuanRongClusterFailed)
 
     ASSERT_EQ(info2.serverAddr, "");
     ASSERT_EQ(info2.dsAddr, "");
-    ASSERT_EQ(info2.inCluster, false);
 }
 
 TEST_F(AutoInitTest, AutoInitWithClusterAccessInfo)

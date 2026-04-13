@@ -40,7 +40,7 @@ Options:
     -m mem limit(MB)
     -h usage.
     -j concurrency limit
-    -G enable gloo collective operations (default: disabled)
+    -G enable gloo collective operations (default: enabled)
     -U enable UCC collective operations (default: disabled)
 "
 
@@ -75,15 +75,13 @@ SANITIZER="off"
 BAZEL_OPTIONS_ENV=""
 SECBRELLA_CCE="OFF"
 PACKAGE_ALL="false"
-ENABLE_GLOO="false"
+ENABLE_GLOO="true"
 ENABLE_UCC="false"
+ENABLE_DATASYSTEM="true"
 LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:${LD_LIBRARY_PATH}
 BOOST_VERSION="1.87.0"
 export BUILD_ALL="false"
 
-if [ ! -d "${THIRD_PARTY_DIR}" ]; then
-  mkdir -p "${THIRD_PARTY_DIR}"
-fi
 function usage() {
     echo -e "$USAGE"
 }
@@ -258,39 +256,7 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
         exit 0
         ;;
     r)
-        # Support both HTTP/HTTPS and gRPC addresses
-        # Extract host and port from various formats like:
-        #   http://host:port, https://host:port, grpc://host:port, host:port
-        host=$(echo "${OPTARG}" | sed -E 's|grpc://||; s|http://||; s|https://||; s|/.*||' | cut -d: -f1)
-        port=$(echo "${OPTARG}" | sed -E 's|grpc://||; s|http://||; s|https://||; s|/.*||' | cut -s -d: -f2)
-
-        # Set default port based on protocol
-        if [ -z "$port" ]; then
-            if echo "${OPTARG}" | grep -q "^https://"; then
-                port=443
-            elif echo "${OPTARG}" | grep -q "^grpc://"; then
-                port=443
-            else
-                port=80
-            fi
-        fi
-
-        # Check if port is reachable using multiple methods
-        port_reachable=false
-        if timeout 3 bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null; then
-            port_reachable=true
-        elif command -v nc &>/dev/null && nc -z -w 3 "${host}" "${port}" 2>/dev/null; then
-            port_reachable=true
-        elif curl --connect-timeout 3 --max-time 5 "${OPTARG}" &>/dev/null; then
-            port_reachable=true
-        fi
-
-        if [ "$port_reachable" = true ]; then
-            log_info "use remote cache server: ${OPTARG} (host: ${host}, port: ${port})"
-            BAZEL_OPTIONS="$BAZEL_OPTIONS --remote_cache=${OPTARG}"
-        else
-            log_warning "no remote cache server available at ${host}:${port}"
-        fi
+        REMOTE_CACHE="${OPTARG}"
         ;;
     l)
         if [ ! -d "${OPTARG}" ] ;then
@@ -365,6 +331,44 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
     esac
 done
 
+# Support remote cache via environment variable REMOTE_CACHE
+# Command-line -r takes precedence; falls back to env var
+if [ -n "${REMOTE_CACHE}" ]; then
+    cache_addr="${REMOTE_CACHE}"
+    # Extract host and port from various formats like:
+    #   http://host:port, https://host:port, grpc://host:port, host:port
+    host=$(echo "${cache_addr}" | sed -E 's|grpc://||; s|http://||; s|https://||; s|/.*||' | cut -d: -f1)
+    port=$(echo "${cache_addr}" | sed -E 's|grpc://||; s|http://||; s|https://||; s|/.*||' | cut -s -d: -f2)
+
+    # Set default port based on protocol
+    if [ -z "$port" ]; then
+        if echo "${cache_addr}" | grep -q "^https://"; then
+            port=443
+        elif echo "${cache_addr}" | grep -q "^grpc://"; then
+            port=443
+        else
+            port=80
+        fi
+    fi
+
+    # Check if port is reachable using multiple methods
+    port_reachable=false
+    if timeout 3 bash -c "exec 3<>/dev/tcp/${host}/${port}" 2>/dev/null; then
+        port_reachable=true
+    elif command -v nc &>/dev/null && nc -z -w 3 "${host}" "${port}" 2>/dev/null; then
+        port_reachable=true
+    elif curl --connect-timeout 3 --max-time 5 "${cache_addr}" &>/dev/null; then
+        port_reachable=true
+    fi
+
+    if [ "$port_reachable" = true ]; then
+        log_info "use remote cache server: ${cache_addr} (host: ${host}, port: ${port})"
+        BAZEL_OPTIONS="$BAZEL_OPTIONS --remote_cache=${cache_addr}"
+    else
+        log_warning "no remote cache server available at ${host}:${port}"
+    fi
+fi
+
 if [ "$BAZEL_COMMAND" != "clean" ]; then
    bash ${BASE_DIR}/tools/download_dependency.sh
 fi
@@ -394,9 +398,13 @@ if [[ -z "${PYTHON_BIN_FULL_PATH}" ]]; then
     log_fatal "python not found: ${PYTHON3_BIN_PATH}"
 fi
 
+if [[ "$(uname)" == "Darwin" ]]; then
+    ENABLE_DATASYSTEM="false"
+fi
+
 # - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
 # - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
-BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO}"
+BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR

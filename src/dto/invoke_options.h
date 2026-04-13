@@ -188,11 +188,11 @@ struct FunctionMeta {
     std::string moduleName;
     std::string funcName;
     std::string className;
-    libruntime::LanguageType languageType;
+    libruntime::LanguageType languageType = libruntime::LanguageType::Python;
     std::string codeId;     // transferring python code with data object, use codeId as key to it
     std::string signature;  // java function signature
     std::string poolLabel;
-    libruntime::ApiType apiType;
+    libruntime::ApiType apiType = libruntime::ApiType::Function;
     std::string functionId;
     std::string name;
     std::string ns;

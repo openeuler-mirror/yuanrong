@@ -29,7 +29,8 @@ from yr.stream import ProducerConfig, SubscriptionConfig
 from yr.common.utils import (
     generate_random_id, generate_task_id, GaugeData, UInt64CounterData, DoubleCounterData
 )
-from yr.fnruntime import Producer, Consumer
+from yr.fnruntime import Producer, Consumer, write_to_cbuffer
+from yr.serialization import Serialization
 from yr.local_mode.local_client import LocalClient
 from yr.local_mode.local_object_store import LocalObjectStore
 from yr.local_mode.task_manager import TaskManager
@@ -57,6 +58,12 @@ class LocalModeRuntime(Runtime, ABC):
         """
         self.__enable_flag = True
 
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+        raise RuntimeError("not support in local mode")
+
+    def snapstart_instance(self, checkpoint_id: str) -> str:
+        raise RuntimeError("not support in local mode")
+
     def put(self, obj, create_param: CreateParam) -> str:
         """
         Put data to ds
@@ -66,6 +73,11 @@ class LocalModeRuntime(Runtime, ABC):
         """
         key = generate_random_id()
         self.__local_store.put(key, obj)
+        return key
+
+    def put_serialized(self, serialized_object) -> str:
+        key = generate_random_id()
+        self.__local_store.put(key, Serialization().deserialize(write_to_cbuffer(serialized_object)))
         return key
 
     def get(self, ids: List[str], timeout: int, allow_partial: bool) -> List[Any]:
@@ -253,7 +265,9 @@ class LocalModeRuntime(Runtime, ABC):
         for i in task_spec.object_ids:
             self.__local_store.set_return_obj(i, f)
             self.__object_ids[i] = task_id
-        return self.__invoke_client.create(task_spec)
+        instance_id = self.__invoke_client.create(task_spec)
+        f.result()
+        return instance_id
 
     def invoke_instance(self, func_meta: FunctionMeta, instance_id: str, args: List[Any],
                         opt: InvokeOptions, return_nums: int) -> List[str]:

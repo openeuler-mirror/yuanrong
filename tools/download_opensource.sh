@@ -85,7 +85,7 @@ function checksum_and_decompress() {
     *.tar.gz)
         echo "use tar to decompress"
         mkdir "${savepath}/${name}"
-        tar -zxvf ${filename} -C "$name" --strip-components=1 && rm ${filename}
+        tar -zxf ${filename} -C "$name" --strip-components=1 && rm ${filename}
         ;;
     *.zip)
         echo "use unzip to decompress"
@@ -116,7 +116,7 @@ function download_open_src() {
 
     local filename="${name}"-"$(basename ${repo})"
     if [ -n "${THIRD_PARTY_CACHE}" ]; then
-        if ! wget "${THIRD_PARTY_CACHE}/${filename}"; then
+        if ! wget -q "${THIRD_PARTY_CACHE}/${filename}"; then
             echo -e "=== download ${name}-${tag} cache to ${savepath} failed ==="
             cd ..
             rm -rf "${savepath}/${name}"

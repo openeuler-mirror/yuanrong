@@ -197,7 +197,7 @@ struct LibruntimeConfig {
     std::string functionName = "";
     bool enableServerMode = false;
 
-    libruntime::LanguageType selfLanguage;
+    libruntime::LanguageType selfLanguage = libruntime::LanguageType::Python;
     std::unordered_map<libruntime::LanguageType, std::string> functionIds;
     libruntime::ApiType selfApiType = libruntime::ApiType::Function;
     std::string logLevel = "";

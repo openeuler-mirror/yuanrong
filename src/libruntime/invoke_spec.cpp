@@ -523,7 +523,8 @@ bool RequestResource::operator==(const RequestResource &r) const
            (functionMeta.functionId == r.functionMeta.functionId) && (opts.cpu == r.opts.cpu) &&
            (opts.memory == r.opts.memory) && (concurrency == r.concurrency) &&
            (opts.resourceGroupOpts.resourceGroupName == r.opts.resourceGroupOpts.resourceGroupName) &&
-           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) && (affinityHash == 0);
+           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) &&
+           (opts.debug.enable == r.opts.debug.enable) && (affinityHash == 0);
 }
 
 std::size_t FaasInfoForBatchRenewFn::operator()(const FaasInfoForBatchRenew &i) const

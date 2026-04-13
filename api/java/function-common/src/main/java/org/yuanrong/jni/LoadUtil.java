@@ -26,6 +26,7 @@ import java.io.InputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -98,8 +99,13 @@ public class LoadUtil {
                 boolean isSoFileExist = localSoFile.exists();
                 boolean isCheckSumMatch = checkSHA256(localSoFile, soFileHash);
 
-                if (isSoFileExist && isCheckSumMatch) {
+                if (isSoFileExist && isCheckSumMatch && isReadableFile(localSoFile)) {
                     System.load(localSoFile.getCanonicalPath());
+                    continue;
+                }
+
+                if (!prepareLocalSoFile(localSoFile)) {
+                    copyAndLoadTempSoFile(soFileName, soFilePath);
                     continue;
                 }
 
@@ -112,6 +118,27 @@ public class LoadUtil {
             }
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    private static boolean isReadableFile(File file) {
+        return file.isFile() && file.canRead() && file.length() > 0;
+    }
+
+    private static boolean prepareLocalSoFile(File localSoFile) throws IOException {
+        if (!localSoFile.exists()) {
+            return true;
+        }
+        if (isReadableFile(localSoFile) && localSoFile.canWrite()) {
+            return true;
+        }
+        try {
+            Files.deleteIfExists(localSoFile.toPath());
+            return true;
+        } catch (IOException e) {
+            LOGGER.warn("failed to delete invalid local so file {}, fallback to temp copy: {}",
+                    localSoFile.getAbsolutePath(), e.getMessage());
+            return false;
         }
     }
 
@@ -185,7 +212,17 @@ public class LoadUtil {
             if (in == null) {
                 throw new FileNotFoundException("File '" + path + "' does not exist in SDK jar");
             }
-            outChannel.transferFrom(Channels.newChannel(in), 0, Long.MAX_VALUE);
+            long position = 0;
+            try (ReadableByteChannel inChannel = Channels.newChannel(in)) {
+                while (true) {
+                    long transferred = outChannel.transferFrom(inChannel, position, READ_SIZE);
+                    if (transferred <= 0) {
+                        break;
+                    }
+                    position += transferred;
+                }
+            }
+            outChannel.force(true);
         }
     }
 
@@ -196,20 +233,17 @@ public class LoadUtil {
             }
         }
         try (FileChannel outChannel = FileChannel.open(localSoFile.toPath(), StandardOpenOption.WRITE,
-                StandardOpenOption.APPEND); FileLock soLock = outChannel.lock()) {
+                StandardOpenOption.TRUNCATE_EXISTING); FileLock soLock = outChannel.lock()) {
             if (soLock == null) {
                 LOGGER.info("Not get lock of file: {}", localSoFile.getAbsolutePath());
                 return false;
             }
-            if (outChannel.size() == 0) {
-                copyJarSoToLocal(soFilePath, outChannel);
-                if (!localSoFile.setReadOnly()) {
-                    LOGGER.warn("set file: {} read permission failed.", localSoFile.getAbsolutePath());
-                }
-                System.load(localSoFile.getCanonicalPath());
-                return true;
+            copyJarSoToLocal(soFilePath, outChannel);
+            if (!localSoFile.setReadOnly()) {
+                LOGGER.warn("set file: {} read permission failed.", localSoFile.getAbsolutePath());
             }
-            return false;
+            System.load(localSoFile.getCanonicalPath());
+            return true;
         }
     }
 
@@ -217,7 +251,7 @@ public class LoadUtil {
         File tempSoFile = File.createTempFile("tmp", soFileName, Paths.get(DEFAULT_JNI_FOLDER).toFile());
         tempSoFile.deleteOnExit();
         try (FileChannel outChannel = FileChannel.open(tempSoFile.toPath(), StandardOpenOption.WRITE,
-                StandardOpenOption.APPEND)) {
+                StandardOpenOption.TRUNCATE_EXISTING)) {
             copyJarSoToLocal(soFilePath, outChannel);
             if (!tempSoFile.setReadOnly()) {
                 LOGGER.warn("set file: {} read permission failed.", tempSoFile.getAbsolutePath());

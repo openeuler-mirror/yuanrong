@@ -125,6 +125,13 @@ public:
 
     MOCK_METHOD3(Kill, ErrorInfo(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data));
 
+    MOCK_METHOD4(KillWithRouting, ErrorInfo(const std::string &instanceId, int sigNo, const std::string &routeAddress,
+                                            const std::string &proxyID));
+
+    MOCK_METHOD5(KillWithRouting,
+                 ErrorInfo(const std::string &instanceId, int sigNo, std::shared_ptr<Buffer> data,
+                           const std::string &routeAddress, const std::string &proxyID));
+
     MOCK_METHOD3(KillAsync,
                  void(const std::string &instanceId, int sigNo, std::function<void(const ErrorInfo &err)> cb));
 

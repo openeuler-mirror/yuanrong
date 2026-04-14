@@ -1,17 +1,16 @@
-# `version`
+# --version
 
-打印 CLI 的版本信息。
+查看 `yr` CLI 版本。
 
 ## 用法
 
 ```shell
-yr version
+yr --version
 ```
 
-## Example
+## 样例
 
 ```shell
-yr version
-# CLI version: DEV.
-# Using openYuanrong at: /usr/local/lib/python3.9/site-packages/yr/inner
+yr --version
+# yr version: <openyuanrong version>
 ```

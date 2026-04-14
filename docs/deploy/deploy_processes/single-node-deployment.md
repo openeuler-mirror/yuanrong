@@ -12,31 +12,55 @@
 yr start --master
 ```
 
-部署成功会打印如下主节点信息。
+部署成功后，终端会打印 worker 节点加入集群的推荐命令，格式如下：
 
-```bash
-Cluster master info:
-    local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:15903,global_scheduler_port:11188,ds_master_port:12729,cluster_deployer_port:22775,etcd_peer_port:17621,bus-proxy:30140,bus:32480,ds-worker:33210,
+```text
+To join an existing cluster, execute the following commands in your shell on worker nodes:
+
+yr start -s 'values.etcd.address=[{ip="x.x.x.x",peer_port="xxxxx",port="xxxxx"}]' -s 'values.ds_master.ip="x.x.x.x"' -s 'values.ds_master.port="xxxxx"' -s 'values.function_master.ip="x.x.x.x"' -s 'values.function_master.global_scheduler_port="xxxxx"'
+
+OR
+
+mkdir -p /etc/yuanrong/ && cat << EOF > /etc/yuanrong/config.toml && yr start
+[values.etcd]
+...
+EOF
+
+OR
+
+yr start --master_address http://x.x.x.x:xxxxx
 ```
 
-此时，openYuanrong 服务已经可以使用。需要多节点集群部署时，参考如下命令，在其余主机上使用命令行工具 yr 部署[从节点](glossary-agent-node)。
+此时，openYuanrong 服务已经可以使用。需要多节点集群部署时，在其余主机上直接执行主节点打印的推荐命令，以部署[从节点](glossary-agent-node)。以下为两种等价方式：
+
+**方式一：直接使用打印的 `-s` 覆盖命令**
 
 ```bash
-# 使用前一步骤打印的主节点信息替换引号中的内容。
-$ yr start --master_info "local_ip:x.x.x.x,master_ip:x.x.x.x,etcd_ip:x.x.x.x,etcd_port:15903,global_scheduler_port:11188,ds_master_port:12729,cluster_deployer_port:22775,etcd_peer_port:17621,bus-proxy:30140,bus:32480,ds-worker:33210,"
+# 将 x.x.x.x 和端口替换为主节点打印的实际值
+yr start \
+  -s 'values.etcd.address=[{ip="x.x.x.x",peer_port="xxxxx",port="xxxxx"}]' \
+  -s 'values.ds_master.ip="x.x.x.x"' \
+  -s 'values.ds_master.port="xxxxx"' \
+  -s 'values.function_master.ip="x.x.x.x"' \
+  -s 'values.function_master.global_scheduler_port="xxxxx"'
 ```
 
-在节点任一主机上执行 `yr status` 命令可查看集群状态。正常情况下，`current running agents` 的数量和实际部署的节点数量一致。
+**方式二：使用自动发现（`--master_address`）**
 
 ```bash
-# x.x.x.x:15903替换为部署步骤打印的etcd_ip和etcd_port
-$ yr status --etcd_endpoint x.x.x.x:15903
-YuanRong cluster addresses:
-              functionsystem: x.x.x.x:12729
-                  datasystem: x.x.x.x:33210
+# 将地址替换为主节点的 function_master global_scheduler 地址
+yr start --master_address http://x.x.x.x:xxxxx
+```
 
-YuanRong cluster status:
-  current running agents: 2
+在主节点上执行 `yr status` 命令可查看集群状态。正常情况下，`ReadyAgentsCount` 与实际部署节点数量一致。
+
+```bash
+yr status
+```
+
+```text
+Cluster Status:
+  ReadyAgentsCount: 2
 ```
 
 可运行[简单示例](../../multi_language_function_programming_interface/examples/simple-function-template.md)进一步验证部署结果。
@@ -50,5 +74,5 @@ yr stop
 ```
 
 :::{note}
-`yr stop` 命令会触发 openYuanrong 进程优雅退出，最长等待 5 秒，之后 openYuanrong 进程会被强制清除。
+`yr stop` 命令会向 daemon 进程发送 SIGTERM，等待其优雅退出（最长 40 秒）。若超时，可使用 `yr stop --force` 强制终止。
 :::

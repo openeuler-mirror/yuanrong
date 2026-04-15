@@ -15,11 +15,13 @@
 # limitations under the License.
 
 import asyncio
+import gc
 import logging
 import inspect
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 from yr.executor.function_handler import FunctionHandler
+from yr.executor.instance_manager import InstanceManager
 from yr.code_manager import CodeManager
 from yr.serialization import Serialization
 from yr.err_type import ErrorCode
@@ -30,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 class TestFunctionExecutor(TestCase):
     def setUp(self):
+        self.runtime_patcher = patch('yr.runtime_holder.global_runtime.get_runtime')
+        self.mock_get_runtime = self.runtime_patcher.start()
+        self.mock_get_runtime.return_value = Mock()
         self.handler = FunctionHandler()
         self.function_meta = FunctionMeta(applicationName="mytest",
                                           moduleName="test.py",
@@ -44,6 +49,14 @@ class TestFunctionExecutor(TestCase):
                                           initializerCodeID="",
                                           isGenerator=False,
                                           isAsync=False)
+
+    def tearDown(self):
+        manager = InstanceManager()
+        manager.init(None)
+        manager.class_code = None
+        manager.is_async = False
+        gc.collect()
+        self.runtime_patcher.stop()
 
     @patch("yr.log.get_logger")
     @patch.object(CodeManager(), 'load_code')

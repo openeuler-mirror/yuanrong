@@ -17,6 +17,7 @@
 #ifndef AGENT_SESSION_MANAGER_H
 #define AGENT_SESSION_MANAGER_H
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -42,6 +43,7 @@ struct AgentSessionContext {
     std::mutex mutex;
     std::mutex dataMutex;
     AgentSessionValue value;
+    std::atomic<bool> interrupted{false};
     bool loaded = false;
     size_t refCount = 0;
 };
@@ -99,6 +101,8 @@ private:
     void RemoveWaitNotifyContext(const std::string &sessionId);
 
     ErrorInfo EnsureLoaded(const std::shared_ptr<AgentSessionContext> &sessionCtx, const std::string &sessionId);
+
+    void ResetSessionInterrupted(const std::shared_ptr<AgentSessionContext> &sessionCtx);
 
     ErrorInfo Persist(const std::shared_ptr<AgentSessionContext> &sessionCtx);
 

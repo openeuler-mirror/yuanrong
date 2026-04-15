@@ -41,6 +41,7 @@ public:
     {
         auto sessionCtx = manager_->GetOrCreateSessionContext(sessionId, "mock-key-" + sessionId);
         sessionCtx->value.sessionData = manager_->BuildDefaultSession(sessionId);
+        sessionCtx->loaded = true;
         return sessionCtx;
     }
 
@@ -116,6 +117,41 @@ TEST_F(AgentSessionManagerTest, WaitTimeoutTest)
     ASSERT_EQ(err.Code(), ErrorCode::ERR_SESSION_TIMEOUT);
     ASSERT_EQ(buf, nullptr);
     sessionCtx->mutex.unlock();
+    manager_->ReleaseSessionContextReference(sessionCtx);
+}
+
+TEST_F(AgentSessionManagerTest, ResetSessionInterruptedClearsInMemoryInterruptedState)
+{
+    const std::string sessionId = "session-reset-memory";
+    auto sessionCtx = CreateSessionContext(sessionId);
+    sessionCtx->interrupted.store(true);
+
+    auto waitNotifyCtx = manager_->GetOrCreateWaitNotifyContext(sessionId);
+    waitNotifyCtx->state = WaitState::INTERRUPTED;
+    waitNotifyCtx->notifyData = std::make_shared<StringNativeBuffer>(0);
+
+    manager_->ResetSessionInterrupted(sessionCtx);
+
+    ASSERT_FALSE(manager_->IsSessionInterrupted(sessionId));
+    ASSERT_EQ(waitNotifyCtx->state, WaitState::IDLE);
+    ASSERT_EQ(waitNotifyCtx->notifyData, nullptr);
+
+    manager_->ReleaseSessionContextReference(sessionCtx);
+}
+
+TEST_F(AgentSessionManagerTest, SetSessionInterruptedDoesNotLeaveInterruptedWaitStateWhenNotWaiting)
+{
+    const std::string sessionId = "session-interrupt-no-wait";
+    auto sessionCtx = CreateSessionContext(sessionId);
+
+    auto waitNotifyCtx = manager_->GetOrCreateWaitNotifyContext(sessionId);
+    waitNotifyCtx->state = WaitState::IDLE;
+
+    manager_->SetSessionInterrupted(sessionId);
+
+    ASSERT_TRUE(manager_->IsSessionInterrupted(sessionId));
+    ASSERT_EQ(waitNotifyCtx->state, WaitState::IDLE);
+
     manager_->ReleaseSessionContextReference(sessionCtx);
 }
 

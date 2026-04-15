@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import asyncio
+import gc
 import unittest
 import logging
 from unittest.mock import Mock, patch
@@ -29,6 +30,14 @@ from yr.object_ref import ObjectRef
 logger = logging.getLogger(__name__)
 
 class testObjectRef(unittest.TestCase):
+    def setUp(self):
+        self.runtime_patcher = patch('yr.runtime_holder.global_runtime.get_runtime')
+        self.mock_get_runtime = self.runtime_patcher.start()
+        self.mock_get_runtime.return_value = Mock()
+
+    def tearDown(self):
+        gc.collect()
+        self.runtime_patcher.stop()
 
     def test_obj(self):
         obj = ObjectRef(object_id="object_1234", task_id="task_abcd")

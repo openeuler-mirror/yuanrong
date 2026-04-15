@@ -14,12 +14,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import unittest
+from unittest.mock import Mock, patch
 from yr.executor.instance_manager import InstanceManager, InstancePackage
 
 class TestInstanceManager(unittest.TestCase):
     def setUp(self) -> None:
-        pass
+        self.runtime_patcher = patch('yr.runtime_holder.global_runtime.get_runtime')
+        self.mock_get_runtime = self.runtime_patcher.start()
+        self.mock_get_runtime.return_value = Mock()
+
+    def tearDown(self) -> None:
+        manager = InstanceManager()
+        manager.init(None)
+        manager.class_code = None
+        manager.is_async = False
+        gc.collect()
+        self.runtime_patcher.stop()
 
     def test_init_instance_manager_code_ref(self):
         InstanceManager().set_code_ref("code_id", True)

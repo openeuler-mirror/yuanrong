@@ -87,6 +87,21 @@ function wait_cluster_readiness() {
     echo "ready local scheduler: [${ready_local_scheduler_count}/${expect_local_scheduler_count}]"
 }
 
+function prepend_python_runtime_ld_path() {
+    local python_runtime_ld_path="${YUANRONG_DIR}/runtime/service/python/yr"
+    if [ ! -d "${python_runtime_ld_path}" ]; then
+        return 0
+    fi
+
+    case ":${LD_LIBRARY_PATH}:" in
+        *:"${python_runtime_ld_path}":*)
+            ;;
+        *)
+            export LD_LIBRARY_PATH="${python_runtime_ld_path}:${LD_LIBRARY_PATH}"
+            ;;
+    esac
+}
+
 function start_yr() {
     cd "${YUANRONG_DIR}/"
     local services_file="${BASE_DIR}/services.yaml"
@@ -105,6 +120,7 @@ function start_yr() {
     if [ "X${RUNTIME_DIRECT_CONNECTION_ENABLE}" == "Xtrue" ]; then
         direct_call="true"
     fi
+    prepend_python_runtime_ld_path
     bash deploy/process/yr_master.sh -d ${DEPLOY_PATH}/yr_master \
         -a ${LOCAL_IP} -l DEBUG -s 2048 -c 10000 -m 22048 \
         -o ${DEPLOY_PATH}/yr_master/master.info \

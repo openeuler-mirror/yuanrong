@@ -86,6 +86,7 @@ ErrorInfo AgentSessionManager::AcquireInvokeSession(const std::string &sessionId
         sessionCtx->mutex.unlock();
         return err;
     }
+    ResetSessionInterrupted(sessionCtx);
     return ErrorInfo();
 }
 
@@ -159,26 +160,30 @@ ErrorInfo AgentSessionManager::SetSessionInterrupted(const std::string &sessionI
         return ErrorInfo(ERR_PARAM_INVALID, ModuleCode::RUNTIME, "current invoke has no active agent session");
     }
 
+    sessionCtx->interrupted.store(true);
+
+    std::shared_ptr<WaitNotifyContext> waitNotifyCtx;
     {
-        std::lock_guard<std::mutex> lock(sessionCtx->dataMutex);
-        try {
-            json sessionJson = json::parse(sessionCtx->value.sessionData);
-            sessionJson["isInterrupted"] = true;
-            sessionCtx->value.sessionData = sessionJson.dump();
-        } catch (const json::parse_error &) {
-            return ErrorInfo(ERR_PARAM_INVALID, ModuleCode::RUNTIME, "failed to parse sessionJson");
+        std::lock_guard<std::mutex> mapLock(waitNotifyMtx_);
+        auto iter = waitNotifyMap_.find(sessionId);
+        if (iter != waitNotifyMap_.end()) {
+            waitNotifyCtx = iter->second;
         }
     }
-
-    auto waitNotifyCtx = GetOrCreateWaitNotifyContext(sessionId);
-    {
+    bool shouldNotify = false;
+    if (waitNotifyCtx != nullptr) {
         std::lock_guard<std::mutex> lock(waitNotifyCtx->mutex);
-        waitNotifyCtx->state = WaitState::INTERRUPTED;
-        waitNotifyCtx->notifyData = nullptr;
+        if (waitNotifyCtx->state == WaitState::WAITING) {
+            waitNotifyCtx->state = WaitState::INTERRUPTED;
+            waitNotifyCtx->notifyData = nullptr;
+            shouldNotify = true;
+        }
     }
-    waitNotifyCtx->cv.notify_one();
+    if (shouldNotify) {
+        waitNotifyCtx->cv.notify_one();
+    }
 
-    return Persist(sessionCtx);
+    return ErrorInfo();
 }
 
 bool AgentSessionManager::IsSessionInterrupted(const std::string &sessionId)
@@ -191,17 +196,7 @@ bool AgentSessionManager::IsSessionInterrupted(const std::string &sessionId)
         return false;
     }
 
-    std::string sessionData;
-    {
-        std::lock_guard<std::mutex> lock(sessionCtx->dataMutex);
-        sessionData = sessionCtx->value.sessionData;
-    }
-    try {
-        json sessionJson = json::parse(sessionData);
-        return sessionJson.value("isInterrupted", false);
-    } catch (const json::parse_error &) {
-        return false;
-    }
+    return sessionCtx->interrupted.load();
 }
 
 std::shared_ptr<AgentSessionContext> AgentSessionManager::GetOrCreateSessionContext(const std::string &sessionId,
@@ -318,6 +313,36 @@ ErrorInfo AgentSessionManager::EnsureLoaded(const std::shared_ptr<AgentSessionCo
     return ErrorInfo();
 }
 
+void AgentSessionManager::ResetSessionInterrupted(const std::shared_ptr<AgentSessionContext> &sessionCtx)
+{
+    if (sessionCtx == nullptr) {
+        return;
+    }
+
+    bool shouldResetWaitState = sessionCtx->interrupted.exchange(false);
+    if (!shouldResetWaitState) {
+        return;
+    }
+
+    std::shared_ptr<WaitNotifyContext> waitNotifyCtx;
+    {
+        std::lock_guard<std::mutex> mapLock(waitNotifyMtx_);
+        auto iter = waitNotifyMap_.find(sessionCtx->value.sessionID);
+        if (iter != waitNotifyMap_.end()) {
+            waitNotifyCtx = iter->second;
+        }
+    }
+    if (waitNotifyCtx == nullptr) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> waitLock(waitNotifyCtx->mutex);
+    if (waitNotifyCtx->state == WaitState::INTERRUPTED) {
+        waitNotifyCtx->state = WaitState::IDLE;
+        waitNotifyCtx->notifyData = nullptr;
+    }
+}
+
 ErrorInfo AgentSessionManager::Persist(const std::shared_ptr<AgentSessionContext> &sessionCtx)
 {
     if (sessionCtx == nullptr) {
@@ -363,7 +388,6 @@ std::string AgentSessionManager::BuildDefaultSession(const std::string &sessionI
     json sessionJson;
     sessionJson["sessionID"] = sessionId;
     sessionJson["histories"] = json::array();
-    sessionJson["isInterrupted"] = false;
     return sessionJson.dump();
 }
 
@@ -398,26 +422,18 @@ std::pair<ErrorInfo, std::shared_ptr<Buffer>> AgentSessionManager::Wait(const st
     auto waitNotifyCtx = GetOrCreateWaitNotifyContext(sessionId);
     std::unique_lock<std::mutex> lock(waitNotifyCtx->mutex);
     auto relockSession = [&]() { sessionCtx->mutex.lock(); };
-    {
-        std::string sessionData;
-        std::lock_guard<std::mutex> dataLock(sessionCtx->dataMutex);
-        sessionData = sessionCtx->value.sessionData;
-        try {
-            if (json::parse(sessionData).value("isInterrupted", false)) {
-                relockSession();
-                return {ErrorInfo(ERR_SESSION_INTERRUPTED, ModuleCode::RUNTIME, "session has been interrupted"),
-                        nullptr};
-            }
-        } catch (const json::parse_error &) {
-            relockSession();
-            return {ErrorInfo(ERR_PARAM_INVALID, ModuleCode::RUNTIME, "failed to parse sessionJson"), nullptr};
-        }
+    if (sessionCtx->interrupted.load()) {
+        lock.unlock();
+        relockSession();
+        return {ErrorInfo(ERR_SESSION_INTERRUPTED, ModuleCode::RUNTIME, "session has been interrupted"), nullptr};
     }
     if (waitNotifyCtx->state == WaitState::INTERRUPTED) {
+        lock.unlock();
         relockSession();
         return {ErrorInfo(ERR_SESSION_INTERRUPTED, ModuleCode::RUNTIME, "session has been interrupted"), nullptr};
     }
     if (waitNotifyCtx->state == WaitState::WAITING) {
+        lock.unlock();
         relockSession();
         return {ErrorInfo(ERR_SESSION_NOT_WAITING, ModuleCode::RUNTIME, "session is already waiting"), nullptr};
     }
@@ -453,6 +469,7 @@ ErrorInfo AgentSessionManager::Notify(const std::string &sessionId, std::shared_
         return ErrorInfo(ERR_PARAM_INVALID, ModuleCode::RUNTIME, "session id is empty");
     }
 
+    std::shared_ptr<WaitNotifyContext> waitNotifyCtx;
     {
         std::lock_guard<std::mutex> mapLock(waitNotifyMtx_);
         auto iter = waitNotifyMap_.find(sessionId);
@@ -460,7 +477,11 @@ ErrorInfo AgentSessionManager::Notify(const std::string &sessionId, std::shared_
             YRLOG_DEBUG("No waiting thread for session {}, notify request discarded", sessionId);
             return ErrorInfo();
         }
-        std::shared_ptr<WaitNotifyContext> waitNotifyCtx = iter->second;
+        waitNotifyCtx = iter->second;
+    }
+
+    bool shouldNotify = false;
+    {
         std::lock_guard<std::mutex> ctxLock(waitNotifyCtx->mutex);
         if (waitNotifyCtx->state != WaitState::WAITING) {
             YRLOG_DEBUG("Session {} is not in waiting state, current state: {}", sessionId,
@@ -469,6 +490,9 @@ ErrorInfo AgentSessionManager::Notify(const std::string &sessionId, std::shared_
         }
         waitNotifyCtx->notifyData = std::move(data);
         waitNotifyCtx->state = WaitState::NOTIFIED;
+        shouldNotify = true;
+    }
+    if (shouldNotify) {
         waitNotifyCtx->cv.notify_one();
     }
     return ErrorInfo();

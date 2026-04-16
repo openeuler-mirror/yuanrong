@@ -452,6 +452,9 @@ if [ "$PACKAGE_ALL" == "true" ]; then
     rm -rf build/ dist/ *.egg-info
     SETUP_TYPE=runtime PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
+    rm -rf build/ dist/ *.egg-info
+    SETUP_TYPE=full PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
     end2=$(date +%s)
     echo "Package openyuanrong.whl elapsed: $((end2 - end1)) seconds"
     chmod 750 $BASE_DIR/output/*.whl

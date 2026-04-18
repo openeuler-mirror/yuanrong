@@ -59,8 +59,6 @@ class SetupType(Enum):
 
     OPENYUANRONG = 1
     OPENYUANRONG_SDK = 2
-    OPENYUANRONG_CPP_SDK = 3
-    OPENYUANRONG_ALL = 4
 
 
 class SetupSpec:
@@ -81,10 +79,6 @@ class SetupSpec:
         if self.setup_type == SetupType.OPENYUANRONG_SDK:
             return setuptools.find_packages(
                 exclude=("yr.tests", "yr.tests.*", "yr.inner", "yr.inner.*")
-            )
-        if self.setup_type == SetupType.OPENYUANRONG_ALL:
-            return setuptools.find_packages(
-                exclude=("yr.tests", "yr.tests.*"),
             )
         return []
 
@@ -112,24 +106,6 @@ if setup_type_env == "sdk":
     ]
     setup_spec.entry_points = {
         "console_scripts": [
-            "yrcli=yr.cli.scripts:main",
-        ]
-    }
-elif setup_type_env == "sdk_cpp":
-    setup_spec = SetupSpec(
-        SetupType.OPENYUANRONG_CPP_SDK,
-        f"{base_name}_cpp_sdk",
-        "openyuanrong cpp sdk",
-    )
-elif setup_type_env == "all":
-    setup_spec = SetupSpec(
-        SetupType.OPENYUANRONG_ALL,
-        f"{base_name}_all",
-        "openyuanrong all package",
-    )
-    setup_spec.entry_points = {
-        "console_scripts": [
-            "yr=yr.inner.scripts:run_yr",
             "yrcli=yr.cli.scripts:main",
         ]
     }
@@ -168,7 +144,7 @@ def contains_keyword(text, keywords):
     return any(kw in text for kw in keywords)
 
 
-def copy_openyuanrong_runtime(build_lib):
+def copy_openyuanrong(build_lib):
     """copy openyuanrong runtime files"""
     keyword_to_exclude = [
         "datasystem/sdk",
@@ -199,19 +175,15 @@ def copy_openyuanrong_runtime(build_lib):
         copy_file(os.path.join(build_lib, "yr/inner"), filename, root_dir)
 
 
-def copy_openyuanrong_cpp_sdk(build_lib):
+def copy_openyuanrong_sdk(build_lib):
     """copy C++ SDK .so files"""
     files_to_include = []
-    for root, _, fs in os.walk("./yr"):
+    for root, _, fs in os.walk("../../build/output/runtime/sdk/cpp"):
         for i in fs:
-            if "so" in i:
-                files_to_include.append(os.path.join(root, i))
+            files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
-        copy_file(build_lib, filename, ROOT_DIR)
+        copy_file(os.path.join(build_lib, "yr/cpp"), filename, ROOT_DIR)
 
-
-def copy_openyuanrong(build_lib):
-    """copy openyuanrong .so files"""
     files_to_include = []
     for root, _, fs in os.walk("./yr"):
         for i in fs:
@@ -225,11 +197,9 @@ def copy_openyuanrong(build_lib):
 def run_ext(build_lib):
     """run ext"""
     if setup_spec.setup_type == SetupType.OPENYUANRONG:
-        copy_openyuanrong_runtime(build_lib)
-    elif setup_spec.setup_type == SetupType.OPENYUANRONG_CPP_SDK:
-        copy_openyuanrong_cpp_sdk(build_lib)
-    elif setup_spec.setup_type == SetupType.OPENYUANRONG_ALL:
-        copy_openyuanrong_runtime(build_lib)
+        copy_openyuanrong(build_lib)
+    elif setup_spec.setup_type == SetupType.OPENYUANRONG_SDK:
+        copy_openyuanrong_sdk(build_lib)
 
 
 class BuildExtImpl(build_ext):
@@ -305,11 +275,7 @@ warnings.filterwarnings("ignore", category=setuptools.SetuptoolsDeprecationWarni
 
 # 添加一个虚拟扩展模块来触发 build_ext
 ext_modules = []
-if setup_spec.setup_type in [
-    SetupType.OPENYUANRONG,
-    SetupType.OPENYUANRONG_CPP_SDK,
-    SetupType.OPENYUANRONG_ALL,
-]:
+if setup_spec.setup_type == SetupType.OPENYUANRONG:
     # 虚拟扩展模块，不实际编译，仅用于触发 build_ext
     ext_modules = [Extension("yr._dummy", sources=[])]
 

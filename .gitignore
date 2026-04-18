@@ -75,3 +75,4 @@ go/pkg/mod/
 # AI assistant configs (local only)
 .specify/
 .agent-memory/
+.omx/

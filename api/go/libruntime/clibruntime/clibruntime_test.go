@@ -1166,6 +1166,42 @@ func TestCCreateOpt(t *testing.T) {
 	)
 }
 
+func TestGoFunctionMetaRoundTrip(t *testing.T) {
+	convey.Convey("Test GoFunctionMeta round trip", t, func() {
+		name := "sandbox-name"
+		namespace := "sandbox-ns"
+		goMeta := api.FunctionMeta{
+			AppName:    "app",
+			ModuleName: "yr.sandbox.sandbox",
+			FuncName:   "__init__",
+			ClassName:  "SandboxInstance",
+			Language:   api.Python,
+			Sig:        "sig",
+			PoolLabel:  "pool",
+			Api:        api.ActorApi,
+			FuncID:     "default/0-defaultservice-py39/$latest",
+			Name:       &name,
+			Namespace:  &namespace,
+		}
+
+		cMeta := cFunctionMeta(goMeta)
+		defer freeCFunctionMeta(cMeta)
+
+		roundTrip := GoFunctionMeta(cMeta)
+		convey.So(roundTrip.AppName, convey.ShouldEqual, goMeta.AppName)
+		convey.So(roundTrip.ModuleName, convey.ShouldEqual, goMeta.ModuleName)
+		convey.So(roundTrip.FuncName, convey.ShouldEqual, goMeta.FuncName)
+		convey.So(roundTrip.ClassName, convey.ShouldEqual, goMeta.ClassName)
+		convey.So(roundTrip.Language, convey.ShouldEqual, goMeta.Language)
+		convey.So(roundTrip.Sig, convey.ShouldEqual, goMeta.Sig)
+		convey.So(roundTrip.PoolLabel, convey.ShouldEqual, goMeta.PoolLabel)
+		convey.So(roundTrip.Api, convey.ShouldEqual, goMeta.Api)
+		convey.So(roundTrip.FuncID, convey.ShouldEqual, goMeta.FuncID)
+		convey.So(*roundTrip.Name, convey.ShouldEqual, name)
+		convey.So(*roundTrip.Namespace, convey.ShouldEqual, namespace)
+	})
+}
+
 func TestByteSliceToCBinaryData(t *testing.T) {
 	convey.Convey(
 		"Test ByteSliceToCBinaryData", t, func() {

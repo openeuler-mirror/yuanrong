@@ -62,6 +62,7 @@ RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.tuna.tsinghua.edu
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libbz2-1.0 \
+    libcurl4 \
     libffi8 \
     liblzma5 \
     libreadline8 \

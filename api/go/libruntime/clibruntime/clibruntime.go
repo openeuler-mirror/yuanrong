@@ -1792,14 +1792,22 @@ func cStringOptional(str *string) (*C.char, C.char) {
 	return C.CString(*str), 1
 }
 
+func cStringOptionalReverse(str *C.char, hasValue C.char) *string {
+	if hasValue == 0 || str == nil {
+		return nil
+	}
+	goStr := CSafeGoString(str)
+	return &goStr
+}
+
 func cFunctionMeta(funcMeta api.FunctionMeta) *C.CFunctionMeta {
 	cName, hasName := cStringOptional(funcMeta.Name)
 	cNamespace, hasNamespace := cStringOptional(funcMeta.Namespace)
 	cFuncMeta := C.CFunctionMeta{
 		appName:      C.CString(funcMeta.AppName),
-		moduleName:   nil,
+		moduleName:   CSafeString(funcMeta.ModuleName),
 		funcName:     C.CString(funcMeta.FuncName),
-		className:    nil,
+		className:    CSafeString(funcMeta.ClassName),
 		functionId:   C.CString(funcMeta.FuncID),
 		languageType: C.int(funcMeta.Language),
 		signature:    C.CString(funcMeta.Sig),
@@ -2389,9 +2397,17 @@ func GoCredential(cCredential C.CCredential) api.Credential {
 // GoFunctionMeta transform *C.CFunctionMeta to api.FunctionMeta
 func GoFunctionMeta(funcMeta *C.CFunctionMeta) api.FunctionMeta {
 	return api.FunctionMeta{
-		AppName:  CSafeGoString(funcMeta.appName),
-		FuncName: CSafeGoString(funcMeta.funcName),
-		FuncID:   CSafeGoString(funcMeta.functionId),
+		AppName:    CSafeGoString(funcMeta.appName),
+		ModuleName: CSafeGoString(funcMeta.moduleName),
+		FuncName:   CSafeGoString(funcMeta.funcName),
+		ClassName:  CSafeGoString(funcMeta.className),
+		FuncID:     CSafeGoString(funcMeta.functionId),
+		Language:   api.LanguageType(funcMeta.languageType),
+		Sig:        CSafeGoString(funcMeta.signature),
+		PoolLabel:  CSafeGoString(funcMeta.poolLabel),
+		Api:        api.ApiType(funcMeta.apiType),
+		Name:       cStringOptionalReverse(funcMeta.name, funcMeta.hasName),
+		Namespace:  cStringOptionalReverse(funcMeta.ns, funcMeta.hasNs),
 	}
 }
 

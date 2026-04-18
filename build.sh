@@ -197,7 +197,7 @@ function build_python_sdk() {
     fi
     mkdir -p ${OUTPUT_DIR}
     mkdir -p $OUTPUT_BASE/runtime/sdk/python/
-    SETUP_TYPE= PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
     cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
     chmod 750 $BASE_DIR/output/*.whl
@@ -444,19 +444,14 @@ if [ "$BAZEL_COMMAND" == "build" ]; then
 fi
 
 if [ "$PACKAGE_ALL" == "true" ]; then
+    start=$(date +%s)
     bash ${BASE_DIR}/scripts/package_yuanrong.sh -v ${BUILD_VERSION}
     cd "$BASE_DIR"/api/python
     rm -rf build/ dist/ *.egg-info
     SETUP_TYPE= PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=sdk_cpp PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
-    end2=$(date +%s)
-    echo "Package openyuanrong.whl elapsed: $((end2 - end1)) seconds"
+    end=$(date +%s)
+    echo "Package openyuanrong.whl elapsed: $((end - start)) seconds"
     chmod 750 $BASE_DIR/output/*.whl
 fi
 cd -

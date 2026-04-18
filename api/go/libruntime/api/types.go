@@ -109,15 +109,17 @@ const (
 
 // FunctionMeta function meta
 type FunctionMeta struct {
-	AppName   string
-	FuncName  string
-	FuncID    string
-	Sig       string
-	PoolLabel string
-	Name      *string
-	Namespace *string
-	Api       ApiType
-	Language  LanguageType
+	AppName    string
+	FuncName   string
+	FuncID     string
+	ModuleName string
+	ClassName  string
+	Sig        string
+	PoolLabel  string
+	Name       *string
+	Namespace  *string
+	Api        ApiType
+	Language   LanguageType
 }
 
 // StackTracesInfo stack info

@@ -71,7 +71,10 @@ void LogManager::StopRollingCompress() noexcept
         std::unique_lock<std::mutex> l(mtx_);
         logParams_.clear();
     }
-    YRLOG_DEBUG("stop log rolling compress complete.");
+    // NOTE: Do NOT use YRLOG_* macros here during destruction.
+    // The spdlog registry singleton may have already been destroyed due to
+    // Static Destruction Order Fiasco, causing SIGSEGV when accessing
+    // its internal hash table.
 }
 
 void LogManager::CronTask(const std::function<void(LogParam &)> &func)
@@ -81,14 +84,14 @@ void LogManager::CronTask(const std::function<void(LogParam &)> &func)
     while (state_ == RUNNING) {
         std::cv_status cs = rcCond_.wait_for(l, std::chrono::seconds(interval_));
         if (cs == std::cv_status::no_timeout) {
-            YRLOG_DEBUG("thread wake up by app thread, do last log manage work and ready to exit.");
+            // NOTE: Do NOT use YRLOG_* macros here during destruction.
         }
         try {
             for (auto logParam : logParams_) {
                 func(logParam.second);
             }
         } catch (std::exception &e) {
-            YRLOG_WARN("cron task func error: {}", e.what());
+            // NOTE: Do NOT use YRLOG_* macros here during destruction.
         }
     }
 }

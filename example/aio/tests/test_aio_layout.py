@@ -25,6 +25,10 @@ class AioLayoutTests(unittest.TestCase):
         self.assertNotIn("openyuanrong-", runtime_text)
         self.assertNotIn("runtime-launcher", runtime_text)
 
+    def test_runtime_image_includes_libcurl(self):
+        runtime_text = read_text("Dockerfile.runtime")
+        self.assertIn("libcurl4", runtime_text)
+
     def test_main_image_is_split_out(self):
         main_dockerfile = ROOT / "Dockerfile.aio-yr"
         self.assertTrue(main_dockerfile.exists(), "Dockerfile.aio-yr should exist")
@@ -150,12 +154,13 @@ class AioLayoutTests(unittest.TestCase):
         self.assertIn('["curl", "-sk", "-o", "-", "-w", "\\nHTTP_STATUS:%{http_code}\\n", url]', script_text)
         self.assertIn('yr.kill_instance(instance_id)', script_text)
 
-    def test_webterminal_passes_cluster_envs_for_sandbox_creation(self):
+    def test_webterminal_uses_direct_sandbox_create_flow(self):
         webterm_text = (
             ROOT.parent.parent / "frontend/pkg/frontend/webui/webterm.go"
         ).read_text()
-        self.assertIn("'YR_SERVER_ADDRESS': '127.0.0.1:22773'", webterm_text)
-        self.assertIn("'YR_DS_ADDRESS': '127.0.0.1:31501'", webterm_text)
+        self.assertIn("extractSandboxCreateInstanceId", webterm_text)
+        self.assertIn("fetch('%s/api/sandbox/create'", webterm_text)
+        self.assertIn("parseTenantFromJWT(token) || tenant", webterm_text)
 
     def test_runtime_launcher_proto_keeps_ports_field_in_sync(self):
         launcher_proto = (

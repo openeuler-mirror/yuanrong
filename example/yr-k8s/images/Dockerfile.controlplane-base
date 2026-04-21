@@ -1,0 +1,120 @@
+FROM ubuntu:22.04 AS python-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG PYTHON_VERSION=3.9.18
+ARG PYTHON_MAJOR_MINOR=3.9
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    libbz2-dev \
+    libffi-dev \
+    libgdbm-dev \
+    liblzma-dev \
+    libncurses5-dev \
+    libnss3-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    wget \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget --timeout=30 --tries=3 \
+        https://repo.huaweicloud.com/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
+        -O /tmp/python.tgz || \
+    wget --timeout=30 --tries=3 \
+        https://mirrors.tuna.tsinghua.edu.cn/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
+        -O /tmp/python.tgz || \
+    wget --timeout=30 --tries=3 \
+        https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
+        -O /tmp/python.tgz && \
+    tar -xzf /tmp/python.tgz -C /tmp && \
+    cd /tmp/Python-${PYTHON_VERSION} && \
+    ./configure --prefix=/usr/local --enable-shared --without-ensurepip LDFLAGS="-Wl,-rpath=/usr/local/lib" && \
+    make -j"$(nproc)" && \
+    make install && \
+    rm -rf /tmp/Python-${PYTHON_VERSION} /tmp/python.tgz
+
+RUN wget --timeout=30 --tries=3 https://bootstrap.pypa.io/get-pip.py -O /tmp/get-pip.py && \
+    /usr/local/bin/python${PYTHON_MAJOR_MINOR} /tmp/get-pip.py -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    rm /tmp/get-pip.py
+
+RUN find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local -type f -name '*.pyc' -delete && \
+    find /usr/local -type f -name '*.pyo' -delete
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG PYTHON_MAJOR_MINOR=3.9
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    iproute2 \
+    libbz2-1.0 \
+    libffi8 \
+    liblzma5 \
+    libreadline8 \
+    libsqlite3-0 \
+    libssl3 \
+    procps \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=python-builder /usr/local /usr/local
+
+ENV PATH="/usr/local/bin:${PATH}" \
+    LD_LIBRARY_PATH="/usr/local/lib" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HOME="/home/sn" \
+    YR_PRIVATE_KEY_FILE="/openyuanrong/cert/module.key" \
+    YR_CERT_FILE="/openyuanrong/cert/module.crt" \
+    YR_VERIFY_FILE="/openyuanrong/cert/ca.crt"
+
+RUN pip${PYTHON_MAJOR_MINOR} config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip${PYTHON_MAJOR_MINOR} config set global.timeout 100 && \
+    ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python && \
+    ln -sf /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python3 && \
+    ln -sf /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip && \
+    ln -sf /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip3
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+WORKDIR /openyuanrong
+
+COPY output/openyuanrong-*.whl /tmp/pkg/
+COPY output/openyuanrong_sdk*.whl /tmp/pkg/
+COPY functionsystem/runtime-launcher/bin/runtime/runtime-launcher /openyuanrong/runtime-launcher
+
+RUN set -euo pipefail \
+    && resolve_single_wheel() { \
+        local pattern="$1"; \
+        local matches=(); \
+        mapfile -t matches < <(find /tmp/pkg -maxdepth 1 -type f -name "${pattern}" -printf '%f\n' | sort -V); \
+        if [ "${#matches[@]}" -eq 0 ]; then \
+            printf 'Missing required wheel artifact matching %s\n' "${pattern}" >&2; \
+            exit 1; \
+        fi; \
+        if [ "${#matches[@]}" -ne 1 ]; then \
+            printf 'Expected exactly one wheel matching %s, found %s\n' "${pattern}" "${#matches[@]}" >&2; \
+            printf '%s\n' "${matches[@]}" >&2; \
+            exit 1; \
+        fi; \
+        printf '/tmp/pkg/%s' "${matches[0]}"; \
+    } \
+    && OPENYUANRONG_WHEEL="$(resolve_single_wheel 'openyuanrong-*.whl')" \
+    && OPENYUANRONG_SDK_WHEEL="$(resolve_single_wheel 'openyuanrong_sdk*.whl')" \
+    && python3 -m pip install --no-cache-dir "${OPENYUANRONG_WHEEL}" "${OPENYUANRONG_SDK_WHEEL}" \
+    && python3 -c 'from pathlib import Path; exec("""patches = {\n    \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\" \\\\\\n\": \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\" \\\\\\n  HEALTH_CHECK_HANDLER=\\\"faasfrontend.HealthCheckHandler\\\" \\\\\\n\",\n    \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\"\\n\": \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\"\\nHEALTH_CHECK_HANDLER=\\\"faasfrontend.HealthCheckHandler\\\"\\n\",\n}\nbase = Path(\"/usr/local/lib/python3.9/site-packages/yr\")\nfor pattern in (\"install.sh\", \"config.toml.jinja\"):\n    for path in base.rglob(pattern):\n        text = path.read_text()\n        new_text = text\n        for before, after in patches.items():\n            new_text = new_text.replace(before, after)\n        if new_text != text:\n            path.write_text(new_text)\n""")' \
+    && install -d /openyuanrong/bin /openyuanrong/cert /openyuanrong/config \
+        /home/sn /home/sn/config /home/sn/iam-config \
+        /home/sn/log /home/sn/upload /etc/yuanrong \
+    && install -m 0644 /dev/null /home/sn/.bashrc \
+    && install -m 0755 /openyuanrong/runtime-launcher /usr/local/bin/runtime-launcher \
+    && rm -rf /tmp/pkg

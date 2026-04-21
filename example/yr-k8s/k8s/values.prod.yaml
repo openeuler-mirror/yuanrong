@@ -1,0 +1,26 @@
+global:
+  namespace:
+    name: yr-k8s
+  cluster:
+    name: yr-k8s-prod
+    region: prod
+    azId: prod-az1
+  imageRegistry: registry.example.com/openyuanrong
+  images:
+    master:
+      tag: stable
+    frontend:
+      tag: stable
+    node:
+      tag: stable
+    traefik:
+      tag: stable
+  externalEtcd:
+    addrList: yr-k8s-etcd.prod.svc.cluster.local:2379
+    metaStoreAddress: https://yr-k8s-etcd.prod.svc.cluster.local:2379
+
+master:
+  replicaCount: 2
+
+frontend:
+  replicaCount: 2

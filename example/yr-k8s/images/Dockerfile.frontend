@@ -1,0 +1,21 @@
+ARG CONTROLPLANE_BASE_IMAGE=yr-controlplane-base
+FROM ${CONTROLPLANE_BASE_IMAGE}
+
+WORKDIR /openyuanrong
+
+COPY output/yr-frontend*.tar.gz /tmp/pkg/
+COPY bin/start-frontend.sh /usr/local/bin/start-frontend.sh
+
+RUN set -euo pipefail \
+    && python3 -c 'from pathlib import Path; exec("""patches = {\n    \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\" \\\\\\n\": \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\" \\\\\\n  HEALTH_CHECK_HANDLER=\\\"faasfrontend.HealthCheckHandler\\\" \\\\\\n\",\n    \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\"\\n\": \"SIGNAL_HANDLER=\\\"faasfrontend.SignalHandler\\\"\\nHEALTH_CHECK_HANDLER=\\\"faasfrontend.HealthCheckHandler\\\"\\n\",\n}\nbase = Path(\"/usr/local/lib/python3.9/site-packages/yr\")\nfor pattern in (\"install.sh\", \"config.toml.jinja\"):\n    for path in base.rglob(pattern):\n        text = path.read_text()\n        new_text = text\n        for before, after in patches.items():\n            new_text = new_text.replace(before, after)\n        if new_text != text:\n            path.write_text(new_text)\n""")' \
+    && frontend_pkg="$(find /tmp/pkg -maxdepth 1 -type f -name 'yr-frontend*.tar.gz' | sort -V | tail -n 1)" \
+    && test -n "${frontend_pkg}" \
+    && rm -rf /tmp/yr-frontend-overlay \
+    && mkdir -p /tmp/yr-frontend-overlay \
+    && tar -xzf "${frontend_pkg}" -C /tmp/yr-frontend-overlay \
+    && install -d /usr/local/lib/python3.9/site-packages/yr/inner/pattern \
+    && rm -rf /usr/local/lib/python3.9/site-packages/yr/inner/pattern/pattern_faas \
+    && cp -a /tmp/yr-frontend-overlay/pattern/pattern_faas /usr/local/lib/python3.9/site-packages/yr/inner/pattern/pattern_faas \
+    && rm -rf /tmp/yr-frontend-overlay /tmp/pkg/yr-frontend*.tar.gz
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/start-frontend.sh"]

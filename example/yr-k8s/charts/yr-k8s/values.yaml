@@ -1,0 +1,233 @@
+fullnameOverride: yr
+
+global:
+  namespace:
+    create: true
+    name: yr-k8s
+  cluster:
+    id: cluster001
+    name: yr-k8s
+    region: local
+    azId: local-az1
+  imageRegistry: docker.io
+  imagePullSecrets: []
+  commonLabels: {}
+  images:
+    master:
+      repository: yr-master
+      tag: latest
+      pullPolicy: IfNotPresent
+    frontend:
+      repository: yr-frontend
+      tag: latest
+      pullPolicy: IfNotPresent
+    node:
+      repository: yr-node
+      tag: latest
+      pullPolicy: IfNotPresent
+    traefik:
+      repository: traefik
+      tag: v2.11.14
+      pullPolicy: IfNotPresent
+  externalEtcd:
+    addrList: yr-etcd.example.com:2379
+    metaStoreAddress: http://yr-etcd.example.com:2379
+  services:
+    servicesYaml: |
+      - service: defaultservice
+        kind: yrlib
+        description: this is the default service
+        functions:
+          default:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.9
+            concurrentNum: 20
+          py39:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: python3.9
+            concurrentNum: 20
+          java:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: java1.8
+            concurrentNum: 20
+          cpp:
+            timeout: 900
+            cpu: 500
+            memory: 500
+            runtime: cpp11
+            concurrentNum: 20
+  secrets:
+    s3AccessKey: ""
+    s3SecretKey: ""
+    curveSecret: ""
+
+master:
+  enabled: true
+  replicaCount: 1
+  serviceAccount:
+    create: true
+    name: ""
+  service:
+    ports:
+      master: 22770
+      metaService: 31111
+      iamServer: 31112
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  probes:
+    readiness:
+      tcpSocket:
+        port: master
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: master
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+frontend:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8888
+    targetPort: 8888
+    annotations: {}
+  iamServerAddress: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  probes:
+    readiness:
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: http
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+node:
+  enabled: true
+  serviceAccount:
+    create: true
+    name: ""
+  ports:
+    functionProxy:
+      containerPort: 22772
+      hostPort: 22772
+    functionProxyGrpc:
+      containerPort: 22773
+      hostPort: 22773
+    dsWorker:
+      containerPort: 31501
+      hostPort: 31501
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  probes:
+    readiness:
+      tcpSocket:
+        port: function-proxy
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: function-proxy
+      initialDelaySeconds: 30
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+traefik:
+  enabled: true
+  replicaCount: 1
+  entryPoints:
+    web:
+      address: ":8888"
+    frontendDirect:
+      address: ":18888"
+  etcd:
+    rootKey: /traefik
+  service:
+    type: LoadBalancer
+    port: 8888
+    targetPort: 8888
+    frontendDirectPort: 18888
+    annotations: {}
+  tls:
+    entryPoint:
+      enabled: false
+      certResolver: ""
+      domains: []
+    router:
+      enabled: false
+      certResolver: ""
+      optionsName: ""
+      domains: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  probes:
+    readiness:
+      tcpSocket:
+        port: web
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+    liveness:
+      tcpSocket:
+        port: web
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+debug:
+  sidecar:
+    image:
+      repository: busybox
+      tag: "1.36"
+      pullPolicy: IfNotPresent
+    sessionDir: /tmp/yr_sessions
+    command:
+      - sh
+      - -lc
+      - while true; do sleep 3600; done

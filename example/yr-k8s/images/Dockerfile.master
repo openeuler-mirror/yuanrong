@@ -1,0 +1,7 @@
+FROM yr-controlplane-base
+
+WORKDIR /openyuanrong
+
+COPY bin/start-master.sh /usr/local/bin/start-master.sh
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/start-master.sh"]

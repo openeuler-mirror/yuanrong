@@ -597,6 +597,32 @@ function start_iam_server() {
   fi
   IAM_SERVER_ADDRESS="${IP_ADDRESS}:${IAM_SERVER_PORT}"
   export IAM_SERVER_ADDRESS
+  # Export local address for co-deployed components (frontend/function_proxy)
+  if [ -n "${IAM_LOCAL_LISTEN_PORT}" ] && [ "${IAM_LOCAL_LISTEN_PORT}" != "0" ]; then
+    # Validate that IAM_LOCAL_LISTEN_PORT is a valid port number (1-65535).
+    if ! [[ "${IAM_LOCAL_LISTEN_PORT}" =~ ^[0-9]+$ ]] || \
+       [ "${IAM_LOCAL_LISTEN_PORT}" -lt 1 ] || \
+       [ "${IAM_LOCAL_LISTEN_PORT}" -gt 65535 ]; then
+      echo "ERROR: --iam_local_listen_port must be a valid port number (1-65535), got: ${IAM_LOCAL_LISTEN_PORT}" >&2
+      return 1
+    fi
+    # Validate that IAM_LOCAL_IP is a loopback address. The local listener has no
+    # TLS or AKSK; exposing it on a non-loopback interface would open an
+    # unauthenticated port on the network.
+    # Only IPv4 loopback (127.x.x.x) and the standard IPv6 loopback (::1) are
+    # accepted. IPv6-mapped IPv4 addresses (::ffff:127.0.0.1) are intentionally
+    # excluded because users should never configure them as a bind address.
+    local resolved_iam_local_ip="${IAM_LOCAL_IP:-127.0.0.1}"
+    case "${resolved_iam_local_ip}" in
+      127.*|::1) ;;
+      *)
+        echo "ERROR: --iam_local_ip must be a loopback address (127.x.x.x or ::1), got: ${resolved_iam_local_ip}" >&2
+        return 1
+        ;;
+    esac
+    IAM_LOCAL_ADDRESS="${resolved_iam_local_ip}:${IAM_LOCAL_LISTEN_PORT}"
+    export IAM_LOCAL_ADDRESS
+  fi
   return ${ret_code}
 }
 

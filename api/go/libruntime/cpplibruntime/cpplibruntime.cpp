@@ -315,8 +315,22 @@ CFunctionMeta FunctionMetaToCFunctionMeta(const FunctionMeta &function)
 {
     CFunctionMeta cFuncMeta{};
     cFuncMeta.appName = const_cast<char *>(function.appName.c_str());
+    cFuncMeta.moduleName = const_cast<char *>(function.moduleName.c_str());
     cFuncMeta.funcName = const_cast<char *>(function.funcName.c_str());
+    cFuncMeta.className = const_cast<char *>(function.className.c_str());
+    cFuncMeta.languageType = static_cast<int>(function.languageType);
+    cFuncMeta.signature = const_cast<char *>(function.signature.c_str());
+    cFuncMeta.poolLabel = const_cast<char *>(function.poolLabel.c_str());
+    cFuncMeta.apiType = static_cast<CApiType>(function.apiType);
     cFuncMeta.functionId = const_cast<char *>(function.functionId.c_str());
+    if (!function.name.empty()) {
+        cFuncMeta.hasName = 1;
+        cFuncMeta.name = const_cast<char *>(function.name.c_str());
+    }
+    if (!function.ns.empty()) {
+        cFuncMeta.hasNs = 1;
+        cFuncMeta.ns = const_cast<char *>(function.ns.c_str());
+    }
     return cFuncMeta;
 }
 
@@ -499,8 +513,11 @@ void CExecShutdownHandler(int sigNum)
 static FunctionMeta BuildFunctionMeta(CFunctionMeta *cFuncMeta)
 {
     FunctionMeta funcMeta;
+    funcMeta.appName = cFuncMeta->appName;
+    funcMeta.moduleName = cFuncMeta->moduleName;
     funcMeta.apiType = static_cast<libruntime::ApiType>(cFuncMeta->apiType);
     funcMeta.funcName = cFuncMeta->funcName;
+    funcMeta.className = cFuncMeta->className;
     funcMeta.functionId = cFuncMeta->functionId;
     funcMeta.languageType = static_cast<libruntime::LanguageType>(cFuncMeta->languageType);
     funcMeta.signature = cFuncMeta->signature;

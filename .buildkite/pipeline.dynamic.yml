@@ -28,9 +28,9 @@ cat << YAML
       export CMAKE_CXX_COMPILER_LAUNCHER=ccache
       # bazel-remote: write directly to ~/.bazelrc (Bazel reads unconditionally)
       # Use bash /dev/tcp (built-in, no nc required) to test connectivity
-      BAZEL_REMOTE_URL="grpc://bazel-remote.build-tools.svc.cluster.local:9092"
+      BAZEL_REMOTE_URL="http://bazel-remote.build-tools.svc.cluster.local:8080"
       echo "=== Configuring bazel-remote cache ==="
-      if timeout 5 bash -c "echo > /dev/tcp/bazel-remote.build-tools.svc.cluster.local/9092" 2>/dev/null; then
+      if wget -qO- --timeout=5 http://bazel-remote.build-tools.svc.cluster.local:8080/status >/dev/null 2>&1; then
         echo "bazel-remote reachable: \$\${BAZEL_REMOTE_URL}"
         export REMOTE_CACHE="\$\${BAZEL_REMOTE_URL}"
       else

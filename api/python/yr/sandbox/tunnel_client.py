@@ -40,6 +40,7 @@ from yr.sandbox.tunnel_protocol import (
 logger = logging.getLogger(__name__)
 
 _WS_CHANNEL_QUEUE_MAX = 100
+_PENDING_RESPONSE_TTL = 120.0  # seconds
 
 
 def _ssl_verify_enabled() -> bool:
@@ -50,12 +51,20 @@ def _ssl_verify_enabled() -> bool:
     return os.environ.get("TUNNEL_SSL_VERIFY", "1") not in ("0", "false", "")
 
 
+def _http_timeout() -> float:
+    """Read YR_TUNNEL_HTTP_TIMEOUT env var (seconds, default 600)."""
+    try:
+        return float(os.environ.get("YR_TUNNEL_HTTP_TIMEOUT", "600"))
+    except ValueError:
+        return 600.0
+
+
 class TunnelClient:
     def __init__(
         self,
         upstream: str,
         ping_interval: float = 30.0,
-        ping_timeout: float = 10.0,
+        ping_timeout: float = 30.0,
         reconnect_base_delay: float = 1.0,
         reconnect_max_delay: float = 60.0,
     ):
@@ -84,12 +93,29 @@ class TunnelClient:
         self._stop_event = threading.Event()
         self._ws_channels: dict = {}  # channel_id -> asyncio.Queue
         self._ssl_verify = _ssl_verify_enabled()
+        self._connected_event = threading.Event()  # Signal when connected
+        self._pending_responses: dict = {}  # fid -> (resp_frame, timestamp)
+        self._sent_request_ids: set = set()  # request IDs already sent to upstream
 
-    def start(self, tunnel_url: str) -> None:
-        """Start the client in a background daemon thread."""
+    def start(self, tunnel_url: str, timeout: float = 10.0) -> bool:
+        """Start the client in a background daemon thread.
+
+        Args:
+            tunnel_url: The WebSocket URL to connect to.
+            timeout: Maximum time to wait for connection (seconds).
+
+        Returns:
+            True if connected successfully within timeout, False otherwise.
+        """
         self._tunnel_url = tunnel_url
         self._thread = threading.Thread(target=self._run, name="tunnel-client", daemon=True)
         self._thread.start()
+        # Wait for connection signal
+        return self._connected_event.wait(timeout=timeout)
+
+    def is_connected(self) -> bool:
+        """Check if the client is currently connected."""
+        return self._connected_event.is_set()
 
     def stop(self) -> None:
         """Stop the client and wait for the thread to finish."""
@@ -128,18 +154,24 @@ class TunnelClient:
                 async with websockets.connect(
                     self._tunnel_url,
                     ssl=ssl_ctx,
-                    ping_interval=30,
-                    ping_timeout=10,
+                    ping_interval=None,
+                    ping_timeout=None,
                 ) as ws:
                     logger.info("Connected to tunnel: %s", self._tunnel_url)
+                    self._connected_event.set()  # Signal connected
                     attempt = 0  # reset on successful connect
+
+                    # Clean expired cached responses on reconnect
+                    self._cleanup_expired_responses()
+
                     async with httpx.AsyncClient(
                         base_url=self._upstream,
                         verify=self._ssl_verify,
-                        timeout=httpx.Timeout(10.0),
+                        timeout=httpx.Timeout(_http_timeout()),
                     ) as http:
                         await self._recv_loop(ws, http)
             except Exception as e:
+                self._connected_event.clear()  # Clear on disconnect
                 if self._stop_event.is_set():
                     break
                 logger.warning("Tunnel disconnected (%s), reconnecting...", e)
@@ -161,6 +193,15 @@ class TunnelClient:
     def _cleanup_ws_channels(self) -> None:
         """Cancel in-flight WS proxy tasks and clear channels."""
         self._ws_channels.clear()
+
+    def _cleanup_expired_responses(self) -> None:
+        """Remove expired cached responses."""
+        now = time.time()
+        expired = [fid for fid, (_, ts) in self._pending_responses.items()
+                   if now - ts > _PENDING_RESPONSE_TTL]
+        for fid in expired:
+            self._pending_responses.pop(fid, None)
+            logger.debug("Expired cached response for request %s", fid)
 
     def _make_ssl_context(self) -> Optional[ssl.SSLContext]:
         if self._tunnel_url and self._tunnel_url.startswith("wss://"):
@@ -222,26 +263,72 @@ class TunnelClient:
             try:
                 await ws.send(ping.to_json())
                 await asyncio.wait_for(self._pong_event.wait(), timeout=self._ping_timeout)
-            except (asyncio.TimeoutError, websockets.ConnectionClosed):
+            except asyncio.TimeoutError:
                 logger.warning("Heartbeat timeout, closing connection")
-                await ws.close()
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+                return
+            except websockets.ConnectionClosedOK:
+                logger.debug("Connection closed normally during heartbeat")
+                return
+            except websockets.ConnectionClosedError as e:
+                logger.warning("Connection closed unexpectedly during heartbeat: %s", e)
+                return
+            except Exception as e:
+                logger.warning("Unexpected error during heartbeat: %s", e)
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
                 return
 
     async def _handle_http(self, ws, http: httpx.AsyncClient, frame: HttpReqFrame) -> None:
+        fid = frame.id
+
+        # Check if we have a cached response for this request
+        if fid in self._pending_responses:
+            resp_frame, _ = self._pending_responses[fid]
+            logger.debug("Using cached response for request %s", fid)
+        elif fid in self._sent_request_ids:
+            # Request already sent to upstream but no response yet, skip
+            logger.warning("Request %s already in flight, skipping duplicate", fid)
+            return
+        else:
+            # New request, send to upstream
+            self._sent_request_ids.add(fid)
+            try:
+                resp = await http.request(
+                    method=frame.method,
+                    url=frame.path,
+                    headers=frame.headers,
+                    content=frame.body,
+                )
+                resp_frame = HttpRespFrame(
+                    id=fid, status=resp.status_code,
+                    headers=dict(resp.headers), body=resp.content,
+                )
+            except Exception as e:
+                resp_frame = ErrorFrame(id=fid, message=str(e))
+            finally:
+                self._sent_request_ids.discard(fid)
+
         try:
-            resp = await http.request(
-                method=frame.method,
-                url=frame.path,
-                headers=frame.headers,
-                content=frame.body,
-            )
-            resp_frame = HttpRespFrame(
-                id=frame.id, status=resp.status_code,
-                headers=dict(resp.headers), body=resp.content,
-            )
+            await ws.send(resp_frame.to_json())
+            # Clear cached response if successfully sent
+            self._pending_responses.pop(fid, None)
+        except websockets.ConnectionClosedOK:
+            # Normal closure, cache response for reconnect
+            logger.debug("WebSocket connection closed normally, caching response for request %s", fid)
+            self._pending_responses[fid] = (resp_frame, time.time())
+        except websockets.ConnectionClosedError as e:
+            # Abnormal closure, cache response for reconnect
+            logger.warning("WebSocket connection closed unexpectedly, caching response for request %s: %s", fid, e)
+            self._pending_responses[fid] = (resp_frame, time.time())
         except Exception as e:
-            resp_frame = ErrorFrame(id=frame.id, message=str(e))
-        await ws.send(resp_frame.to_json())
+            logger.warning("Unexpected error sending response for request %s: %s", fid, e)
+            self._pending_responses[fid] = (resp_frame, time.time())
 
     async def _handle_ws_connect(self, ws, frame: WsConnectFrame) -> None:
         upstream_ws_url = (
@@ -253,34 +340,64 @@ class TunnelClient:
         self._ws_channels[frame.id] = queue
         try:
             async with websockets.connect(upstream_ws_url) as upstream_ws:
-                await ws.send(WsConnectedFrame(id=frame.id).to_json())
+                try:
+                    await ws.send(WsConnectedFrame(id=frame.id).to_json())
+                except websockets.ConnectionClosedOK:
+                    logger.debug("WS channel %s: connection closed normally before sending connected frame", frame.id)
+                    return
+                except websockets.ConnectionClosedError as e:
+                    logger.warning("WS channel %s: connection closed unexpectedly before sending connected frame: %s", frame.id, e)
+                    return
+                except Exception as e:
+                    logger.warning("WS channel %s: unexpected error sending connected frame: %s", frame.id, e)
+                    return
 
                 async def from_upstream():
-                    async for msg in upstream_ws:
-                        if isinstance(msg, str):
-                            await ws.send(
-                                WsMessageFrame(id=frame.id, data=msg, binary=False).to_json()
-                            )
-                        else:
-                            await ws.send(
-                                WsMessageFrame(
-                                    id=frame.id,
-                                    data=base64.b64encode(msg).decode(),
-                                    binary=True,
-                                ).to_json()
-                            )
-                    await ws.send(WsCloseFrame(id=frame.id).to_json())
+                    try:
+                        async for msg in upstream_ws:
+                            if isinstance(msg, str):
+                                await ws.send(
+                                    WsMessageFrame(id=frame.id, data=msg, binary=False).to_json()
+                                )
+                            else:
+                                await ws.send(
+                                    WsMessageFrame(
+                                        id=frame.id,
+                                        data=base64.b64encode(msg).decode(),
+                                        binary=True,
+                                    ).to_json()
+                                )
+                    except websockets.ConnectionClosedOK:
+                        pass  # Normal closure
+                    except websockets.ConnectionClosedError as e:
+                        logger.warning("WS channel %s: connection closed unexpectedly in from_upstream: %s", frame.id, e)
+                    except Exception as e:
+                        logger.warning("WS channel %s: unexpected error in from_upstream: %s", frame.id, e)
+                    finally:
+                        try:
+                            await ws.send(WsCloseFrame(id=frame.id).to_json())
+                        except websockets.ConnectionClosed:
+                            pass
+                        except Exception as e:
+                            logger.warning("WS channel %s: unexpected error sending close frame: %s", frame.id, e)
 
                 async def from_sandbox():
-                    while True:
-                        f = await queue.get()
-                        if isinstance(f, WsMessageFrame):
-                            if f.binary:
-                                await upstream_ws.send(base64.b64decode(f.data))
-                            else:
-                                await upstream_ws.send(f.data)
-                        elif isinstance(f, WsCloseFrame):
-                            break
+                    try:
+                        while True:
+                            f = await queue.get()
+                            if isinstance(f, WsMessageFrame):
+                                if f.binary:
+                                    await upstream_ws.send(base64.b64decode(f.data))
+                                else:
+                                    await upstream_ws.send(f.data)
+                            elif isinstance(f, WsCloseFrame):
+                                break
+                    except websockets.ConnectionClosedOK:
+                        pass  # Normal closure
+                    except websockets.ConnectionClosedError as e:
+                        logger.warning("WS channel %s: connection closed unexpectedly in from_sandbox: %s", frame.id, e)
+                    except Exception as e:
+                        logger.warning("WS channel %s: unexpected error in from_sandbox: %s", frame.id, e)
 
                 t1 = asyncio.create_task(from_upstream())
                 t2 = asyncio.create_task(from_sandbox())
@@ -289,10 +406,15 @@ class TunnelClient:
                     task.cancel()
                     try:
                         await task
-                    except asyncio.CancelledError:
+                    except (asyncio.CancelledError, Exception):
                         pass
         except Exception as e:
             logger.warning("WS channel %s error: %s", frame.id, e)
-            await ws.send(ErrorFrame(id=frame.id, message=str(e)).to_json())
+            try:
+                await ws.send(ErrorFrame(id=frame.id, message=str(e)).to_json())
+            except websockets.ConnectionClosed:
+                pass
+            except Exception as send_err:
+                logger.warning("WS channel %s: failed to send error frame: %s", frame.id, send_err)
         finally:
             self._ws_channels.pop(frame.id, None)

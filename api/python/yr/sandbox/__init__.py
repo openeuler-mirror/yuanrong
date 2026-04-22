@@ -18,7 +18,7 @@
 
 import importlib
 
-__all__ = ["SandBox", "SandBoxInstance", "create"]
+__all__ = ["Sandbox", "SandboxInstance", "create"]
 
 
 def __getattr__(name):

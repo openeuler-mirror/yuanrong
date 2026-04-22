@@ -103,6 +103,26 @@ def set_initialized():
     __g_is_init = True
 
 
+def _parse_tenant_from_jwt(token):
+    """Parse tenant ID (sub) from JWT token payload without signature verification."""
+    import base64
+    import json
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return ""
+        payload_b64 = parts[1]
+        # Add padding if needed for base64url decoding
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        payload_bytes = base64.urlsafe_b64decode(payload_b64)
+        payload = json.loads(payload_bytes)
+        return payload.get("sub", "")
+    except Exception:
+        return ""
+
+
 def _get_from_env(conf):
     if conf.function_id == "":
         conf.function_id = os.environ.get("YRFUNCID", _DEFAULT_FUNC_ID)
@@ -137,6 +157,12 @@ def _get_from_env(conf):
     if conf.server_name == "":
         conf.server_name = os.environ.get("YR_SERVER_NAME", "")
     conf.log_dir = os.environ.get("YR_LOG_PATH", "./")
+    if conf.tenant_id == "":
+        conf.tenant_id = os.environ.get("YR_TENANT_ID", "")
+    if conf.auth_token == "":
+        conf.auth_token = os.environ.get("YR_JWT_TOKEN", "")
+    if conf.tenant_id == "" and conf.auth_token != "":
+        conf.tenant_id = _parse_tenant_from_jwt(conf.auth_token)
     return conf
 
 def _auto_get_cluster_access_info(conf):

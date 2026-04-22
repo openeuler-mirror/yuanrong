@@ -19,6 +19,7 @@
 from enum import Enum
 import os
 import shutil
+import sysconfig
 import tempfile
 import warnings
 import zipfile
@@ -93,7 +94,7 @@ if setup_type_env == "sdk":
         "openyuanrong python sdk",
     )
     setup_spec.install_requires = [
-        "cloudpickle==2.2.1",
+        "cloudpickle==3.1.2",
         "msgpack==1.0.5",
         "protobuf==4.25.5",
         "cython==3.0.10",
@@ -144,6 +145,59 @@ def contains_keyword(text, keywords):
     return any(kw in text for kw in keywords)
 
 
+def is_shared_library(filename):
+    return (
+        filename.endswith((
+            ".so",
+            ".so.1",
+            ".so.2",
+            ".so.3",
+            ".so.4",
+            ".so.5",
+            ".so.6",
+            ".so.7",
+            ".so.8",
+            ".dylib",
+        ))
+        or ".so." in filename
+        or ".dylib." in filename
+    )
+
+
+def select_fnruntime_binaries(candidates):
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    if ext_suffix:
+        expected_name = f"fnruntime{ext_suffix}"
+        matched = [path for path in candidates if os.path.basename(path) == expected_name]
+        if matched:
+            return matched
+    fallback_names = {"fnruntime.so", "fnruntime.dylib"}
+    fallback = [path for path in candidates if os.path.basename(path) in fallback_names]
+    if fallback:
+        return fallback[:1]
+    if len(candidates) == 1:
+        return candidates
+    return []
+
+
+def strip_nonmatching_fnruntime(target_dir):
+    """remove fnruntime binaries that do not match current Python ABI"""
+    yr_dir = os.path.join(target_dir, "yr")
+    if not os.path.isdir(yr_dir):
+        return
+    candidates = []
+    for name in os.listdir(yr_dir):
+        if not name.startswith("fnruntime"):
+            continue
+        file_path = os.path.join(yr_dir, name)
+        if os.path.isfile(file_path) and is_shared_library(name):
+            candidates.append(file_path)
+    keep = set(select_fnruntime_binaries(candidates))
+    for filename in candidates:
+        if filename not in keep:
+            os.remove(filename)
+
+
 def copy_openyuanrong(build_lib):
     """copy openyuanrong runtime files"""
     keyword_to_exclude = [
@@ -177,19 +231,27 @@ def copy_openyuanrong(build_lib):
 
 def copy_openyuanrong_sdk(build_lib):
     """copy C++ SDK .so files"""
+    cpp_sdk_root = os.path.abspath(os.path.join(ROOT_DIR, "../../build/output/runtime/sdk/cpp"))
     files_to_include = []
-    for root, _, fs in os.walk("../../build/output/runtime/sdk/cpp"):
+    for root, _, fs in os.walk(cpp_sdk_root):
         for i in fs:
             files_to_include.append(os.path.join(root, i))
     for filename in files_to_include:
-        copy_file(os.path.join(build_lib, "yr/cpp"), filename, ROOT_DIR)
+        copy_file(os.path.join(build_lib, "yr/cpp"), filename, cpp_sdk_root)
 
+    yr_root = os.path.join(ROOT_DIR, "yr")
     files_to_include = []
-    for root, _, fs in os.walk("./yr"):
+    fnruntime_candidates = []
+    for root, _, fs in os.walk(yr_root):
         for i in fs:
-            if i.endswith((".so", ".so.1", ".so.2", ".so.3", ".so.4", ".so.5", ".so.6", ".so.7", ".so.8",
-                           ".dylib")) or ".so." in i or ".dylib." in i:
-                files_to_include.append(os.path.join(root, i))
+            if not is_shared_library(i):
+                continue
+            file_path = os.path.join(root, i)
+            if i.startswith("fnruntime"):
+                fnruntime_candidates.append(file_path)
+                continue
+            files_to_include.append(file_path)
+    files_to_include.extend(select_fnruntime_binaries(fnruntime_candidates))
     for filename in files_to_include:
         copy_file(build_lib, filename, ROOT_DIR)
 
@@ -214,6 +276,7 @@ class BuildPyImpl(build_py):
 
     def run(self):
         super().run()
+        strip_nonmatching_fnruntime(self.build_lib)
         shutil.rmtree(os.path.join(self.build_lib, "yr", "tests"), ignore_errors=True)
 
 

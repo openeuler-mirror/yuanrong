@@ -555,7 +555,7 @@ class InvokeOptions:
          ``runtime_env = {"conda":"pytorch_p39"}``
        * Create and use conda environments through configuration.
          ``runtime_env["conda"] = {"name":"myenv","channels": ["conda-forge"], "dependencies": ["python=3.9",
-         "msgpack-python=1.0.5", "protobuf", "libgcc-ng", "cloudpickle=2.0.0", "cython=3.0.10", "pyyaml=6.0.2"]}``
+         "msgpack-python=1.0.5", "protobuf", "libgcc-ng", "cloudpickle=3.1.2", "cython=3.0.10", "pyyaml=6.0.2"]}``
        * Create and use a conda environment through a YAML file (the YAML file meets the conda requirements).
          ``runtime_env = {"conda":"/home/env.yaml"}``
     * `pip` installs dependencies for Python runtime environment.
@@ -575,7 +575,7 @@ class InvokeOptions:
        * `runtime_env` supports creating and switching conda environments using configurations. The configuration needs
          to install third-party dependencies for yr, for example: 
          ``runtime_env["conda"] = {"name":"myenv","channels": ["conda-forge"], "dependencies": ["python=3.9",
-         "msgpack-python=1.0.5", "protobuf", "libgcc-ng", "cloudpickle=2.0.0", "cython=3.0.10", "pyyaml=6.0.2"]}``
+         "msgpack-python=1.0.5", "protobuf", "libgcc-ng", "cloudpickle=3.1.2", "cython=3.0.10", "pyyaml=6.0.2"]}``
        * The environment created using conda in `runtime_env` needs to be cleaned up by the user. 
        * In `runtime_env`, conda can use `pip` to install dependencies, which are managed directly by conda. 
          ``runtime_env = {"conda":{'name': 'my_project_env', 'channels': ['defaults', 'conda-forge'], 
@@ -611,6 +611,7 @@ class InvokeOptions:
 
     group_name: str = ""
 
+    idle_timeout: int = 300
     is_delete_remote_tensor: bool = False
 
     #: Whether to skip serializing the instance class code.

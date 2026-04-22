@@ -96,6 +96,7 @@ class HTTPClient:
         insecure: bool = False,
         client_auth_type: str = "mutual",  # "mutual" or "one-way"
         jwt_token: Optional[str] = None,
+        accept_status: tuple = (200,),  # Status codes to consider as success
     ):
         self.timeout = timeout
         self.session = requests.Session()
@@ -106,6 +107,8 @@ class HTTPClient:
         self.insecure = insecure
         self.client_auth_type = client_auth_type
         self.jwt_token = jwt_token
+        self.accept_status = accept_status
+        self.verify = True
 
     def request(
         self,
@@ -179,7 +182,7 @@ class HTTPClient:
             logging.debug("response: %s\n%s", response.headers, result)
 
             return {
-                "success": response.status_code == 200,
+                "success": response.status_code in self.accept_status,
                 "error": result,
                 "status_code": response.status_code,
                 "data": result,
@@ -207,6 +210,11 @@ class YRContext:
         self.__user = user
 
     def __enter__(self):
+        if os.environ.get("YR_RUNTIME_ID"):
+            os.environ.pop("YR_WORKING_DIR", None)
+            cfg = yr.Config()
+            cfg.in_cluster = True
+            return yr.init(cfg)
         cfg = yr.Config()
         cfg.log_dir = "/tmp/yr_sessions/driver"
         if self.__user:
@@ -476,6 +484,7 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         insecure=__insecure,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
+        accept_status=(200, 202),  # Accept 202 for async invoke
     )
     url = f"http://{__server_address}/invocations/{user}/{str(function_name).replace('@', '/')}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
@@ -800,7 +809,8 @@ def list(resource_type):
         if ret and len(resp) > 0:
             for instance in resp:
                 instance_id = instance.get("id", "N/A")
-                print(instance_id)
+                tenant_id = instance.get("tenantID", "N/A")
+                print(f"{instance_id}\t{tenant_id}")
         else:
             print(f"user {__user} has no instance.")
     elif resource_type in ("function", "functions", "func", "fun"):
@@ -876,7 +886,7 @@ def sandbox_list(namespace):
         print(f"failed to list instances: {resp.get('error', resp)}")
         sys.exit(1)
 
-    sandbox_ids = []
+    sandboxes = []
     for instance in resp:
         instance_id = instance.get("id", "")
         if not instance_id:
@@ -887,14 +897,15 @@ def sandbox_list(namespace):
             continue
         if namespace and not instance_id.startswith(f"{namespace}-"):
             continue
-        sandbox_ids.append(instance_id)
+        tenant_id = instance.get("tenantID", "N/A")
+        sandboxes.append((instance_id, tenant_id))
 
-    if not sandbox_ids:
+    if not sandboxes:
         print("no sandbox instance found")
         return
 
-    for sandbox_id in sandbox_ids:
-        print(sandbox_id)
+    for sandbox_id, tenant_id in sandboxes:
+        print(f"{sandbox_id}\t{tenant_id}")
 
 
 @sandbox.command("query")
@@ -989,7 +1000,11 @@ def invoke(function_name, payload, timeout, header, async_mode):
         headers["X-Invoke-Type"] = "async"
     function_name = FunctionName(function_name)
     if payload:
-        payload_dict = json.loads(payload)
+        try:
+            payload_dict = json.loads(payload)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON payload: {e}")
+            sys.exit(1)
     else:
         payload_dict = {}
     ret, resp = invoke_function(
@@ -1004,28 +1019,107 @@ def invoke(function_name, payload, timeout, header, async_mode):
 
 
 @cli.command
-@click.argument("request_id", required=True, type=str)
-def result(request_id):
-    """Query async invocation result by request ID.
+@click.option("-f", "--function-name", required=True, type=str, default=None)
+@click.option("--payload", required=False, type=str, default=None)
+@click.option("--timeout", required=False, type=int, default=30)
+@click.option("--header", required=False, type=str, multiple=True)
+@click.option("--webhook", required=False, type=str, default=None, help="Webhook URL for async callback")
+def async_invoke(function_name, payload, timeout, header, webhook):
+    """Asynchronously invoke a function and return immediately with a request ID"""
+    headers = {}
+    for i in range(len(header)):
+        if ":" in header[i]:
+            key, value = header[i].split(":", 1)
+            headers[key.strip()] = value.strip()
+    # Add async invoke header
+    headers["X-Invoke-Type"] = "async"
+    if webhook:
+        headers["X-Webhook-Url"] = webhook
 
-    Example:
-        yrcli result req-abc-123
-    """
+    function_name = FunctionName(function_name)
+    if payload:
+        try:
+            payload_dict = json.loads(payload)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON payload: {e}")
+            sys.exit(1)
+    else:
+        payload_dict = {}
+
     http_client = HTTPClient(
-        timeout=30,
+        timeout=timeout,
         client_cert=__client_cert,
         client_key=__client_key,
         ca_cert=__ca_cert,
-        insecure=__insecure,
+        server_name=__server_name,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+        accept_status=(200, 202),  # Accept 202 for async invoke
+    )
+    # Parse function name for short URL format
+    # Format: [tenant-id@]namespace@function-name[:version]
+    func_str = str(function_name)
+    parts = func_str.split('@')
+    
+    if len(parts) >= 3:
+        # Format: tenant-id@namespace@function-name[:version]
+        tenant_id = parts[0]
+        namespace = parts[1]
+        function_name_only = parts[2].split(':')[0]
+    elif len(parts) == 2:
+        # Format: namespace@function-name[:version]
+        tenant_id = __user  # Use the user as tenant
+        namespace = parts[0]
+        function_name_only = parts[1].split(':')[0]
+    else:
+        # Fallback to old format
+        tenant_id = __user
+        namespace = func_str.split(':')[0] if ':' in func_str else func_str
+        function_name_only = func_str.split(':')[0] if ':' in func_str else func_str
+    
+    # Build URL with trailing slash as required by the route
+    url = f"http://{__server_address}/invocations/{tenant_id}/{namespace}/{function_name_only}/"
+    resp = http_client.request(url, payload_dict, headers=headers, method="POST")
+    if resp.get("success"):
+        data = resp.get("data", {})
+        print(json.dumps({
+            "requestId": data.get("requestId", ""),
+            "status": "pending",
+            "message": "Async invocation started. Use 'async-result' command to get the result."
+        }, indent=2, ensure_ascii=False))
+    else:
+        print(f"failed to invoke function: {resp.get('error', resp)}")
+        sys.exit(1)
+
+
+@cli.command
+@click.option("-r", "--request-id", required=True, type=str, help="Request ID from async-invoke")
+@click.option("--timeout", required=False, type=int, default=30)
+def async_result(request_id, timeout):
+    """Get the result of an asynchronous function invocation"""
+    http_client = HTTPClient(
+        timeout=timeout,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        server_name=__server_name,
         client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
     url = f"http://{__server_address}/serverless/v1/functions/async-results/{request_id}"
-    resp = http_client.request(url, {}, method="GET")
-    if resp["success"]:
-        print(json.dumps(resp["data"], indent=2, ensure_ascii=False))
+    resp = http_client.request(url, None, headers={}, method="GET")
+    if resp.get("success"):
+        data = resp.get("data", {})
+        print(json.dumps(data, indent=2, ensure_ascii=False))
     else:
-        print(f"failed to query result: {resp.get('error', 'unknown error')}")
+        status_code = resp.get("status_code")
+        if status_code == 404:
+            print(f"Async result not found for request ID: {request_id}")
+            sys.exit(1)
+        else:
+            error_msg = resp.get("error", "Unknown error")
+            print(f"failed to get async result: {error_msg}")
+            sys.exit(1)
 
 
 @cli.command(
@@ -1272,7 +1366,7 @@ def run_spark(script, args):
         sys.exit(1)
 
 
-@cli.command("exec", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@cli.command("exec")
 @click.option(
     "-i",
     "--stdin",
@@ -1291,17 +1385,17 @@ def run_spark(script, args):
     default=False,
     help="Whether to allocate a TTY for the instance",
 )
-@click.pass_context
-def exec(ctx, stdin, tty):
-    args = ctx.args
-    # Strip leading "--" if present
-    if args and args[0] == "--":
-        args = args[1:]
-    if len(args) < 2:
-        click.echo("Error: INSTANCE and COMMAND are required", err=True)
-        sys.exit(1)
-    instance = args[0]
-    command = " ".join(args[1:])
+@click.option(
+    "--verify-server",
+    required=False,
+    type=bool,
+    is_flag=True,
+    default=True,
+    help="Verify server certificate (default: True)",
+)
+@click.argument("instance", type=str)
+@click.argument("command", type=str)
+def exec(stdin, tty, verify_server, instance, command):
     use_ssl = __client_cert is not None and __client_key is not None
     try:
         host, port = __server_address.split(":")
@@ -1318,9 +1412,8 @@ def exec(ctx, stdin, tty):
                 cert_file=__client_cert,
                 key_file=__client_key,
                 ca_file=__ca_cert,
-                verify_server=not __insecure,
+                verify_server=verify_server,
                 token=__jwt_token,
-                quiet=not tty,
             )
         )
     except KeyboardInterrupt:

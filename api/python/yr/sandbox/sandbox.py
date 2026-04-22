@@ -20,13 +20,13 @@ import argparse
 import subprocess
 import tempfile
 import os
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
+import json
+from typing import Optional, Dict, Any, List, Union, Callable
 
 import yr
+from yr.config import InvokeOptions, PortForwarding
+from yr.runtime_holder import global_runtime
 from yr.config_manager import ConfigManager
-
-if TYPE_CHECKING:
-    from yr.config import PortForwarding
 
 
 def _sanitize_instance_id(instance_id: str) -> str:
@@ -60,7 +60,7 @@ def _get_gateway_host() -> str:
 
 
 def _build_gateway_url(instance_id: str, sandbox_port: int, gateway_host: str, path: str = "") -> str:
-    """Build Gateway HTTP path URL: https://{gateway_host}/{safeID}/{sandbox_port}{path}.
+    """Build Gateway HTTP path URL: http://{gateway_host}/{safeID}/{sandbox_port}{path}.
 
     URL format must match TraefikRegistry::RegisterInstance in function_proxy:
     - {safeID} is sanitized instance ID (SanitizeID logic)
@@ -70,7 +70,7 @@ def _build_gateway_url(instance_id: str, sandbox_port: int, gateway_host: str, p
     See: functionsystem/src/function_proxy/local_scheduler/traefik_registry/traefik_registry.cpp
     """
     safe_id = _sanitize_instance_id(instance_id)
-    base = f"https://{gateway_host}/{safe_id}/{sandbox_port}"
+    base = f"http://{gateway_host}/{safe_id}/{sandbox_port}"
     if path:
         path = path if path.startswith("/") else f"/{path}"
         return f"{base}{path}"
@@ -100,14 +100,14 @@ class SandboxInstance:
     with limited permissions and resource constraints.
 
     This is the underlying instance class decorated with @yr.instance.
-    Users should typically use the SandBox wrapper class instead.
+    Users should typically use the Sandbox wrapper class instead.
     """
 
     def __init__(
         self, working_dir: Optional[str] = None, env: Optional[Dict[str, str]] = None
     ):
         """
-        Initialize the SandBox instance.
+        Initialize the Sandbox instance.
 
         Args:
             working_dir (Optional[str]): The working directory for sandbox execution.
@@ -125,12 +125,20 @@ class SandboxInstance:
         self.env = env if env is not None else os.environ.copy()
         self._initialized = True
 
-    def execute(self, command: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+    def execute(
+        self,
+        command: Union[str, List[str]],
+        working_dir: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         Execute a command in the sandbox environment.
 
         Args:
-            command (str): The command to execute.
+            command (Union[str, List[str]]): The command to execute.
+            working_dir (Optional[str]): Working dir for command execution.
+            env (Optional[Dict[str, str]]): Environment variables for command execution.
             timeout (Optional[int]): Timeout in seconds for command execution.
                 If None, no timeout is set.
 
@@ -145,19 +153,48 @@ class SandboxInstance:
             subprocess.TimeoutExpired: If the command execution times out.
 
         Examples:
-            >>> sandbox = yr.sandbox.SandBox.invoke()
+            >>> sandbox = yr.sandbox.Sandbox.invoke()
             >>> result = yr.get(sandbox.execute.invoke("ls -la"))
             >>> print(result['stdout'])
         """
         if not self._initialized:
-            raise RuntimeError("SandBox is not initialized")
+            raise RuntimeError("Sandbox is not initialized")
+
+        if isinstance(command, str):
+            cmd_str = command
+        elif isinstance(command, list):
+            if len(command) == 0:
+                return {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "Error: cmd list cannot be empty",
+                }
+            if not all(isinstance(arg, str) for arg in command):
+                return {
+                    "returncode": -1,
+                    "stdout": "",
+                    "stderr": "Error: All elements in command list must be strings",
+                }
+            cmd_str = " ".join(command)
+        else:
+            return {
+                "returncode": -1,
+                "stdout": "",
+                "stderr": f"Error: cmd must be a string or a list of strings, got {type(command).__name__}",
+            }
 
         try:
+            subprocess_cwd = self.working_dir
+            if working_dir is not None:
+                subprocess_cwd = working_dir
+            subprocess_env = self.env
+            if env is not None:
+                subprocess_env = env
             result = subprocess.run(
-                command,
+                args=cmd_str,
                 shell=True,
-                cwd=self.working_dir,
-                env=self.env,
+                cwd=subprocess_cwd,
+                env=subprocess_env,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -186,6 +223,15 @@ class SandboxInstance:
         """
         return self.working_dir
 
+    def get_name(self):
+        """
+        Get the name of the sandbox instance.
+
+        Returns:
+            str: The name of the sandbox instance.
+        """
+        return os.environ.get("INSTANCE_ID", "")
+
     def cleanup(self) -> None:
         """
         Cleanup the sandbox environment.
@@ -206,15 +252,6 @@ class SandboxInstance:
                 print(
                     f"Warning: Failed to cleanup sandbox directory {working_dir}: {e}"
                 )
-
-    def get_name(self):
-        """
-        Get the name of the sandbox instance.
-
-        Returns:
-            str: The name of the sandbox instance.
-        """
-        return os.environ.get("INSTANCE_ID", "")
 
     def start_tunnel_server(self, ws_port: int = 8765, http_port: int = 8766) -> None:
         """Start TunnelServer in a background thread within this sandbox instance."""
@@ -244,25 +281,70 @@ class SandboxInstance:
                 except OSError:
                     time.sleep(0.1)
 
+    def get_internal_urls(self) -> Dict[int, str]:
+        """Return internal cluster URLs for port-forwarded services.
+
+        Reads environment variables injected by Runtime Manager to build
+        direct-access URLs that bypass the Traefik gateway. Other sandbox
+        instances can call this method via RPC to discover how to reach
+        this sandbox's forwarded ports on the internal network.
+
+        Returns:
+            Dict[int, str]: Mapping from container port to internal URL.
+                e.g. {8080: "http://10.0.0.1:40001", 9090: "http://10.0.0.1:40002"}.
+                Returns an empty dict if no port forwarding is configured.
+        """
+        host_ip = os.environ.get("YR_INTERNAL_HOST_IP", "")
+        pf_str = os.environ.get("YR_PORT_FORWARDINGS", "")
+        if not host_ip or not pf_str:
+            return {}
+
+        result = {}
+        for mapping in pf_str.split(";"):
+            parts = mapping.split(":")
+            if len(parts) >= 3:
+                protocol = parts[0].lower()
+                host_port = parts[1]
+                container_port = int(parts[2])
+                scheme = "https" if protocol == "https" else "http"
+                result[container_port] = f"{scheme}://{host_ip}:{host_port}"
+        return result
+
+    def register_before_snapshot_hook(self, hook_func: Callable[..., Any]):
+        """Register a hook to be called before snapshot."""
+        self.__yr_before_snapshot__ = hook_func
+
+    def register_after_snapstart_hook(self, hook_func: Callable[..., Any]):
+        """Register a hook to be called after snapstart."""
+        self.__yr_after_snapstart__ = hook_func
+
     def __del__(self):
         """Destructor to ensure cleanup on object deletion."""
         self.cleanup()
 
-
 def create(
-    working_dir: Optional[str] = None,
+    *args: str,
+    name: Optional[str] = None,
+    rootfs: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
-    port_forwardings: Optional[List["PortForwarding"]] = None,
+    idle_timeout: int = 300,
+    working_dir: Optional[str] = None,
+    cpu: Optional[int] = None,
+    memory: Optional[int] = None,
+    extra_config: Optional[Dict[str, Any]] = None,
+    ports: Optional[str] = None,
     upstream: Optional[str] = None,
     proxy_port: int = 8766,
+    before_checkpoint_func: Optional[Callable[..., Any]] = None,
+    after_restore_func: Optional[Callable[..., Any]] = None,
 ):
     """
-    Create a new SandBox instance.
+    Create a new Sandbox instance.
 
     Args:
         working_dir: Working directory for sandbox execution.
         env: Environment variables for the sandbox.
-        port_forwardings: Additional port forwarding rules.
+        port: Additional port forwarding rules.
         upstream: Local service address to tunnel to, e.g. "192.168.3.45:8000".
             When set, starts a reverse tunnel so sandbox code can reach the
             local service via http://127.0.0.1:{proxy_port}.
@@ -270,14 +352,75 @@ def create(
             (default 8766). Port A (WS tunnel) = proxy_port - 1.
 
     Returns:
-        SandBox wrapper instance.
-    """
-    return SandBox(working_dir, env, port_forwardings, upstream=upstream, proxy_port=proxy_port)
+        Sandbox wrapper instance.
 
-
-class SandBox:
+    Examples:
+        >>> import yr
+        >>> yr.init()
+        >>>
+        >>> sandbox = yr.sandbox.create()
+        >>> result = yr.get(sandbox.exec("pwd"))
+        >>> print(result['stdout'])
+        >>>
+        >>> sandbox.terminate()
+        >>> yr.finalize()
     """
-    SandBox wrapper class for convenient sandbox operations.
+    try:
+        return Sandbox(
+            name=name,
+            rootfs=rootfs,
+            cpu=cpu,
+            memory=memory,
+            idle_timeout=idle_timeout,
+            working_dir=working_dir,
+            env=env,
+            extra_config=extra_config,
+            ports=ports,
+            upstream=upstream,
+            proxy_port=proxy_port,
+            before_checkpoint_func=before_checkpoint_func,
+            after_restore_func=after_restore_func,
+        )
+    except Exception as e:
+        print(f"failed to create, exception: {e}")
+        return None
+
+def restore(
+    checkpoint_id: str,
+    before_checkpoint_func: Optional[Callable[..., Any]] = None,
+    after_restore_func: Optional[Callable[..., Any]] = None,
+):
+    """
+    Restore a Sandbox from a previously created checkpoint.
+
+    Args:
+        checkpoint_id (str): The checkpoint ID returned by a previous checkpoint() call.
+        before_checkpoint_func (Optional[Callable]): Hook called before future checkpoints.
+        after_restore_func (Optional[Callable]): Hook called after restore completes.
+
+    Returns:
+        Sandbox wrapper instance restored from the checkpoint.
+
+    Examples:
+        >>> import yr
+        >>> yr.init()
+        >>>
+        >>> sandbox = yr.sandbox.create()
+        >>> checkpoint_id = sandbox.checkpoint()
+        >>> restored = yr.sandbox.restore(checkpoint_id)
+        >>> result = restored.exec("echo hello")
+        >>> restored.terminate()
+        >>> yr.finalize()
+    """
+    return Sandbox(
+        checkpoint_id=checkpoint_id,
+        before_checkpoint_func=before_checkpoint_func,
+        after_restore_func=after_restore_func,
+    )
+
+class Sandbox:
+    """
+    Sandbox wrapper class for convenient sandbox operations.
 
     When upstream is provided, starts a reverse tunnel:
     - Port B (proxy_port, loopback): sandbox code calls http://127.0.0.1:{proxy_port}
@@ -288,7 +431,7 @@ class SandBox:
         >>> yr.init()
         >>>
         >>> # Basic sandbox
-        >>> sb = yr.sandbox.SandBox()
+        >>> sb = yr.sandbox.Sandbox()
         >>> result = yr.get(sb.exec("echo hello"))
         >>> print(result['stdout'])
         >>>
@@ -303,27 +446,157 @@ class SandBox:
 
     def __init__(
         self,
-        working_dir: Optional[str] = None,
+        checkpoint_id: Optional[str] = None,
+        name: Optional[str] = None,
+        rootfs: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
-        port_forwardings: Optional[List["PortForwarding"]] = None,
+        idle_timeout: int = 300,
+        working_dir: Optional[str] = None,
+        cpu: Optional[int] = None,
+        memory: Optional[int] = None,
+        extra_config: Optional[Dict[str, Any]] = None,
+        ports: Optional[List[str]] = None,
         upstream: Optional[str] = None,
         proxy_port: int = 8766,
+        before_checkpoint_func: Optional[Callable[..., Any]] = None,
+        after_restore_func: Optional[Callable[..., Any]] = None,
     ):
+        """
+        Initialize the Sandbox wrapper.
+
+        Args:
+            checkpoint_id (Optional[str]): If provided, restore from this checkpoint
+                instead of creating a new instance.
+            name (Optional[str]): Name of the sandbox instance.
+            rootfs (Optional[str]): Root filesystem image for the sandbox.
+            env (Optional[Dict[str, str]]): Environment variables for the sandbox.
+            idle_timeout (int): Idle timeout in seconds. Default 300.
+            working_dir (Optional[str]): Working directory inside the sandbox.
+            cpu (Optional[int]): CPU resource limit in millicores.
+            memory (Optional[int]): Memory resource limit in MB.
+            extra_config (Optional[Dict[str, Any]]): Additional configuration.
+            ports (Optional[List[str]]): Port forwarding configurations.
+            upstream (Optional[str]): Local service address to tunnel to.
+            proxy_port (int): HTTP proxy port inside the sandbox. Default 8766.
+            before_checkpoint_func (Optional[Callable]): Hook called before checkpoint.
+            after_restore_func (Optional[Callable]): Hook called after restore.
+        """
+        self._forwarded_ports = set()
+        self._tunnel_client = None
+        self._proxy_port = proxy_port
+
+        if checkpoint_id is None:
+            self.create_new_instance(
+                name=name,
+                rootfs=rootfs,
+                env=env,
+                idle_timeout=idle_timeout,
+                working_dir=working_dir,
+                cpu=cpu,
+                memory=memory,
+                extra_config=extra_config,
+                ports=ports,
+                upstream=upstream,
+                proxy_port=proxy_port,
+                before_checkpoint_func=before_checkpoint_func,
+                after_restore_func=after_restore_func,
+            )
+        else:
+            self.restore_instance(checkpoint_id=checkpoint_id)
+
+    def create_new_instance(
+        self,
+        name: Optional[str] = None,
+        rootfs: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        idle_timeout: int = 300,
+        working_dir: Optional[str] = None,
+        cpu: Optional[int] = None,
+        memory: Optional[int] = None,
+        extra_config: Optional[Dict[str, Any]] = None,
+        ports: Optional[List[str]] = None,
+        upstream: Optional[str] = None,
+        proxy_port: int = 8766,
+        before_checkpoint_func: Optional[Callable[..., Any]] = None,
+        after_restore_func: Optional[Callable[..., Any]] = None,
+    ):
+        """
+        Initialize the Sandbox wrapper.
+
+        Args:
+            working_dir (Optional[str]): The working directory for sandbox execution.
+                If None, a temporary directory will be created.
+            env (Optional[Dict[str, str]]): Environment variables for the sandbox.
+                If None, inherits from parent process.
+            ports (Optional[str]): List of port forwarding
+                configurations. Each string specifies a port to be forwarded
+                inside the sandbox environment with format protocol:port.
+        """
+        # Create InvokeOptions with skip_serialize=True for cross-version compatibility
         self._proxy_port = proxy_port
         self._tunnel_client = None
-
         opt = yr.InvokeOptions()
         opt.skip_serialize = True
+        opt.idle_timeout = idle_timeout
+
+        if name is not None:
+            opt.name = name
+        if cpu is not None:
+            opt.cpu = cpu
+        if memory is not None:
+            opt.memory = memory
+        if env is not None:
+            opt.env_vars = env
+        if working_dir is not None:
+            opt.runtime_env["working_dir"] = working_dir
+        if extra_config is not None:
+            opt.custom_extensions["extra_config"] = json.dumps(extra_config)
+        if rootfs is not None:
+            opt.custom_extensions["rootfs"] = rootfs
+        if ports is not None:
+            yr_port_forwardings = []
+            for port_forward in ports:
+                parts = port_forward.split(":")
+                if len(parts) == 2:
+                    protocol, port_str = parts
+                    try:
+                        port = int(port_str)
+                    except ValueError:
+                        raise ValueError(f"Invalid port number: '{port_str}' in '{port_forward}'. Port must be a valid integer.")
+                    yr_port_forwardings.append(PortForwarding(port=port, protocol=protocol.upper()))
+                elif len(parts) == 1:
+                    # Default to TCP if only port is provided
+                    try:
+                        port = int(parts[0])
+                    except ValueError:
+                        raise ValueError(f"Invalid port number: '{parts[0]}'. Port must be a valid integer.")
+                    yr_port_forwardings.append(PortForwarding(port=port, protocol="TCP"))
+                else:
+                    raise ValueError(f"Invalid port_forwarding format: {port_forward}. Expected format: protocol:port (e.g., tcp:8080)")
+            opt.port_forwardings = yr_port_forwardings
+
+        # Store the forwarded ports for later use in get_tunnel
+        self._forwarded_ports = set()
+        if ports is not None:
+            for port_forward in ports:
+                parts = port_forward.split(":")
+                if len(parts) >= 1:
+                    port_str = parts[-1]
+                    try:
+                        port = int(port_str)
+                        self._forwarded_ports.add(port)
+                    except ValueError:
+                        # Skip invalid ports, will be handled elsewhere
+                        pass
 
         if upstream is not None:
             tunnel_port = proxy_port - 1
             tunnel_pf = yr.PortForwarding(port=tunnel_port)
-            all_pf = (list(port_forwardings) if port_forwardings else []) + [tunnel_pf]
-            opt.port_forwardings = all_pf
+            opt.port_forwardings = (list(opt.port_forwardings) if opt.port_forwardings else []) + [tunnel_pf]
             self._instance = SandboxInstance.options(opt).invoke(working_dir, env)
-            if port_forwardings:
+            if opt.port_forwardings:
                 instance_id = yr.get(self._instance.get_name.invoke())
-                _print_gateway_urls(instance_id, port_forwardings)
+                _print_gateway_urls(instance_id, opt.port_forwardings)
             # Start tunnel server inside sandbox as a background thread
             yr.get(self._instance.start_tunnel_server.invoke(tunnel_port, proxy_port))
             # Build WSS URL for tunnel Port A via Traefik
@@ -331,21 +604,106 @@ class SandBox:
             gateway_host = _get_gateway_host()
             tunnel_url = _build_gateway_url(instance_id, tunnel_port, gateway_host)
             tunnel_ws_url = tunnel_url.replace("https://", "wss://").replace("http://", "ws://")
-            # Start local TunnelClient in background thread
+            # Start local TunnelClient in background thread and wait for connection
             from yr.sandbox.tunnel_client import TunnelClient
             self._tunnel_client = TunnelClient(upstream)
-            self._tunnel_client.start(tunnel_ws_url)
-        else:
-            if port_forwardings:
-                opt.port_forwardings = port_forwardings
-            self._instance = SandboxInstance.options(opt).invoke(working_dir, env)
-            if port_forwardings:
-                instance_id = yr.get(self._instance.get_name.invoke())
-                _print_gateway_urls(instance_id, port_forwardings)
+            print(f"[INFO] Connecting to tunnel: {tunnel_ws_url}")
+            if self._tunnel_client.start(tunnel_ws_url, timeout=10.0):
+                print("[OK] TunnelClient connected successfully")
+            else:
+                print("[WARN] TunnelClient connection timeout, will retry in background")
+            return # Return early since instance is already created and tunnel is set up
 
-    def exec(self, command: str, timeout: Optional[int] = None):
-        """Execute a command in the sandbox. Returns ObjectRef; unwrap with yr.get()."""
-        return self._instance.execute.invoke(command, timeout)
+        self._instance = SandboxInstance.options(opt).invoke(working_dir, env)
+        # Wait for the instance to be fully initialized by calling a simple method
+        # This ensures the sandbox is ready before we return
+        try:
+             # Use get_name as a lightweight verification method
+            instance_id = yr.get(self._instance.get_name.invoke())
+            if opt.port_forwardings:
+                _print_gateway_urls(instance_id, opt.port_forwardings)
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize sandbox instance: {e}")
+
+        if before_checkpoint_func is not None:
+            yr.get(self._instance.register_before_snapshot_hook.invoke(before_checkpoint_func))
+        if after_restore_func is not None:
+            yr.get(self._instance.register_after_snapstart_hook.invoke(after_restore_func))
+
+    def _exec(
+        self,
+        command: str,
+        working_dir: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
+    ):
+        return self._instance.execute.invoke(
+            command=command,
+            working_dir=working_dir,
+            env=env,
+            timeout=timeout,
+        )
+
+    def get_exec_result(self, exec_ref):
+        return yr.get(exec_ref)
+
+    def exec(
+        self,
+        command: str,
+        working_dir: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
+    ):
+        """
+        Execute a command in the sandbox environment.
+
+        Args:
+            *args (str): The command to execute.
+            working_dir (Optional[str]): Working dir for command execution.
+            env (Optional[Dict[str, str]]): Environment variables for command execution.
+            timeout (Optional[int]): Timeout in seconds for command execution.
+                If None, no timeout is set.
+
+        Returns:
+            A dictionary containing:
+                - returncode (int): The return code of the command.
+                - stdout (str): Standard output of the command.
+                - stderr (str): Standard error of the command.
+        """
+        exec_ref = self._exec(
+            command=command,
+            working_dir=working_dir,
+            env=env,
+            timeout=timeout,
+        )
+        return self.get_exec_result(exec_ref)
+
+    def exec_async(
+        self,
+        command: str,
+        working_dir: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
+    ):
+        """
+        Execute a command in the sandbox environment asynchronously.
+
+        Args:
+            command (str): The command to execute.
+            working_dir (Optional[str]): Working dir for command execution.
+            env (Optional[Dict[str, str]]): Environment variables for command execution.
+            timeout (Optional[int]): Timeout in seconds for command execution.
+                If None, no timeout is set.
+
+        Returns:
+            ObjectRef: Reference to the execution result that can be used with self.get_exec_result().
+        """
+        return self._exec(
+            command=command,
+            working_dir=working_dir,
+            env=env,
+            timeout=timeout,
+        )
 
     def get_working_dir(self):
         """Get the working directory of the sandbox."""
@@ -356,13 +714,21 @@ class SandBox:
         return self._instance.cleanup.invoke()
 
     def terminate(self):
-        """Stop tunnel client (if any) and terminate the sandbox instance."""
+        """
+        Terminate the sandbox instance.
+        Stop tunnel client (if any) and terminate the sandbox instance.
+        """
         if self._tunnel_client is not None:
             self._tunnel_client.stop()
             self._tunnel_client = None
         self._instance.terminate()
 
     def __del__(self):
+        """
+        Destructor to ensure cleanup and termination on object deletion.
+
+        Automatically calls cleanup() and terminate() when the Sandbox object is deleted.
+        """
         try:
             if hasattr(self, "_instance") and self._instance is not None:
                 yr.get(self.cleanup())
@@ -381,6 +747,110 @@ class SandBox:
         if self._tunnel_client is None:
             raise RuntimeError("No upstream configured. Pass upstream= to create().")
         return f"http://127.0.0.1:{self._proxy_port}"
+
+    def get_internal_urls(self) -> Dict[int, str]:
+        """Return internal cluster URLs for port-forwarded services.
+
+        Other sandbox instances can use these URLs to reach this sandbox's
+        forwarded ports on the internal network.
+
+        Returns:
+            Dict[int, str]: Mapping from container port to internal URL.
+                e.g. {8080: "http://10.0.0.1:40001", 9090: "http://10.0.0.1:40002"}
+                Returns an empty dict if no port forwarding is configured.
+        """
+        return yr.get(self._instance.get_internal_urls.invoke())
+
+    def get_tunnel(self, port: int) -> str:
+        """
+        Get the tunnel URL for a forwarded port.
+
+        Args:
+            port (int): The port number to get the tunnel for.
+
+        Returns:
+            str: The tunnel URL in format http://{TraefikAddress}/{real_id}/{port}
+
+        Raises:
+            ValueError: If the port is not in the list of forwarded ports.
+        """
+        # Check if port is in the forwarded ports list
+        if port not in self._forwarded_ports:
+            raise ValueError(f"Invalid port: {port}. Port is not in the list of forwarded ports.")
+
+        # Get the logical instance id from the instance proxy
+        logical_id = self._instance.instance_id
+
+        # Get the real instance id from global_runtime
+        real_id = global_runtime.get_runtime().get_real_instance_id(logical_id)
+
+        # Get the Traefik address from environment variable
+        traefik_address = os.environ.get("YR_GATEWAY_ADDRESS", "")
+        if traefik_address == "":
+            raise ValueError(f"YR_GATEWAY_ADDRESS is not set.")
+
+        # Construct and return the tunnel URL
+        return f"http://{traefik_address}/{real_id}/{port}"
+
+    def checkpoint(
+        self,
+        ttl: int = -1,
+        leave_running: bool = False,
+    ) -> str:
+        """
+        Create a checkpoint of the current sandbox state.
+
+        This triggers a snapshot of the underlying instance. The returned checkpoint ID
+        can be used with ``yr.sandbox.restore()`` or ``Sandbox(checkpoint_id=...)`` to
+        create a new sandbox with the same state.
+
+        Args:
+            ttl (int): Time-to-live for the checkpoint in seconds. -1 means no expiration.
+                Default -1.
+            leave_running (bool): If True, the sandbox continues running after
+                checkpointing. If False, the sandbox is terminated after checkpoint.
+                Default False.
+
+        Returns:
+            str: The checkpoint ID that uniquely identifies this snapshot.
+
+        Raises:
+            RuntimeError: If the sandbox instance is not active.
+
+        Examples:
+            >>> sandbox = yr.sandbox.create(rootfs="python:3.12-slim")
+            >>> sandbox.exec("echo setup done")
+            >>> checkpoint_id = sandbox.checkpoint(leave_running=True)
+            >>> print(f"Checkpoint: {checkpoint_id}")
+        """
+        checkpoint_id = self._instance.snapshot(
+            ttl=ttl,
+            leave_running=leave_running,
+        )
+        return checkpoint_id
+
+    def restore_instance(self, checkpoint_id: str):
+        """
+        Restore the sandbox from a checkpoint.
+
+        Uses ``InstanceCreator.snapstart()`` to create a new instance from the
+        checkpoint, then verifies the instance is ready.
+
+        Args:
+            checkpoint_id (str): The checkpoint ID returned by a previous
+                ``checkpoint()`` call.
+
+        Raises:
+            RuntimeError: If the restore or readiness check fails.
+        """
+        self._instance = SandboxInstance.snapstart(checkpoint_id=checkpoint_id)
+
+        # Wait for the restored instance to be fully ready
+        try:
+            ref = self._instance.get_working_dir.invoke()
+            yr.get(ref)
+        except Exception as e:
+            raise RuntimeError(f"Failed to restore sandbox from checkpoint {checkpoint_id}: {e}")
 
 
 def main():

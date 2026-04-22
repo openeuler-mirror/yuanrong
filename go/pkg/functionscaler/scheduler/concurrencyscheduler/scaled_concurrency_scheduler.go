@@ -343,7 +343,8 @@ func (scs *ScaledConcurrencyScheduler) HandleFuncSpecUpdate(funcSpec *types.Func
 		scs.selfInstanceQueue = &instanceQueueWithObserver{
 			instanceQueueWithSubHealthAndEvictingRecord: instanceQueueWithSubHealthAndEvictingRecord{
 				instanceQueue: &instanceQueueWithBuffer{
-					queue:  queue.NewPriorityQueue(getInstanceID, priorityFuncForScaledInstance(scs.concurrentNum)),
+					queue: queue.NewPriorityQueue(getInstanceID,
+						priorityFuncForScaledInstance(scs.concurrentNum)),
 					buffer: make([]*instanceElement, 0, utils.DefaultSliceSize),
 					idFunc: getInstanceID,
 				},
@@ -357,7 +358,8 @@ func (scs *ScaledConcurrencyScheduler) HandleFuncSpecUpdate(funcSpec *types.Func
 		}
 		scs.otherInstanceQueue = &instanceQueueWithSubHealthAndEvictingRecord{
 			instanceQueue: &instanceQueueWithBuffer{
-				queue:  queue.NewPriorityQueue(getInstanceID, priorityFuncForScaledInstance(scs.concurrentNum)),
+				queue: queue.NewPriorityQueue(getInstanceID,
+					priorityFuncForScaledInstance(scs.concurrentNum)),
 				buffer: make([]*instanceElement, 0, utils.DefaultSliceSize),
 				idFunc: getInstanceID,
 			},
@@ -365,6 +367,8 @@ func (scs *ScaledConcurrencyScheduler) HandleFuncSpecUpdate(funcSpec *types.Func
 			evictingRecord:  make(map[string]*instanceElement, utils.DefaultMapSize),
 		}
 	}
+	// Refresh cached funcSpec and recompute isNewInstance/isPriorityAZ for existing instances.
+	scs.basicConcurrencyScheduler.HandleFuncSpecUpdate(funcSpec)
 	scs.Unlock()
 }
 
@@ -385,10 +389,7 @@ func priorityFuncForScaledInstance(concurrency int) func(obj interface{}) (int, 
 	return func(obj interface{}) (int, error) {
 		insElem, ok := obj.(*instanceElement)
 		if ok {
-			weight := concurrency - len(insElem.threadMap)
-			if !insElem.isNewInstance {
-				weight -= concurrency
-			}
+			weight := concurrency - len(insElem.threadMap) + getInstancePriorityBonus(insElem)
 			return weight, nil
 		}
 		return -1, scheduler.ErrTypeConvertFail

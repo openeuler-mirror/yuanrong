@@ -19,9 +19,11 @@ package instancequeue
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"yuanrong.org/kernel/pkg/common/faas_common/constant"
 	"yuanrong.org/kernel/pkg/common/faas_common/resspeckey"
 	commontypes "yuanrong.org/kernel/pkg/common/faas_common/types"
 	wisecloudTypes "yuanrong.org/kernel/pkg/common/faas_common/wisecloudtool/types"
@@ -174,6 +176,43 @@ func TestAssembleWithConcurrencyScaler(t *testing.T) {
 	err = assembleScalerWithConcurrencyPolicy(&ScaledInstanceQueue{funcSpec: testFuncSpec,
 		instanceType: types.InstanceTypeScaled, instanceScheduler: &fakeInstanceScheduler{}})
 	assert.Equal(t, nil, err)
+}
+
+func TestAssembleSchedulerWithRoundRobinPriorityAZ(t *testing.T) {
+	instanceQueue := NewScaledInstanceQueue(&InsQueConfig{
+		InstanceType: types.InstanceTypeScaled,
+		FuncSpec: &types.FunctionSpecification{
+			FuncKey: "testFunction",
+			ExtendedMetaData: commontypes.ExtendedMetaData{
+				PriorityAZ: "az1",
+			},
+		},
+		ResKey: resspeckey.ResSpecKey{},
+	}, &metrics.BucketCollector{})
+
+	err := assembleSchedulerWithRoundRobinPolicy(instanceQueue, requestqueue.NewInsAcqReqQueue("", 10))
+	assert.Nil(t, err)
+
+	rrScheduler := instanceQueue.instanceScheduler.(*roundrobinscheduler.RoundRobinScheduler)
+	rrScheduler.ConnectWithInstanceScaler(&fakeInstanceScaler{insNum: 2})
+	assert.Nil(t, rrScheduler.AddInstance(&types.Instance{
+		InstanceID:     "instance-az2",
+		AZ:             "az2",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, rrScheduler.AddInstance(&types.Instance{
+		InstanceID:     "instance-az1",
+		AZ:             "az1",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+
+	insAlloc, err := rrScheduler.AcquireInstance(&types.InstanceAcquireRequest{})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-az1", insAlloc.Instance.InstanceID)
+	rrScheduler.Destroy()
+	time.Sleep(1 * time.Millisecond)
 }
 
 func TestAssembleScalerWithPredictPolicy(t *testing.T) {

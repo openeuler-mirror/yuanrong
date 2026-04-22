@@ -204,10 +204,7 @@ func (rcs *ReservedConcurrencyScheduler) HandleCreateError(createErr error) {
 func priorityFuncForReservedInstance(obj interface{}) (int, error) {
 	insElem, ok := obj.(*instanceElement)
 	if ok {
-		weight := len(insElem.threadMap)
-		if !insElem.isNewInstance {
-			weight -= insElem.instance.ConcurrentNum
-		}
+		weight := len(insElem.threadMap) + getInstancePriorityBonus(insElem)
 		return weight, nil
 	}
 	return -1, scheduler.ErrTypeConvertFail

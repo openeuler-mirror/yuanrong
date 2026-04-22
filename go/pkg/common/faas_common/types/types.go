@@ -492,6 +492,7 @@ type ExtendedMetaData struct {
 	ServeDeploySchema      ServeDeploySchema      `json:"serveDeploySchema" valid:"optional"`
 	ImagePullConfig        ImagePullConfig        `json:"imagePullConfig,omitempty"`
 	UserOtelConfig         UserOtelConfig         `json:"userOtelConfig,omitempty"`
+	PriorityAZ             string                 `json:"priority_az,omitempty"`
 	EnableMetrics          bool                   `json:"enableMetrics,omitempty"`
 	EnableAgentSession     bool                   `json:"enable_agent_session,omitempty"`
 }
@@ -740,6 +741,7 @@ type Extensions struct {
 	PodName           string `json:"podName"`
 	PodNamespace      string `json:"podNamespace"`
 	PodDeploymentName string `json:"podDeploymentName"`
+	AZ                string `json:"az,omitempty"`
 }
 
 // InstanceSpecification contains specification of a instance in etcd

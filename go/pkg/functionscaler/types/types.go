@@ -409,6 +409,7 @@ type Instance struct {
 	ParentID          string
 	PodID             string
 	PodDeploymentName string
+	AZ                string
 }
 
 // Copy -
@@ -435,6 +436,7 @@ func (i *Instance) Copy() *Instance {
 		ParentID:          i.ParentID,
 		PodID:             i.PodID,
 		PodDeploymentName: i.PodDeploymentName,
+		AZ:                i.AZ,
 	}
 }
 

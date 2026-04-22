@@ -344,6 +344,119 @@ func TestConnectWithInstanceScaler(t *testing.T) {
 	assert.Equal(t, someErr, instanceScaler.createErr)
 }
 
+func TestHandleFuncSpecUpdatePriorityAZ(t *testing.T) {
+	rs := NewRoundRobinScheduler("testFunction", true, 10*time.Millisecond).(*RoundRobinScheduler)
+	fs := &fakeInstanceScaler{expectInsNum: 3}
+	rs.ConnectWithInstanceScaler(fs)
+	rs.HandleFuncSpecUpdate(&types.FunctionSpecification{
+		ExtendedMetaData: commonTypes.ExtendedMetaData{
+			PriorityAZ: "az1",
+		},
+	})
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "instance-az2",
+		AZ:             "az2",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "instance-az1-1",
+		AZ:             "az1",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "instance-az1-2",
+		AZ:             "az1",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Equal(t, 2, rs.priorityHealthyCount)
+
+	acqIns1, err := rs.AcquireInstance(&types.InstanceAcquireRequest{})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-az1-1", acqIns1.Instance.InstanceID)
+	acqIns2, err := rs.AcquireInstance(&types.InstanceAcquireRequest{})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-az1-2", acqIns2.Instance.InstanceID)
+	acqIns3, err := rs.AcquireInstance(&types.InstanceAcquireRequest{DesignateInstanceID: "instance-az2"})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-az2", acqIns3.Instance.InstanceID)
+}
+
+func TestHandleFuncSpecUpdatePriorityAZHotUpdate(t *testing.T) {
+	rs := NewRoundRobinScheduler("testFunction", true, 10*time.Millisecond).(*RoundRobinScheduler)
+	fs := &fakeInstanceScaler{expectInsNum: 2}
+	rs.ConnectWithInstanceScaler(fs)
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "instance-az1",
+		AZ:             "az1",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "instance-az2",
+		AZ:             "az2",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+
+	acqIns1, err := rs.AcquireInstance(&types.InstanceAcquireRequest{})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-az1", acqIns1.Instance.InstanceID)
+
+	rs.HandleFuncSpecUpdate(&types.FunctionSpecification{
+		ExtendedMetaData: commonTypes.ExtendedMetaData{
+			PriorityAZ: "az2",
+		},
+	})
+	acqIns2, err := rs.AcquireInstance(&types.InstanceAcquireRequest{})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-az2", acqIns2.Instance.InstanceID)
+}
+
+func TestPopInstancePriorityAZ(t *testing.T) {
+	rs := NewRoundRobinScheduler("testFunction", true, 10*time.Millisecond).(*RoundRobinScheduler)
+	rs.HandleFuncSpecUpdate(&types.FunctionSpecification{
+		ExtendedMetaData: commonTypes.ExtendedMetaData{
+			PriorityAZ: "az1",
+		},
+	})
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "healthy-priority",
+		AZ:             "az1",
+		ConcurrentNum:  1,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "healthy-other",
+		AZ:             "az2",
+		ConcurrentNum:  1,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "subhealth-priority",
+		AZ:             "az1",
+		ConcurrentNum:  1,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusSubHealth)},
+	}))
+	assert.Nil(t, rs.AddInstance(&types.Instance{
+		InstanceID:     "subhealth-other",
+		AZ:             "az2",
+		ConcurrentNum:  1,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusSubHealth)},
+	}))
+
+	assert.Equal(t, "subhealth-other", rs.PopInstance(false).InstanceID)
+	assert.Equal(t, "subhealth-priority", rs.PopInstance(false).InstanceID)
+	assert.Equal(t, "healthy-other", rs.PopInstance(false).InstanceID)
+	assert.Equal(t, "healthy-priority", rs.PopInstance(false).InstanceID)
+}
+
 func TestSignalAllInstances(t *testing.T) {
 	rs := NewRoundRobinScheduler("testFunction", true, 10*time.Millisecond)
 	rs.AddInstance(&types.Instance{

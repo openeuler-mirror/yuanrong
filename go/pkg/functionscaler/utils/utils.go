@@ -406,6 +406,7 @@ func BuildInstanceFromInsSpec(insSpec *commonTypes.InstanceSpecification,
 		MetricLabelValues: metricsLabels,
 		PodID:             insSpec.Extensions.PodNamespace + ":" + insSpec.Extensions.PodName,
 		PodDeploymentName: insSpec.Extensions.PodDeploymentName,
+		AZ:                insSpec.Extensions.AZ,
 	}
 }
 

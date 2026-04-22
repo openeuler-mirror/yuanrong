@@ -23,6 +23,7 @@ cat << YAML
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
       export GOCACHE=\$\$CACHE_BASE/go-cache
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
+      export FS_VENDOR_CACHE_DIR=\$\$CACHE_BASE/functionsystem-vendor
       export CMAKE_C_COMPILER_LAUNCHER=ccache
       export CMAKE_CXX_COMPILER_LAUNCHER=ccache
       # bazel-remote: write directly to ~/.bazelrc (Bazel reads unconditionally)

@@ -340,9 +340,14 @@ FRONTEND_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_SSL_ENABLE="false"
 META_SERVICE_CLIENT_AUTH_TYPE=RequireAndVerifyClientCert
 META_SERVICE_ADDRESS=""
-# iam ssl config - when IAM_SSL_ENABLE=true or SSL_ENABLE=true, iam_server will enable mTLS
-# certificate paths are reused from global SSL_BASE_PATH, SSL_ROOT_FILE, SSL_CERT_FILE, SSL_KEY_FILE
+# iam ssl config - IAM_SSL_ENABLE independently toggles mTLS for IAM server
+# cert paths reuse global SSL_BASE_PATH/SSL_ROOT_FILE/SSL_CERT_FILE/SSL_KEY_FILE
 IAM_SSL_ENABLE="false"
+# iam local plaintext listener for co-deployed access (0 = disabled)
+IAM_LOCAL_LISTEN_PORT="0"
+# IAM_LOCAL_IP: bind address for the local plaintext listener.
+# Must be a loopback address (127.x.x.x or ::1). Default: 127.0.0.1.
+IAM_LOCAL_IP="127.0.0.1"
 SSL_ROOT_FILE="ca.crt"
 SSL_CERT_FILE="module.crt"
 SSL_KEY_FILE="module.key"
@@ -823,6 +828,8 @@ function parse_opt() {
     --meta_service_client_auth_type) META_SERVICE_CLIENT_AUTH_TYPE=$2 && shift 2 ;;
     --meta_service_address) META_SERVICE_ADDRESS=$2 && shift 2 ;;
     --iam_ssl_enable) IAM_SSL_ENABLE=$2 && shift 2 ;;
+    --iam_local_listen_port) IAM_LOCAL_LISTEN_PORT=$2 && shift 2 ;;
+    --iam_local_ip) IAM_LOCAL_IP=$2 && shift 2 ;;
     --ssl_root_file) SSL_ROOT_FILE=$2 && shift 2 ;;
     --ssl_cert_file) SSL_CERT_FILE=$2 && shift 2 ;;
     --ssl_key_file) SSL_KEY_FILE=$2 && shift 2 ;;

@@ -449,10 +449,10 @@ public:
       @brief 从快照恢复函数实例
       @param checkpointId 快照 ID
       @param snapStartOpts 快照启动选项（预留用于未来扩展调度选项等）
-      @return pair<ErrorInfo, string> 错误信息和新的实例 ID
+      @return pair<ErrorInfo, SnapstartResponse> 错误信息和恢复结果
      */
-    virtual std::pair<ErrorInfo, std::string> Snapstart(const std::string &checkpointId,
-                                                         const SnapStartOptions &snapStartOpts);
+    virtual std::pair<ErrorInfo, SnapstartResponse> Snapstart(const std::string &checkpointId,
+                                                              const SnapStartOptions &snapStartOpts);
 
     /*!
       @brief 结束当前上下文

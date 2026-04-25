@@ -98,6 +98,10 @@ struct InvokeOptions {
 
     int memory = 500;
 
+    int cpuLimit = 0;
+
+    int memoryLimit = 0;
+
     std::unordered_map<std::string, float> customResources;
 
     std::unordered_map<std::string, std::string> customExtensions;
@@ -172,6 +176,8 @@ struct InvokeOptions {
 
     bool isDeleteRemoteTensor = false;
 
+    bool bypassDatasystem = false;
+
     std::unordered_map<std::string, std::string> invokeLabels;
 
     std::unordered_map<std::string, std::string> aliasParams;
@@ -203,11 +209,25 @@ struct FunctionMeta {
     std::string tensorTransportTarget = "";
     bool enableTensorTransport = false;
     std::vector<char> code;
-    
+    std::string functionType;
+
     bool IsServiceApiType()
     {
         return (apiType == libruntime::ApiType::Faas or apiType == libruntime::ApiType::Serve);
     }
+};
+
+struct SnapstartInfo {
+    std::string routeAddress;
+    std::string portMappings;
+    std::string functionProxyID;
+    std::string nodeID;
+    std::string namespace_;
+};
+
+struct SnapstartResponse {
+    std::string instanceID;
+    SnapstartInfo snapstartInfo;
 };
 
 struct GroupOpts {
@@ -263,6 +283,7 @@ struct SnapOptions {
     common::SnapType type = common::SnapType::SNAPSHOT;
     int32_t ttl = -1;  // seconds
     bool leaveRunning = false;
+    std::string functionType;
 };
 
 struct SnapStartOptions {

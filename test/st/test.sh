@@ -92,7 +92,7 @@ function install_python_pkg() {
     pip3.9 install requests
     pip3.9 install numpy
     pip3.9 uninstall -y yr
-    pip3.9 install --force-reinstall $YUANRONG_DIR/runtime/sdk/python/openyuanrong-*cp39-cp39*.whl
+    pip3.9 install --force-reinstall $YUANRONG_DIR/runtime/sdk/python/openyuanrong_sdk*cp39-cp39*.whl
     # Remove stale directories left by old wheel versions that are not in the new wheel
     YR_SITE=$(python3.9 -c "import site; print(site.getusersitepackages())")/yr
     rm -rf "${YR_SITE}/runtime" "${YR_SITE}/cpp" 2>/dev/null || true

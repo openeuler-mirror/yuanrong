@@ -35,6 +35,11 @@ fi
 THIRD_PARTY_CACHE=${THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/deps/"}
 echo -e "local os is $LOCAL_OS"
 
+if [[ "${LOCAL_OS}" == macOS_* ]]; then
+    THIRD_PARTY_CACHE=""
+    echo -e "disable third-party cache on macOS"
+fi
+
 
 while getopts 'T:M:F:r' opt; do
     case "$opt" in
@@ -115,23 +120,42 @@ function download_open_src() {
     cd "$savepath"
 
     local filename="${name}"-"$(basename ${repo})"
-    if [ -n "${THIRD_PARTY_CACHE}" ]; then
-        if ! wget -q "${THIRD_PARTY_CACHE}/${filename}"; then
-            echo -e "=== download ${name}-${tag} cache to ${savepath} failed ==="
-            cd ..
-            rm -rf "${savepath}/${name}"
-            return 1
+    local download_repo="${repo}"
+    local prefer_repo_first="false"
+    if [[ "${LOCAL_OS}" == macOS_* && "${name}" == "boost" ]]; then
+        prefer_repo_first="true"
+        echo -e "=== macOS prefers OBS boost source: ${download_repo} ==="
+    fi
+
+    if [ ! -f "${filename}" ]; then
+        if [ "${prefer_repo_first}" = "true" ]; then
+            if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+                echo -e "=== direct repo download ${name}-${tag} failed, fallback to cache ==="
+                rm -f "${filename}"
+            fi
         fi
-    else
-        if ! curl -sS -L ${repo} -o ${filename} --retry 3; then
-            echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
-            cd ..
-            rm -rf "${savepath}/${name}"
-            return 1
+
+        if [ -n "${THIRD_PARTY_CACHE}" ]; then
+            if [ ! -f "${filename}" ] && ! wget -q --timeout=30 --tries=1 "${THIRD_PARTY_CACHE}/${filename}"; then
+                echo -e "=== download ${name}-${tag} cache to ${savepath} failed ==="
+                if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+                    echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
+                    cd ..
+                    rm -rf "${savepath}/${name}"
+                    return 1
+                fi
+            fi
+        else
+            if ! curl -sS -L "${download_repo}" -o "${filename}" --retry 3 --connect-timeout 15; then
+                echo -e "=== download ${name}-${tag} to ${savepath} failed ==="
+                cd ..
+                rm -rf "${savepath}/${name}"
+                return 1
+            fi
         fi
     fi
 
-    checksum_and_decompress ${name} ${filename}
+    checksum_and_decompress "${name}" "${filename}"
 }
 
 download_a_repo() {

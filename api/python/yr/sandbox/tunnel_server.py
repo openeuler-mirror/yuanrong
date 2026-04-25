@@ -145,13 +145,13 @@ class TunnelServer:
         try:
             await self._sdk_ws.send(frame.to_json())
         except websockets.ConnectionClosedOK:
-            raise RuntimeError("TunnelClient disconnected normally")
+            raise RuntimeError("TunnelClient disconnected normally") from None
         except websockets.ConnectionClosedError as e:
             logger.warning("TunnelClient connection closed unexpectedly: %s", e)
-            raise RuntimeError("TunnelClient disconnected")
+            raise RuntimeError("TunnelClient disconnected") from e
         except Exception as e:
             logger.warning("Unexpected error sending frame: %s", e)
-            raise RuntimeError(f"TunnelClient send error: {e}")
+            raise RuntimeError(f"TunnelClient send error: {e}") from e
 
     def _cleanup_expired_pending_requests(self) -> None:
         """Remove expired pending requests."""
@@ -313,6 +313,8 @@ class TunnelServer:
                 try:
                     await task
                 except (asyncio.CancelledError, RuntimeError, Exception):
+                    pass
+                except Exception:
                     pass
             # Propagate RuntimeError from completed tasks as a graceful close
             for task in done:

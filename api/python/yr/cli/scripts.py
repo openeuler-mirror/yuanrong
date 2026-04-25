@@ -1060,9 +1060,8 @@ def async_invoke(function_name, payload, timeout, header, webhook):
     # Format: [tenant-id@]namespace@function-name[:version]
     func_str = str(function_name)
     parts = func_str.split('@')
-    
+
     if len(parts) >= 3:
-        # Format: tenant-id@namespace@function-name[:version]
         tenant_id = parts[0]
         namespace = parts[1]
         function_name_only = parts[2].split(':')[0]

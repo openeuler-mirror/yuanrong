@@ -19,6 +19,7 @@ yr api config for user
 """
 import dataclasses
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Union, Optional, get_origin, Any
 from enum import Enum, IntEnum
@@ -136,6 +137,9 @@ class Config:
     log_file_num_max: int = 0
     #: Interval for log flush, default is ``5``.
     log_flush_interval: int = 5
+    #: Custom logger instance. If provided, SDK will use this logger instead of
+    #: the default internal logger. All SDK log output will go through this logger.
+    logger: Optional[logging.Logger] = None
     #: Runtime id, keep default in driver.
     runtime_id: str = "driver"
     #: The maximum number of instances of stateless function.
@@ -391,8 +395,14 @@ class InvokeOptions:
     """
     #: The size of the CPU required. Value Range is [300, 16000] and unit is m (milli-core).
     cpu: int = 500
+    #: CPU resource limit for container isolation. Unit: m (milli-core).
+    #: 0 = not set (default, use cpu value), >0 = explicit limit (must be >= cpu).
+    cpu_limit: int = 0
     #: The size of memory required. Unit: MB. Range: [128, 1073741824].
     memory: int = 500
+    #: Memory resource limit for container isolation. Unit: MB.
+    #: 0 = not set (default, use memory value), >0 = explicit limit (must be >= memory).
+    mem_limit: int = 0
     #: Instance concurrency. Value Range is [1, 1000]. Priority is higher than
     #: the "Concurrency" configured in custom_extensions. It is recommended to use this parameter for configuration.
     concurrency: int = 1
@@ -614,6 +624,12 @@ class InvokeOptions:
     idle_timeout: int = 300
     is_delete_remote_tensor: bool = False
 
+    #: Whether to bypass datasystem for the return path. When True, all return values
+    #: are kept in native memory and no IncreaseRef/DecreaseRef is performed.
+    #: Return values exceeding 5MB will be truncated.
+    #: Default: ``False``.
+    bypass_datasystem: bool = False
+
     #: Whether to skip serializing the instance class code.
     #: Set to ``True`` for pre-deployed classes (e.g., SDK built-in classes)
     #: to avoid cross-version serialization issues.
@@ -702,6 +718,23 @@ class InvokeOptions:
                 raise ValueError(
                     f"{attr} 超过范围, 请输入 {_MIN_INT} 到 {_MAX_INT} 范围的值"
                 )
+
+        if self.cpu_limit < 0:
+            raise ValueError(
+                f"cpu_limit ({self.cpu_limit}) must be 0 or a positive value"
+            )
+        if self.cpu_limit > 0 and self.cpu_limit < self.cpu:
+            raise ValueError(
+                f"cpu_limit ({self.cpu_limit}) must be >= cpu ({self.cpu})"
+            )
+        if self.mem_limit < 0:
+            raise ValueError(
+                f"mem_limit ({self.mem_limit}) must be 0 or a positive value"
+            )
+        if self.mem_limit > 0 and self.mem_limit < self.memory:
+            raise ValueError(
+                f"mem_limit ({self.mem_limit}) must be >= memory ({self.memory})"
+            )
 
 
 def dataclass_from_dict(klass, d):

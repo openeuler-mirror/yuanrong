@@ -61,7 +61,9 @@ BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_pytho
 if [[ "$(uname)" == "Darwin" ]]; then
     if ! java -version &>/dev/null; then
         echo "Warning: Java not available, skipping Java targets"
-        BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/python:yr_python_pkg //api/go:yr_go_pkg"
+        BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/python:yr_python_pkg"
+    else
+        BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_python_pkg"
     fi
 fi
 
@@ -78,6 +80,7 @@ PACKAGE_ALL="false"
 ENABLE_GLOO="true"
 ENABLE_UCC="false"
 ENABLE_DATASYSTEM="true"
+MACOS_DEPLOYMENT_TARGET=""
 LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:${LD_LIBRARY_PATH}
 BOOST_VERSION="1.87.0"
 export BUILD_ALL="false"
@@ -101,6 +104,13 @@ log_error() {
 log_fatal() {
     echo "[BUILD_FATAL][$(date +%b\ %d\ %H:%M:%S)]$*"
     exit 1
+}
+
+function pip_flags_for_python() {
+    local py="$1"
+    if "${py}" -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
+        echo "--break-system-packages"
+    fi
 }
 
 MODULE_LIST=(\
@@ -188,7 +198,9 @@ function build_python_sdk() {
     cd $API_DIR/python
     rm -rf build/ dist/ *.egg-info
     # Ensure packaging is available (setup.py requires it)
-    "${PYTHON3_SDK_BIN_PATH}" -m pip install $PIP_FLAGS -q packaging wheel
+    local pip_flag
+    pip_flag="$(pip_flags_for_python "${PYTHON3_SDK_BIN_PATH}")"
+    "${PYTHON3_SDK_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -q packaging wheel
     # Determine python runtime version for services.yaml
     if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
         PYTHON_RUNTIME_VERSION=python3.11
@@ -214,17 +226,12 @@ function build_python_sdk() {
 }
 
 function install_python_requirements() {
-    # macOS requires --break-system-packages for pip due to PEP 668
-    local PIP_FLAGS=""
-    if [[ "$(uname)" == "Darwin" ]]; then
-        PIP_FLAGS="--break-system-packages"
-    fi
-    "${PYTHON3_BIN_PATH}" -m pip install $PIP_FLAGS pytest coverage
-    "${PYTHON3_BIN_PATH}" -m pip install $PIP_FLAGS -r api/python/requirements.txt
-    "${PYTHON3_BIN_PATH}" -m pip install $PIP_FLAGS numpy
-    "${PYTHON3_BIN_PATH}" -m pip install $PIP_FLAGS fastapi
-    "${PYTHON3_BIN_PATH}" -m pip install $PIP_FLAGS aiohttp # only for test
-    "${PYTHON3_BIN_PATH}" -m pip install $PIP_FLAGS requests
+    local pip_flag
+    pip_flag="$(pip_flags_for_python "${PYTHON3_BIN_PATH}")"
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} pytest coverage
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -r api/python/requirements.txt
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} numpy
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} fastapi
 }
 
 function check_sanitizers() {
@@ -389,12 +396,6 @@ else
     sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
 fi
 
-# macOS requires --break-system-packages for pip due to PEP 668
-PIP_FLAGS=""
-if [[ "$(uname)" == "Darwin" ]]; then
-    PIP_FLAGS="--break-system-packages"
-fi
-
 PYTHON_BIN_FULL_PATH="$(command -v "${PYTHON3_BIN_PATH}" 2>/dev/null || true)"
 if [[ -z "${PYTHON_BIN_FULL_PATH}" ]]; then
     log_fatal "python not found: ${PYTHON3_BIN_PATH}"
@@ -403,11 +404,19 @@ fi
 if [[ "$(uname)" == "Darwin" ]]; then
     ENABLE_DATASYSTEM="false"
     ENABLE_GLOO="false"
+    if [[ "$(uname -m)" == "arm64" ]]; then
+        MACOS_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
+        export MACOSX_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET}"
+        BAZEL_OPTIONS="${BAZEL_OPTIONS} --macos_minimum_os=${MACOS_DEPLOYMENT_TARGET}"
+    fi
 fi
 
 # - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
 # - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
 BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
+if [[ -n "${MACOS_DEPLOYMENT_TARGET}" ]]; then
+    BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET} --repo_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET}"
+fi
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR

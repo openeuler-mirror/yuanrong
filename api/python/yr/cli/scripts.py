@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import asyncio
+import builtins
 import os
 import uuid
 import shutil
@@ -27,9 +28,12 @@ import requests
 from requests.exceptions import RequestException
 from typing import Any, Dict, Optional
 import traceback
+from urllib.parse import urlencode
 
 import yr
 from yr.cli.exec import run_client
+
+QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
 
 
 __server_address = None
@@ -333,7 +337,7 @@ def query_function(function_name, user=None):
         return False, resp
 
 
-def query_instances(user=None):
+def query_instances(user=None, page=None, page_size=None, instance_id=None):
     """Query instance list for a specific tenant"""
     http_client = HTTPClient(
         timeout=30,
@@ -345,32 +349,43 @@ def query_instances(user=None):
         jwt_token=__jwt_token,
     )
     tenant_id = user if user else "default"
-    url = f"http://{__server_address}/api/instances?tenant_id={tenant_id}"
+    query_params = {"tenant_id": tenant_id}
+    if instance_id is not None:
+        query_params["instance_id"] = instance_id
+    if page is not None:
+        query_params["page"] = page
+    if page_size is not None:
+        query_params["page_size"] = page_size
+    url = f"http://{__server_address}/api/instances?{urlencode(query_params)}"
     resp = http_client.request(url, {}, method="GET")
     if resp["success"]:
         return True, resp["data"]
     else:
         return False, resp
+
+
+def get_instance_list(resp):
+    """Extract the instance list from paginated or legacy instance responses."""
+    if isinstance(resp, dict):
+        instances = resp.get("instances", [])
+    else:
+        instances = resp
+    if not isinstance(instances, builtins.list):
+        return []
+    return [instance for instance in instances if isinstance(instance, dict)]
 
 
 def query_instance(instance_id, user=None):
     """Query single instance detail by instance ID"""
-    http_client = HTTPClient(
-        timeout=30,
-        client_cert=__client_cert,
-        client_key=__client_key,
-        ca_cert=__ca_cert,
-        insecure=__insecure,
-        client_auth_type=__client_auth_type,
-        jwt_token=__jwt_token,
-    )
     tenant_id = user if user else "default"
-    url = f"http://{__server_address}/api/instances/{instance_id}?tenant_id={tenant_id}"
-    resp = http_client.request(url, {}, method="GET")
-    if resp["success"]:
-        return True, resp["data"]
-    else:
+    ret, resp = query_instances(tenant_id, instance_id=instance_id)
+    if not ret:
         return False, resp
+
+    for instance in get_instance_list(resp):
+        if instance.get("id") == instance_id:
+            return True, instance
+    return False, {"error": "instance not found"}
 
 
 def publish_function(function_name, publish_json, user=None):
@@ -777,6 +792,8 @@ def query(function_name, instance_id):
 
 
 @cli.command()
+@click.option("--page", required=False, type=int, default=None, help="Page number for instance listing")
+@click.option("--page-size", required=False, type=int, default=None, help="Page size for instance listing")
 @click.argument(
     "resource_type",
     type=click.Choice(
@@ -795,7 +812,7 @@ def query(function_name, instance_id):
     default="function",
     required=False,
 )
-def list(resource_type):
+def list(page, page_size, resource_type):
     """List functions or instances
 
     Examples:
@@ -804,10 +821,20 @@ def list(resource_type):
         yrcli list instance         # List instances
     """
     if resource_type in ("instance", "instances", "inst", "ins"):
+        if page is not None and page <= 0:
+            print("Error: --page must be a positive integer")
+            sys.exit(1)
+        if page_size is not None and page_size <= 0:
+            print("Error: --page-size must be a positive integer")
+            sys.exit(1)
+        if page_size is not None and page_size > QUERY_INSTANCES_MAX_PAGE_SIZE:
+            print(f"Error: --page-size must be less than or equal to {QUERY_INSTANCES_MAX_PAGE_SIZE}")
+            sys.exit(1)
         # List instances
-        ret, resp = query_instances(__user)
-        if ret and len(resp) > 0:
-            for instance in resp:
+        ret, resp = query_instances(__user, page=page, page_size=page_size)
+        instances = get_instance_list(resp)
+        if ret and len(instances) > 0:
+            for instance in instances:
                 instance_id = instance.get("id", "N/A")
                 tenant_id = instance.get("tenantID", "N/A")
                 print(f"{instance_id}\t{tenant_id}")

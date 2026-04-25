@@ -15,11 +15,17 @@ config:
   tags:
     - queue=default
     - arch=amd64
+  pod-spec-patch:
+    nodeSelector:
+      kubernetes.io/arch: amd64
   image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
   imagePullBackoffGracePeriod: 15m
   podPendingTimeout: 20m
 
 agentStackSecret: agent-stack-k8s-secrets
+
+nodeSelector:
+  kubernetes.io/arch: amd64
 
 podTemplate:
   spec: {}

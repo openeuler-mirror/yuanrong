@@ -16,9 +16,9 @@
 
 """Sandbox module for isolated code execution."""
 
-import importlib
-
 __all__ = ["Sandbox", "SandboxInstance", "create"]
+
+import importlib
 
 
 def __getattr__(name):

@@ -147,13 +147,14 @@ function compile_all(){
     run_logged boost-build ./b2 cxxflags=-fPIC cflags=-fPIC link=static install --with-fiber --with-atomic --prefix="${THIRD_PARTY_DIR}/boost"
     popd
   fi
-  if [ ! -d "${THIRD_PARTY_DIR}/openssl/install" ]; then
+  local openssl_install_dir="${THIRD_PARTY_DIR}/openssl/install_root"
+  if [ ! -d "${openssl_install_dir}" ]; then
     pushd "${THIRD_PARTY_DIR}/openssl/"
     chmod -R 700 "${THIRD_PARTY_DIR}/openssl/"
-    run_logged openssl-config ./config enable-ssl3 enable-ssl3-method --prefix="${THIRD_PARTY_DIR}/openssl/install"
-    run_logged openssl-build make -j build_libs install_dev
-    if [[ -d ${THIRD_PARTY_DIR}/openssl/install/lib64 && ! -d ${THIRD_PARTY_DIR}/openssl/install/lib ]];then
-      cp -fr ${THIRD_PARTY_DIR}/openssl/install/lib64 ${THIRD_PARTY_DIR}/openssl/install/lib
+    run_logged openssl-config ./config enable-ssl3 enable-ssl3-method --prefix="${openssl_install_dir}"
+    run_logged openssl-build bash -lc "make -j build_libs && make install_dev"
+    if [[ -d ${openssl_install_dir}/lib64 && ! -d ${openssl_install_dir}/lib ]];then
+      cp -fr ${openssl_install_dir}/lib64 ${openssl_install_dir}/lib
     fi
     popd
   fi
@@ -166,6 +167,10 @@ function download_third_party_cache() {
 }
 
 function download_cache() {
+    if [ "$IS_MACOS" == "true" ]; then
+        echo "skip runtime_deps cache on macOS"
+        return
+    fi
     if [ -d "${RUNTIME_SRC_DIR}/thirdparty/runtime_deps" ]; then
         echo "third party cache exist."
         return

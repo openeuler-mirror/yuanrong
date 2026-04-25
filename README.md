@@ -62,6 +62,8 @@ bash scripts/install-buildkite-agent-linux.sh install
 ENABLE_MACOS_SDK=true
 ```
 
+Linux ARM64 任务默认启用。
+
 #### 4. 配置 GitCode Webhook
 
 将 Buildkite Webhook URL 添加到 GitCode 项目设置中。

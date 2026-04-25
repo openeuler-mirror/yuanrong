@@ -232,6 +232,7 @@ cdef extern from "src/libruntime/libruntime_config.h" nogil:
         bool isDriver
         string jobId
         string runtimeId
+        string instanceId
         unordered_map[CLanguageType, string] functionIds
         string logLevel
         string logDir
@@ -363,6 +364,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         string tensorTransportTarget
         bool enableTensorTransport
         vector[char] code
+        string functionType
 
     cdef cppclass CGroupOptions "YR::Libruntime::GroupOpts":
         string groupName
@@ -388,7 +390,10 @@ cdef extern from "src/dto/invoke_options.h" nogil:
     cdef cppclass CInvokeOptions "YR::Libruntime::InvokeOptions":
         int cpu
         int memory
+        int cpuLimit
+        int memoryLimit
         unordered_map[string, float] customResources
+        bool bypassDatasystem
         unordered_map[string, string] customExtensions
         unordered_map[string, string] createOptions
         unordered_map[string, string] podLabels
@@ -439,9 +444,21 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         CSnapType type
         int32_t ttl
         bool leaveRunning
+        string functionType
 
     cdef cppclass CSnapStartOptions "YR::Libruntime::SnapStartOptions":
         CSnapType type
+
+    cdef cppclass CSnapstartInfo "YR::Libruntime::SnapstartInfo":
+        string routeAddress
+        string portMappings
+        string functionProxyID
+        string nodeID
+        string namespace_
+
+    cdef cppclass CSnapstartResponse "YR::Libruntime::SnapstartResponse":
+        string instanceID
+        CSnapstartInfo snapstartInfo
 
     cdef cppclass CUInt64CounterData "YR::Libruntime::UInt64CounterData":
         string name
@@ -687,7 +704,9 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo Kill(const string & instanceId, int sigNo)
         void GroupTerminate(const string & groupName)
         pair[CErrorInfo, string] Snapshot(const string & instanceId, const CSnapOptions & snapOpts)
-        pair[CErrorInfo, string] Snapstart(const string & checkpointId, const CSnapStartOptions & snapStartOpts)
+        pair[CErrorInfo, CSnapstartResponse] Snapstart(const string & checkpointId, const CSnapStartOptions & snapStartOpts)
+        pair[CErrorInfo, string] DeleteCheckpoint(const string & checkpointId)
+        pair[CErrorInfo, vector[string]] ListCheckpoints(const string & functionType, const string & ns)
         string GetRealInstanceId(const string & objectId)
         void SaveRealInstanceId(const string & objectId, const string & instanceId, const CInstanceOptions & opts)
         void Finalize()

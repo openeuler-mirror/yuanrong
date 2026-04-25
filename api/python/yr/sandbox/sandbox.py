@@ -562,14 +562,20 @@ class Sandbox:
                     try:
                         port = int(port_str)
                     except ValueError:
-                        raise ValueError(f"Invalid port number: '{port_str}' in '{port_forward}'. Port must be a valid integer.")
+                        raise ValueError(
+                            f"Invalid port number: '{port_str}' in '{port_forward}'. "
+                            "Port must be a valid integer."
+                        ) from e
                     yr_port_forwardings.append(PortForwarding(port=port, protocol=protocol.upper()))
                 elif len(parts) == 1:
                     # Default to TCP if only port is provided
                     try:
                         port = int(parts[0])
                     except ValueError:
-                        raise ValueError(f"Invalid port number: '{parts[0]}'. Port must be a valid integer.")
+                        raise ValueError(
+                            f"Invalid port number: '{parts[0]}'. "
+                            "Port must be a valid integer."
+                        ) from e
                     yr_port_forwardings.append(PortForwarding(port=port, protocol="TCP"))
                 else:
                     raise ValueError(f"Invalid port_forwarding format: {port_forward}. Expected format: protocol:port (e.g., tcp:8080)")
@@ -618,12 +624,12 @@ class Sandbox:
         # Wait for the instance to be fully initialized by calling a simple method
         # This ensures the sandbox is ready before we return
         try:
-             # Use get_name as a lightweight verification method
+            # Use get_name as a lightweight verification method
             instance_id = yr.get(self._instance.get_name.invoke())
             if opt.port_forwardings:
                 _print_gateway_urls(instance_id, opt.port_forwardings)
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize sandbox instance: {e}")
+            raise RuntimeError(f"Failed to initialize sandbox instance: {e}") from e
 
         if before_checkpoint_func is not None:
             yr.get(self._instance.register_before_snapshot_hook.invoke(before_checkpoint_func))
@@ -850,7 +856,9 @@ class Sandbox:
             ref = self._instance.get_working_dir.invoke()
             yr.get(ref)
         except Exception as e:
-            raise RuntimeError(f"Failed to restore sandbox from checkpoint {checkpoint_id}: {e}")
+            raise RuntimeError(
+                f"Failed to restore sandbox from checkpoint {checkpoint_id}: {e}"
+            ) from e
 
 
 def main():

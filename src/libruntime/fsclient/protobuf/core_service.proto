@@ -201,6 +201,11 @@ message SnapInfo {
 
 message SnapStartedInfo {
   string instanceID = 1;
+  string routeAddress = 2;
+  string portMappings = 3;
+  string functionProxyID = 4;
+  string nodeID = 5;
+  string namespace = 6;
 }
 
 message KillRequest {

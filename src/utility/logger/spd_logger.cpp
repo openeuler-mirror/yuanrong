@@ -37,7 +37,8 @@ yr_spdlog::level::level_enum GetLogLevel(const std::string &level)
 {
     static std::map<std::string, yr_spdlog::level::level_enum> logLevelMap = {
         {"TRACE", yr_spdlog::level::trace}, {"DEBUG", yr_spdlog::level::debug}, {"INFO", yr_spdlog::level::info},
-        {"WARN", yr_spdlog::level::warn},   {"ERR", yr_spdlog::level::err},     {"FATAL", yr_spdlog::level::critical}};
+        {"WARN", yr_spdlog::level::warn},   {"WARNING", yr_spdlog::level::warn}, {"ERROR", yr_spdlog::level::err},
+        {"ERR", yr_spdlog::level::err},     {"FATAL", yr_spdlog::level::critical}};
     auto iter = logLevelMap.find(level);
     return iter == logLevelMap.end() ? yr_spdlog::level::info : iter->second;
 }

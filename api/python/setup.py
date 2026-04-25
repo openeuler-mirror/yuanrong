@@ -30,6 +30,7 @@ from setuptools.command.build_py import build_py
 from setuptools.command.develop import develop
 from setuptools import Extension
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
+from wheel_platform import get_wheel_platform_tag
 
 try:
     from packaging import tags
@@ -286,7 +287,8 @@ class BdistWheelImpl(_bdist_wheel):
     def get_tag(self):
         """Build wheels with a supported platform tag."""
         tag = next(tags.sys_tags())
-        return tag.interpreter, tag.abi, tag.platform
+        platform_tag = get_wheel_platform_tag() or tag.platform
+        return tag.interpreter, tag.abi, platform_tag
 
     def run(self):
         super().run()

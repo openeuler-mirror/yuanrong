@@ -1,0 +1,28 @@
+# agent-stack-k8s Helm values for Linux arm64 workers
+#
+# Install:
+#   helm upgrade --install agent-stack-k8s-arm64 <agent-stack-k8s-chart> \
+#     -f deploy/helm/agent-stack-k8s-arm64-values.yaml \
+#     --set config.agentToken="${BUILDKITE_AGENT_TOKEN}" \
+#     -n default
+
+config:
+  agentToken: ""
+  org: yuchao-wang
+  tags:
+    - queue=default
+    - arch=arm64
+  pod-spec-patch:
+    nodeSelector:
+      kubernetes.io/arch: arm64
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
+  imagePullBackoffGracePeriod: 15m
+  podPendingTimeout: 20m
+
+agentStackSecret: agent-stack-k8s-arm64-secrets
+
+nodeSelector:
+  kubernetes.io/arch: arm64
+
+podTemplate:
+  spec: {}

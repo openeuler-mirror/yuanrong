@@ -50,6 +50,7 @@ from yr.runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType, Set
                         GetParam, GetParams, AlarmInfo, AlarmSeverity)
 from yr import runtime_env
 from yr import port_forwarding
+from yr.checkpoint import SnapstartInfo, SnapstartResponse
 from yr.exception import YRInvokeError
 from yr.stream import (Element, ProducerConfig, SubscriptionConfig,
                        SubscriptionType)
@@ -76,7 +77,7 @@ CStreamProducer, CSubscriptionConfig,
 CSubscriptionType,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
-CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
+CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapstartInfo, CSnapstartResponse, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
 CClusterAccessInfo, AutoGetClusterAccessInfo, CResourceGroupSpec, CResourceGroupOptions, CAccelerateMsgQueueHandle, QueryNamedInsResponse, CResourceGroupUnit, CRgInfo, CBundleInfo, CResources, CResource, CType, CScalar)
 
 include "includes/affinity.pxi"
@@ -988,6 +989,8 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
         opts.createOptions.insert(pair[string, string](key, value))
     opts.cpu = opt.cpu
     opts.memory = opt.memory
+    opts.cpuLimit = opt.cpu_limit
+    opts.memoryLimit = opt.mem_limit
     opts.customExtensions.insert(pair[string, string](concurrency_key, str(opt.concurrency)))
     for key, value in opt.custom_resources.items():
         opts.customResources.insert(pair[string, float](key, value))
@@ -1028,6 +1031,7 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     opts.instancePriority = opt.instance_priority
     opts.scheduleTimeoutMs = opt.schedule_timeout_ms
     opts.isDeleteRemoteTensor = opt.is_delete_remote_tensor
+    opts.bypassDatasystem = opt.bypass_datasystem
 
 cdef class Producer:
     """
@@ -1935,12 +1939,14 @@ cdef class Fnruntime:
                 f"failed to kill instance sync, "
                 f"code: {ret.Code()}, module code {ret.MCode()}, msg: {ret.Msg().decode()}")
 
-    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False) -> str:
+    def snapshot_instance(self, instance_id: str, ttl: int = -1, leave_running: bool = False,
+                          function_type: str = "") -> str:
         """
         Create instance snapshot
         :param instance_id: instance id to snapshot
         :param ttl: time-to-live for the snapshot in seconds
         :param leave_running: whether to keep instance running after snapshot
+        :param function_type: moduleName.className for actors
         :return: checkpointID
         """
         cdef:
@@ -1951,6 +1957,8 @@ cdef class Fnruntime:
         snap_opts.type = CSnapType.SNAPSHOT
         snap_opts.ttl = ttl
         snap_opts.leaveRunning = leave_running
+        if function_type:
+            snap_opts.functionType = function_type.encode()
 
         cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
         if c_libruntime == nullptr:
@@ -1966,14 +1974,14 @@ cdef class Fnruntime:
 
         return ret.second.decode()
 
-    def snapstart_instance(self, checkpoint_id: str) -> str:
+    def snapstart_instance(self, checkpoint_id: str):
         """
         Start instance from snapshot
         :param checkpoint_id: checkpoint id to restore from
-        :return: new instance id
+        :return: snapstart response
         """
         cdef:
-            pair[CErrorInfo, string] ret
+            pair[CErrorInfo, CSnapstartResponse] ret
             string c_checkpoint_id = checkpoint_id
             CSnapStartOptions snap_start_opts
 
@@ -1991,7 +1999,15 @@ cdef class Fnruntime:
                 f"failed to snapstart instance, "
                 f"code: {ret.first.Code()}, module code {ret.first.MCode()}, msg: {ret.first.Msg().decode()}")
 
-        return ret.second.decode()
+        return SnapstartResponse(
+            instance_id=ret.second.instanceID.decode(),
+            snapstart_info=SnapstartInfo(
+                route_address=ret.second.snapstartInfo.routeAddress.decode(),
+                port_mappings=ret.second.snapstartInfo.portMappings.decode(),
+                function_proxy_id=ret.second.snapstartInfo.functionProxyID.decode(),
+                node_id=ret.second.snapstartInfo.nodeID.decode(),
+                namespace=ret.second.snapstartInfo.namespace_.decode(),
+            ))
 
     def terminate_group(self, group_name: str) -> None:
         """

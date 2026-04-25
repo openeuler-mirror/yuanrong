@@ -28,11 +28,22 @@ help:
 
 clean:
 	@echo "Cleaning build outputs..."
-	@cd frontend && bash build.sh clean 2>/dev/null || true && cd ..
+	@bash frontend/build/clean.sh 2>/dev/null || true
 	@cd datasystem && bash build.sh clean 2>/dev/null || true && cd ..
-	@rm -rf functionsystem/output/
-	@rm -rf go/output/
-	@bash build.sh -C clean 2>/dev/null || true
+	@rm -rf functionsystem/functionsystem/build
+	@rm -rf functionsystem/functionsystem/output
+	@rm -rf functionsystem/common/logs/build
+	@rm -rf functionsystem/common/logs/output
+	@rm -rf functionsystem/common/litebus/build
+	@rm -rf functionsystem/common/litebus/output
+	@rm -rf functionsystem/common/metrics/build
+	@rm -rf functionsystem/common/metrics/output
+	@rm -rf functionsystem/vendor/build
+	@rm -rf functionsystem/vendor/output
+	@rm -rf functionsystem/vendor/src/etcd/bin
+	@rm -rf functionsystem/output
+	@rm -rf go/output
+	@bash build.sh -C 2>/dev/null || true
 	@rm -rf output/
 	@rm -f functionsystem/vendor/src/yr-datasystem.tar.gz
 	@echo "Clean completed!"
@@ -58,19 +69,13 @@ frontend:
 	@cp frontend/output/yr-frontend*.tar.gz output/ 2>/dev/null || true
 
 datasystem:
+	@rm -rf datasystem/output/*
 	bash datasystem/build.sh -j $(JOBS) -X off -G on -i on
 	@mkdir -p output
-	@for f in datasystem/output/yr-datasystem*.tar.gz; do \
-		if [ -e "$$f" ]; then \
-			cp "$$f" output/ || true; \
-			mkdir -p functionsystem/vendor/src; \
-			cp "$$f" functionsystem/vendor/src/yr-datasystem.tar.gz || true; \
-			if [ ! -d datasystem/output/sdk ]; then \
-				tar --no-same-owner -zxf "$$f" --strip-components=1 -C datasystem/output || true; \
-			fi; \
-			break; \
-		fi; \
-	done
+	@cp datasystem/output/yr-datasystem-*.tar.gz output/
+	@mkdir -p functionsystem/vendor/src
+	@cp datasystem/output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
+	@tar --no-same-owner -zxf datasystem/output/yr-datasystem-*.tar.gz --strip-components=1 -C datasystem/output
 	@cp datasystem/output/*.whl output/ 2>/dev/null || true
 	@true
 
@@ -108,13 +113,13 @@ dashboard:
 	cp go/output/yr-dashboard*.tar.gz output/
 	cp go/output/yr-faas*.tar.gz output/
 
-yuanrong:
+runtime:
 	@echo "Building yuanrong runtime..."
-ifeq ($(strip $(REMOTE_CACHE)),)
+	bash build.sh -j $(JOBS)
+
+yuanrong:
+	@echo "Building yuanrong..."
 	bash build.sh -P -j $(JOBS)
-else
-	bash build.sh -P -r $(REMOTE_CACHE) -j $(JOBS)
-endif
 
 pkg:
 	@echo "Copying packages to example/aio/pkg/..."

@@ -1894,3 +1894,75 @@ def kill_instance(instance_id):
     """
 
     runtime_holder.global_runtime.get_runtime().terminate_instance_sync(instance_id)
+
+
+@check_initialized
+def restore_from_checkpoint(checkpoint_id: str, instance_class) -> "InstanceProxy":
+    """Restore an instance from a checkpoint.
+
+    Args:
+        checkpoint_id (str): The checkpoint ID returned by snapshot().
+        instance_class: The @yr.instance decorated class.
+
+    Returns:
+        InstanceProxy: A new instance proxy for the restored instance.
+
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> restored = yr.restore_from_checkpoint(ckpt_id, MyClass)
+        >>> yr.finalize()
+    """
+    return instance_class.snapstart(checkpoint_id)
+
+
+@check_initialized
+def delete_checkpoint(checkpoint_id: str) -> None:
+    """Delete a checkpoint by checkpoint_id.
+
+    Args:
+        checkpoint_id (str): The checkpoint ID to delete.
+
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> yr.delete_checkpoint(ckpt_id)
+        >>> yr.finalize()
+    """
+    runtime_holder.global_runtime.get_runtime().delete_checkpoint(checkpoint_id)
+
+
+def _resolve_checkpoint_function_type(function_type_or_class) -> str:
+    if function_type_or_class in ("", None):
+        return ""
+    if isinstance(function_type_or_class, str):
+        return function_type_or_class
+    user_class = getattr(function_type_or_class, "__user_class__", None)
+    if user_class is not None:
+        return f"{utils.get_module_name(user_class)}.{user_class.__qualname__}"
+    raise TypeError("function_type must be a string, an @yr.instance class, or empty")
+
+
+@check_initialized
+def list_checkpoints(function_type: Union[str, object] = "", namespace: str = "") -> list:
+    """List checkpoint IDs by function type, class, or all for the current tenant.
+
+    Args:
+        function_type: Either the function type string in 'moduleName.className'
+            format, an ``@yr.instance`` class, or empty. If empty, returns all
+            checkpoints for the current tenant.
+        namespace (str): Namespace filter. Empty means no namespace filter.
+
+    Returns:
+        list: List of checkpoint ID strings.
+
+    Example:
+        >>> import yr
+        >>> yr.init()
+        >>> checkpoints = yr.list_checkpoints(Counter)
+        >>> checkpoints = yr.list_checkpoints("mymodule.Counter")
+        >>> all_checkpoints = yr.list_checkpoints()
+        >>> yr.finalize()
+    """
+    resolved_function_type = _resolve_checkpoint_function_type(function_type)
+    return runtime_holder.global_runtime.get_runtime().list_checkpoints(resolved_function_type, namespace)

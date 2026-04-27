@@ -2,51 +2,107 @@
 
 本节将介绍常见场景下主机部署 openYuanrong 时的配置，配置参数详细说明请参考[部署参数表](../parameters.md)。
 
-## 使用命令行工具 yr 部署 openYuanrong
+## 使用命令行工具 yr 部署
 
-### 用法
+`yr` 是 Python 版命令行工具，用于主机部署 openYuanrong 时，提供配置渲染、组件编排、健康检查、状态查询与停止能力。
 
-`yr [OPTIONS] COMMAND [ARGS]...`
+部署命令为 `yr start`，执行该命令 CLI 会：
 
-### 描述
-
-`yr` 是 Python 版实验命令行工具，用于主机部署 openYuanrong，并提供配置渲染、组件编排、健康检查、状态查询与停止能力。
-
-在执行 `yr start` 时，CLI 会：
-
-- 合并配置（默认值 + 用户配置 + 命令行覆盖）并渲染模板。
-- 创建部署目录 `/tmp/yr_sessions/<timestamp>/`，更新符号链接 `/tmp/yr_sessions/latest`。
+- 合并默认配置、自定义配置及命令行 `yr -s` 配置并渲染模板。其中，配置优先级从高到低为：命令行 `yr -s` 配置、自定义配置和默认配置。默认配置在 openYuanrong 安装路径下的 `yr/cli/values.toml` 和 `yr/cli/config.toml.jinja` 文件中定义，可通过命令 `yr config template` 查看。 
+- 创建部署目录 `/tmp/yr_sessions/<timestamp>/`，更新符号链接 `/tmp/yr_sessions/latest` 指向该目录。
 - 按依赖顺序启动组件并执行健康检查。
 - 生成会话文件 `/tmp/yr_sessions/latest/session.json`，供 `status` / `health` / `stop` 使用。
+- 生成主节点信息文件 `/tmp/yr_sessions/yr_current_master_info`，供 yr SDK 解析。
 
-在 **master** 模式启动成功后，会打印 worker 节点加入集群的推荐命令和最小配置片段。
+### 通过自定义配置文件设置部署参数
 
-### 配置
+参考以下步骤通过自定义配置文件设置部署参数：
 
-**配置如何合并**
+1. 执行 `yr config template` 查看默认配置及内置模板结构。
+2. 新建自定义配置文件 `config.toml`，覆盖要修改的配置（无需复制整份模板）。
+3. 使用 `yr -c ${YOUR_FILE_PATH}/config.toml start --master` 指定路径或 `yr start --master` 从默认路径 `/etc/yuanrong/config.toml` 读取自定义配置启动。
 
-`yr` 在启动时，会通过合并以下内容来生成最终生效的配置：
+:::{Note}
 
-优先级从高到低：
+执行 `yr start --master` 或 `yr start -c --master`，CLI 都会尝试读取默认路径 `/etc/yuanrong/config.toml` 的自定义配置文件，不存在时才使用内置默认值。
 
-1. 命令行覆盖项（`yr start ... -s KEY=VALUE`，可重复指定）
-2. 用户配置文件（默认：`/etc/yuanrong/config.toml`，若存在）
-3. 内置默认值
+:::
 
-#### 基于内置 config.toml.jinja 编写自定义 config.toml
+#### 配置 [mode.*] 控制组件启停
 
-Python `yr` CLI 的最终组件配置由内置模板渲染得到：
+`yr start --master` 用于启动主节点，`yr start` 用于启动从节点。主从节点默认配置启动的组件如下：
 
-- `api/python/yr/cli/values.toml`
-- `api/python/yr/cli/config.toml.jinja`
+- 主节点：`etcd`、`ds_master`、`ds_worker`、`function_master`、`function_proxy`、`function_agent`
+- 从节点：`ds_worker`、`function_proxy`、`function_agent`
 
-建议流程：
+可通过 `[mode.master]` 或 `[mode.agent]` 打开额外组件。例如在主节点上启用 `frontend`、`dashboard` 和 `collector` 组件配置如下：
 
-1. 执行 `yr config template` 查看内置模板结构（`values.toml` + `config.toml.jinja`）。
-2. 新建自己的 `config.toml`，只写需要覆盖的字段（无需复制整份模板）。
-3. 使用 `yr -c /path/to/config.toml start --master`（或 `yr -c ... start`）启动。
+```toml
+[mode.master]
+frontend = true
+dashboard = true
+collector = true
+```
 
-示例：在主节点启用 frontend，并覆盖 `function_proxy` 与 `ds_worker` 的启动参数：
+#### 配置 [values.*] 覆盖运行时参数
+
+`values` 主要承载运行时参数（IP、端口、TLS 路径、日志路径等），并用于渲染组件配置模板。开启函数系统和 etcd 的 TLS 参考配置如下：
+
+```toml
+[values.fs.tls]
+enable = true
+base_path = "/yuanrong/myssl/cert/yr"
+ca_file = "ca.crt"
+cert_file = "module.crt"
+key_file = "module.key"
+
+[values.etcd]
+auth_type = "TLS"
+
+[values.etcd.auth]
+base_path = "/yuanrong/myssl/cert/etcd"
+ca_file = "ca.crt"
+cert_file = "server.crt"
+key_file = "server.key"
+client_cert_file = "client.crt"
+client_key_file = "client.key"
+```
+
+#### 配置 [component.*] 覆盖组件启动参数
+
+除 `mode.*` 和 `values.*` 外，还可直接覆盖组件级配置（例如 `etcd`、`ds_master`、`function_master`、`function_proxy`）。这些配置会直接影响组件进程启动参数、环境变量和健康检查行为。
+
+常见可覆盖的子表包括：
+
+- `[COMPONENT.args]`：组件命令行参数
+- `[COMPONENT.env]`：组件环境变量
+- `[COMPONENT.health_check]`：健康检查配置
+
+其中，组件环境变量会合并当前 shell 中配置的环境变量和 `[COMPONENT.env]` 中的变量（通常组件配置优先级更高，会覆盖同名 shell 变量）。若 `LD_LIBRARY_PATH` / `LD_PRELOAD` 同时在 shell 和组件配置中存在，则会拼接为：
+  `shell_value:config_value`。
+
+例如覆盖部分 `function_master` 的启动参数并追加库路径参考配置如下：
+
+```toml
+[function_master.args]
+runtime_recover_enable = true
+litebus_thread_num = 25
+system_timeout = 2000000
+
+[function_master.env]
+LD_LIBRARY_PATH = "/opt/yr/lib"
+```
+
+使用如下命令部署，function_master 组件环境变量 `LD_LIBRARY_PATH` 的值将配置为 `/opt/custom/lib:/opt/yr/lib`。
+
+```sh
+export LD_LIBRARY_PATH=/opt/custom/lib
+yr -c ${YOUR_FILE_PATH}/config.toml start --master
+```
+
+#### 配置示例
+
+在主节点启用 frontend 组件，覆盖 `function_proxy` 和 `ds_worker` 的启动参数配置如下：
 
 ```toml
 [mode.master]
@@ -70,122 +126,11 @@ heartbeat_interval_ms = 120000
 node_dead_timeout_s = 120
 ```
 
-执行：
+部署主节点时执行：`yr -c ${YOUR_FILE_PATH}/config.toml start --master`。如需在不改自定义配置文件的情况下临时覆盖，可叠加 `-s/--set`（例如 `-s 'function_proxy.args.enable_metrics=true'`）。
 
-`yr -c /path/to/config.toml start --master`
+### 通过 `yr -s` 设置部署参数
 
-如需在不改文件的情况下临时覆盖，可叠加 `-s/--set`（例如 `-s 'function_proxy.args.enable_metrics=true'`）。
-
-#### 使用 [mode.*] 控制组件启停
-
-`yr start --master` 启动主节点模式，`yr start` 启动从节点模式。默认组件如下：
-
-- `master`：`etcd`、`ds_master`、`ds_worker`、`function_master`、`function_proxy`、`function_agent`
-- `agent`：`ds_worker`、`function_proxy`、`function_agent`
-
-可通过 `[mode.master]` 或 `[mode.agent]` 打开额外组件。示例（在 master 上启用 `frontend`、`dashboard`、`collector`）：
-
-```toml
-[mode.master]
-frontend = true
-dashboard = true
-collector = true
-```
-
-运行命令：
-
-`yr -c /path/to/config.toml start --master`
-
-#### 使用 [values.*] 覆盖运行时参数
-
-`values` 主要承载运行时参数（IP、端口、TLS 路径、日志路径等），并用于渲染组件配置模板。
-
-示例：开启函数系统和 etcd 的 TLS：
-
-```toml
-[values.fs.tls]
-enable = true
-base_path = "/yuanrong/myssl/cert/yr"
-ca_file = "ca.crt"
-cert_file = "module.crt"
-key_file = "module.key"
-
-[values.etcd]
-auth_type = "TLS"
-
-[values.etcd.auth]
-base_path = "/yuanrong/myssl/cert/etcd"
-ca_file = "ca.crt"
-cert_file = "server.crt"
-key_file = "server.key"
-client_cert_file = "client.crt"
-client_key_file = "client.key"
-```
-
-运行命令：
-
-`yr -c /path/to/config.toml start --master`
-
-#### 使用 [component.*] 覆盖组件启动参数
-
-除 `mode.*` 和 `values.*` 外，还可直接覆盖组件级配置（例如 `etcd`、`ds_master`、`function_master`、`function_proxy`）。
-这些配置会直接影响组件进程启动参数、环境变量和健康检查行为。
-
-常见可覆盖的子表包括：
-
-- `[COMPONENT.args]`：组件命令行参数
-- `[COMPONENT.env]`：组件环境变量
-- `[COMPONENT.health_check]`：健康检查配置
-
-**环境变量合并行为**
-
-组件环境变量在实现上按以下方式合并：
-
-- 以当前 shell 环境变量为基础。
-- 再应用 `[COMPONENT.env]` 中的变量（通常组件配置优先级更高，会覆盖同名 shell 变量）。
-- 若 `LD_LIBRARY_PATH` / `LD_PRELOAD` 同时在 shell 和组件配置中存在，则会拼接为：
-  `shell_value:config_value`。
-
-示例（为 `function_master` 追加库路径）：
-
-```sh
-export LD_LIBRARY_PATH=/opt/custom/lib
-yr -c /path/to/config.toml start --master
-```
-
-假设配置文件中包含：
-
-```toml
-[function_master.env]
-LD_LIBRARY_PATH = "/opt/yr/lib"
-```
-
-示例：覆盖部分 `function_master` 和 `function_proxy` 的启动参数：
-
-```toml
-[function_master.args]
-runtime_recover_enable = true
-litebus_thread_num = 25
-system_timeout = 2000000
-
-[function_proxy.args]
-enable_metrics = false
-litebus_thread_num = 25
-runtime_recover_enable = true
-```
-
-运行命令：
-
-`yr -c /path/to/config.toml start --master`
-
-### 使用 -s 的命令行覆盖（TOML 片段）
-
-启动时可通过 `-s/--set` 临时覆盖配置，避免修改文件。
-
-规则：
-
-- `-s` 可重复指定。
-- 每条必须是合法 TOML 赋值语句（`KEY=VALUE`）。
+部署时可通过 `-s/--set` 设置部署参数，它将覆盖默认配置和自定义配置中的参数。`-s` 可重复指定，每条必须是合法 TOML 赋值语句（`KEY=VALUE`）。
 
 示例：
 
@@ -197,341 +142,140 @@ runtime_recover_enable = true
 
     `yr start --master -s 'values.etcd.address=[{ip="10.88.0.9",peer_port="32380",port="32379"}]'`
 
-`-c/--config` 指定的配置文件路径必须存在；若不指定 `-c`，CLI 会尝试读取默认路径 `/etc/yuanrong/config.toml`，不存在时回退到内置默认值。
+### 使用默认配置部署
 
-### 全局选项
-
-`-c`, `--config` PATH
-
-:   `config.toml` 的路径。若提供，该路径必须存在。
-
-`-v`, `--verbose`
-
-:   启用更详细的日志输出。
-
-`--version`
-
-:   打印版本后退出。
-
-`-h`, `--help`
-
-:   显示帮助。
-
-### 命令
-
-#### start
-
-以 master 或 agent 模式启动 YuanRong 系统。
-
-用法
-
-`yr start` [`--master`] [`--master_address` http(s)://HOST:PORT] [`-s` KEY=VALUE]...
-
-关键选项
-
-`--master`
-
-:   切换为 master 模式（默认是 agent 模式）。
-
-`-s`, `--set` KEY=VALUE
-
-:   从命令行覆盖配置值。可指定多次。
-
-    每个 `KEY=VALUE` 必须是合法的 TOML 赋值语句，并且通常使用 `values.*` 下的点路径。
-
-    示例：
-
-    - `-s 'values.ds_master.ip="10.88.0.9"'`
-    - `-s 'values.ds_master.port="12123"'`
-    - `-s 'values.etcd.address=[{ip="10.88.0.9",peer_port="32380",port="32379"}]'`
-
-`--master_address` http(s)://HOST:PORT
-
-:   仅 agent 模式可用。启动前从指定 `function_master` 获取服务发现信息，并自动转换为配置覆盖项。若与 `--master` 同时使用，命令会报错退出。
-
-    参数值必须包含协议头，即 `http://` 或 `https://`。当使用 `https://` 时，还需要通过 `--config` 或 `-s` 提供 `values.fs.tls.ca_file`、`values.fs.tls.cert_file`、`values.fs.tls.key_file`（可配合 `values.fs.tls.base_path`）。
-
-说明
-
-- 成功后，会话文件会写入 `/tmp/yr_sessions/latest/session.json`。
-- 日志会写入部署目录下（见 [文件](#文件)）。
-- 启动 `--master` 时，`yr` 会打印推荐的 `yr start ...` 加入命令，以及最小配置示例。
-
-#### launch
-
-基于 `config.toml` 启动单个组件。通常用于作为容器的 entrypoint。
-
-用法
-
-`yr launch` [`--inherit-env`] [`--env-subst` KEY]... COMPONENT
-
-描述
-
-- 仅启动单个组件，不处理依赖拓扑。
-- 常用于容器 entrypoint。
-- `--env-subst KEY` 可将配置文件中的 `{KEY}` 替换为环境变量 `KEY` 的值。
-
-#### status
-
-显示系统状态。
-
-用法
-
-`yr status` [`-f` SESSION_FILE]
-
-选项
-
-`-f`, `--file` SESSION_FILE
-
-:   会话 JSON 文件路径（默认：`/tmp/yr_sessions/latest/session.json`）。
-
-描述
-
-`yr status` 读取会话后访问 `function_master` 的 global-scheduler 接口，输出 Ready agent 数量与资源概览。该命令仅支持 `master` 模式会话。
-
-#### stop
-
-停止系统组件。
-
-用法
-
-`yr stop` [`--force`] [`-f` SESSION_FILE]
-
-选项
-
-`--force`
-
-:   强制停止组件（使用 SIGKILL 代替 SIGTERM）。
-
-`-f`, `--file` SESSION_FILE
-
-:   会话 JSON 文件路径。若提供，该路径必须存在。
-
-描述
-
-默认情况下，`yr stop` 会对会话文件中记录的 daemon 进程发送 SIGTERM 尝试停止。
-
-使用 `--force` 时，会对 daemon 发送 SIGKILL，并额外尝试停止会话中记录的所有组件 PID。
-
-#### health
-
-显示当前节点已拉起的所有组件的健康状态与运行情况。
-
-用法
-
-`yr health` [`-f` SESSION_FILE]
-
-选项
-
-`-f`, `--file` SESSION_FILE
-
-:   会话 JSON 文件路径（默认：`/tmp/yr_sessions/latest/session.json`）。
-
-描述
-
-`yr health` 读取会话文件并检查组件 PID 是否在运行。
-
-#### config
-
-与配置相关的命令。
-
-##### config dump
-
-输出合并后的配置。
-
-用法
-
-`yr config dump` [`-s` KEY=VALUE]...
-
-描述
-
-渲染生效配置（默认值 + 配置文件 + 覆盖项），并以 TOML 格式打印。
-
-##### config template
-
-打印内置模板。
-
-用法
-
-`yr config template`
-
-描述
-
-打印内置 `values.toml` 与 `config.toml.jinja` 模板内容。
-
-### 示例
-
-#### 启动 master 集群
+部署主节点：
 
 ```bash
 yr start --master
 ```
 
-#### 启动 agent 并加入 master
+主节点启动成功后，会打印从节点加入集群的推荐命令和最小配置片段，在从节点主机上执行该命令即可。
 
-执行 `yr start --master` 后，终端会打印推荐的 worker 加入命令，可直接在 worker 节点执行。示例：
+```text
+yr start --master_address http://x.x.x.x:xxxx
+```
 
-`yr start -s 'values.etcd.address=[{ip="10.88.0.4",peer_port="32380",port="32379"}]' -s 'values.ds_master.ip="10.88.0.4"' -s 'values.ds_master.port="12123"' -s 'values.function_master.ip="10.88.0.4"' -s 'values.function_master.global_scheduler_port="22770"'`
+主节点的地址信息也可以通过 `/tmp/yr_sessions/latest/session.json` 文件中 `cluster_info` 字段获取。
 
-也可以在 agent 节点通过自动发现方式加入（等效于自动生成 `-s` 覆盖项）：
+### 部署时指定节点可用资源
 
-`yr start --master_address http://10.88.0.4:22770`
+您可在 openYuanrong 主从节点上分别配置 CPU 和内存总量，内存中部分用于函数堆栈，部分用于存储数据对象。
 
-#### 使用默认会话路径查看状态
+- `values.cpu_num`：CPU 总量配置参数。主节点 openYuanrong 组件默认占用 1 毫核（单位：1/1000 核），如果您希望主节点不运行分布式任务，只用于管理和调度，可配置 `values.cpu_num=1`。
+- `values.memory_num`：内存总量配置参数。
+- `values.shared_memory_num`：用于存储数据对象的内存量（单位：MB）。如果应用场景中有较多的数据对象存储，可适当调大。
 
-`yr status`
+openYuanrong 也支持异构计算资源，通过配置 `function_agent.args.npu_collection_mode` 及 `function_agent.args.gpu_collection_enable` 参数，openYuanrong 会自动采集节点上的 NPU 及 GPU 资源。此外您也可以配置 `function_agent.args.custom_resources` 定义自定义资源。
 
-#### 优雅停止集群
+示例：部署主节点不用于运行分布式任务。
 
-`yr stop`
+```bash
+yr start --master -s 'values.cpu_num=1'
+```
 
-#### 强制停止（SIGKILL）
+示例：部署从节点支持采集 GPU 资源并自定义 5 个 ssd 资源。
 
-`yr stop --force`
+```bash
+yr start --master_address http://x.x.x.x:xxxx \
+-s 'function_agent.args.gpu_collection_enable=true' \
+-s 'function_agent.args.custom_resources="{\"ssd\":5}"'
+```
 
-#### 查看渲染后的生效配置
+### 部署集群支持函数服务
 
-`yr config dump`
+默认配置部署只支持运行无状态函数和有状态函数，增加支持函数服务需要在部署主节点时启动 frontend、functon scheduler 和 meta service 三个组件，从节点部署无需新增配置。
 
-#### 查看内置模板
+```bash
+yr start --master \
+-s 'mode.master.frontend=true' \
+-s 'mode.master.function_scheduler=true' \
+-s 'mode.master.meta_service=true'
+```
 
-`yr config template`
+### 部署 Dashboard
 
-#### 配置安全通信
+Dashboard 支持在页面上查看日志、指标、任务运行状态等数据，详细使用参考 [Dashboard](../../../observability/dashboard.md) 介绍。
 
-请先按照[安全通信](./security.md)章节准备组件证书
+创建自定义配置文件 `config.toml`，内容如下，按实际情况配置 `metrics_config_file` 和 `address` 参数。
 
 ```toml
 [mode.master]
 dashboard = true
 collector = true
+frontend = true
 
-[values]
-log_level = "DEBUG"
+[mode.agent]
+collector = true
 
-[values.fs.tls]
-enable = true
-base_path = "/opt/ssl/cert/yr"
-ca_file = "ca.crt"
-cert_file = "module.crt"
-key_file = "module.key"
-
-[values.ds.curve]
-enable = true
-base_path = "/opt/ssl/cert/curve"
-cache_storage_auth_type = "ZMQ"
-cache_storage_auth_enable = true
-
-[values.etcd]
-auth_type = "TLS"
-
-[values.etcd.auth]
-base_path = "/opt/ssl/cert/etcd"
-ca_file = "ca.crt"
-cert_file = "server.crt"
-key_file = "server.key"
-client_cert_file = "client.crt"
-client_key_file = "client.key"
-
-[values.dashboard.auth]
-enable = true
-cert_file = "/opt/ssl/cert/dashboard/server.crt"
-key_file = "/opt/ssl/cert/dashboard/server.key"
+[function_agent.args]
+enable_metrics = true
+metrics_config_file = "/home/metrics/config.json"
 
 [values.dashboard.prometheus]
 address = "10.88.0.3:9090"
-
-[values.dashboard.prometheus.auth]
-enable = true
-base_path = "/opt/ssl/cert/prometheus"
-ca_file = "ca.crt"
-cert_file = "client.crt"
-key_file = "client.key"
 ```
 
-执行以下命令：
-`yr -c <your-config-path> start --master`
+使用如下命令部署主节点：
 
-#### 配置多master
+```bash
+yr -c ${YOUR_FILE_PATH}/config.toml start --master
+```
+
+参考如下命令部署从节点
+
+```bash
+yr -c ${YOUR_FILE_PATH}/config.toml start --master_address http://x.x.x.x:xxxx
+```
+
+### 部署多个主节点
+
+主节点默认只部署一个，在高可靠场景下，也可按一主多备方式部署多个。这里以常见的一主两备部署方式，使用内置 etcd 为例。
+
+在三台主机上分别使用以下自定义配置文件 `config.toml` 部署。其中，ip 替换为每台主机的 ip，并指定每台主机使用的 etcd 端口，请确保端口不冲突：
 
 ```toml
-[mode.master]
-frontend = true
-function_scheduler = true
-dashboard = true
-collector = true
-
-[values]
-log_level = "DEBUG"
-
 [values.etcd]
 enable_multi_master = true
 
 [[values.etcd.address]]
-ip = "10.88.0.2"
+ip = "192.168.2.2"
 peer_port = "32380"
-port = "32379"
+port = "32381"
 
 [[values.etcd.address]]
-ip = "10.88.0.3"
+ip = "192.168.2.3"
 peer_port = "32380"
-port = "32379"
+port = "32381"
+
+[[values.etcd.address]]
+ip = "192.168.2.4"
+peer_port = "32380"
+port = "32381"
 ```
 
-执行以下命令：
-`yr -c <your-config-path> start --master`
+```bash
+yr -c ${YOUR_FILE_PATH}/config.toml start --master
+```
 
-### 文件
+:::{Note}
 
-`/etc/yuanrong/config.toml`
+使用内置 etcd 时，对于一个有 N 个主节点的 openYuanrong 集群，最多能容忍 (N-1)/2 个主节点故障，当故障主节点数量超过该数值时，集群无法正常提供服务。
 
-:   默认配置文件路径（若存在）。
+:::
 
-`/tmp/yr_sessions/<timestamp>/`
+### 部署时开启安全通信
 
-:   启动时创建的单次运行部署目录。
+openYuanrong 支持内部组件间及内部组件同三方组件 ETCD 间的加密通信。当前只支持配置明文证书密钥，因此存在证书密钥泄露风险。如果您有高安全的密钥管理需求，可基于 openYuanrong 开源代码自行实现密钥解密算法，同时配置加密的证书密钥，其他密钥配置也可参考该方案。
 
-`/tmp/yr_sessions/latest`
-
-:   指向当前部署目录的符号链接。
-
-`/tmp/yr_sessions/latest/session.json`
-
-:   供 `yr status`、`yr health` 与 `yr stop` 使用的会话文件。
-
-`/tmp/yr_sessions/latest/logs/`
-
-:   当前部署的日志目录。
-
-`/tmp/yr_sessions/latest/logs/yr_daemon.log`
-
-:   daemon 的 stdout/stderr 重定向目标文件。
-
-`/tmp/yr_sessions/latest/logs/<component>_stdout.log`
-
-:   组件标准输出/错误输出日志文件。
-
-`/tmp/yr_sessions/yr_current_master_info`
-
-:   主节点信息文件供yr SDK解析。
-
-### 退出状态
-
-0
-
-:   成功。
-
-1
-
-:   失败（启动失败、状态不健康、会话无效、模式不匹配等）。
+openYuanrong 默认未开启安全通信选项，如需开启请参考[安全通信](./security.md)章节生成相关证书密钥。
 
 ## 验证部署状态
 
-部署完成后，可执行 `yr status` 查看集群状态。正常情况下，`ReadyAgentsCount` 与实际可用 worker 数量一致。
-若部署失败，可优先检查：
+部署完成后，可在主节点执行 `yr status` 查看集群状态。正常情况下，`ReadyAgentsCount` 与实际可用 Agent 数量一致。若部署失败，可优先检查如下日志文件：
 
-- `/tmp/yr_sessions/latest/logs/yr_daemon.log`
-- `/tmp/yr_sessions/latest/logs/<component>_stdout.log`
+- 守护进程日志：`/tmp/yr_sessions/latest/logs/yr_daemon.log`
+- 组件日志：`/tmp/yr_sessions/latest/logs/<component>_stdout.log`
 
 ```bash
 Cluster Status:

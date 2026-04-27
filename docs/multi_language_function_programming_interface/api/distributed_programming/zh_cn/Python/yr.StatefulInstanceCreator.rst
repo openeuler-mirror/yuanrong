@@ -1,5 +1,5 @@
 yr.StatefulInstanceCreator
-=========================
+===========================
 
 .. currentmodule:: yr
 

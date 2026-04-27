@@ -12,7 +12,7 @@
 yr start --master
 ```
 
-部署成功后，终端会打印 worker 节点加入集群的推荐命令，格式如下：
+部署成功后，终端会打印从节点加入集群的推荐命令，格式如下：
 
 ```text
 To join an existing cluster, execute the following commands in your shell on worker nodes:
@@ -31,25 +31,11 @@ OR
 yr start --master_address http://x.x.x.x:xxxxx
 ```
 
-此时，openYuanrong 服务已经可以使用。需要多节点集群部署时，在其余主机上直接执行主节点打印的推荐命令，以部署[从节点](glossary-agent-node)。以下为两种等价方式：
-
-**方式一：直接使用打印的 `-s` 覆盖命令**
+此时，openYuanrong 服务已经可以使用。需要多节点集群部署时，在其余主机上直接执行主节点打印的推荐命令，部署[从节点](glossary-agent-node)。
 
 ```bash
-# 将 x.x.x.x 和端口替换为主节点打印的实际值
-yr start \
-  -s 'values.etcd.address=[{ip="x.x.x.x",peer_port="xxxxx",port="xxxxx"}]' \
-  -s 'values.ds_master.ip="x.x.x.x"' \
-  -s 'values.ds_master.port="xxxxx"' \
-  -s 'values.function_master.ip="x.x.x.x"' \
-  -s 'values.function_master.global_scheduler_port="xxxxx"'
-```
-
-**方式二：使用自动发现（`--master_address`）**
-
-```bash
-# 将地址替换为主节点的 function_master global_scheduler 地址
-yr start --master_address http://x.x.x.x:xxxxx
+# 通过自动发现方式加入从节点，替换x.x.x.x:xxxx为function master的地址
+yr start --master_address http://x.x.x.x:xxxx
 ```
 
 在主节点上执行 `yr status` 命令可查看集群状态。正常情况下，`ReadyAgentsCount` 与实际部署节点数量一致。
@@ -60,7 +46,9 @@ yr status
 
 ```text
 Cluster Status:
+  ...
   ReadyAgentsCount: 2
+  ...
 ```
 
 可运行[简单示例](../../multi_language_function_programming_interface/examples/simple-function-template.md)进一步验证部署结果。

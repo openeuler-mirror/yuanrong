@@ -1,5 +1,5 @@
 yr.StatelessFunction
-===================
+=====================
 
 .. currentmodule:: yr
 

@@ -1,5 +1,5 @@
 yr.StatefulInstance
-==================
+====================
 
 .. currentmodule:: yr
 

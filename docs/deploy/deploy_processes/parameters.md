@@ -168,6 +168,7 @@
 | `frontend` | `bool` | 是否启动 frontend 组件。 |
 | `dashboard` | `bool` | 是否启动 dashboard 组件。 |
 | `collector` | `bool` | 是否启动 collector 组件。 |
+| `meta_service` | `bool` | 是否启动 meta service 组件。 |
 | `function_scheduler` | `bool` | 是否启动 function_scheduler 组件（多 master 场景）。 |
 
 ### [COMPONENT.args] 组件启动参数

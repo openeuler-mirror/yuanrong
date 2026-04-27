@@ -2,7 +2,7 @@
 
 openYuanrong 支持 TLS 1.2、TLS 1.3 协议用于外部及组件之间的安全通信，本节将介绍如何生成相关证书。
 
-所需证书文件及目录规划如下：
+所需证书文件及目录规划如下。若不部署 dashboard，可跳过 dashboard 和 prometheus 证书生成过程。
 
 ```text
 ${Your_Workspace}
@@ -452,33 +452,102 @@ cp -ar ca.crt client.crt client.key server.key server.crt ${WorkSpace}/cert/prom
 
 ## 部署 openYuanrong 时配置安全通信
 
-详细配置说明参考[部署参数表](security-params)中的安全配置。
+创建自定义配置文件 `config.toml`，内容如下，替换其中的 `/opt/ssl` 为 `${WorkSpace}` 路径。
 
-* 部署基础组件，主节点参考命令如下：
+- 仅部署基础组件
 
-    ```shell
-    yr start --master \
-    --ssl_base_path=${WorkSpace}/cert/yr --ssl_enable=true \
-    --curve_key_path=${WorkSpace}/cert/curve \
-    --runtime_ds_encrypt_enable=true --ds_component_auth_enable=true \
-    --etcd_auth_type=TLS --etcd_ssl_base_path=${WorkSpace}/cert/etcd \
-    --cache_storage_auth_type=ZMQ --cache_storage_auth_enable=true
+    ```toml
+    [values.fs.tls]
+    enable = true
+    base_path = "/opt/ssl/cert/yr"
+    ca_file = "ca.crt"
+    cert_file = "module.crt"
+    key_file = "module.key"
+
+    [values.ds.curve]
+    enable = true
+    base_path = "/opt/ssl/cert/curve"
+    cache_storage_auth_type = "ZMQ"
+    cache_storage_auth_enable = true
+
+    [values.etcd]
+    auth_type = "TLS"
+
+    [values.etcd.auth]
+    base_path = "/opt/ssl/cert/etcd"
+    ca_file = "ca.crt"
+    cert_file = "server.crt"
+    key_file = "server.key"
+    client_cert_file = "client.crt"
+    client_key_file = "client.key"
     ```
 
-* 部署基础组件和 dashboard 功能，主节点参考命令如下：
+- 部署基础组件和 Dashboard，按实际情况配置 `metrics_config_file` 和 `address` 参数
 
-    ```shell
-    yr start --master \
-    --ssl_base_path=${WorkSpace}/cert/yr --ssl_enable=true \
-    --curve_key_path=${WorkSpace}/cert/curve \
-    --runtime_ds_encrypt_enable=true --ds_component_auth_enable=true \
-    --etcd_auth_type=TLS --etcd_ssl_base_path=${WorkSpace}/cert/etcd \
-    --cache_storage_auth_type=ZMQ --cache_storage_auth_enable=true \
-    --enable_dashboard=true --enable_faas_frontend=true \
-    --enable_collector=true --enable_separated_redirect_runtime_std=true \
-    --prometheus_address=prometheus_ip:prometheus_port \
-    --prometheus_ssl_enable=true --prometheus_ssl_base_path=${WorkSpace}/cert/prometheus \
-    --enable_metrics=true --metrics_config_file={absolute file path} --npu_collection_mode=all \
-    --dashboard_ssl_enable=true --dashboard_ssl_base_path=${WorkSpace}/cert/dashboard
+    ```toml
+    [mode.master]
+    dashboard = true
+    collector = true
+    frontend = true
+
+    [mode.agent]
+    collector = true
+
+    [function_agent.args]
+    enable_metrics = true
+    metrics_config_file = "/home/metrics/config.json"
+
+    [values]
+    log_level = "DEBUG"
+
+    [values.fs.tls]
+    enable = true
+    base_path = "/opt/ssl/cert/yr"
+    ca_file = "ca.crt"
+    cert_file = "module.crt"
+    key_file = "module.key"
+
+    [values.ds.curve]
+    enable = true
+    base_path = "/opt/ssl/cert/curve"
+    cache_storage_auth_type = "ZMQ"
+    cache_storage_auth_enable = true
+
+    [values.etcd]
+    auth_type = "TLS"
+
+    [values.etcd.auth]
+    base_path = "/opt/ssl/cert/etcd"
+    ca_file = "ca.crt"
+    cert_file = "server.crt"
+    key_file = "server.key"
+    client_cert_file = "client.crt"
+    client_key_file = "client.key"
+
+    [values.dashboard.auth]
+    enable = true
+    cert_file = "/opt/ssl/cert/dashboard/server.crt"
+    key_file = "/opt/ssl/cert/dashboard/server.key"
+
+    [values.dashboard.prometheus]
+    address = "10.88.0.3:9090"
+
+    [values.dashboard.prometheus.auth]
+    enable = true
+    base_path = "/opt/ssl/cert/prometheus"
+    ca_file = "ca.crt"
+    cert_file = "client.crt"
+    key_file = "client.key"
     ```
-  
+
+使用如下命令部署主节点：
+
+```bash
+yr -c ${YOUR_FILE_PATH}/config.toml start --master
+```
+
+参考如下命令部署从节点
+
+```bash
+yr -c ${YOUR_FILE_PATH}/config.toml start --master_address http://x.x.x.x:xxxx
+```

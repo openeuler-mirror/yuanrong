@@ -57,6 +57,7 @@ yr.Context
     yr.Context.getTenantID
     yr.Context.getUserData
     yr.Context.getVersion
+    yr.Context.get_session_id
     yr.Context.get_session_service
     yr.Context.set_session_id
 

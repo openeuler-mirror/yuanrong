@@ -41,6 +41,13 @@ Practical rules:
 - Use `git commit -s` so the trailer is generated correctly
 - Reject or rewrite commits that do not meet this format before opening the PR
 
+Quick check:
+
+```bash
+git log -1 --format="%B" | grep -Pzq '^(fix|feat|docs|style|refactor|test|chore|perf|ci|build|revert)(\([^)]+\)|\[[^\]]+\])?:.+[\s\S]*Signed-off-by:.+<.+@.+>' \
+  && echo "COMMIT_FORMAT=OK" || echo "COMMIT_FORMAT=BAD"
+```
+
 ## Create a PR
 
 ### 1. Amend commit to add Signed-off-by (if missing)

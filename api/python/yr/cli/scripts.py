@@ -33,6 +33,7 @@ from urllib.parse import urlencode
 import yr
 from yr.cli.exec import run_client
 
+QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
 
 
@@ -367,12 +368,16 @@ def query_instances(user=None, page=None, page_size=None, instance_id=None):
 def get_instance_list(resp):
     """Extract the instance list from paginated or legacy instance responses."""
     if isinstance(resp, dict):
-        instances = resp.get("instances", [])
-    else:
+        if "instances" not in resp:
+            return None, {"error": "invalid instances response: missing instances"}
+        instances = resp["instances"]
+    elif isinstance(resp, builtins.list):
         instances = resp
+    else:
+        return None, {"error": "invalid instances response: expected list or object"}
     if not isinstance(instances, builtins.list):
-        return []
-    return [instance for instance in instances if isinstance(instance, dict)]
+        return None, {"error": "invalid instances response: instances must be a list"}
+    return [instance for instance in instances if isinstance(instance, dict)], None
 
 
 def query_instance(instance_id, user=None):
@@ -382,7 +387,11 @@ def query_instance(instance_id, user=None):
     if not ret:
         return False, resp
 
-    for instance in get_instance_list(resp):
+    instances, error = get_instance_list(resp)
+    if error is not None:
+        return False, error
+
+    for instance in instances:
         if instance.get("id") == instance_id:
             return True, instance
     return False, {"error": "instance not found"}
@@ -788,7 +797,10 @@ def query(function_name, instance_id):
         if ret:
             print(json.dumps(resp, indent=2, ensure_ascii=False))
         else:
-            print(f"instance not found: {instance_id}")
+            if isinstance(resp, dict) and resp.get("error"):
+                print(f"Error: {resp['error']}")
+            else:
+                print(f"instance not found: {instance_id}")
 
 
 @cli.command()
@@ -824,6 +836,9 @@ def list(page, page_size, resource_type):
         if page is not None and page <= 0:
             print("Error: --page must be a positive integer")
             sys.exit(1)
+        if page is not None and page > QUERY_INSTANCES_MAX_PAGE:
+            print(f"Error: --page must be less than or equal to {QUERY_INSTANCES_MAX_PAGE}")
+            sys.exit(1)
         if page_size is not None and page_size <= 0:
             print("Error: --page-size must be a positive integer")
             sys.exit(1)
@@ -832,7 +847,10 @@ def list(page, page_size, resource_type):
             sys.exit(1)
         # List instances
         ret, resp = query_instances(__user, page=page, page_size=page_size)
-        instances = get_instance_list(resp)
+        instances, error = get_instance_list(resp) if ret else ([], None)
+        if ret and error is not None:
+            print(f"Error: {error['error']}")
+            sys.exit(1)
         if ret and len(instances) > 0:
             for instance in instances:
                 instance_id = instance.get("id", "N/A")

@@ -135,8 +135,11 @@ def _get_from_env(conf):
     if conf.working_dir == "":
         conf.working_dir = os.environ.get("YR_WORKING_DIR", "")
     if conf.in_cluster is None:
-        in_cluster_env = os.environ.get("YR_IN_CLUSTER", "true").lower()
-        conf.in_cluster = True if in_cluster_env == "true" else False
+        in_cluster_env = os.environ.get("YR_IN_CLUSTER", "").lower()
+        if in_cluster_env:
+            conf.in_cluster = in_cluster_env == "true"
+        elif conf.server_address and not conf.ds_address:
+            conf.in_cluster = False
     app_mode_env_var = os.environ.get("YR_APP_MODE", "false").lower()
     if app_mode_env_var == "true":
         conf.is_driver = False
@@ -145,9 +148,6 @@ def _get_from_env(conf):
     if conf.enable_mtls is None:
         enable_mtls_env = os.environ.get("YR_ENABLE_MTLS", "false").lower()
         conf.enable_mtls = True if enable_mtls_env == "true" else False
-    if conf.enable_tls is None:
-        enable_tls_env = os.environ.get("YR_ENABLE_TLS", "false").lower()
-        conf.enable_tls = True if enable_tls_env == "true" else False
     if conf.private_key_path == "":
         conf.private_key_path = os.environ.get("YR_PRIVATE_KEY_FILE", "")
     if conf.certificate_file_path == "":
@@ -156,13 +156,22 @@ def _get_from_env(conf):
         conf.verify_file_path = os.environ.get("YR_VERIFY_FILE", "")
     if conf.server_name == "":
         conf.server_name = os.environ.get("YR_SERVER_NAME", "")
-    conf.log_dir = os.environ.get("YR_LOG_PATH", "./")
-    if conf.tenant_id == "":
-        conf.tenant_id = os.environ.get("YR_TENANT_ID", "")
     if conf.auth_token == "":
         conf.auth_token = os.environ.get("YR_JWT_TOKEN", "")
+    if conf.tenant_id == "":
+        conf.tenant_id = os.environ.get("YR_TENANT_ID", "")
     if conf.tenant_id == "" and conf.auth_token != "":
         conf.tenant_id = _parse_tenant_from_jwt(conf.auth_token)
+    if conf.enable_tls is None:
+        enable_tls_env = os.environ.get("YR_ENABLE_TLS", "").lower()
+        if enable_tls_env:
+            conf.enable_tls = enable_tls_env == "true"
+        elif not conf.in_cluster and conf.auth_token:
+            conf.enable_tls = True
+    if conf.server_name == "" and conf.server_address and conf.enable_tls:
+        host = conf.server_address.split(":")[0]
+        conf.server_name = host
+    conf.log_dir = os.environ.get("YR_LOG_PATH", "./")
     return conf
 
 def _auto_get_cluster_access_info(conf):

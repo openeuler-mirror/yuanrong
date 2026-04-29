@@ -5,13 +5,16 @@ One-click deployment of the CI infrastructure:
 - **bazel-remote** cache (hostPath on the target cluster node or scheduler-selected node)
 - **agent-stack-k8s** (Buildkite agent for K8s, upstream chart)
 - **gitcode-webhook-relay** (optional GitCode -> Buildkite API bridge)
-- **Secrets** templates (obs-credentials, gitcode-webhook-relay-auth)
+- **Secrets** templates (obs-credentials, swr-credentials, gitcode-webhook-relay-auth)
 
 ## Prerequisites
 
 1. `kubectl` access to the CCE cluster
 2. `helm` ≥ 3.10
 3. Secrets already exist (or set `secrets.*.create=true` + fill values)
+   - `obs-credentials` for artifact/chart upload
+   - `swr-credentials` for sandbox image push jobs, or an existing `swr-pull-secret`
+     Docker config secret with push permission
 4. bazel-remote image mirrored to SWR (see NOTES.txt)
 
 ## Install

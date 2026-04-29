@@ -17,11 +17,19 @@ YuanRong CI Infrastructure deployed!
 
 Check:
   kubectl get secret obs-credentials -n {{ .Release.Namespace }}
+  kubectl get secret swr-credentials -n {{ .Release.Namespace }}
 
 Create if missing:
   kubectl create secret generic obs-credentials \
+    --from-literal=AK=<AK> \
+    --from-literal=SK=<SK> \
     --from-literal=access-key-id=<AK> \
     --from-literal=secret-access-key=<SK> \
+    -n {{ .Release.Namespace }}
+
+  kubectl create secret generic swr-credentials \
+    --from-literal=username=<SWR_USERNAME> \
+    --from-literal=password=<SWR_PASSWORD> \
     -n {{ .Release.Namespace }}
 
 === agent-stack-k8s (deployed separately via upstream chart) ===

@@ -46,7 +46,7 @@ curl -X POST http://172.17.0.2:31112/iam-server/v1/token/exchange \
 ### Initialize Realm and Users
 
 ```bash
-cd example/aio/keycloak
+cd example/keycloak
 ./init-realm.sh
 ```
 

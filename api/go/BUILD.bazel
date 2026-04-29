@@ -6,6 +6,7 @@ filegroup(
     srcs = glob([
         "**/*.go",
         "**/go.mod",
+        "**/go.sum",
     ]),
 )
 

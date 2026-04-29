@@ -25,6 +25,7 @@ agentStack:
   image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
   tags:
     - queue=default
+    - os=linux
     - arch=amd64
   podSpecPatch:
     nodeSelector:
@@ -67,6 +68,16 @@ secrets:
     accessKeyId: ""
     secretAccessKey: ""
 
+  # SWR credentials for sandbox image packaging/push jobs.
+  # The Buildkite package job can also reuse an existing swr-pull-secret
+  # kubernetes.io/dockerconfigjson secret when it has push permission.
+  # kubectl create secret generic swr-credentials \
+  #   --from-literal=username=<SWR_USERNAME> --from-literal=password=<SWR_PASSWORD>
+  swrCredentials:
+    create: false
+    username: ""
+    password: ""
+
   # Credentials for the GitCode -> Buildkite relay service
   # Create manually or let Helm create the secret from values below.
   gitcodeWebhookRelayAuth:
@@ -80,7 +91,7 @@ secrets:
 # ─────────────────────────────────────────────
 gitcodeWebhookRelay:
   enabled: false
-  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed
+  image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110
   imagePullPolicy: IfNotPresent
   secretName: gitcode-webhook-relay-auth
   replicas: 1

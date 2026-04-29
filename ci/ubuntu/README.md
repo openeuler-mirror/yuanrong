@@ -1,6 +1,6 @@
 # Ubuntu 20.04 多架构编译环境镜像
 
-该目录包含用于构建 Ubuntu 20.04 编译环境镜像的 Dockerfile 和脚本，支持 **x86_64 (amd64)** 和 **ARM64 (aarch64)** 架构。
+该目录包含用于构建 Ubuntu 20.04 编译环境镜像的 Dockerfile 和脚本，支持 **x86_64 (amd64)** 和 **ARM64 (aarch64)** 架构。当前 Dockerfile 基于已验证的编译镜像做增量覆盖，只替换需要升级的工具，避免重建整套工具链。
 
 ## 包含的工具
 - **JDK 8** (Eclipse Temurin)
@@ -8,6 +8,7 @@
 - **Go 1.24.1**
 - **Python** (3.9.11, 3.10.2, 3.11.4, 3.12.0, 3.13.0 - 均由源码构建)
 - **Bazel 6.5.0**
+- **CMake 3.31.10**
 - **Protoc 25.1**
 - **Node.js v20.19.0**
 - **Ninja 1.12.0**
@@ -47,7 +48,7 @@ WORKSPACE=/path/to/yuanrong COMPILE_PORT=8888 docker compose up -d
 ```
 
 ## 为什么使用这种方式？
-1. **统一管理**：通过 `ARG TARGETARCH` 变量，一个 Dockerfile 即可维护两套架构的下载逻辑。
+1. **统一管理**：通过 `ARG TARGETARCH` 变量，一个 Dockerfile 即可维护两套架构的增量工具覆盖逻辑。
 2. **自动合并**：`buildx` 会自动生成 Manifest List，用户执行 `docker pull` 时会根据其机器架构自动选择正确的镜像。
 3. **兼容性**：脚本中显式关闭了 `--provenance` 和 `--sbom`，解决了华为云 SWR 不支持 OCI Attestations 导致的 `400 Bad Request` 问题。
 

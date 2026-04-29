@@ -13,13 +13,15 @@ agentToken: ""
 config:
   tags:
     - queue=default
+    - os=linux
     - arch=amd64
   image: swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/buildkite-agent:sha256-a400cd028e449f389c7223a990cdb34adb5d96584a8f3863ba442550eac2a4c1
   image-pull-backoff-grace-period: 15m
   pod-pending-timeout: 20m
+  pod-spec-patch:
+    containers: []
+    nodeSelector:
+      kubernetes.io/arch: amd64
 
 nodeSelector:
   kubernetes.io/arch: amd64
-
-podTemplate:
-  spec: {}

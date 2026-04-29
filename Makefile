@@ -1,4 +1,4 @@
-.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard pkg image all clean
+.PHONY: help frontend datasystem functionsystem runtime_launcher yuanrong dashboard image all clean
 
 # Bazel remote cache server (optional, can be set via environment variable)
 # Example: REMOTE_CACHE=http://192.168.3.45:9090 make yuanrong
@@ -15,9 +15,8 @@ help:
 	@echo "  make runtime_launcher - Build runtime-launcher"
 	@echo "  make yuanrong       - Build runtime"
 	@echo "  make dashboard      - Build dashboard"
-	@echo "  make pkg           - Copy packages to example/aio/pkg/"
 	@echo "  make image         - Build aio images after make all"
-	@echo "  make all           - Build all targets and prepare example/aio/pkg/"
+	@echo "  make all           - Build all targets"
 	@echo ""
 	@echo "Parameters (optional):"
 	@echo "  REMOTE_CACHE       - Remote cache server address"
@@ -98,10 +97,12 @@ runtime_launcher:
 	cd functionsystem/runtime-launcher && \
 	go build -buildvcs=false -o bin/runtime/runtime-launcher ./cmd/runtime-launcher/ && \
 	go build -buildvcs=false -o bin/rl-client ./cmd/rl-client/
+	@mkdir -p output
+	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher output/runtime-launcher
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	cd functionsystem && bash run.sh build -j $(JOBS) && bash run.sh pack && cd -
+	cd functionsystem && bash run.sh build -j 8 && bash run.sh pack && cd -
 	mkdir -p output
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
@@ -121,28 +122,14 @@ yuanrong:
 	@echo "Building yuanrong..."
 	bash build.sh -P -j $(JOBS)
 
-pkg:
-	@echo "Copying packages to example/aio/pkg/..."
-	@mkdir -p example/aio/pkg
-	@cp datasystem/output/sdk/openyuanrong_datasystem_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp datasystem/output/openyuanrong_datasystem-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp functionsystem/output/openyuanrong_functionsystem-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp output/openyuanrong-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp output/openyuanrong_sdk-*.whl example/aio/pkg/ 2>/dev/null || true
-	@cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher example/aio/pkg/runtime-launcher 2>/dev/null || true
-	@mkdir -p example/aio/docs
-	@echo "Packages copied successfully!"
-	@ls -la example/aio/pkg/
-
 image:
-	@echo "Building aio images via example/aio/build-images.sh..."
-	@./example/aio/build-images.sh
+	@echo "Building aio images via deploy/sandbox/docker/build-images.sh..."
+	@./deploy/sandbox/docker/build-images.sh
 
-all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong pkg
+all: frontend datasystem functionsystem runtime_launcher dashboard yuanrong
 	@echo "Build completed!"
-	@echo "Artifacts and example/aio/pkg are ready."
+	@echo "Artifacts are ready under output/."
 
 # Define dependencies for parallel make
 functionsystem: datasystem
 yuanrong: datasystem
-pkg: frontend datasystem functionsystem runtime_launcher dashboard yuanrong

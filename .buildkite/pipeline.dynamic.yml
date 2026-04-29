@@ -1,13 +1,16 @@
 #!/bin/bash
 # Buildkite 动态 Pipeline - 标准 SSH 版
 set -e
-BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260409_guaranteed"
+BUILDER_IMAGE="swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004:v20260428_cmake33110"
+SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/sandbox-packager:v20260427_dind2}"
 ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-false}"
 ENABLE_LINUX_ARM="${ENABLE_LINUX_ARM:-true}"
+ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
 
 echo "steps:"
 cat << YAML
   - label: ":rocket: Build All"
+    key: "build-all-amd64"
     command: |
       set -e
       echo "=== [1/3] Environment Setup ==="
@@ -22,10 +25,10 @@ cat << YAML
       mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/opensource
       export CCACHE_DIR=\$\$CACHE_BASE/ccache
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
-      export GOCACHE=\$\$CACHE_BASE/go-cache
+      export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILDKITE_JOB_ID:-local}-\$\${BUILD_ARCH:-amd64}
+      rm -rf "\$\$GOCACHE"
+      mkdir -p "\$\$GOCACHE"
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
-      export CMAKE_C_COMPILER_LAUNCHER=ccache
-      export CMAKE_CXX_COMPILER_LAUNCHER=ccache
       collect_failure_logs() {
         _STATUS="\$\$1"
         _ARCH="\$\${BUILD_ARCH:-x86_64}"
@@ -90,6 +93,9 @@ cat << YAML
         exit "\$\$BUILD_EXIT"
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
+
+      echo "=== [3.5/6] Verify Go plugin ABI ==="
+      python3 .buildkite/verify_go_plugin_abi.py
 
       (
         set +e
@@ -168,6 +174,7 @@ cat << YAML
       # Main output dir: yr-runtime, yr-dashboard, yr-faas, yr-functionsystem, *.whl
       cp output/*.tar.gz artifacts/release/ 2>/dev/null || true
       cp output/*.whl artifacts/release/ 2>/dev/null || true
+      cp output/runtime-launcher artifacts/release/ 2>/dev/null || true
       # Sub-project outputs not already copied to output/
       cp datasystem/output/*.tar.gz artifacts/release/ 2>/dev/null || true
       cp datasystem/output/*.whl artifacts/release/ 2>/dev/null || true
@@ -179,32 +186,48 @@ cat << YAML
       if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
         echo "WARNING: OBS credentials not set, skipping OBS upload"
       else
-        python3 -m pip install esdk-obs-python --quiet
         python3 -c "from obs import ObsClient"
         UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
         UPLOAD_OK=0
         UPLOAD_FAIL=0
+        OBS_URLS_FILE=artifacts/release/obs-urls.txt
+        : > "\$\$OBS_URLS_FILE"
         for f in artifacts/release/*.tar.gz artifacts/release/*.whl; do
           [ -f "\$\$f" ] || continue
           echo "Uploading: \$\$f"
-          if python3 tools/upload_build_artifact.py \
+          if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
               --file "\$\$f" \
               --kind build \
               --channel daily \
               --arch "\$\${BUILD_ARCH:-x86_64}" \
               --platform linux \
-              --timestamp "\$\$UPLOAD_TIMESTAMP"; then
+              --timestamp "\$\$UPLOAD_TIMESTAMP" 2>&1); then
+            printf '%s\n' "\$\$UPLOAD_OUTPUT"
             UPLOAD_OK=\$\$((UPLOAD_OK + 1))
+            OBS_URL=\$\$(printf '%s\n' "\$\$UPLOAD_OUTPUT" | sed -n 's/^url: //p' | tail -n 1)
+            if [ -n "\$\$OBS_URL" ]; then
+              printf '%s\t%s\n' "\$\$(basename "\$\$f")" "\$\$OBS_URL" >> "\$\$OBS_URLS_FILE"
+            else
+              echo "WARNING: Uploaded \$\$f but did not find public OBS URL in uploader output"
+            fi
           else
+            printf '%s\n' "\$\$UPLOAD_OUTPUT"
             echo "WARNING: Failed to upload \$\$f"
             UPLOAD_FAIL=\$\$((UPLOAD_FAIL + 1))
           fi
         done
+        if [ -s "\$\$OBS_URLS_FILE" ]; then
+          buildkite-agent artifact upload "\$\$OBS_URLS_FILE"
+          rm -f "\$\$OBS_URLS_FILE"
+        else
+          rm -f "\$\$OBS_URLS_FILE"
+        fi
         echo "OBS upload complete: \$\$UPLOAD_OK succeeded, \$\$UPLOAD_FAIL failed"
         [ "\$\$UPLOAD_FAIL" -eq 0 ]
       fi
     agents:
       queue: "default"
+      os: "linux"
       arch: "amd64"
     plugins:
       - kubernetes:
@@ -246,6 +269,73 @@ cat << YAML
       - "artifacts/release/**/*"
 YAML
 
+case "${ENABLE_SANDBOX_PACKAGE}" in
+  1|true|TRUE|yes|YES|on|ON)
+cat << YAML
+  - label: ":package: Package sandbox images and Helm"
+    key: "package-sandbox-amd64"
+    depends_on: "build-all-amd64"
+    command: |
+      set -e
+      bash .buildkite/package_sandbox_release.sh
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            containers:
+              - image: "$SANDBOX_PACKAGER_IMAGE"
+                securityContext:
+                  privileged: true
+                volumeMounts:
+                  - name: docker-graph
+                    mountPath: /var/lib/docker
+                resources:
+                  requests: { cpu: "8", memory: "16Gi" }
+                  limits: { cpu: "8", memory: "16Gi" }
+                env:
+                  - name: OBS_ACCESS_KEY_ID
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: AK
+                        optional: true
+                  - name: OBS_SECRET_ACCESS_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: obs-credentials
+                        key: SK
+                        optional: true
+                  - name: SWR_USERNAME
+                    valueFrom:
+                      secretKeyRef:
+                        name: swr-credentials
+                        key: username
+                        optional: true
+                  - name: SWR_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: swr-credentials
+                        key: password
+                        optional: true
+                  - name: SWR_DOCKER_CONFIG_JSON
+                    valueFrom:
+                      secretKeyRef:
+                        name: swr-pull-secret
+                        key: .dockerconfigjson
+                        optional: true
+            volumes:
+              - name: docker-graph
+                emptyDir: {}
+    timeout_in_minutes: 120
+    artifact_paths:
+      - "artifacts/sandbox/**/*"
+YAML
+;;
+esac
+
 case "${ENABLE_LINUX_ARM}" in
   1|true|TRUE|yes|YES|on|ON)
 cat << YAML
@@ -265,10 +355,10 @@ cat << YAML
       mkdir -p \$\$CACHE_BASE/ccache \$\$CACHE_BASE/go-mod \$\$CACHE_BASE/go-cache \$\$CACHE_BASE/opensource
       export CCACHE_DIR=\$\$CACHE_BASE/ccache
       export GOMODCACHE=\$\$CACHE_BASE/go-mod
-      export GOCACHE=\$\$CACHE_BASE/go-cache
+      export GOCACHE=\$\$CACHE_BASE/go-cache/\$\${BUILDKITE_JOB_ID:-local}-\$\${BUILD_ARCH:-arm64}
+      rm -rf "\$\$GOCACHE"
+      mkdir -p "\$\$GOCACHE"
       export DS_OPENSOURCE_DIR=\$\$CACHE_BASE/opensource
-      export CMAKE_C_COMPILER_LAUNCHER=ccache
-      export CMAKE_CXX_COMPILER_LAUNCHER=ccache
       collect_failure_logs() {
         _STATUS="\$\$1"
         _ARCH="\$\${BUILD_ARCH:-x86_64}"
@@ -326,6 +416,9 @@ cat << YAML
         exit "\$\$BUILD_EXIT"
       fi
       [ "\$\$BUILD_EXIT" -eq 0 ]
+
+      echo "=== [3.5/6] Verify Go plugin ABI ==="
+      python3 .buildkite/verify_go_plugin_abi.py
 
       (
         set +e
@@ -405,32 +498,48 @@ cat << YAML
       if [ -z "\$\${OBS_ACCESS_KEY_ID:-}" ] || [ -z "\$\${OBS_SECRET_ACCESS_KEY:-}" ]; then
         echo "WARNING: OBS credentials not set, skipping OBS upload"
       else
-        python3 -m pip install esdk-obs-python --quiet
         python3 -c "from obs import ObsClient"
         UPLOAD_TIMESTAMP=\$\$(date '+%Y%m%d%H%M%S')
         UPLOAD_OK=0
         UPLOAD_FAIL=0
+        OBS_URLS_FILE=artifacts/release/obs-urls.txt
+        : > "\$\$OBS_URLS_FILE"
         for f in artifacts/release/*.tar.gz artifacts/release/*.whl; do
           [ -f "\$\$f" ] || continue
           echo "Uploading: \$\$f"
-          if python3 tools/upload_build_artifact.py \
+          if UPLOAD_OUTPUT=\$\$(python3 tools/upload_build_artifact.py \
               --file "\$\$f" \
               --kind build \
               --channel daily \
               --arch arm64 \
               --platform linux \
-              --timestamp "\$\$UPLOAD_TIMESTAMP"; then
+              --timestamp "\$\$UPLOAD_TIMESTAMP" 2>&1); then
+            printf '%s\n' "\$\$UPLOAD_OUTPUT"
             UPLOAD_OK=\$\$((UPLOAD_OK + 1))
+            OBS_URL=\$\$(printf '%s\n' "\$\$UPLOAD_OUTPUT" | sed -n 's/^url: //p' | tail -n 1)
+            if [ -n "\$\$OBS_URL" ]; then
+              printf '%s\t%s\n' "\$\$(basename "\$\$f")" "\$\$OBS_URL" >> "\$\$OBS_URLS_FILE"
+            else
+              echo "WARNING: Uploaded \$\$f but did not find public OBS URL in uploader output"
+            fi
           else
+            printf '%s\n' "\$\$UPLOAD_OUTPUT"
             echo "WARNING: Failed to upload \$\$f"
             UPLOAD_FAIL=\$\$((UPLOAD_FAIL + 1))
           fi
         done
+        if [ -s "\$\$OBS_URLS_FILE" ]; then
+          buildkite-agent artifact upload "\$\$OBS_URLS_FILE"
+          rm -f "\$\$OBS_URLS_FILE"
+        else
+          rm -f "\$\$OBS_URLS_FILE"
+        fi
         echo "OBS upload complete: \$\$UPLOAD_OK succeeded, \$\$UPLOAD_FAIL failed"
         [ "\$\$UPLOAD_FAIL" -eq 0 ]
       fi
     agents:
       queue: "default"
+      os: "linux"
       linux_arch: "arm64"
     plugins:
       - kubernetes:

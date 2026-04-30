@@ -148,6 +148,26 @@ class TestCliScripts(unittest.TestCase):
         self.assertTrue(ret)
         self.assertEqual(resp["id"], "instance-a")
 
+    def test_query_instance_rejects_malformed_response(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {
+                    "success": True,
+                    "data": {"error": "unexpected response"},
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            ret, resp = scripts.query_instance("instance-a", "tenant-a")
+
+        self.assertFalse(ret)
+        self.assertEqual(resp["error"], "invalid instances response: missing instances")
+
     def test_list_instances_passes_pagination_params(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__user", "tenant-a")
@@ -170,6 +190,32 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn("less than or equal to 1000", output.getvalue())
+
+    def test_list_instances_rejects_oversized_page(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        with self.assertRaises(SystemExit) as ctx, redirect_stdout(io.StringIO()) as output:
+            scripts.list(scripts.QUERY_INSTANCES_MAX_PAGE + 1, None, "instance")
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("less than or equal to 10000", output.getvalue())
+
+    def test_list_instances_rejects_malformed_response(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__user", "tenant-a")
+
+        def fake_query_instances(user=None, page=None, page_size=None):
+            return True, {"error": "unexpected response"}
+
+        with (
+            mock.patch.object(scripts, "query_instances", fake_query_instances),
+            self.assertRaises(SystemExit) as ctx,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            scripts.list(None, None, "instance")
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertIn("invalid instances response: missing instances", output.getvalue())
 
 
 if __name__ == "__main__":

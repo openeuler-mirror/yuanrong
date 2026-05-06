@@ -1063,7 +1063,7 @@ yr start --master_address {http_scheme}://{function_master_ip}:{function_master_
     ```java
     package org.yuanrong.demo;
 
-    import com.services.runtime.Context;
+    import org.yuanrong.services.runtime.Context;
     import com.google.gson.JsonObject;
     import java.time.LocalDate;
 
@@ -1391,7 +1391,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
         
     ```bash 
     META_SERVICE_ENDPOINT=<meta service 组件的服务端点，默认为：http://{主节点 IP}:31182>
-    curl -X POST -i ${META_SERVCICE_ENDPOINT}/serverless/v1/functions \
+    curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/functions \
             -H 'Content-Type: application/json' -H 'x-storage-type: local' \
             -d @create_func.json
         
@@ -1648,7 +1648,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     ```java
     package org.yuanrong.demo;
 
-    import com.services.runtime.Context;
+    import org.yuanrong.services.runtime.Context;
     import com.google.gson.JsonObject;
     import java.time.LocalDate;
 

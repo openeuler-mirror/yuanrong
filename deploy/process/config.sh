@@ -79,7 +79,7 @@ runtime_home_dir:,enable_dposix_uds:,dposix_uds_path:,local_ip:,\
 etcd_table_prefix:,etcd_target_name_override:,\
 ds_l2_cache_type:,ds_sfs_path:,ds_log_monitor_enable:,zmq_chunk_sz:,enable_lossless_data_exit_mode:,\
 meta_store_max_flush_concurrency:,meta_store_max_flush_batch_size:,\
-runtime_metrics_config:,\
+runtime_metrics_config:,enable_runtime_launcher:,\
 log_expiration_enable:,log_expiration_time_threshold:,log_expiration_cleanup_interval:,log_expiration_max_file_count:,\
 enable_traefik_registry:,traefik_domain:,traefik_etcd_prefix:,traefik_lease_ttl:,traefik_http_entrypoint:,traefik_enable_tls:,traefik_servers_transport:,\
 meta_service_address:,\
@@ -118,6 +118,8 @@ DATA_PLANE_INSTALL_DIR=""
 MASTER_INFO_OUT_FILE=""
 CPU_ALL=0
 MEM_ALL=0
+ENABLE_RUNTIME_LAUNCHER="false"
+RUNTIME_LAUNCHER_SOCK=""
 CPU4COMP=0
 MEM4COMP=0
 MEM4DATA=0
@@ -620,6 +622,7 @@ function usage() {
   echo -e "     --oom_kill_control_limit                            configure the control limit for the runtime OOM kill based on process memory usage, unit is MB."
   echo -e "     --oom_consecutive_detection_count                   number of consecutive times the memory usage must exceed the control limit before triggering OOM kill"
   echo -e "     --runtime_metrics_config                            runtime_metrics_config, default is false"
+  echo -e "     --enable_runtime_launcher                           enable runtime launcher for sandbox container backend, default is false"
 }
 
 function help_msg() {
@@ -742,6 +745,7 @@ function parse_opt() {
     --runtime_instance_debug_enable) RUNTIME_INSTANCE_DEBUG_ENABLE=$2 && shift 2 ;;
     --runtime_default_config) RUNTIME_DEFAULT_CONFIG=$2 && shift 2 ;;
     --runtime_metrics_config)  RUNTIME_METRICS_CONFIG=$2 && shift 2 ;;
+    --enable_runtime_launcher) ENABLE_RUNTIME_LAUNCHER=$2 && shift 2 ;;
     --npu_collection_mode) NPU_COLLECTION_MODE=$2 && shift 2 ;;
     --gpu_collection_enable) GPU_COLLECTION_ENABLE=$2 && shift 2 ;;
     --runtime_init_call_timeout_seconds) RUNTIME_INIT_CALL_TIMEOUT_SECONDS=$2 && shift 2 ;;
@@ -1378,6 +1382,7 @@ function process_log_config() {
 
 
   DATA_PLANE_INSTALL_DIR="${INSTALL_DIR_PARENT}"/"${NODE_ID}"
+  [ "${RUNTIME_LAUNCHER_SOCK}X" = "X" ] && RUNTIME_LAUNCHER_SOCK="${DATA_PLANE_INSTALL_DIR}/runtime-launcher.sock"
   [ "${DS_SPILL_DIRECTORY}X" = "X" ] && DS_SPILL_DIRECTORY="${DATA_PLANE_INSTALL_DIR}/data_system/spill"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logLevel\}\}/$FS_LOG_LEVEL}"
   FS_LOG_CONFIG="${FS_LOG_CONFIG//\{\{logCompressEnable\}\}/$FS_LOG_COMPRESS_ENABLE}"
@@ -1562,6 +1567,7 @@ function export_config() {
   export RUNTIME_LOG_PATH RUNTIME_LOG_LEVEL DS_LOG_LEVEL_STR MIN_INSTANCE_CPU_SIZE MIN_INSTANCE_MEMORY_SIZE
   export ACCESSOR_HTTP_PORT ACCESSOR_GRPC_PORT FUNCTION_AGENT_PORT FUNCTION_PROXY_PORT FUNCTION_PROXY_GRPC_PORT FUNCTION_PROXY_EXEC_GRPC_PORT
   export RUNTIME_INIT_PORT DS_WORKER_PORT RUNTIME_CONN_TIMEOUT_S
+  export ENABLE_RUNTIME_LAUNCHER RUNTIME_LAUNCHER_SOCK
   export RUNTIME_INIT_CALL_TIMEOUT_SECONDS IS_SCHEDULE_TOLERATE_ABNORMAL STATE_STORAGE_TYPE
   export MERGE_PROCESS_ENABLE FUNCTION_PROXY_MERGE_PROCESS_ENABLE DRIVER_GATEWAY_ENABLE
   export NPU_COLLECTION_MODE GPU_COLLECTION_ENABLE

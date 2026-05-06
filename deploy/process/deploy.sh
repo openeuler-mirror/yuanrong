@@ -143,6 +143,7 @@ function print_info() {
   fi
   printf "\n"
   printf "%30s %10s\n" "SERVICES_PATH:" "${SERVICES_PATH}"
+  printf "%30s %10s\n" "CONTAINER_EP:" "${CONTAINER_EP:-not configured}"
   printf "\n\n"
 }
 
@@ -506,6 +507,46 @@ function start_function_proxy() {
   check_and_set_component_checklist "function_proxy" $FUNCTION_PROXY_PID
 }
 
+function start_runtime_launcher() {
+  if [ "X${ENABLE_RUNTIME_LAUNCHER}" != "Xtrue" ]; then
+    return 0
+  fi
+  local bin
+  bin=$(readlink -m "${FUNCTION_SYSTEM_PATH}/bin/runtime-launcher")
+  if [ ! -f "${bin}" ]; then
+    log_warning "runtime-launcher not found at ${bin}, sandbox features will be unavailable"
+    return 0
+  fi
+  local socket_path="${RUNTIME_LAUNCHER_SOCK}"
+  local backend="${RUNTIME_LAUNCHER_BACKEND:-docker}"
+  local docker_host="${DOCKER_HOST:-}"
+  mkdir -p "$(dirname "${socket_path}")"
+  rm -f "${socket_path}"
+  local args="--socket ${socket_path} --backend ${backend}"
+  if [ -n "${docker_host}" ]; then
+    args="${args} --docker-host ${docker_host}"
+  fi
+  log_info "starting runtime-launcher, backend=${backend}, socket=${socket_path}..."
+  "${bin}" ${args} \
+    >>"${FS_LOG_PATH}/${NODE_ID}-runtime-launcher${STD_LOG_SUFFIX}" 2>&1 &
+  local pid=$!
+  local retry=0
+  while [ ! -S "${socket_path}" ] && [ ${retry} -lt 30 ]; do
+    if ! kill -0 ${pid} 2>/dev/null; then
+      log_error "runtime-launcher exited unexpectedly"
+      return 1
+    fi
+    sleep 1
+    retry=$((retry + 1))
+  done
+  if [ ! -S "${socket_path}" ]; then
+    log_warning "runtime-launcher socket not ready after ${retry}s"
+  fi
+  export CONTAINER_EP="unix://${socket_path}"
+  check_and_set_component_checklist "runtime_launcher" ${pid}
+  log_info "runtime-launcher started, pid=${pid}"
+}
+
 function start_function_agent() {
   if [ "X${FUNCTION_PROXY_MERGE_PROCESS_ENABLE^^}" == "XTRUE" ]; then
     log_info "function_proxy_merge_process_enable is true, function_agent will be started by function_proxy, skip starting function_agent separately"
@@ -748,6 +789,9 @@ function restart_component() {
   function_master|ds_master|collector|faas_frontend|dashboard|function_scheduler|meta_service|iam_server)
     restart_module "$1"
     ;;
+  runtime_launcher)
+    start_runtime_launcher
+    ;;
   etcd)
     if [ "X${ENABLE_MULTI_MASTER}" = "Xtrue" ]; then
       restart_module "$1"
@@ -980,6 +1024,7 @@ function main() {
   if [ "x${DEPLOY_FUNCTION_PROXY}" = "xtrue" ]; then
       health_check "function_proxy" ${pid_table["function_proxy"]}
   fi
+  start_runtime_launcher
   if [ ${CPU4COMP} -le 100 ]; then
     log_warning "no cpu available for function agent, skip starting it"
   else

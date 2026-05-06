@@ -107,6 +107,7 @@ functionsystem:
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/
 	cp functionsystem/output/*.whl output/
+	cp functionsystem/runtime-launcher/bin/runtime/runtime-launcher output/ 2>/dev/null || true
 
 dashboard:
 	cd go && bash build.sh && cd -

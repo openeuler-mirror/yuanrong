@@ -93,6 +93,11 @@ get_all
 tar -zxf yr-runtime-*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
 tar -zxf *functionsystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong
 
+if [ -f "${OUTPUT_DIR}/runtime-launcher" ]; then
+  mkdir -p ${OUTPUT_DIR}/openyuanrong/functionsystem/bin
+  cp ${OUTPUT_DIR}/runtime-launcher ${OUTPUT_DIR}/openyuanrong/functionsystem/bin/
+fi
+
 tar -zxf *datasystem*.tar.gz -C ${OUTPUT_DIR}/openyuanrong/
 rm -rf ${OUTPUT_DIR}/openyuanrong/datasystem/sdk/DATASYSTEM_SYM
 rm -rf ${OUTPUT_DIR}/openyuanrong/datasystem/service/DATASYSTEM_SYM

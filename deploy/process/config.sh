@@ -41,7 +41,7 @@ ds_log_level:,ds_log_path:,ds_log_rolling_max_size:,ds_log_rolling_max_files:,\
 is_schedule_tolerate_abnormal:,max_instance_cpu_size:,max_instance_memory_size:,\
 min_instance_cpu_size:,min_instance_memory_size:,\
 ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
-ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,\
+ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,ds_node_role:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
 enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,enable_function_token_auth:,\
@@ -302,6 +302,7 @@ DS_L2_CACHE_TYPE="none"
 DS_SFS_PATH=""
 DS_ENABLE_THP="false"
 ENABLE_DISTRIBUTED_MASTER="false"
+DS_NODE_ROLE=""
 # Third Party Configuration
 ETCD_MODE="inner"
 ETCD_IP=""
@@ -581,6 +582,7 @@ function usage() {
   echo -e "     --runtime_ds_encrypt_enable                         runtime and data system encrypt enable(default false)"
   echo -e "     --runtime_ds_connect_timeout                        runtime and data system connection timeout(s)(default 1800)"
   echo -e "     --enable_distributed_master                         to enable distributed deploy master(default false)"
+  echo -e "     --ds_node_role                                      data system node role, options: master/worker (default: master for --master nodes, worker for agent nodes)"
   echo -e "     --enable_lossless_data_exit_mode                    to enable lossless data exit mode(default false)"
   echo -e "     --cache_storage_auth_type                           for cache storage service auth type, eg: Noauth, ZMQ, AK/SK"
   echo -e "     --cache_storage_auth_enable                         for cache storage service auth"
@@ -653,6 +655,7 @@ function parse_opt() {
     --master) ENABLE_MASTER="true" && shift 1 ;;
     --master_info) MASTER_INFO=$2 && shift 2 ;;
     --enable_distributed_master) ENABLE_DISTRIBUTED_MASTER="true" && shift 1 ;;
+    --ds_node_role) DS_NODE_ROLE=$2 && shift 2 ;;
     -p|--services_path) SERVICES_PATH=$2 && shift 2 ;;
     --custom_resources) CUSTOM_RESOURCES=$2 && shift 2 ;;
     --labels) LABELS=$2 && shift 2 ;;
@@ -1594,7 +1597,7 @@ function export_config() {
   export BLOCK CUSTOM_RESOURCES LABELS SEPARATED_REDIRECT_RUNTIME_STD USER_LOG_EXPORT_MODE
   export USER_LOG_AUTO_FLUSH_INTERVAL_MS USER_LOG_BUFFER_FLUSH_THRESHOLD
   export USER_LOG_MAX_ROLLING_FILE_SIZE_MB USER_LOG_MAX_ROLLING_LOG_FILE_NUM
-  export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK
+  export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK DS_NODE_ROLE
   export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT

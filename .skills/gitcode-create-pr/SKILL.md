@@ -1,29 +1,73 @@
 ---
 name: gitcode-create-pr
-description: Use when creating or updating a GitCode pull request, especially for fork-to-upstream flows where head/base formatting and push order matter
+description: Use when creating or updating a GitCode pull request in the yuanrong repository, especially for the normal fork-to-upstream flow where the branch must be pushed to origin, the PR must target upstream, and the repo template and title format must be followed
 ---
 
-# GitCode PR
+# GitCode PR For Yuanrong
 
 ## Overview
 
-Create or update GitCode pull requests with the GitCode API.
+Create or update GitCode pull requests for this repository with the GitCode API.
 
-Use the repository PR template at `.gitee/PULL_REQUEST_TEMPLATE/PULL_REQUEST_TEMPLATE.en.md` when preparing the PR body.
+This skill is **yuanrong-specific**:
+
+- `origin` is normally your fork, for example `git@gitcode.com:yuchaow/yuanrong.git`
+- `upstream` is the shared target repo, normally `git@gitcode.com:openeuler/yuanrong.git`
+- the default PR target is usually `upstream/master`
+- the PR body should follow `.gitee/PULL_REQUEST_TEMPLATE/PULL_REQUEST_TEMPLATE.en.md`
+
+## Default Repo Policy
+
+For this repository, the normal workflow is:
+
+1. commit on the current working branch
+2. push the branch to `origin`
+3. create the PR against `upstream`
+
+**Do not push working branches to `upstream` by default.**
+
+Treat upstream pushes as exceptional. Only push to `upstream` when:
+
+- the user explicitly asks for an upstream push
+- repository policy clearly requires a same-repo branch
+
+If neither is true, push to `origin` and open a fork PR to `upstream`.
+
+## Auto-Detection
+
+Run these checks first:
+
+```bash
+git remote -v
+git branch --show-current
+git log -1 --format="%B" | grep -qi "Signed-off-by" && echo "SIGNED=1" || echo "SIGNED=0"
+git log -1 --format="%s" | grep -E "^(fix|feat|docs|style|refactor|test|chore|perf|ci|build|revert)" && echo "PREFIX=OK" || echo "PREFIX=BAD"
+cat .gitee/PULL_REQUEST_TEMPLATE/PULL_REQUEST_TEMPLATE.en.md 2>/dev/null || \
+cat .gitcode/PULL_REQUEST_TEMPLATE/PULL_REQUEST_TEMPLATE.en.md 2>/dev/null || \
+echo "TEMPLATE_NOT_FOUND"
+echo "GITCODE_APIKEY=${GITCODE_APIKEY:+set}"
+```
+
+For yuanrong, expect:
+
+- `origin` = personal fork
+- `upstream` = `openeuler/yuanrong`
+- current branch = working branch to publish
+- API key must be set
 
 ## Required Inputs
 
-- `owner`: target repository owner
-- `repo`: target repository name
-- `source_branch`: branch containing the changes
-- `target_branch`: branch to merge into
+- `source_branch`: current working branch
+- `target_branch`: normally `master`, unless the user specifies another base
 - `title`: PR title
-- `body`: PR description in markdown
+- `body`: markdown PR body
 
-For fork PRs also collect:
+For the normal fork workflow also collect:
 
-- `fork_owner`
-- `fork_repo`
+- `owner=openeuler`
+- `repo=yuanrong`
+- `fork_owner` from `origin`
+- `fork_repo` from `origin`
 
 ## Commit Requirements
 
@@ -33,116 +77,181 @@ Commits prepared for the PR should satisfy this pattern:
 ^(fix|feat|docs|style|refactor|test|chore|perf|ci|build|revert)(\([^)]+\)|\[[^\]]+\])?:.+[\s\S]*Signed-off-by:.+<.+@.+>
 ```
 
-Practical rules:
+Practical rules for yuanrong:
 
-- The subject must start with one of `fix|feat|docs|style|refactor|test|chore|perf|ci|build|revert`
-- An optional scope may use either `(scope)` or `[scope]`
-- The message body must include a `Signed-off-by:` trailer
-- Use `git commit -s` so the trailer is generated correctly
-- Reject or rewrite commits that do not meet this format before opening the PR
+- the commit subject must start with one of `fix|feat|docs|style|refactor|test|chore|perf|ci|build|revert`
+- optional scope may use either `(scope)` or `[scope]`
+- the message body must include a `Signed-off-by:` trailer
+- use `git commit -s`
 
-## Create a PR
-
-### 1. Amend commit to add Signed-off-by (if missing)
+If `Signed-off-by` is missing:
 
 ```bash
 git commit --amend --no-edit --signoff
 ```
 
-### 2. Push the source branch
+## PR Title And Body Rules
 
-```bash
-git push <fork-remote> <source_branch>
-# If the commit was amended after a previous push:
-git push -f <fork-remote> <source_branch>
+This repository's PR template requires:
+
+- `/kind <type>` near the top
+- a summary section
+- an issue section
+- an API/interface section
+- a checklist section
+
+The template also says the MR title should look like:
+
+```text
+fix[module-name]: short description
 ```
 
-### 3. Create the PR
+For yuanrong, prefer concrete module scopes such as:
 
-`curl` fails with shell-escaped JSON when the body contains newlines or special
-characters. **Use Python instead** — it handles quoting correctly:
+- `cli`
+- `sandbox`
+- `functionsystem`
+- `datasystem`
+- `build`
+- `docs`
+- `yr-k8s`
 
-Same-repository PR:
+## Push Rules
+
+### Normal yuanrong fork workflow
+
+Push to `origin`, not `upstream`:
+
+```bash
+git push origin <source_branch>
+# If branch doesn't exist remotely:
+git push -u origin <source_branch>
+```
+
+If the commit was amended after a previous push:
+
+```bash
+git push -f origin <source_branch>
+```
+
+### Upstream push
+
+Only do this if the user explicitly requests it:
+
+```bash
+git push upstream <source_branch>
+git push -u upstream <source_branch>
+```
+
+Before doing this, restate to yourself that this is an explicit exception, not the default.
+
+## Create The PR
+
+### Fork PR to upstream (default for yuanrong)
+
+Use Python, not curl:
 
 ```python
 import urllib.request, json, os
+
+data = json.dumps({
+    "head": f"{fork_owner}:{source_branch}",
+    "base": target_branch,
+    "title": title,
+    "body": body,
+    "fork_path": f"{fork_owner}/{fork_repo}",
+}).encode()
+
+req = urllib.request.Request(
+    f"https://gitcode.com/api/v5/repos/{owner}/{repo}/pulls",
+    data=data,
+    headers={
+        "Content-Type": "application/json",
+        "PRIVATE-TOKEN": os.environ["GITCODE_APIKEY"],
+    },
+    method="POST",
+)
+
+with urllib.request.urlopen(req) as resp:
+    result = json.loads(resp.read())
+    print(result["web_url"], "iid:", result["iid"])
+```
+
+Use:
+
+- `owner="openeuler"`
+- `repo="yuanrong"`
+- `target_branch="master"` unless the user specifies otherwise
+
+### Same-repo PR
+
+Only use this when the branch was intentionally pushed to `upstream`:
+
+```python
+import urllib.request, json, os
+
 data = json.dumps({
     "head": source_branch,
     "base": target_branch,
     "title": title,
     "body": body,
 }).encode()
+
 req = urllib.request.Request(
     f"https://gitcode.com/api/v5/repos/{owner}/{repo}/pulls",
     data=data,
-    headers={"Content-Type": "application/json",
-             "PRIVATE-TOKEN": os.environ["GITCODE_APIKEY"]},
+    headers={
+        "Content-Type": "application/json",
+        "PRIVATE-TOKEN": os.environ["GITCODE_APIKEY"],
+    },
     method="POST",
 )
+
 with urllib.request.urlopen(req) as resp:
     result = json.loads(resp.read())
-    print(result["web_url"], "  iid:", result["iid"])
+    print(result["web_url"], "iid:", result["iid"])
 ```
 
-Cross-repository PR from a fork:
+## Update A PR
 
 ```python
 import urllib.request, json, os
-data = json.dumps({
-    "head": f"{fork_owner}:{source_branch}",   # MUST include fork_owner prefix
-    "base": target_branch,
-    "title": title,
-    "body": body,
-    "fork_path": f"{fork_owner}/{fork_repo}",
-}).encode()
-req = urllib.request.Request(
-    f"https://gitcode.com/api/v5/repos/{owner}/{repo}/pulls",
-    data=data,
-    headers={"Content-Type": "application/json",
-             "PRIVATE-TOKEN": os.environ["GITCODE_APIKEY"]},
-    method="POST",
-)
-with urllib.request.urlopen(req) as resp:
-    result = json.loads(resp.read())
-    print(result["web_url"], "  iid:", result["iid"])
-```
 
-The response JSON contains `web_url` and `iid` (PR number) on success.
-
-## Update a PR
-
-```python
-import urllib.request, json, os
 data = json.dumps({"title": new_title, "body": new_body}).encode()
 req = urllib.request.Request(
-    f"https://gitcode.com/api/v5/repos/{owner}/{repo}/pulls/{pr_number}",
+    f"https://gitcode.com/api/v5/repos/openeuler/yuanrong/pulls/{pr_number}",
     data=data,
-    headers={"Content-Type": "application/json",
-             "PRIVATE-TOKEN": os.environ["GITCODE_APIKEY"]},
+    headers={
+        "Content-Type": "application/json",
+        "PRIVATE-TOKEN": os.environ["GITCODE_APIKEY"],
+    },
     method="PATCH",
 )
+
 with urllib.request.urlopen(req) as resp:
     print(json.loads(resp.read())["web_url"])
 ```
 
-## Notes
+## Yuanrong Checklist
 
-- GitCode fork PRs **require** `head` to be `fork_owner:branch` — bare branch names
-  return `400 head或base不能为空`.
-- `fork_path` supplements `head` but does not replace the owner prefix.
-- If the API returns `400 head或base不能为空`, the `head` format is wrong — add the
-  `fork_owner:` prefix.
-- Before creating or updating a PR, verify the branch history does not contain
-  commits that violate the required commit-message pattern.
-- The `Signed-off-by:` trailer must appear **after** `Co-authored-by:` if both
-  are present.
+Before creating the PR, confirm all of:
+
+- [ ] branch is pushed to `origin` unless the user explicitly requested upstream push
+- [ ] PR target repo is `upstream` / `openeuler/yuanrong`
+- [ ] base branch is `master` unless the user specified another base
+- [ ] `head` uses `fork_owner:source_branch` for fork PRs
+- [ ] `fork_path` is present for fork PRs
+- [ ] latest commit has allowed prefix
+- [ ] latest commit has `Signed-off-by`
+- [ ] PR body follows `.gitee/.../PULL_REQUEST_TEMPLATE.en.md`
+- [ ] PR title uses `type[module]: description` style
 
 ## Common Mistakes
 
-- Creating the PR before pushing the source branch
-- Using `https://api.gitcode.com/api/v5` instead of `https://gitcode.com/api/v5`
-- Using `curl` with multi-line body strings — special characters break JSON escaping;
-  use Python `json.dumps` instead
-- Using bare `head: "<branch>"` for fork PRs (missing `fork_owner:` prefix)
-- Forgetting the `Signed-off-by:` trailer or using a subject prefix outside the allowed set
-- Omitting the repository PR template when writing the body
+- Pushing the work branch to `upstream` out of habit
+- Using `origin` as the PR target repo instead of `upstream`
+- Forgetting that yuanrong normally wants fork PRs even when `upstream` exists
+- Using bare `head: "<branch>"` for a fork PR
+- Skipping the repo template sections
+- Using a PR title that doesn't match `type[module]: description`
+- Using `curl` with multiline markdown body

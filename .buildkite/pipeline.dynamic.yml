@@ -6,6 +6,21 @@ SANDBOX_PACKAGER_IMAGE="${SANDBOX_PACKAGER_IMAGE:-swr.cn-southwest-2.myhuaweiclo
 ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-false}"
 ENABLE_LINUX_ARM="${ENABLE_LINUX_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
+ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
+RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260507_x86_64}"
+FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanrong-functionsystem.git}"
+FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
+
+validate_ci_value() {
+  local name="$1"
+  local value="$2"
+  local pattern="$3"
+
+  if [[ ! "$value" =~ $pattern ]]; then
+    echo "Invalid $name for dynamic pipeline: $value" >&2
+    exit 1
+  fi
+}
 
 echo "steps:"
 cat << YAML
@@ -268,6 +283,101 @@ cat << YAML
     artifact_paths:
       - "artifacts/release/**/*"
 YAML
+
+case "${ENABLE_RUST_FUNCTIONSYSTEM_ST}" in
+  1|true|TRUE|yes|YES|on|ON)
+validate_ci_value "FUNCTIONSYSTEM_REPO" "$FUNCTIONSYSTEM_REPO" '^[A-Za-z0-9._:/@+~-]+$'
+validate_ci_value "FUNCTIONSYSTEM_BRANCH" "$FUNCTIONSYSTEM_BRANCH" '^[A-Za-z0-9._/-]+$'
+validate_ci_value "RUST_BUILDER_IMAGE" "$RUST_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
+
+cat << YAML
+  - label: ":crab: Rust FunctionSystem E2E"
+    key: "rust-functionsystem-e2e-amd64"
+    depends_on: "build-all-amd64"
+    command: |
+      set -euo pipefail
+      export PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:\$\$PATH
+      export CC=gcc-10
+      export CXX=g++-10
+      export PIP_BREAK_SYSTEM_PACKAGES=1
+      JOBS="\$\${JOBS:-16}"
+
+      upload_rust_artifacts() {
+        buildkite-agent artifact upload "artifacts/rust-fs-st/**/*" || true
+      }
+      trap upload_rust_artifacts EXIT
+
+      mkdir -p output artifacts/rust-fs-st
+
+      echo "=== [1/6] Download Build All artifacts ==="
+      buildkite-agent artifact download "artifacts/release/*" . --step build-all-amd64
+      cp artifacts/release/* output/
+
+      echo "=== [2/6] Replace functionsystem source with Rust branch ==="
+      rm -rf functionsystem
+      git clone --depth 1 --branch "${FUNCTIONSYSTEM_BRANCH}" "${FUNCTIONSYSTEM_REPO}" functionsystem
+
+      echo "=== [3/6] Prepare datasystem input for functionsystem ==="
+      mkdir -p functionsystem/vendor/src
+      cp output/yr-datasystem-*.tar.gz functionsystem/vendor/src/yr-datasystem.tar.gz
+
+      echo "=== [4/6] Build Rust-backed functionsystem via normal contract ==="
+      rm -f output/yr-functionsystem*.tar.gz
+      make functionsystem JOBS=\$\$JOBS 2>&1 | tee artifacts/rust-fs-st/functionsystem_build.log
+
+      echo "=== [5/6] Repackage openyuanrong with Rust functionsystem ==="
+      rm -rf output/openyuanrong
+      bash scripts/package_yuanrong.sh -v "rust-fs-ci-\$\${BUILDKITE_BUILD_NUMBER:-0}" 2>&1 | tee artifacts/rust-fs-st/package_yuanrong.log
+
+      echo "=== [6/6] Run Python ST/E2E ==="
+      export DEPLOY_PATH="\$\$PWD/artifacts/rust-fs-st/deploy"
+      set +e
+      bash test/st/test.sh -y "\$\$PWD/output/openyuanrong" -l python 2>&1 | tee artifacts/rust-fs-st/test_st_python.log
+      TEST_EXIT=\$\$?
+      set -e
+
+      {
+        echo "TEST_EXIT=\$\$TEST_EXIT"
+        echo "BUILD_URL=\$\${BUILDKITE_BUILD_URL:-}"
+        echo "FUNCTIONSYSTEM_REPO=${FUNCTIONSYSTEM_REPO}"
+        echo "FUNCTIONSYSTEM_BRANCH=${FUNCTIONSYSTEM_BRANCH}"
+        echo "RUST_BUILDER_IMAGE=${RUST_BUILDER_IMAGE}"
+      } > artifacts/rust-fs-st/summary.txt
+      cp failed_case_list artifacts/rust-fs-st/failed_case_list 2>/dev/null || true
+
+      if [ "\$\$TEST_EXIT" -eq 0 ]; then
+        buildkite-agent annotate --style "success" --context "rust-functionsystem-e2e" "Rust FunctionSystem E2E passed."
+      else
+        buildkite-agent annotate --style "error" --context "rust-functionsystem-e2e" "Rust FunctionSystem E2E failed. Download artifacts/rust-fs-st for logs."
+      fi
+
+      exit "\$\$TEST_EXIT"
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            containers:
+              - image: "$RUST_BUILDER_IMAGE"
+                volumeMounts:
+                  - name: build-cache
+                    mountPath: /mnt/paas
+                resources:
+                  requests: { cpu: "16", memory: "32Gi" }
+                  limits: { cpu: "16", memory: "32Gi" }
+            volumes:
+              - name: build-cache
+                hostPath:
+                  path: /mnt/paas
+                  type: DirectoryOrCreate
+    timeout_in_minutes: 180
+    artifact_paths:
+      - "artifacts/rust-fs-st/**/*"
+YAML
+;;
+esac
 
 case "${ENABLE_SANDBOX_PACKAGE}" in
   1|true|TRUE|yes|YES|on|ON)

@@ -20,6 +20,8 @@ services:
       PYTHON_PATH_3120: /opt/buildtools/python3.12
       PYTHON_PATH_3130: /opt/buildtools/python3.13
       PIP_BREAK_SYSTEM_PACKAGES: "1"
+      COMPILE_HOME: ${COMPILE_HOME:-${HOME}}
+      COMPILE_USER: ${COMPILE_USER:-${USER}}
       PATH: "/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
       LD_LIBRARY_PATH: "/opt/buildtools/python3.9/lib:/opt/buildtools/python3.10/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/usr/lib:/usr/lib64"
     ports:
@@ -28,10 +30,17 @@ services:
       - /etc/passwd:/etc/passwd:ro
       - /etc/group:/etc/group:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/docker:/usr/bin/docker
-      - ${COMPILE_HOME:-/home/wyc}:${COMPILE_HOME:-/home/wyc}
+      - ${COMPILE_HOME:-${HOME}}:${COMPILE_HOME:-${HOME}}
     command: >
-      bash -c "{ echo '#!/bin/bash';
+      bash -c "if getent passwd '${COMPILE_USER:-${USER}}' >/dev/null && ! grep -q '^${COMPILE_USER:-${USER}}:' /etc/shadow; then
+      echo '${COMPILE_USER:-${USER}}:*:20182:0:99999:7:::' >> /etc/shadow;
+      fi;
+      if getent group '${COMPILE_USER:-${USER}}' >/dev/null && ! grep -q '^${COMPILE_USER:-${USER}}:' /etc/gshadow; then
+      echo '${COMPILE_USER:-${USER}}:!::' >> /etc/gshadow;
+      fi;
+      echo '${COMPILE_USER:-${USER}} ALL=(ALL:ALL) NOPASSWD:ALL' > /etc/sudoers.d/compile-user-nopasswd;
+      chmod 440 /etc/sudoers.d/compile-user-nopasswd;
+      { echo '#!/bin/bash';
       echo 'export JAVA_HOME=/opt/buildtools/jdk8';
       echo 'export MAVEN_HOME=/opt/buildtools/apache-maven-3.9.11';
       echo 'export GOROOT=/opt/buildtools/golang_go-1.24.1';
@@ -43,7 +52,9 @@ services:
       echo 'export PYTHON_PATH_3114=/opt/buildtools/python3.11';
       echo 'export PYTHON_PATH_3120=/opt/buildtools/python3.12';
       echo 'export PYTHON_PATH_3130=/opt/buildtools/python3.13';
-      echo 'export PATH=/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:/home/wyc/.local/bin:/usr/lib/ccache:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+      echo 'export COMPILE_HOME=${COMPILE_HOME:-${HOME}}';
+      echo 'export COMPILE_USER=${COMPILE_USER:-${USER}}';
+      echo 'export PATH=/opt/buildtools/cmake/bin:/opt/buildtools/jdk8/bin:/opt/buildtools/apache-maven-3.9.11/bin:/opt/buildtools/golang_go-1.24.1/bin:/opt/buildtools/go_workspace/bin:/opt/buildtools/nodejs/bin:/opt/buildtools/python3.9/bin:/opt/buildtools/python3.10/bin:/opt/buildtools/python3.11/bin:/opt/buildtools/python3.12/bin:/opt/buildtools/python3.13/bin:${COMPILE_HOME:-${HOME}}/.local/bin:/usr/lib/ccache:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
       echo 'export LD_LIBRARY_PATH=/opt/buildtools/python3.9/lib:/opt/buildtools/python3.10/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:/usr/lib:/usr/lib64';
       echo 'export PIP_BREAK_SYSTEM_PACKAGES=1';
       echo 'export CGO_ENABLED=1';

@@ -80,7 +80,6 @@ Create if missing:
   kubectl create secret generic {{ .Values.gitcodeWebhookRelay.secretName }} \
     --from-literal=buildkite-api-token=<BUILDKITE_API_TOKEN> \
     --from-literal=webhook-token=<GITCODE_WEBHOOK_TOKEN> \
-    --from-literal=webhook-signature-secret=<GITCODE_WEBHOOK_SIGNATURE_SECRET> \
     -n {{ .Values.namespaces.buildTools }}
 
 === agent-stack-k8s (deployed separately via upstream chart) ===
@@ -119,5 +118,5 @@ GitCode WebHook settings:
   URL: {{- if .Values.gitcodeWebhookRelay.ingress.enabled }} https://{{ .Values.gitcodeWebhookRelay.ingress.host }}{{ .Values.gitcodeWebhookRelay.path }}{{- else }} expose the Service first, then use {{ .Values.gitcodeWebhookRelay.path }}{{- end }}
   Content-Type: application/json
   Events: Commit Event, Pull Request Event
-  Secret: use either X-GitCode-Token or X-GitCode-Signature-256 configured in secret {{ .Values.gitcodeWebhookRelay.secretName }}
+  Secret: set the GitCode WebHook password to the same value as webhook-token in secret {{ .Values.gitcodeWebhookRelay.secretName }}
 {{- end }}

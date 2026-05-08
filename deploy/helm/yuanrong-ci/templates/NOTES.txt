@@ -110,6 +110,7 @@ The image must be mirrored to SWR before deploying (Docker Hub is blocked):
 
 [OK] gitcode-webhook-relay
      Namespace : {{ .Values.namespaces.buildTools }}
+     Repository: {{ .Values.gitcodeWebhookRelay.buildkite.repository }}
      Service   : http://gitcode-webhook-relay.{{ .Values.namespaces.buildTools }}.svc.cluster.local{{ .Values.gitcodeWebhookRelay.path }}
 {{- if .Values.gitcodeWebhookRelay.ingress.enabled }}
      Ingress   : https://{{ .Values.gitcodeWebhookRelay.ingress.host }}{{ .Values.gitcodeWebhookRelay.path }}

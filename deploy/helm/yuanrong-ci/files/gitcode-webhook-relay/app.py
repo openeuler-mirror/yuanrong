@@ -5,6 +5,8 @@ import hmac
 import json
 import os
 import sys
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import error, request
 
@@ -21,6 +23,13 @@ def env_csv(name):
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
+def env_int(name, default):
+    value = os.getenv(name, "")
+    if not value.strip():
+        return default
+    return int(value)
+
+
 def require_env(name):
     value = os.getenv(name, "").strip()
     if not value:
@@ -34,6 +43,7 @@ SETTINGS = {
     "buildkite_org": require_env("BUILDKITE_ORGANIZATION"),
     "buildkite_pipeline": require_env("BUILDKITE_PIPELINE"),
     "buildkite_token": require_env("BUILDKITE_API_TOKEN"),
+    "buildkite_repository": os.getenv("BUILDKITE_REPOSITORY", "").strip(),
     "message_prefix": os.getenv("BUILDKITE_MESSAGE_PREFIX", "Triggered by GitCode"),
     "buildkite_env": json.loads(os.getenv("BUILDKITE_ENV_JSON", "{}")),
     "trigger_push": env_bool("RELAY_TRIGGER_PUSH", True),
@@ -43,6 +53,7 @@ SETTINGS = {
     "mr_actions": env_csv("RELAY_ALLOWED_MR_ACTIONS"),
     "skip_wip": env_bool("RELAY_SKIP_WORK_IN_PROGRESS", True),
     "use_virtual_merge_ref": env_bool("RELAY_USE_VIRTUAL_MERGE_REF", False),
+    "dedup_ttl_seconds": env_int("RELAY_DEDUP_TTL_SECONDS", 900),
     "webhook_token": os.getenv("GITCODE_WEBHOOK_TOKEN", ""),
     "signature_secret": os.getenv("GITCODE_WEBHOOK_SIGNATURE_SECRET", ""),
 }
@@ -52,6 +63,10 @@ if not isinstance(SETTINGS["buildkite_env"], dict):
 
 if not SETTINGS["webhook_token"] and not SETTINGS["signature_secret"]:
     raise RuntimeError("Either GITCODE_WEBHOOK_TOKEN or GITCODE_WEBHOOK_SIGNATURE_SECRET is required")
+
+
+BUILD_DEDUP_CACHE = {}
+BUILD_DEDUP_LOCK = threading.Lock()
 
 
 def verify_request(body, headers):
@@ -65,8 +80,27 @@ def verify_request(body, headers):
             return True
 
     token = SETTINGS["webhook_token"]
-    received = headers.get("X-GitCode-Token", "")
-    return hmac.compare_digest(received, token)
+    if not token:
+        return False
+
+    for header in ("X-GitCode-Token", "X-Gitlab-Token", "X-GitLab-Token", "X-Gitee-Token"):
+        received = headers.get(header, "")
+        if received and hmac.compare_digest(received, token):
+            return True
+
+    return False
+
+
+def auth_failure_details(headers):
+    return {
+        "token_configured": bool(SETTINGS["webhook_token"]),
+        "signature_secret_configured": bool(SETTINGS["signature_secret"]),
+        "auth_headers_present": sorted(
+            key
+            for key in headers.keys()
+            if key.lower().startswith("x-git") or key.lower() in {"x-hub-signature-256"}
+        ),
+    }
 
 
 def respond(handler, code, payload):
@@ -83,12 +117,40 @@ def parse_push_branch(ref):
     return ref[len(prefix):] if ref.startswith(prefix) else ref
 
 
+def reserve_build_key(build_key):
+    ttl = SETTINGS["dedup_ttl_seconds"]
+    if not build_key or ttl <= 0:
+        return True
+
+    now = time.time()
+    expires_at = now + ttl
+    with BUILD_DEDUP_LOCK:
+        expired = [key for key, value in BUILD_DEDUP_CACHE.items() if value <= now]
+        for key in expired:
+            del BUILD_DEDUP_CACHE[key]
+        if build_key in BUILD_DEDUP_CACHE:
+            return False
+        BUILD_DEDUP_CACHE[build_key] = expires_at
+        return True
+
+
+def release_build_key(build_key):
+    if not build_key:
+        return
+    with BUILD_DEDUP_LOCK:
+        BUILD_DEDUP_CACHE.pop(build_key, None)
+
+
 def trigger_buildkite(branch, commit, message, extra_env):
+    build_env = {**SETTINGS["buildkite_env"], **extra_env}
+    if SETTINGS["buildkite_repository"]:
+        build_env["BUILDKITE_REPO"] = SETTINGS["buildkite_repository"]
+
     payload = {
         "branch": branch,
         "commit": commit,
         "message": message,
-        "env": {**SETTINGS["buildkite_env"], **extra_env},
+        "env": build_env,
     }
     url = (
         "https://api.buildkite.com/v2/organizations/"
@@ -189,25 +251,35 @@ def handle_merge_request(payload):
 
     iid = attrs.get("iid", "")
     project = payload.get("project", {}).get("path_with_namespace", "")
+    build_key = f"merge_request:{iid}:{action}:{source_branch}:{target_branch}:{commit}"
+    if not reserve_build_key(build_key):
+        return skip_response(
+            "duplicate merge request build trigger",
+            {"iid": iid, "action": action, "target_branch": target_branch, "commit": commit},
+        )
     message = (
         f"{SETTINGS['message_prefix']}: mr !{iid} {action} "
         f"{source_branch}->{target_branch} {commit[:12]}"
     )
-    build = trigger_buildkite(
-        branch=branch,
-        commit=commit,
-        message=message,
-        extra_env={
-            "GITCODE_EVENT_KIND": "merge_request",
-            "GITCODE_PROJECT_PATH": project,
-            "GITCODE_MR_IID": str(iid),
-            "GITCODE_MR_ACTION": action,
-            "GITCODE_MR_SOURCE_BRANCH": source_branch,
-            "GITCODE_MR_TARGET_BRANCH": target_branch,
-            "GITCODE_MR_URL": attrs.get("url", ""),
-            "GITCODE_EVENT_UUID": payload.get("uuid", ""),
-        },
-    )
+    try:
+        build = trigger_buildkite(
+            branch=branch,
+            commit=commit,
+            message=message,
+            extra_env={
+                "GITCODE_EVENT_KIND": "merge_request",
+                "GITCODE_PROJECT_PATH": project,
+                "GITCODE_MR_IID": str(iid),
+                "GITCODE_MR_ACTION": action,
+                "GITCODE_MR_SOURCE_BRANCH": source_branch,
+                "GITCODE_MR_TARGET_BRANCH": target_branch,
+                "GITCODE_MR_URL": attrs.get("url", ""),
+                "GITCODE_EVENT_UUID": payload.get("uuid", ""),
+            },
+        )
+    except Exception:
+        release_build_key(build_key)
+        raise
     return 200, {
         "status": "triggered",
         "event": "merge_request",
@@ -259,7 +331,8 @@ class RelayHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length)
 
         if not verify_request(body, self.headers):
-            respond(self, 401, {"status": "error", "reason": "invalid webhook signature"})
+            self.log_message("webhook auth failed: %s", json.dumps(auth_failure_details(self.headers), sort_keys=True))
+            respond(self, 401, {"status": "error", "reason": "invalid webhook authentication"})
             return
 
         try:

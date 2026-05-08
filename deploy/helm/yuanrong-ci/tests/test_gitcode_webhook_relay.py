@@ -40,10 +40,13 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
                 "mr_target_branches": {"feature/sandbox"},
                 "skip_wip": True,
                 "use_virtual_merge_ref": False,
+                "buildkite_repository": "https://gitcode.com/openeuler/yuanrong.git",
+                "dedup_ttl_seconds": 900,
                 "message_prefix": "Triggered by GitCode",
                 "buildkite_env": {},
             }
         )
+        relay.BUILD_DEDUP_CACHE.clear()
         self.triggered = []
 
         def fake_trigger_buildkite(branch, commit, message, extra_env):
@@ -62,31 +65,83 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
     def tearDown(self):
         relay.SETTINGS.clear()
         relay.SETTINGS.update(self.original_settings)
+        relay.BUILD_DEDUP_CACHE.clear()
         relay.trigger_buildkite = self.original_trigger_buildkite
 
+    def merged_update_payload(self):
+        return {
+            "object_attributes": {
+                "action": "update",
+                "state": "merged",
+                "target_branch": "feature/sandbox",
+                "source_branch": "wip/webhook-macos-default",
+                "target_branch_commit": {"id": "56336d2c21f5"},
+                "last_commit": {"id": "98d3d2e45c12"},
+                "iid": 637,
+                "work_in_progress": False,
+            },
+            "project": {"path_with_namespace": "openeuler/yuanrong"},
+            "git_target_branch_commit_no": "56336d2c21f5",
+        }
+
     def test_merged_update_triggers_target_branch_commit(self):
-        code, result = relay.handle_merge_request(
-            {
-                "object_attributes": {
-                    "action": "update",
-                    "state": "merged",
-                    "target_branch": "feature/sandbox",
-                    "source_branch": "wip/webhook-macos-default",
-                    "target_branch_commit": {"id": "56336d2c21f5"},
-                    "last_commit": {"id": "98d3d2e45c12"},
-                    "iid": 637,
-                    "work_in_progress": False,
-                },
-                "project": {"path_with_namespace": "openeuler/yuanrong"},
-                "git_target_branch_commit_no": "56336d2c21f5",
-            }
-        )
+        code, result = relay.handle_merge_request(self.merged_update_payload())
 
         self.assertEqual(code, 200)
         self.assertEqual(result["status"], "triggered")
         self.assertEqual(result["branch"], "feature/sandbox")
         self.assertEqual(result["commit"], "56336d2c21f5")
         self.assertEqual(self.triggered[0]["extra_env"]["GITCODE_MR_ACTION"], "merge")
+
+    def test_duplicate_merged_update_is_skipped_by_target_commit(self):
+        first_code, first_result = relay.handle_merge_request(self.merged_update_payload())
+        second = self.merged_update_payload()
+        second["uuid"] = "637_second-delivery"
+        second_code, second_result = relay.handle_merge_request(second)
+
+        self.assertEqual(first_code, 200)
+        self.assertEqual(first_result["status"], "triggered")
+        self.assertEqual(second_code, 202)
+        self.assertEqual(second_result["reason"], "duplicate merge request build trigger")
+        self.assertEqual(len(self.triggered), 1)
+
+    def test_buildkite_repository_overrides_static_buildkite_repo_env(self):
+        relay.SETTINGS["buildkite_env"] = {"BUILDKITE_REPO": "https://gitcode.com/yuchaow/yuanrong.git"}
+
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["body"] = req.data
+
+            class FakeResponse:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+                def read(self):
+                    return b'{"web_url":"https://buildkite.example/build/2","number":2}'
+
+            return FakeResponse()
+
+        original_urlopen = relay.request.urlopen
+        relay.request.urlopen = fake_urlopen
+        try:
+            build = self.original_trigger_buildkite(
+                branch="feature/sandbox",
+                commit="56336d2c21f5",
+                message="test",
+                extra_env={},
+            )
+        finally:
+            relay.request.urlopen = original_urlopen
+
+        self.assertEqual(build["number"], 2)
+        self.assertIn(
+            b'"BUILDKITE_REPO": "https://gitcode.com/openeuler/yuanrong.git"',
+            captured["body"],
+        )
 
     def test_open_update_is_still_filtered(self):
         code, result = relay.handle_merge_request(
@@ -113,12 +168,20 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         relay.SETTINGS["webhook_token"] = "gitcode-password"
         relay.SETTINGS["signature_secret"] = "configured-signature-secret"
 
-        self.assertTrue(
-            relay.verify_request(
-                b"{}",
-                {"X-GitCode-Token": "gitcode-password"},
-            )
-        )
+        for header in ("X-GitCode-Token", "X-Gitlab-Token", "X-GitLab-Token", "X-Gitee-Token"):
+            with self.subTest(header=header):
+                self.assertTrue(
+                    relay.verify_request(
+                        b"{}",
+                        {header: "gitcode-password"},
+                    )
+                )
+
+    def test_empty_webhook_token_does_not_allow_missing_token_header(self):
+        relay.SETTINGS["webhook_token"] = ""
+        relay.SETTINGS["signature_secret"] = "configured-signature-secret"
+
+        self.assertFalse(relay.verify_request(b"{}", {}))
 
     def test_valid_signature_is_accepted_before_token_fallback(self):
         body = b'{"object_kind":"merge_request"}'

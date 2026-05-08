@@ -51,6 +51,8 @@ spec:
               value: {{ .Values.gitcodeWebhookRelay.buildkite.organization | quote }}
             - name: BUILDKITE_PIPELINE
               value: {{ .Values.gitcodeWebhookRelay.buildkite.pipeline | quote }}
+            - name: BUILDKITE_REPOSITORY
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.repository | quote }}
             - name: BUILDKITE_MESSAGE_PREFIX
               value: {{ .Values.gitcodeWebhookRelay.buildkite.messagePrefix | quote }}
             - name: BUILDKITE_ENV_JSON
@@ -69,6 +71,8 @@ spec:
               value: {{ .Values.gitcodeWebhookRelay.filters.skipWorkInProgress | quote }}
             - name: RELAY_USE_VIRTUAL_MERGE_REF
               value: {{ .Values.gitcodeWebhookRelay.filters.useVirtualMergeRef | quote }}
+            - name: RELAY_DEDUP_TTL_SECONDS
+              value: {{ .Values.gitcodeWebhookRelay.filters.dedupTtlSeconds | quote }}
             - name: BUILDKITE_API_TOKEN
               valueFrom:
                 secretKeyRef:

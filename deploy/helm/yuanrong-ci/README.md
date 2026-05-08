@@ -25,6 +25,8 @@ One-click deployment of the CI infrastructure:
    - `test-pypi-credentials` in `default` for publishing `openyuanrong_sdk` wheels to TestPyPI
    - `gitcode-webhook-relay-auth` in `build-tools` for webhook relay API/auth
 4. bazel-remote image mirrored to SWR (see NOTES.txt)
+5. Buildkite pipeline repository configured as
+   `https://gitcode.com/openeuler/yuanrong.git` for merge-triggered builds
 
 ## Install
 
@@ -124,7 +126,8 @@ helm upgrade --install yuanrong-ci deploy/helm/yuanrong-ci/ \
   --set gitcodeWebhookRelay.ingress.host=ci-webhook.example.com \
   --set secrets.gitcodeWebhookRelayAuth.create=true \
   --set secrets.gitcodeWebhookRelayAuth.buildkiteApiToken="${BUILDKITE_API_TOKEN}" \
-  --set secrets.gitcodeWebhookRelayAuth.webhookToken="${GITCODE_WEBHOOK_TOKEN}"
+  --set secrets.gitcodeWebhookRelayAuth.webhookToken="${GITCODE_WEBHOOK_SECRET}" \
+  --set secrets.gitcodeWebhookRelayAuth.webhookSignatureSecret="${GITCODE_WEBHOOK_SECRET}"
 ```
 
 GitCode WebHook settings:
@@ -134,13 +137,14 @@ GitCode WebHook settings:
 | URL | `https://<ingress-host>/webhook/gitcode` |
 | Content-Type | `application/json` |
 | Events | `Commit Event`, `Pull Request Event` |
-| Secret | Set GitCode WebHook password to the same value as `webhook-token` |
+| Secret | Set GitCode WebHook password to the same value as `webhook-token` and `webhook-signature-secret` |
 
 The relay validates the GitCode token or signature, filters branches/actions, and then
 calls the Buildkite REST API with the normalized `branch`, `commit`, and `env` payload.
-GitCode WebHook `password` is delivered as `X-GitCode-Token`; use
-`webhookSignatureSecret` only if the sender is known to send
-`X-GitCode-Signature-256`.
+Configure both relay secret fields with the GitCode WebHook password. The relay
+accepts a valid `X-GitCode-Signature-256` first and falls back to
+`X-GitCode-Token`, which keeps the install compatible with either GitCode
+delivery header.
 
 By default it is configured for **merge-only** triggering:
 

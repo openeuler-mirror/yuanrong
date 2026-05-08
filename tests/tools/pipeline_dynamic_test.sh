@@ -64,6 +64,8 @@ for token in [
     if token not in command:
         raise SystemExit(f"Rust E2E command missing token: {token}")
 
-container = step["plugins"][0]["kubernetes"]["podSpec"]["containers"][0]
+pod_spec = step["plugins"][0]["kubernetes"]["podSpec"]
+container = pod_spec["containers"][0]
 assert container["image"] == "swr.example/compile-ubuntu2004-rust:test"
+assert pod_spec["imagePullSecrets"] == [{"name": "swr-pull-secret"}]
 PY

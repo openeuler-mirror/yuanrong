@@ -372,6 +372,8 @@ cat << YAML
                 hostPath:
                   path: /mnt/paas
                   type: DirectoryOrCreate
+            imagePullSecrets:
+              - name: swr-pull-secret
     timeout_in_minutes: 180
     artifact_paths:
       - "artifacts/rust-fs-st/**/*"

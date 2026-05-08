@@ -61,7 +61,8 @@ def verify_request(body, headers):
         expected = "sha256=" + hmac.new(
             signature_secret.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
-        return hmac.compare_digest(received, expected)
+        if hmac.compare_digest(received, expected):
+            return True
 
     token = SETTINGS["webhook_token"]
     received = headers.get("X-GitCode-Token", "")
@@ -155,7 +156,8 @@ def handle_merge_request(payload):
         return skip_response("merge request trigger disabled")
 
     attrs = payload.get("object_attributes", {})
-    action = attrs.get("action", "")
+    raw_action = attrs.get("action", "")
+    action = normalize_merge_request_action(raw_action, attrs, payload)
     target_branch = attrs.get("target_branch", "")
     source_branch = attrs.get("source_branch", "")
 
@@ -214,6 +216,17 @@ def handle_merge_request(payload):
         "build_url": build.get("web_url"),
         "build_number": build.get("number"),
     }
+
+
+def normalize_merge_request_action(action, attrs, payload):
+    if action == "merge":
+        return action
+
+    state = str(attrs.get("state") or payload.get("state") or "").lower()
+    if state == "merged" or attrs.get("merged_at") or payload.get("merged_at"):
+        return "merge"
+
+    return action
 
 
 def handle_event(payload):

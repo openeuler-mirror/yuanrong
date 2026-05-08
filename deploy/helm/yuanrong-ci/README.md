@@ -124,7 +124,7 @@ helm upgrade --install yuanrong-ci deploy/helm/yuanrong-ci/ \
   --set gitcodeWebhookRelay.ingress.host=ci-webhook.example.com \
   --set secrets.gitcodeWebhookRelayAuth.create=true \
   --set secrets.gitcodeWebhookRelayAuth.buildkiteApiToken="${BUILDKITE_API_TOKEN}" \
-  --set secrets.gitcodeWebhookRelayAuth.webhookSignatureSecret="${GITCODE_WEBHOOK_SECRET}"
+  --set secrets.gitcodeWebhookRelayAuth.webhookToken="${GITCODE_WEBHOOK_TOKEN}"
 ```
 
 GitCode WebHook settings:
@@ -134,15 +134,19 @@ GitCode WebHook settings:
 | URL | `https://<ingress-host>/webhook/gitcode` |
 | Content-Type | `application/json` |
 | Events | `Commit Event`, `Pull Request Event` |
-| Secret | Prefer a signature secret (`X-GitCode-Signature-256`) |
+| Secret | Set GitCode WebHook password to the same value as `webhook-token` |
 
-The relay validates the GitCode signature or token, filters branches/actions, and then
+The relay validates the GitCode token or signature, filters branches/actions, and then
 calls the Buildkite REST API with the normalized `branch`, `commit`, and `env` payload.
+GitCode WebHook `password` is delivered as `X-GitCode-Token`; use
+`webhookSignatureSecret` only if the sender is known to send
+`X-GitCode-Signature-256`.
 
 By default it is configured for **merge-only** triggering:
 
 - `push` events do not start builds
-- only merge-request action `merge` is accepted
+- only merge-request action `merge` is accepted; GitCode merged PR payloads
+  that report `action=update` with merged state are normalized to `merge`
 - merge events build the **target branch commit after merge**
 
 If the cluster has no Ingress controller, expose the relay with a Service:

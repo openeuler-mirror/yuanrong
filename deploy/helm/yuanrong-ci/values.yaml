@@ -146,6 +146,8 @@ secrets:
 
   # Credentials for the GitCode -> Buildkite relay service
   # Create manually or let Helm create the secret from values below.
+  # GitCode WebHook password maps to webhookToken. Use webhookSignatureSecret
+  # only for senders that provide X-GitCode-Signature-256.
   gitcodeWebhookRelayAuth:
     create: false
     buildkiteApiToken: ""

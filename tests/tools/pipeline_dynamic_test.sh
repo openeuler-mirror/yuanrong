@@ -54,12 +54,15 @@ assert step["agents"] == {"queue": "default", "os": "linux", "arch": "amd64"}
 
 command = step["command"]
 for token in [
+    "bash -se <<'RUST_E2E_BASH'",
+    "set -euo pipefail",
     "buildkite-agent artifact download \"artifacts/release/*\" . --step build-all-amd64",
     "git clone --depth 1",
     "make functionsystem",
     "bash scripts/package_yuanrong.sh",
     "bash test/st/test.sh",
     "buildkite-agent artifact upload \"artifacts/rust-fs-st/**/*\"",
+    "RUST_E2E_BASH",
 ]:
     if token not in command:
         raise SystemExit(f"Rust E2E command missing token: {token}")

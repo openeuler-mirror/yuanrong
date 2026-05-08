@@ -295,6 +295,7 @@ cat << YAML
     key: "rust-functionsystem-e2e-amd64"
     depends_on: "build-all-amd64"
     command: |
+      bash -se <<'RUST_E2E_BASH'
       set -euo pipefail
       export PATH=/opt/buildtools/python3.9/bin:/usr/local/bin:/usr/bin:\$\$PATH
       export CC=gcc-10
@@ -352,6 +353,7 @@ cat << YAML
       fi
 
       exit "\$\$TEST_EXIT"
+      RUST_E2E_BASH
     agents:
       queue: "default"
       os: "linux"

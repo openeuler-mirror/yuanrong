@@ -26,7 +26,9 @@ One-click deployment of the CI infrastructure:
    - `gitcode-webhook-relay-auth` in `build-tools` for webhook relay API/auth
 4. bazel-remote image mirrored to SWR (see NOTES.txt)
 5. Buildkite pipeline repository configured as
-   `https://gitcode.com/openeuler/yuanrong.git` for merge-triggered builds
+   `https://gitcode.com/openeuler/yuanrong.git` for merge-triggered builds.
+   The relay also passes this repository as `BUILDKITE_REPO` so checkout keeps
+   using upstream even if the pipeline UI repository drifts.
 
 ## Install
 
@@ -143,8 +145,8 @@ The relay validates the GitCode token or signature, filters branches/actions, an
 calls the Buildkite REST API with the normalized `branch`, `commit`, and `env` payload.
 Configure both relay secret fields with the GitCode WebHook password. The relay
 accepts a valid `X-GitCode-Signature-256` first and falls back to
-`X-GitCode-Token`, which keeps the install compatible with either GitCode
-delivery header.
+`X-GitCode-Token` or GitLab-compatible token headers, which keeps the install
+compatible with observed GitCode delivery headers.
 
 By default it is configured for **merge-only** triggering:
 
@@ -152,6 +154,8 @@ By default it is configured for **merge-only** triggering:
 - only merge-request action `merge` is accepted; GitCode merged PR payloads
   that report `action=update` with merged state are normalized to `merge`
 - merge events build the **target branch commit after merge**
+- repeated merge deliveries for the same MR target commit are deduplicated for
+  `gitcodeWebhookRelay.filters.dedupTtlSeconds` seconds
 
 If the cluster has no Ingress controller, expose the relay with a Service:
 

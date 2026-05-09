@@ -175,6 +175,7 @@ gitcodeWebhookRelay:
   buildkite:
     organization: yuchao-wang
     pipeline: yuanrong
+    repository: https://gitcode.com/openeuler/yuanrong.git
     messagePrefix: "Triggered by GitCode"
     env:
       BUILD_TARGET: linux
@@ -192,6 +193,7 @@ gitcodeWebhookRelay:
       - merge
     skipWorkInProgress: true
     useVirtualMergeRef: false
+    dedupTtlSeconds: 900
   service:
     type: ClusterIP
     annotations: {}

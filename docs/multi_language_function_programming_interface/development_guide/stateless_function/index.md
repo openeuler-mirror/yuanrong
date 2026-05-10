@@ -362,6 +362,7 @@ int main(int argc, char *argv[])
 import org.yuanrong.Config;
 import org.yuanrong.api.YR;
 import org.yuanrong.runtime.client.ObjectRef;
+import org.yuanrong.storage.WaitResult;
 
 import java.util.HashMap;
 import java.util.ArrayList;

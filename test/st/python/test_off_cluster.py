@@ -33,6 +33,10 @@ Run:
 """
 
 import os
+import json
+import shutil
+import subprocess
+import sys
 import time
 import pytest
 import yr
@@ -53,6 +57,20 @@ def _get_jwt_token():
 
 def _get_enable_tls():
     return os.getenv("YR_ENABLE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_yrcli_path():
+    sibling = os.path.join(os.path.dirname(sys.executable), "yrcli")
+    if os.path.exists(sibling):
+        return sibling
+    found = shutil.which("yrcli")
+    if found:
+        return found
+    raise RuntimeError("yrcli executable not found next to test Python or on PATH")
+
+
+def _unique_name(prefix):
+    return f"{prefix}-{os.getpid()}-{int(time.time() * 1000)}"
 
 
 def _build_conf():
@@ -91,6 +109,39 @@ def require_remote_python_runtime(init_yr):
         if "Executable path of python" in message and "is not found on" in message:
             pytest.skip(f"off-cluster: remote worker Python runtime unavailable: {message}")
         raise
+
+
+@pytest.fixture(scope="session")
+def require_plain_http_for_yrcli():
+    if _get_enable_tls():
+        pytest.skip("yrcli off-cluster smoke requires YR_ENABLE_TLS=false")
+
+
+def _run_yrcli(*args, timeout=120, user="default"):
+    command = [
+        _get_yrcli_path(),
+        "--server-address",
+        _get_addr(),
+        "--user",
+        user,
+    ]
+    token = _get_jwt_token()
+    if token:
+        command.extend(["--jwt-token", token])
+    command.extend(args)
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+    )
+    assert result.returncode == 0, (
+        f"yrcli {' '.join(args)} failed with {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+    return result
 
 
 # ============================================================
@@ -457,3 +508,143 @@ def test_repeated_invoke_stability(init_yr, require_remote_python_runtime):
 
     for i in range(5):
         assert yr.get(echo.invoke(i)) == i
+
+
+# ============================================================
+# 7. Sandbox and yrcli smoke
+# ============================================================
+
+@pytest.mark.smoke
+def test_sandbox_create_exec_and_terminate(init_yr):
+    sandbox = None
+    for attempt in range(2):
+        sandbox = yr.sandbox.create(name=_unique_name(f"off-cluster-sdk-sandbox-{attempt}"), idle_timeout=600)
+        if sandbox is not None:
+            break
+        time.sleep(5)
+    assert sandbox is not None
+    try:
+        result = sandbox.exec("echo sandbox-ok && pwd", timeout=30)
+        assert result["returncode"] == 0
+        assert "sandbox-ok" in result["stdout"]
+        assert "/tmp/yr_sandbox_" in result["stdout"]
+    finally:
+        sandbox.terminate()
+
+
+@pytest.mark.smoke
+def test_yrcli_exec_with_sandbox_instance(require_plain_http_for_yrcli):
+    namespace = "offcluster"
+    name = _unique_name("yrcli-exec")
+    create = _run_yrcli("sandbox", "create", "--namespace", namespace, "--name", name)
+    marker = "instance_id="
+    assert marker in create.stdout
+    sandbox_id = create.stdout.split(marker, 1)[1].strip().split()[0]
+    try:
+        _run_yrcli("exec", sandbox_id, "touch /tmp/yrcli-exec-marker", timeout=60)
+        listed = _run_yrcli("exec", sandbox_id, "ls /tmp/yrcli-exec-marker", timeout=60)
+        assert "/tmp/yrcli-exec-marker" in listed.stdout
+    finally:
+        _run_yrcli("sandbox", "delete", sandbox_id)
+
+
+@pytest.mark.smoke
+def test_yrcli_sandbox_detached_lifecycle(require_plain_http_for_yrcli):
+    namespace = "offcluster"
+    name = _unique_name("yrcli-sandbox")
+    create = _run_yrcli("sandbox", "create", "--namespace", namespace, "--name", name)
+    marker = "instance_id="
+    assert marker in create.stdout
+    sandbox_id = create.stdout.split(marker, 1)[1].strip().split()[0]
+    try:
+        listed = _run_yrcli("sandbox", "list", "--namespace", namespace)
+        assert sandbox_id in listed.stdout
+        queried = _run_yrcli("sandbox", "query", sandbox_id)
+        assert sandbox_id in queried.stdout
+    finally:
+        _run_yrcli("sandbox", "delete", sandbox_id)
+
+
+@pytest.mark.smoke
+def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
+    namespace = "faaspy"
+    function = _unique_name("yrcli-faas").replace("-", "")
+    full_name = f"0@{namespace}@{function}"
+    code_dir = tmp_path / "faas"
+    code_dir.mkdir()
+    handler_path = code_dir / "handler.py"
+    handler_path.write_text(
+        "import os\n"
+        "\n"
+        "def handler(event, context):\n"
+        "    if isinstance(event, dict):\n"
+        "        return {\n"
+        "            'ok': True,\n"
+        "            'echo': event.get('text', event.get('name', 'unknown')),\n"
+        "            'mode': event.get('mode', 'json'),\n"
+        "            'function_name': os.environ.get('YR_FUNCTION_NAME', ''),\n"
+        "        }\n"
+        "    return {'ok': True, 'echo': event, 'mode': 'text'}\n",
+        encoding="utf-8",
+    )
+    assert handler_path.is_file()
+    assert handler_path.stat().st_size > 0
+    print(f"yrcli faas code_path={code_dir} handler_size={handler_path.stat().st_size}", flush=True)
+    function_json = tmp_path / "function.json"
+    function_json.write_text(
+        json.dumps(
+            {
+                "name": full_name,
+                "runtime": "python3.9",
+                "description": "yrcli off-cluster smoke handler",
+                "handler": "handler.handler",
+                "kind": "faas",
+                "cpu": 300,
+                "memory": 128,
+                "timeout": 60,
+                "customResources": {},
+                "environment": {},
+                "extendedHandler": {},
+                "extendedTimeout": {},
+                "minInstance": "0",
+                "maxInstance": "1",
+                "concurrentNum": "1",
+                "storageType": "local",
+                "codePath": str(code_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    deployed = _run_yrcli(
+        "deploy",
+        "--code-path",
+        str(code_dir),
+        "--function-json",
+        str(function_json),
+        "--update",
+        user="0",
+        timeout=180,
+    )
+    assert "succeed to deploy function" in deployed.stdout or "succeed to update function" in deployed.stdout
+    try:
+        queried = _run_yrcli("query", "-f", f"{namespace}@{function}", user="0")
+        assert namespace in queried.stdout
+        assert function in queried.stdout
+        invoked = _run_yrcli(
+            "invoke",
+            "-f",
+            f"{namespace}@{function}",
+            "--payload",
+            '{"text": "ping"}',
+            "--timeout",
+            "120",
+            user="0",
+            timeout=150,
+        )
+        assert '"ok": true' in invoked.stdout
+        assert '"echo": "ping"' in invoked.stdout
+    finally:
+        _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package", user="0")

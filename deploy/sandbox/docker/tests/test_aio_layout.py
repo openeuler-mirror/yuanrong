@@ -25,6 +25,7 @@ class AioLayoutTests(unittest.TestCase):
         self.assertIn("openyuanrong_sdk", runtime_text)
         self.assertIn("ca-certificates", base_text)
         self.assertIn("python3-pip", base_text)
+        self.assertIn("unzip", base_text)
         self.assertIn("uv==0.11.11", base_text)
         self.assertIn("mirrors.huaweicloud.com/repository/pypi/simple", base_text)
         self.assertIn('uv python install "${PYTHON_VERSION}"', base_text)
@@ -96,6 +97,8 @@ class AioLayoutTests(unittest.TestCase):
         self.assertIn("--block true", script_text)
         self.assertIn("--enable_traefik_registry true", script_text)
         self.assertIn("--traefik_http_entrypoint web", script_text)
+        self.assertIn("--faas_frontend_http_port 8889", script_text)
+        self.assertIn("--function_scheduler_lease_port 8890", script_text)
         self.assertIn('-a "${AIO_NODE_IP}"', script_text)
         self.assertNotIn("-a 127.0.0.1", script_text)
 

@@ -513,20 +513,21 @@ void CExecShutdownHandler(int sigNum)
 static FunctionMeta BuildFunctionMeta(CFunctionMeta *cFuncMeta)
 {
     FunctionMeta funcMeta;
-    funcMeta.appName = cFuncMeta->appName;
-    funcMeta.moduleName = cFuncMeta->moduleName;
+    auto safeString = [](const char *value) -> std::string { return value == nullptr ? "" : value; };
+    funcMeta.appName = safeString(cFuncMeta->appName);
+    funcMeta.moduleName = safeString(cFuncMeta->moduleName);
     funcMeta.apiType = static_cast<libruntime::ApiType>(cFuncMeta->apiType);
-    funcMeta.funcName = cFuncMeta->funcName;
-    funcMeta.className = cFuncMeta->className;
-    funcMeta.functionId = cFuncMeta->functionId;
+    funcMeta.funcName = safeString(cFuncMeta->funcName);
+    funcMeta.className = safeString(cFuncMeta->className);
+    funcMeta.functionId = safeString(cFuncMeta->functionId);
     funcMeta.languageType = static_cast<libruntime::LanguageType>(cFuncMeta->languageType);
-    funcMeta.signature = cFuncMeta->signature;
-    funcMeta.poolLabel = cFuncMeta->poolLabel;
+    funcMeta.signature = safeString(cFuncMeta->signature);
+    funcMeta.poolLabel = safeString(cFuncMeta->poolLabel);
     if (cFuncMeta->hasName) {
-        funcMeta.name = cFuncMeta->name;
+        funcMeta.name = safeString(cFuncMeta->name);
     }
     if (cFuncMeta->hasNs) {
-        funcMeta.ns = cFuncMeta->ns;
+        funcMeta.ns = safeString(cFuncMeta->ns);
     }
     return funcMeta;
 }

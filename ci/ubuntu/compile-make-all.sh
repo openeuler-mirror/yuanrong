@@ -10,6 +10,24 @@ COMPILE_HOME="${COMPILE_HOME:-${HOME}}"
 COMPILE_NETWORK="${COMPILE_NETWORK:-yr-net}"
 START_CONTAINER="${START_CONTAINER:-true}"
 
+default_compile_memory_limit() {
+    local mem_kb mem_gb limit_gb
+    mem_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [[ "${mem_kb}" -le 0 ]]; then
+        echo "32g"
+        return
+    fi
+
+    mem_gb=$(( mem_kb / 1024 / 1024 ))
+    limit_gb=$(( mem_gb * 80 / 100 ))
+    (( limit_gb > 32 )) && limit_gb=32
+    (( limit_gb < 8 )) && limit_gb=8
+    echo "${limit_gb}g"
+}
+
+COMPILE_MEMORY_LIMIT="${COMPILE_MEMORY_LIMIT:-$(default_compile_memory_limit)}"
+export COMPILE_MEMORY_LIMIT
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     cat <<EOF
 Usage: $0 [make arguments...]
@@ -24,6 +42,7 @@ Environment:
   COMPILE_USER        User used inside the container. Default: current user
   COMPILE_HOME        Host directory mounted into the container. Default: current HOME
   COMPILE_NETWORK     External docker network used by compose. Default: yr-net
+  COMPILE_MEMORY_LIMIT Docker memory limit for the compile container. Default: 80% host memory, capped at 32g
   REPO_DIR            Repository path inside the container. Default: current git root
   START_CONTAINER     Start ci/ubuntu docker compose service if needed. Default: true
   JOBS                Optional make JOBS value
@@ -46,19 +65,18 @@ container_running() {
     [[ "$(docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null || true)" == "true" ]]
 }
 
-start_compile_container() {
-    if [[ "${START_CONTAINER}" != "true" ]]; then
-        echo "Container ${CONTAINER_NAME} is not running; set START_CONTAINER=true or start it manually." >&2
-        exit 1
-    fi
-
+ensure_compile_container() {
     docker network inspect "${COMPILE_NETWORK}" >/dev/null 2>&1 || docker network create "${COMPILE_NETWORK}" >/dev/null
     COMPILE_USER="${COMPILE_USER}" COMPILE_HOME="${COMPILE_HOME}" COMPILE_NETWORK="${COMPILE_NETWORK}" \
+        COMPILE_MEMORY_LIMIT="${COMPILE_MEMORY_LIMIT}" \
         docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d
 }
 
-if ! container_exists || ! container_running; then
-    start_compile_container
+if [[ "${START_CONTAINER}" == "true" ]]; then
+    ensure_compile_container
+elif ! container_exists || ! container_running; then
+    echo "Container ${CONTAINER_NAME} is not running; set START_CONTAINER=true or start it manually." >&2
+    exit 1
 fi
 
 if ! docker exec "${CONTAINER_NAME}" getent passwd "${COMPILE_USER}" >/dev/null 2>&1; then

@@ -223,6 +223,22 @@ native_tool_toolchain(
 """,
 )
 
+# Override rules_foreign_cc's source-built ninja dependency.
+# rules_foreign_cc otherwise fetches GitHub directly, which is flaky from the
+# CI ARM nodes.
+new_git_repository(
+    name = "ninja_build_src",
+    build_file_content = """
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    remote = "https://gitee.com/mirrors/ninja.git",
+    commit = "e72d1d581c945c158ed68d9bc48911063022a2c6",
+)
+
 # Override cmake-3.21.2 pre-built toolchains from rules_foreign_cc.
 # rules_foreign_cc uses maybe(), so defining the repo here takes precedence
 # and prevents Bazel from hitting GitHub (unreliable from CCE cluster in China).

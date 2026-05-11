@@ -465,7 +465,7 @@ def install_requirements(requirements_file, target_dir):
         return False
 
 
-def package(backend, code_path, format):
+def package(backend, code_path, format, user=None):
     real_code_path = os.path.realpath(code_path)
     file_name = f"code-{uuid.uuid4().hex}"
     archive_file = os.path.join("/tmp", file_name)
@@ -487,7 +487,7 @@ def package(backend, code_path, format):
         print(f"unkown format: {format}")
         sys.exit(1)
     if backend == "ds":
-        with YRContext(__server_address, __ds_address):
+        with YRContext(__server_address, __ds_address, user):
             with open(f"{archive_file}.{format}", "rb") as f:
                 yr.kv_write(file_name, f.read())
 
@@ -712,7 +712,7 @@ def deploy(
             print("Failed to install dependencies. Deployment aborted.")
             sys.exit(1)
     if not skip_package:
-        real_code_path, package_key = package(backend, code_path, format)
+        real_code_path, package_key = package(backend, code_path, format, __user)
         if function_json:
             function_json["storageType"] = "working_dir"
             function_json["codePath"] = package_key
@@ -1112,6 +1112,7 @@ def invoke(function_name, payload, timeout, header, async_mode):
             print(f"\nAsync invocation started. Use 'yrcli result {resp['requestId']}' to check status.")
     else:
         print(f"failed to invoke function: {resp['error']}")
+        sys.exit(1)
 
 
 @cli.command

@@ -556,6 +556,29 @@ func TestCreateInstance(t *testing.T) {
 	)
 }
 
+func TestCFunctionMetaEmptyNamesUseEmptyCString(t *testing.T) {
+	convey.Convey(
+		"Test cFunctionMeta empty fields use empty C strings", t, func() {
+			cFuncMeta := cFunctionMeta(api.FunctionMeta{FuncID: "default/0-system-faasExecutorPython3.9/$latest"})
+			defer freeCFunctionMeta(cFuncMeta)
+			convey.So(unsafe.Pointer(cFuncMeta.appName), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.moduleName), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.funcName), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.className), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.functionId), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.signature), convey.ShouldNotBeNil)
+			convey.So(unsafe.Pointer(cFuncMeta.poolLabel), convey.ShouldNotBeNil)
+			convey.So(CSafeGoString(cFuncMeta.appName), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.moduleName), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.funcName), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.className), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.functionId), convey.ShouldEqual, "default/0-system-faasExecutorPython3.9/$latest")
+			convey.So(CSafeGoString(cFuncMeta.signature), convey.ShouldEqual, "")
+			convey.So(CSafeGoString(cFuncMeta.poolLabel), convey.ShouldEqual, "")
+		},
+	)
+}
+
 func TestInvokeByInstanceId(t *testing.T) {
 	convey.Convey(
 		"Test InvokeByInstanceId", t, func() {

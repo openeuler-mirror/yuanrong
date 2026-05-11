@@ -22,6 +22,8 @@ cat << YAML
       export CXX=g++-10
       export PIP_BREAK_SYSTEM_PACKAGES=1
       JOBS="\$\${JOBS:-16}"
+      FUNCTIONSYSTEM_JOBS="\$\${FUNCTIONSYSTEM_JOBS:-8}"
+      export FUNCTIONSYSTEM_JOBS
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
@@ -78,7 +80,7 @@ cat << YAML
       git submodule sync --recursive
       git submodule update --init --recursive --force --jobs=4
       
-      echo "=== [3/6] Starting Build (JOBS=\$\$JOBS) ==="
+      echo "=== [3/6] Starting Build (JOBS=\$\$JOBS, FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS) ==="
       # Snapshot bazel-remote before build (to compute delta later)
       _BAZEL_PRE=\$\$(wget -qO- http://bazel-remote.build-tools.svc.cluster.local:8080/status 2>/dev/null || echo '{}')
       _BAZEL_FILES_PRE=\$\$(echo "\$\$_BAZEL_PRE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('NumFiles',0))" 2>/dev/null || echo 0)
@@ -93,7 +95,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all JOBS=\$\$JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -475,6 +477,8 @@ cat << YAML
       export PIP_BREAK_SYSTEM_PACKAGES=1
       export BUILD_ARCH=arm64
       JOBS="\$\${JOBS:-16}"
+      FUNCTIONSYSTEM_JOBS="\$\${FUNCTIONSYSTEM_JOBS:-8}"
+      export FUNCTIONSYSTEM_JOBS
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
       YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
@@ -529,7 +533,7 @@ cat << YAML
       git submodule sync --recursive
       git submodule update --init --recursive --force --jobs=4
 
-      echo "=== [3/6] Starting Build (JOBS=\$\$JOBS) ==="
+      echo "=== [3/6] Starting Build (JOBS=\$\$JOBS, FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS) ==="
       _BAZEL_PRE=\$\$(wget -qO- http://bazel-remote.build-tools.svc.cluster.local:8080/status 2>/dev/null || echo '{}')
       _BAZEL_FILES_PRE=\$\$(echo "\$\$_BAZEL_PRE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('NumFiles',0))" 2>/dev/null || echo 0)
       _BAZEL_SIZE_PRE=\$\$(echo "\$\$_BAZEL_PRE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d.get('CurrSize',0))//1024//1024)" 2>/dev/null || echo 0)
@@ -539,7 +543,7 @@ cat << YAML
       mkfifo /tmp/yr_build_pipe
       tee /tmp/build_output.log < /tmp/yr_build_pipe &
       set +e
-      make all JOBS=\$\$JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
+      make all JOBS=\$\$JOBS FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS REMOTE_CACHE=\$\${REMOTE_CACHE:-} > /tmp/yr_build_pipe 2>&1
       BUILD_EXIT=\$\$?
       wait
       set -e
@@ -757,16 +761,15 @@ cat << YAML
       cd ../..
 
       echo "=== [3/4] Collect openyuanrong-sdk artifacts ==="
+      rm -rf artifacts/openyuanrong-sdk
       mkdir -p artifacts/openyuanrong-sdk
-      cp output/openyuanrong_sdk-*.whl artifacts/openyuanrong-sdk/
+      cp "output/openyuanrong_sdk-\$\$YR_BUILD_VERSION"-*.whl artifacts/openyuanrong-sdk/
       ls -lh artifacts/openyuanrong-sdk/
     agents:
       queue: "default"
       os: "macos"
       arch: "arm64"
     timeout_in_minutes: 180
-    artifact_paths:
-      - "artifacts/openyuanrong-sdk/**/*"
 YAML
 ;;
 esac

@@ -33,7 +33,7 @@ struct InvokeOptions {
 
     bool preferredPriority = true;
 
-    bool preferredAntiOtherLabels = true;
+    bool preferredAntiOtherLabels = false;
 
     bool requiredPriority = false;
 
@@ -66,7 +66,7 @@ Function invocation options, used to specify calling resources and related confi
 | alwaysLocalMode          | bool                                      | Forces cluster mode to run locally with multi-threading(no effect in `local mode`).                                                                            | ``false``             |
 | preferredPriority        | bool                                      | Priority scheduling. Matches weak affinity conditions sequentially, Succeeds when any condition is met.                                                | ``true``              |
 | requiredPriority         | bool                                      | Priority scheduling. Requires all strong affinity conditions, Fails if any condition not met.                                                         | ``false``             |
-| preferredAntiOtherLabels | bool                                      | Anti-affinity for non-selectable resources, Fails if no weak affinity condition met.                                                                       | ``true``              |
+| preferredAntiOtherLabels | bool                                      | Anti-affinity for non-selectable resources, Fails if no weak affinity condition met.                                                                       | ``false``             |
 | groupName                | string                                    | Group instance scheduler name(empty by default).                                                                                                             | ``""``                |
 | instanceRange            | InstanceRange                            | Function instance count range configuration, See [struct-InstanceRange](./struct-InstanceRange.md).                                                          | -                   |
 | recoverRetryTimes        | int                                       | Maximum instance recovery attempts:<br>• Default ``0`` means no auto-recovery.<br>• May stop early for unrecoverable errors.                                          | ``0``                 |

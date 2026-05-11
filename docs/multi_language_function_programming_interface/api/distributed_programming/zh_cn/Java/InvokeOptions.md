@@ -193,10 +193,10 @@ private boolean requiredPriority = false
 
 ``` java
 
-private boolean preferredAntiOtherLabels = true
+private boolean preferredAntiOtherLabels = false
 ```
 
-是否开启反亲和不可选资源，开启后，当传入多个弱亲和条件都不满足时，调度失败，默认 ``true``。
+是否开启反亲和不可选资源，开启后，当传入多个弱亲和条件都不满足时，调度失败，默认 ``false``。
 
 ``` java
 

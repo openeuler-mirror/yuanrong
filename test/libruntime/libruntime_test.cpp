@@ -653,6 +653,33 @@ TEST_F(LibruntimeTest, SetTenantIdTest)
     EXPECT_NO_THROW(lr->SetTenantId(tenantID));
 }
 
+TEST_F(LibruntimeTest, InitAppliesOffClusterTenantIdToObjectStore)
+{
+    auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
+    config->jobId = YR::utility::IDGenerator::GenApplicationId();
+    config->tenantId = "default";
+    config->inCluster = false;
+    auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
+    auto runtime = std::make_shared<YR::Libruntime::Libruntime>(
+        config, clientsMgr, YR::Libruntime::MetricsAdaptor::GetInstance(), sec_,
+        std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
+    auto gateway = std::make_shared<MockGwClient>();
+    auto objectStore = std::make_shared<MockObjectStore>();
+    DatasystemClients clients{objectStore, stateStore_, streamStore_, heteroStore_};
+
+    EXPECT_CALL(*objectStore, SetTenantId("default")).Times(1);
+    ASSERT_TRUE(runtime->Init(std::make_shared<YR::Libruntime::FSClient>(gateway), clients).OK());
+
+    EXPECT_CALL(*gateway, KillAsync(_, _, _))
+        .WillRepeatedly([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
+            if (cb != nullptr) {
+                YR::Libruntime::KillResponse resp;
+                cb(resp, ErrorInfo());
+            }
+        });
+    runtime->Finalize(true);
+}
+
 TEST_F(LibruntimeTest, GetTenantIdTest)
 {
     ASSERT_EQ(lr->GetTenantId(), "tenantId");

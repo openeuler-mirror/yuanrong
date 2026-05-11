@@ -1805,9 +1805,9 @@ func cFunctionMeta(funcMeta api.FunctionMeta) *C.CFunctionMeta {
 	cNamespace, hasNamespace := cStringOptional(funcMeta.Namespace)
 	cFuncMeta := C.CFunctionMeta{
 		appName:      C.CString(funcMeta.AppName),
-		moduleName:   CSafeString(funcMeta.ModuleName),
+		moduleName:   C.CString(funcMeta.ModuleName),
 		funcName:     C.CString(funcMeta.FuncName),
-		className:    CSafeString(funcMeta.ClassName),
+		className:    C.CString(funcMeta.ClassName),
 		functionId:   C.CString(funcMeta.FuncID),
 		languageType: C.int(funcMeta.Language),
 		signature:    C.CString(funcMeta.Sig),

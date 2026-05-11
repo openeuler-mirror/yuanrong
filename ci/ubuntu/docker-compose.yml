@@ -4,6 +4,7 @@ services:
     container_name: compile
     privileged: true
     restart: unless-stopped
+    mem_limit: ${COMPILE_MEMORY_LIMIT:-32g}
     working_dir: "/root"
     environment:
       JAVA_HOME: /opt/buildtools/jdk8

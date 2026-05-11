@@ -13,6 +13,7 @@ exec /usr/local/bin/yr start \
   --enable_traefik_registry true \
   --traefik_http_entrypoint web \
   --enable_function_scheduler true \
+  --function_scheduler_lease_port 8890 \
   --enable_meta_service true \
   --frontend_ssl_enable false \
   --enable_iam_server "${ENABLE_TOKEN:-false}" \

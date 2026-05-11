@@ -134,7 +134,6 @@ def test_list_named_instance(init_yr):
 def test_async_instance(init_yr):
     """test async instance"""
     opt = yr.InvokeOptions()
-    opt.concurrency = 1
     startTime = time.time()
     instance = AsyncAdd.options(opt).invoke()
     ref1 = instance.get.invoke()

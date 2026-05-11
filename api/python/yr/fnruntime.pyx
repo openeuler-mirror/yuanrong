@@ -1033,7 +1033,9 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
         opts.createOptions.insert(pair[string, string](key, value))
     opts.cpu = opt.cpu
     opts.memory = opt.memory
-    opts.customExtensions.insert(pair[string, string](concurrency_key, str(opt.concurrency)))
+    # Only set concurrency if explicitly provided (not None)
+    if opt.concurrency is not None:
+        opts.customExtensions.insert(pair[string, string](concurrency_key, str(opt.concurrency)))
     for key, value in opt.custom_resources.items():
         opts.customResources.insert(pair[string, float](key, value))
     for key, value in opt.custom_extensions.items():

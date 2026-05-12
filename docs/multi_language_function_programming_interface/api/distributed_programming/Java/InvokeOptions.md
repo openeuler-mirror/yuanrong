@@ -193,10 +193,10 @@ Whether to enable strong affinity priority scheduling. When enabled, if multiple
 
 ``` java
 
-private boolean preferredAntiOtherLabels = true
+private boolean preferredAntiOtherLabels = false
 ```
 
-Whether to enable anti-affinity for non-selectable resources. When enabled, scheduling will fail if none of the weak affinity conditions are met. The default is ``true``.
+Whether to enable anti-affinity for non-selectable resources. When enabled, scheduling will fail if none of the weak affinity conditions are met. The default is ``false``.
 
 ``` java
 

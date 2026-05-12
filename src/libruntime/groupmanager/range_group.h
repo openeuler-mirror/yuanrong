@@ -43,7 +43,6 @@ protected:
     void SetInstancesReady();
     void NotifyInstances();
     void RemoveInstances();
-    InstanceRange range;
     std::shared_ptr<InvokeOrderManager> invokeOrderMgr_;
     std::unordered_set<std::string> instanceIds_;
 };

@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -77,6 +78,7 @@ const (
 	circuitBreakRoute      = "/circuitbreak"
 	exitRoute              = "/exit"
 	credentialRequireRoute = "/serverless/v1/credential/require"
+	metricsReportRoute     = "/serverless/v1/metrics/report"
 )
 
 var (
@@ -187,6 +189,7 @@ func (ch *CustomContainerHandler) InitHandler(args []api.Arg, apiClient api.Libr
 	http.HandleFunc(circuitBreakRoute, ch.handleCircuitBreak)
 	http.HandleFunc(exitRoute, ch.handleExit)
 	http.HandleFunc(credentialRequireRoute, ch.handleCredentialRequire)
+	http.HandleFunc(metricsReportRoute, ch.handleMetricsReport)
 	go func() {
 		logger.GetLogger().Infof("start invoke server")
 		err := ch.invokeServer.ListenAndServe()
@@ -851,6 +854,95 @@ func (ch *CustomContainerHandler) handleCredentialRequire(w http.ResponseWriter,
 	response.Credential = credential
 	handleResponse(&response, w, credentialRequireRoute)
 
+}
+
+func (ch *CustomContainerHandler) handleMetricsReport(w http.ResponseWriter, r *http.Request) {
+	logger.GetLogger().Infof("handle metrics report")
+	response := types.MetricsReportResponse{
+		StatusCode: constants.NoneError,
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logger.GetLogger().Errorf("read metrics report body failed: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	request := types.MetricsReportRequest{}
+	if err = json.Unmarshal(body, &request); err != nil {
+		response.StatusCode = constants.FaaSError
+		response.ErrorMessage = fmt.Sprintf("failed to unmarshal metrics report request: %s", err.Error())
+		handleResponse(&response, w, metricsReportRoute)
+		return
+	}
+	if err = ch.processMetricsReport(request); err != nil {
+		var snErr interface{ Code() int }
+		if errors.As(err, &snErr) {
+			response.StatusCode = snErr.Code()
+			response.ErrorMessage = err.Error()
+		} else {
+			response.StatusCode = constants.FaaSError
+			response.ErrorMessage = fmt.Sprintf("failed to process metrics report: %s", err.Error())
+		}
+	}
+	handleResponse(&response, w, metricsReportRoute)
+}
+
+func (ch *CustomContainerHandler) processMetricsReport(request types.MetricsReportRequest) error {
+	if request.MetricName == "" {
+		return fmt.Errorf("metricName is empty")
+	}
+	switch request.MetricType {
+	case types.CustomMetricTypeGauge:
+		if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) {
+			return fmt.Errorf("invalid gauge value %v", request.Value)
+		}
+		op := request.Operation
+		if op == "" {
+			op = types.CustomMetricOperationSet
+		}
+		data := api.GaugeData{
+			Name:        request.MetricName,
+			Description: request.Description,
+			Unit:        request.Unit,
+			Value:       request.Value,
+		}
+		switch op {
+		case types.CustomMetricOperationSet:
+			return ch.sdkClient.SetGauge(data)
+		case types.CustomMetricOperationInc:
+			return ch.sdkClient.IncreaseGauge(data)
+		case types.CustomMetricOperationDec:
+			return ch.sdkClient.DecreaseGauge(data)
+		default:
+			return fmt.Errorf("unsupported gauge operation %s", op)
+		}
+	case types.CustomMetricTypeCounter:
+		op := request.Operation
+		if op == "" {
+			op = types.CustomMetricOperationInc
+		}
+		if op != types.CustomMetricOperationInc {
+			return fmt.Errorf("unsupported counter operation %s", op)
+		}
+		if request.Value < 0 {
+			return fmt.Errorf("counter value must be non-negative")
+		}
+		if math.Trunc(request.Value) != request.Value {
+			return fmt.Errorf("counter value must be an integer")
+		}
+		if request.Value > math.MaxUint64 {
+			return fmt.Errorf("counter value exceeds uint64 range")
+		}
+		data := api.UInt64CounterData{
+			Name:        request.MetricName,
+			Description: request.Description,
+			Unit:        request.Unit,
+			Value:       uint64(request.Value),
+		}
+		return ch.sdkClient.IncreaseUInt64Counter(data)
+	default:
+		return fmt.Errorf("unsupported metric type %s", request.MetricType)
+	}
 }
 
 func (ch *CustomContainerHandler) handleCircuitBreak(w http.ResponseWriter, r *http.Request) {

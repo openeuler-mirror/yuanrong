@@ -144,9 +144,10 @@ func TestGetFuncSpecFromEtcdValue(t *testing.T) {
 		etcdValue []byte
 	}
 	tests := []struct {
-		name  string
-		args  args
-		IsNil bool
+		name              string
+		args              args
+		IsNil             bool
+		wantEnableMetrics bool
 	}{
 		{"test1",
 			args{etcdValue: []byte("{\"funcMetaData\":{\"layers\":[],\"name\":\"0-system-hello\",\"description\"" +
@@ -175,13 +176,22 @@ func TestGetFuncSpecFromEtcdValue(t *testing.T) {
 				"t\":0},\"enterprise_project_id\":\"\",\"log_tank_service\":{\"logGroupId\":\"\",\"logStrea" +
 				"mId\":\"\"},\"tracing_config\":{\"tracing_ak\":\"\",\"tracing_sk\":\"\",\"project_name\":\"\"},\"us" +
 				"er_type\":\"\",\"instance_meta_data\":{\"maxInstance\":100,\"minInstance\":0,\"concurrentN" +
-				"um\":100,\"cacheInstance\":0},\"extended_handler\":null,\"extended_timeout\":null}}")}, false},
-		{"test2", args{etcdValue: []byte("")}, true},
+				"um\":100,\"cacheInstance\":0},\"extended_handler\":null,\"extended_timeout\":null}}")}, false, false},
+		{"test2", args{etcdValue: []byte("")}, true, false},
+		{"read enable_metrics from etcd metadata", args{etcdValue: []byte(
+			"{\"funcMetaData\":{\"runtime\":\"python3.11\"},\"extendedMetaData\":{\"enable_metrics\":true}}")},
+			false, true},
+		{"do not read api enableMetrics from etcd metadata", args{etcdValue: []byte(
+			"{\"funcMetaData\":{\"runtime\":\"python3.11\"},\"extendedMetaData\":{\"enableMetrics\":true}}")},
+			false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := GetFuncMetaInfoFromEtcdValue(tt.args.etcdValue)
 			assert.Equal(t, tt.IsNil, got == nil)
+			if got != nil {
+				assert.Equal(t, tt.wantEnableMetrics, got.ExtendedMetaData.EnableMetrics)
+			}
 		})
 	}
 }

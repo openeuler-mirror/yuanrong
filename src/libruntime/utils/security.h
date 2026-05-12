@@ -68,6 +68,17 @@ public:
     bool GetFunctionSystemConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey);
 
     /**
+     * @brief Get in-memory certificate material for metrics exporter TLS.
+     *
+     * @param rootCACert root CA certificates
+     * @param certChain certificate chain
+     * @param privateKey private key
+     * @return true all certificate fields are present
+     * @return false metrics exporter TLS certificate material is not provided
+     */
+    bool GetMetricsTLSConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey);
+
+    /**
      * @brief Get the Token
      *
      * @param token runtime's session token for build connections with function system and data system
@@ -160,6 +171,12 @@ private:
         SensitiveData privateKeyData;
     };
     FunctionSystemSecurityConfig fsConf_;
+    struct MetricsSecurityConfig {
+        std::string rootCertData = "";
+        std::string certChainData = "";
+        SensitiveData privateKeyData;
+    };
+    MetricsSecurityConfig metricsConf_;
     SensitiveValue token_ = "";
     std::string ak_ = "";
     SensitiveValue sk_ = "";

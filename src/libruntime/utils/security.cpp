@@ -225,6 +225,9 @@ bool Security::ReadOnce()
 
     this->fsConf_.authEnable = tlsConf.serverauthenable();
     this->fsConf_.rootCertData = tlsConf.rootcertdata();
+    this->metricsConf_.rootCertData = tlsConf.metricsrootcertdata();
+    this->metricsConf_.certChainData = tlsConf.metricscertdata();
+    this->metricsConf_.privateKeyData = SensitiveData(tlsConf.metricskeydata());
 
     if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().accesskey().empty()) {
         this->ak_ = tlsConf.tenantcredentials().accesskey();
@@ -294,6 +297,19 @@ bool Security::GetFunctionSystemConfig(std::string &rootCACert, std::string &cer
     certChain = this->fsConf_.certChainData;
     privateKey = std::string(this->fsConf_.privateKeyData.GetData(), this->fsConf_.privateKeyData.GetSize());
     return this->fsConf_.authEnable;
+}
+
+bool Security::GetMetricsTLSConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey)
+{
+    rootCACert = this->metricsConf_.rootCertData;
+    certChain = this->metricsConf_.certChainData;
+    if (this->metricsConf_.privateKeyData.Empty()) {
+        privateKey.clear();
+    } else {
+        privateKey =
+            std::string(this->metricsConf_.privateKeyData.GetData(), this->metricsConf_.privateKeyData.GetSize());
+    }
+    return !rootCACert.empty() && !certChain.empty() && !privateKey.empty();
 }
 
 void Security::GetToken(SensitiveValue &token)

@@ -18,6 +18,7 @@
 yr api
 """
 import ctypes
+import importlib
 import os
 from yr.session_service import ManagedSessionObj, SessionService  # noqa: E402
 
@@ -52,6 +53,7 @@ for so_path in [
     "libobservability-metrics-exporter-ostream.so",
     "libobservability-metrics-file-exporter.so",
     "libobservability-prometheus-push-exporter.so",
+    "libobservability-prometheus-pull-exporter.so",
     "libobservability-metrics.so",
     "libobservability-metrics-sdk.so",
 ]:
@@ -103,7 +105,14 @@ from yr.stream import ProducerConfig, SubscriptionConfig, Element  # noqa: E402
 from yr.functionsdk.function import Function  # noqa: E402
 from yr.functionsdk.context import Context  # noqa: E402
 from yr.affinity import Affinity, AffinityType, AffinityKind, AffinityScope, LabelOperator, OperatorType  # noqa: E402
-from yr.metrics import Gauge, Alarm, UInt64Counter, DoubleCounter  # noqa: E402
+
+_metrics = importlib.import_module("yr.metrics")
+Gauge = _metrics.Gauge
+Alarm = _metrics.Alarm
+UInt64Counter = _metrics.UInt64Counter
+DoubleCounter = _metrics.DoubleCounter
+CustomGauge = _metrics.CustomGauge
+CustomCounter = _metrics.CustomCounter
 
 from yr.decorator.function_proxy import FunctionProxy  # noqa: E402
 from yr.decorator.instance_proxy import (  # noqa: E402
@@ -123,7 +132,7 @@ __all__ = [
     "save_state", "load_state", "get_instance", "is_initialized",
     "query_global_producers_num", "query_global_consumers_num",
     "Gauge", "Alarm", "java_instance_class", "go_instance_class", "create_function_group",
-    "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter",
+    "AlarmSeverity", "AlarmInfo", "UInt64Counter", "DoubleCounter", "CustomGauge", "CustomCounter",
     "FunctionGroupOptions", "SchedulingAffinityType", "FunctionGroupContext", "ServerInfo", "DeviceInfo",
     "get_function_group_context", "create_resource_group", "remove_resource_group", "ResourceGroup",
     "StatelessFunction", "StatefulInstance", "StatefulInstanceCreator",

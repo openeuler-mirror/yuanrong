@@ -39,6 +39,7 @@
 #include "src/libruntime/invokeadaptor/general_execution_manager.h"
 #include "src/libruntime/invokeadaptor/invoke_adaptor.h"
 #include "src/libruntime/invokeadaptor/ordered_execution_manager.h"
+#include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/objectstore/datasystem_object_store.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/runtime_context.h"
@@ -109,12 +110,14 @@ public:
         auto dsStreamStore = std::shared_ptr<StreamStore>();
         auto generatorReceiver = std::make_shared<StreamGeneratorReceiver>(libConfig, dsStreamStore, this->memoryStore);
         auto generatorNotifier = std::make_shared<StreamGeneratorNotifier>(dsStreamStore, mapper);
+        auto invokeCollector = std::make_shared<InvokeCollector>(metricsAdaptor);
         auto rGroupManager = std::make_shared<ResourceGroupManager>();
         auto security = std::make_shared<Security>();
         this->invokeAdaptor =
             std::make_shared<InvokeAdaptor>(libConfig, dependencyResolver, fsClient, this->memoryStore, runtimeContext,
                                             cb, nullptr, std::make_shared<InvokeOrderManager>(), clientsMgr,
-                                            metricsAdaptor, mapper, generatorReceiver, generatorNotifier);
+                                            metricsAdaptor, invokeCollector, mapper, generatorReceiver,
+                                            generatorNotifier);
         invokeAdaptor->SetRGroupManager(rGroupManager);
         invokeAdaptor->SetCallbackOfSetTenantId([]() {});
         this->invokeAdaptor->Init(*runtimeContext, nullptr);
@@ -234,10 +237,12 @@ TEST_F(InvokeAdaptorTest, PrepareCallExecutorTest)
     auto dsStreamStore = std::shared_ptr<StreamStore>();
     auto generatorReceiver = std::make_shared<StreamGeneratorReceiver>(librtCfg, dsStreamStore, memStore);
     auto generatorNotifier = std::make_shared<StreamGeneratorNotifier>(dsStreamStore, mapper);
+    auto invokeCollector = std::make_shared<InvokeCollector>(metricsAdaptor);
     auto rGroupManager = std::make_shared<ResourceGroupManager>();
     auto invokeAdaptor = std::make_shared<InvokeAdaptor>(librtCfg, dependencyResolver, fsClient, memStore,
                                                          runtimeContext, cb, nullptr, execMgr, clientsMgr,
-                                                         metricsAdaptor, mapper, generatorReceiver, generatorNotifier);
+                                                         metricsAdaptor, invokeCollector, mapper, generatorReceiver,
+                                                         generatorNotifier);
     invokeAdaptor->SetRGroupManager(rGroupManager);
     invokeAdaptor->SetCallbackOfSetTenantId([]() {});
     invokeAdaptor->Init(*runtimeContext, nullptr);

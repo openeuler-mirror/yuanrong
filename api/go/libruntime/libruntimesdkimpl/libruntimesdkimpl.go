@@ -265,3 +265,19 @@ func (l *libruntimeSDKImpl) IsDsHealth() bool {
 func (l *libruntimeSDKImpl) GetActiveMasterAddr() string {
 	return clibruntime.GetActiveMasterAddr()
 }
+
+func (l *libruntimeSDKImpl) SetGauge(data api.GaugeData) error {
+	return clibruntime.SetGauge(data)
+}
+
+func (l *libruntimeSDKImpl) IncreaseGauge(data api.GaugeData) error {
+	return clibruntime.IncreaseGauge(data)
+}
+
+func (l *libruntimeSDKImpl) DecreaseGauge(data api.GaugeData) error {
+	return clibruntime.DecreaseGauge(data)
+}
+
+func (l *libruntimeSDKImpl) IncreaseUInt64Counter(data api.UInt64CounterData) error {
+	return clibruntime.IncreaseUInt64Counter(data)
+}

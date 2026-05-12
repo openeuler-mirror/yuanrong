@@ -263,6 +263,11 @@ func (m mockLibruntimeClient) GetFormatLogger() api.FormatLogger {
 	panic("implement me")
 }
 
+func (m mockLibruntimeClient) CreateClient(config api.ConnectArguments) (api.KvClient, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m mockLibruntimeClient) ReleaseGRefs(remoteClientID string) error {
 	// TODO implement me
 	panic("implement me")
@@ -286,6 +291,26 @@ func (m *mockLibruntimeClient) IsDsHealth() bool {
 
 func (m *mockLibruntimeClient) GetActiveMasterAddr() string {
 	return "mockMasterAddr"
+}
+
+func (m mockLibruntimeClient) SetGauge(data api.GaugeData) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) IncreaseGauge(data api.GaugeData) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) DecreaseGauge(data api.GaugeData) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) IncreaseUInt64Counter(data api.UInt64CounterData) error {
+	//TODO implement me
+	panic("implement me")
 }
 
 // FakeLogger -

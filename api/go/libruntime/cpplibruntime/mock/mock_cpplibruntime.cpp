@@ -381,6 +381,26 @@ CErrorInfo CSetTenantId(const char *cTenantId, int cTenantIdLen)
     return ErrorInfoToCError(ErrorInfo());
 }
 
+CErrorInfo CSetGauge(CGaugeData *data)
+{
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CIncreaseGauge(CGaugeData *data)
+{
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CDecreaseGauge(CGaugeData *data)
+{
+    return ErrorInfoToCError(ErrorInfo());
+}
+
+CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *data)
+{
+    return ErrorInfoToCError(ErrorInfo());
+}
+
 CErrorInfo CGenerateKey(CStateStorePtr stateStorePtr, char **cKey, int *cKeyLen)
 {
     return ErrorInfoToCError(ErrorInfo());

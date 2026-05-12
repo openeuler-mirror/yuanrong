@@ -48,6 +48,87 @@ class Metrics:
             if not isinstance(value, str):
                 raise ValueError(f'invalid metrics label value: {value}, {type(value)} not str')
 
+    @classmethod
+    def _check_non_negative_float(cls, value, field_name: str):
+        fvalue = float(value)
+        if fvalue < 0:
+            raise ValueError(f"invalid {field_name}, should be >= 0")
+        return fvalue
+
+    @classmethod
+    def _check_positive_float(cls, value, field_name: str):
+        fvalue = float(value)
+        if fvalue <= 0:
+            raise ValueError(f"invalid {field_name}, should be > 0")
+        return fvalue
+
+    @classmethod
+    def _check_positive_int(cls, value, field_name: str):
+        ivalue = int(value)
+        if ivalue <= 0:
+            raise ValueError(f"invalid {field_name}, should be > 0")
+        return ivalue
+
+
+class CustomGauge(Metrics):
+    """Gauge wrapper for custom metrics without business labels."""
+
+    def __init__(self, name: str, description: str, unit: str = ''):
+        self.__name = name
+        self.__description = description
+        self.__unit = unit
+        self._check_name(name)
+
+    def set(self, value: float) -> None:
+        fvalue = self._check_non_negative_float(value, "gauge value")
+        if ConfigManager().is_driver:
+            raise ValueError("custom gauge metrics set not support in driver")
+        data = GaugeData(name=self.__name, description=self.__description, unit=self.__unit, value=fvalue)
+        global_runtime.get_runtime().set_gauge(data)
+
+    def inc(self, delta: float) -> None:
+        fvalue = self._check_positive_float(delta, "gauge delta")
+        if ConfigManager().is_driver:
+            raise ValueError("custom gauge metrics increase not support in driver")
+        data = GaugeData(name=self.__name, description=self.__description, unit=self.__unit, value=fvalue)
+        global_runtime.get_runtime().increase_gauge(data)
+
+    def dec(self, delta: float) -> None:
+        fvalue = self._check_positive_float(delta, "gauge delta")
+        if ConfigManager().is_driver:
+            raise ValueError("custom gauge metrics decrease not support in driver")
+        data = GaugeData(name=self.__name, description=self.__description, unit=self.__unit, value=fvalue)
+        global_runtime.get_runtime().decrease_gauge(data)
+
+    def get_value(self) -> float:
+        if ConfigManager().is_driver:
+            raise ValueError("custom gauge metrics get value not support in driver")
+        data = GaugeData(name=self.__name, description=self.__description, unit=self.__unit)
+        return global_runtime.get_runtime().get_value_gauge(data)
+
+
+class CustomCounter(Metrics):
+    """Counter wrapper for custom metrics without business labels."""
+
+    def __init__(self, name: str, description: str, unit: str = ''):
+        self.__name = name
+        self.__description = description
+        self.__unit = unit
+        self._check_name(name)
+
+    def inc(self, delta: int = 1) -> None:
+        ivalue = self._check_positive_int(delta, "counter delta")
+        if ConfigManager().is_driver:
+            raise ValueError("custom counter metrics increase not support in driver")
+        data = UInt64CounterData(name=self.__name, description=self.__description, unit=self.__unit, value=ivalue)
+        global_runtime.get_runtime().increase_uint64_counter(data)
+
+    def get_value(self) -> int:
+        if ConfigManager().is_driver:
+            raise ValueError("custom counter metrics get value not support in driver")
+        data = UInt64CounterData(name=self.__name, description=self.__description, unit=self.__unit)
+        return global_runtime.get_runtime().get_value_uint64_counter(data)
+
 
 class Gauge(Metrics):
     """

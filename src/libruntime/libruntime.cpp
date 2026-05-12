@@ -63,6 +63,7 @@ Libruntime::Libruntime(std::shared_ptr<LibruntimeConfig> librtCfg, std::shared_p
     : config(librtCfg),
       clientsMgr(clientsMgr),
       metricsAdaptor(metricsAdaptor),
+      invokeCollector(std::make_shared<InvokeCollector>(metricsAdaptor)),
       security_(security),
       socketClient_(socketClient)
 {
@@ -99,7 +100,7 @@ ErrorInfo Libruntime::Init(std::shared_ptr<FSClient> fsClient, YR::Libruntime::D
     TenantAKSKManager::GetInstance().Initialize(clientsMgr, security_, config);
     this->invokeAdaptor = std::make_shared<InvokeAdaptor>(
         config, dependencyResolver, fsClient, memStore, runtimeContext, cb, waitingObjectManager, invokeOrderMgr,
-        clientsMgr, metricsAdaptor, mapper, generatorReceiver_, generatorNotifier_, downgrade_);
+        clientsMgr, metricsAdaptor, invokeCollector, mapper, generatorReceiver_, generatorNotifier_, downgrade_);
     invokeAdaptor->SetRGroupManager(rGroupManager_);
     auto setTenantIdCb = [this]() { this->SetTenantIdWithPriority(); };
     invokeAdaptor->SetCallbackOfSetTenantId(setTenantIdCb);
@@ -1688,16 +1689,25 @@ ErrorInfo Libruntime::ExecShutdownCallback(uint64_t gracePeriodSec)
 
 ErrorInfo Libruntime::SetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+    if (invokeCollector) {
+        invokeCollector->OnUInt64CounterMutation(data.name);
+    }
     return metricsAdaptor->SetUInt64Counter(data);
 }
 
 ErrorInfo Libruntime::ResetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+    if (invokeCollector) {
+        invokeCollector->OnUInt64CounterMutation(data.name);
+    }
     return metricsAdaptor->ResetUInt64Counter(data);
 }
 
 ErrorInfo Libruntime::IncreaseUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
+    if (invokeCollector) {
+        invokeCollector->OnUInt64CounterMutation(data.name);
+    }
     return metricsAdaptor->IncreaseUInt64Counter(data);
 }
 
@@ -1726,8 +1736,40 @@ std::pair<ErrorInfo, double> Libruntime::GetValueDoubleCounter(const YR::Librunt
     return metricsAdaptor->GetValueDoubleCounter(data);
 }
 
+ErrorInfo Libruntime::SetGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    if (invokeCollector) {
+        invokeCollector->OnGaugeMutation(gauge.name);
+    }
+    return metricsAdaptor->SetGauge(gauge);
+}
+
+ErrorInfo Libruntime::IncreaseGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    if (invokeCollector) {
+        invokeCollector->OnGaugeMutation(gauge.name);
+    }
+    return metricsAdaptor->IncreaseGauge(gauge);
+}
+
+ErrorInfo Libruntime::DecreaseGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    if (invokeCollector) {
+        invokeCollector->OnGaugeMutation(gauge.name);
+    }
+    return metricsAdaptor->DecreaseGauge(gauge);
+}
+
+std::pair<ErrorInfo, double> Libruntime::GetValueGauge(const YR::Libruntime::GaugeData &gauge)
+{
+    return metricsAdaptor->GetValueGauge(gauge);
+}
+
 ErrorInfo Libruntime::ReportGauge(const YR::Libruntime::GaugeData &gauge)
 {
+    if (invokeCollector) {
+        invokeCollector->OnGaugeMutation(gauge.name);
+    }
     auto err = metricsAdaptor->ReportGauge(gauge);
     return err;
 }

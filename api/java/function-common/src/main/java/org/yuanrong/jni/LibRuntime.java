@@ -93,6 +93,82 @@ public class LibRuntime {
             List<InvokeArg> args, InvokeOptions opt) throws LibRuntimeException;
 
     /**
+     * Set gauge metric value.
+     *
+     * @param name metric name
+     * @param description metric description
+     * @param unit metric unit
+     * @param value metric value
+     * @return ErrorInfo indicating success or failure
+     * @throws LibRuntimeException the LibRuntimeException
+     */
+    public static native ErrorInfo setGauge(String name, String description, String unit, double value)
+        throws LibRuntimeException;
+
+    /**
+     * Increase gauge metric value.
+     *
+     * @param name metric name
+     * @param description metric description
+     * @param unit metric unit
+     * @param value metric value
+     * @return ErrorInfo indicating success or failure
+     * @throws LibRuntimeException the LibRuntimeException
+     */
+    public static native ErrorInfo increaseGauge(String name, String description, String unit, double value)
+        throws LibRuntimeException;
+
+    /**
+     * Decrease gauge metric value.
+     *
+     * @param name metric name
+     * @param description metric description
+     * @param unit metric unit
+     * @param value metric value
+     * @return ErrorInfo indicating success or failure
+     * @throws LibRuntimeException the LibRuntimeException
+     */
+    public static native ErrorInfo decreaseGauge(String name, String description, String unit, double value)
+        throws LibRuntimeException;
+
+    /**
+     * Get gauge metric value.
+     *
+     * @param name metric name
+     * @param description metric description
+     * @param unit metric unit
+     * @return a pair containing ErrorInfo and the gauge value
+     * @throws LibRuntimeException the LibRuntimeException
+     */
+    public static native Pair<ErrorInfo, Double> getValueGauge(String name, String description, String unit)
+        throws LibRuntimeException;
+
+    /**
+     * Increase uint64 counter metric value.
+     *
+     * @param name metric name
+     * @param description metric description
+     * @param unit metric unit
+     * @param value metric value
+     * @return ErrorInfo indicating success or failure
+     * @throws LibRuntimeException the LibRuntimeException
+     */
+    public static native ErrorInfo increaseUInt64Counter(String name, String description, String unit, long value)
+        throws LibRuntimeException;
+
+    /**
+     * Get uint64 counter metric value.
+     *
+     * @param name metric name
+     * @param description metric description
+     * @param unit metric unit
+     * @return a pair containing ErrorInfo and the counter value
+     * @throws LibRuntimeException the LibRuntimeException
+     */
+    public static native Pair<ErrorInfo, Long> getValueUInt64Counter(String name, String description, String unit)
+        throws LibRuntimeException;
+
+    /**
      * Get invoke results with ObjectRefIds
      *
      * @param ids          objectRefIds

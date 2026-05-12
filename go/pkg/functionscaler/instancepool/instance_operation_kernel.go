@@ -1104,6 +1104,10 @@ func prepareCreateArguments(request createInstanceRequest) []api.Arg {
 		log.GetLogger().Errorf("failed to prepare scheduler params error %s", err.Error())
 		return nil
 	}
+	createEvent := request.createEvent
+	if len(createEvent) == 0 {
+		createEvent = []byte("{}")
+	}
 	args := []api.Arg{
 		{
 			Type: api.Value,
@@ -1119,7 +1123,7 @@ func prepareCreateArguments(request createInstanceRequest) []api.Arg {
 		},
 		{
 			Type: api.Value,
-			Data: request.createEvent,
+			Data: createEvent,
 		},
 	}
 	if request.funcSpec.FuncMetaData.Runtime == types.CustomContainerRuntimeType {

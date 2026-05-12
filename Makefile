@@ -5,6 +5,7 @@
 REMOTE_CACHE ?=
 NPROCS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 JOBS ?= $(NPROCS)
+FUNCTIONSYSTEM_JOBS ?= 8
 BUILD_VERSION ?=
 BUILD_VERSION_ARG := $(if $(BUILD_VERSION),-v $(BUILD_VERSION),)
 
@@ -26,6 +27,8 @@ help:
 	@echo "                      If not provided, build will proceed without remote cache"
 	@echo "  JOBS               - Default parallelism for datasystem and runtime builds"
 	@echo "                      Example: make all JOBS=8"
+	@echo "  FUNCTIONSYSTEM_JOBS - Parallelism for functionsystem; defaults to 8"
+	@echo "                      Example: make all FUNCTIONSYSTEM_JOBS=6"
 
 clean:
 	@echo "Cleaning build outputs..."
@@ -104,7 +107,7 @@ runtime_launcher:
 	@echo "Runtime-launcher built successfully!"
 
 functionsystem:
-	cd functionsystem && bash run.sh build -j $(JOBS) $(BUILD_VERSION_ARG) && bash run.sh pack $(BUILD_VERSION_ARG) && cd -
+	cd functionsystem && bash run.sh build -j $(FUNCTIONSYSTEM_JOBS) $(BUILD_VERSION_ARG) && bash run.sh pack $(BUILD_VERSION_ARG) && cd -
 	mkdir -p output
 	cp -ar functionsystem/output/metrics ./
 	cp functionsystem/output/yr-functionsystem*.tar.gz output/

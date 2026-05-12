@@ -2,6 +2,7 @@
 """Tests for yrcli cp over the exec websocket channel."""
 import asyncio
 import io
+import json
 import socket
 import tempfile
 import tarfile
@@ -295,6 +296,47 @@ class TestCopyCLI(unittest.TestCase):
         )
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("exactly one side must be remote", result.output.lower())
+
+
+class TestDeployCLI(unittest.TestCase):
+
+    def test_deploy_packages_with_selected_user(self):
+        runner = CliRunner()
+        package_calls = []
+
+        def fake_package(backend, code_path, package_format, user=None):
+            package_calls.append((backend, code_path, package_format, user))
+            return code_path, "ds://code-test.zip"
+
+        function_info = {"name": "0@faaspy@hello", "versionNumber": "latest"}
+
+        with runner.isolated_filesystem():
+            Path("function.json").write_text(
+                json.dumps({"name": "0@faaspy@hello", "kind": "faas"}),
+                encoding="utf-8",
+            )
+            with patch.object(scripts, "package", new=fake_package), \
+                    patch.object(scripts, "query_function", return_value=(False, {})), \
+                    patch.object(scripts, "deploy_function", return_value=(True, function_info)):
+                result = runner.invoke(
+                    scripts.cli,
+                    [
+                        "--server-address",
+                        "127.0.0.1:38888",
+                        "--ds-address",
+                        "127.0.0.1:38888",
+                        "--user",
+                        "tenant-0",
+                        "deploy",
+                        "--code-path",
+                        ".",
+                        "--function-json",
+                        "function.json",
+                    ],
+                )
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        self.assertEqual(package_calls, [("ds", ".", "zip", "tenant-0")])
 
 
 if __name__ == "__main__":

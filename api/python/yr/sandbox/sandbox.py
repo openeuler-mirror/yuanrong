@@ -235,6 +235,7 @@ def create(
     working_dir: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     port_forwardings: Optional[List["PortForwarding"]] = None,
+    sandbox_type: str = "",
 ):
     """
     Create a new SandBox instance.
@@ -248,6 +249,8 @@ def create(
             If None, inherits from parent process.
         port_forwardings (Optional[List[PortForwarding]]): Port forwarding rules.
             If set, Gateway URLs will be printed after creation.
+        sandbox_type (str): Type of sandbox executor (default: "").
+            See SandBox.__init__ for supported values.
 
     Returns:
         SandBox wrapper instance.
@@ -256,14 +259,15 @@ def create(
         >>> import yr
         >>> yr.init()
         >>>
-        >>> sandbox = yr.sandbox.create()
+        >>> # Create sandbox with jiuwenbox executor
+        >>> sandbox = yr.sandbox.create(sandbox_type="jiuwenbox")
         >>> result = yr.get(sandbox.exec("pwd"))
         >>> print(result['stdout'])
         >>>
         >>> sandbox.terminate()
         >>> yr.finalize()
     """
-    return SandBox(working_dir, env, port_forwardings)
+    return SandBox(working_dir, env, port_forwardings, sandbox_type)
 
 
 class SandBox:
@@ -290,6 +294,7 @@ class SandBox:
         working_dir: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         port_forwardings: Optional[List["PortForwarding"]] = None,
+        sandbox_type: str = "",
     ):
         """
         Initialize the SandBox wrapper.
@@ -301,10 +306,16 @@ class SandBox:
                 If None, inherits from parent process.
             port_forwardings (Optional[List[PortForwarding]]): Port forwarding rules.
                 If set, Gateway URLs will be printed after creation.
+            sandbox_type (str): Type of sandbox executor.
+                Supported values:
+                - "jiuwenbox": Uses SANDBOX executor
+                - "": Use default executor (RUNTIME)
         """
         # Create InvokeOptions with skip_serialize=True for cross-version compatibility
         opt = yr.InvokeOptions()
         opt.skip_serialize = True
+        if sandbox_type:
+            opt.custom_extensions["sandbox_type"] = sandbox_type
         if port_forwardings:
             opt.port_forwardings = port_forwardings
         self._instance = SandBoxInstance.options(opt).invoke(working_dir, env)

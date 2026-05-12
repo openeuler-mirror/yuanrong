@@ -44,8 +44,10 @@ docker compose up -d
 可选环境变量：
 
 ```bash
-WORKSPACE=/path/to/yuanrong COMPILE_PORT=8888 docker compose up -d
+COMPILE_HOME=/path/to/parent COMPILE_PORT=8888 COMPILE_MEMORY_LIMIT=24g docker compose up -d
 ```
+
+`compile-make-all.sh` 会默认按宿主内存的 80% 计算 `COMPILE_MEMORY_LIMIT`，并将上限封顶为 `32g`；也可以通过环境变量显式覆盖。
 
 ## 为什么使用这种方式？
 1. **统一管理**：通过 `ARG TARGETARCH` 变量，一个 Dockerfile 即可维护两套架构的下载和构建逻辑。

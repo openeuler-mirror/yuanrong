@@ -405,6 +405,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertEqual(find_env(frontend_container, "FUNCTION_PROXY_PORT"), str(values["node"]["ports"]["functionProxy"]["containerPort"]))
         self.assertEqual(find_env(frontend_container, "FUNCTION_PROXY_GRPC_PORT"), str(values["node"]["ports"]["functionProxyGrpc"]["containerPort"]))
         self.assertEqual(find_env(frontend_container, "DS_WORKER_PORT"), str(values["node"]["ports"]["dsWorker"]["containerPort"]))
+        self.assertEqual(frontend_container["resources"], values["frontend"]["resources"])
         self.assertEqual(frontend_svc["spec"]["ports"][0]["port"], values["frontend"]["service"]["port"])
         frontend_mounts = {m["mountPath"] for m in frontend_container.get("volumeMounts", [])}
         self.assertIn("/home/sn/service-config/services.yaml", frontend_mounts)
@@ -447,6 +448,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn(values["traefik"]["etcd"]["rootKey"], traefik_text)
         self.assertIn("/etc/traefik/dynamic", traefik_text)
         self.assertIn(frontend_name, traefik_dynamic_text)
+        self.assertIn("/api/sandbox", traefik_dynamic_text)
         self.assertIn("/serverless/v1/componentshealth", traefik_dynamic_text)
         self.assertIn("/invocations", traefik_dynamic_text)
         self.assertEqual(find_container(traefik_dep, "traefik")["image"], expected_image(values, "traefik"))
@@ -506,6 +508,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertNotIn('artifact download "artifacts/release/*"', deploy_script)
         self.assertIn("YR_K8S_SMOKE_PIP_INDEX_URL", deploy_script)
         self.assertIn("-m smoke", deploy_script)
+        self.assertIn("YR_OFF_CLUSTER_TEST_TIMEOUT", deploy_script)
         self.assertIn("cp output/*.whl artifacts/release/", pipeline)
         self.assertNotIn("cp datasystem/output/*.whl artifacts/release/", pipeline)
         self.assertNotIn("cp datasystem/output/sdk/*.whl artifacts/release/", pipeline)

@@ -1084,6 +1084,7 @@ func Test_PrepareCreateArguments(t *testing.T) {
 				resKey:   resspeckey.ResSpecKey{},
 			})
 			convey.So(len(arg), convey.ShouldEqual, 4)
+			convey.So(string(arg[3].Data), convey.ShouldEqual, "{}")
 		})
 	})
 }

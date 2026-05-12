@@ -34,6 +34,7 @@ RUN find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.
         python3 \
         python3-pip \
         tini \
+        unzip \
         wget \
     && python3 -m pip install --no-cache-dir \
         -i https://mirrors.huaweicloud.com/repository/pypi/simple \

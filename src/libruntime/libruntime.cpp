@@ -129,6 +129,7 @@ ErrorInfo Libruntime::Init(std::shared_ptr<FSClient> fsClient, YR::Libruntime::D
     if (!err.OK()) {
         return err;
     }
+    SetTenantIdWithPriority();
     this->config->serverVersion = serverVersion;
     if (config->logToDriver) {
         this->driverLogReceiver_ = std::make_shared<DriverLogReceiver>();

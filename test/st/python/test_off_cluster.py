@@ -42,6 +42,7 @@ import pytest
 import yr
 
 pytestmark = pytest.mark.off_cluster
+YRCLI_SANDBOX_CREATE_TIMEOUT = 240
 
 
 def _get_addr():
@@ -536,7 +537,9 @@ def test_sandbox_create_exec_and_terminate(init_yr):
 def test_yrcli_exec_with_sandbox_instance(require_plain_http_for_yrcli):
     namespace = "offcluster"
     name = _unique_name("yrcli-exec")
-    create = _run_yrcli("sandbox", "create", "--namespace", namespace, "--name", name)
+    create = _run_yrcli(
+        "sandbox", "create", "--namespace", namespace, "--name", name, timeout=YRCLI_SANDBOX_CREATE_TIMEOUT
+    )
     marker = "instance_id="
     assert marker in create.stdout
     sandbox_id = create.stdout.split(marker, 1)[1].strip().split()[0]
@@ -552,7 +555,9 @@ def test_yrcli_exec_with_sandbox_instance(require_plain_http_for_yrcli):
 def test_yrcli_sandbox_detached_lifecycle(require_plain_http_for_yrcli):
     namespace = "offcluster"
     name = _unique_name("yrcli-sandbox")
-    create = _run_yrcli("sandbox", "create", "--namespace", namespace, "--name", name)
+    create = _run_yrcli(
+        "sandbox", "create", "--namespace", namespace, "--name", name, timeout=YRCLI_SANDBOX_CREATE_TIMEOUT
+    )
     marker = "instance_id="
     assert marker in create.stdout
     sandbox_id = create.stdout.split(marker, 1)[1].strip().split()[0]

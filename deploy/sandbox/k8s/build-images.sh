@@ -160,7 +160,7 @@ main() {
   build_image "${NODE_IMAGE}" "${ROOT_DIR}/images/Dockerfile.node" \
     --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"
   build_image "${RUNTIME_IMAGE}" "${ROOT_DIR}/images/Dockerfile.runtime" \
-    --build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"
+    --build-arg BASE_IMAGE="${BASE_IMAGE}"
 
   printf 'Image builds completed: %s, %s, %s, %s, %s\n' \
     "${BASE_IMAGE}" \

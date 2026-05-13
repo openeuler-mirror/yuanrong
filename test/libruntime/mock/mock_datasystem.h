@@ -78,6 +78,7 @@ public:
                  const SensitiveValue &sk, std::int32_t connectTimeout),
                 (override));
     MOCK_METHOD1(Init, ErrorInfo(const DsConnectOptions &options));
+    MOCK_METHOD(void, SetTenantId, (const std::string &tenantId), (override));
     MOCK_METHOD3(Write, ErrorInfo(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam));
     MOCK_METHOD3(Write, ErrorInfo(std::shared_ptr<Buffer> value, SetParam setParam, std::string &returnKey));
     MOCK_METHOD3(MSetTx, ErrorInfo(const std::vector<std::string> &keys,

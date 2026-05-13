@@ -653,7 +653,7 @@ TEST_F(LibruntimeTest, SetTenantIdTest)
     EXPECT_NO_THROW(lr->SetTenantId(tenantID));
 }
 
-TEST_F(LibruntimeTest, InitAppliesOffClusterTenantIdToObjectStore)
+TEST_F(LibruntimeTest, InitAppliesOffClusterTenantIdToDatasystemStores)
 {
     auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
     config->jobId = YR::utility::IDGenerator::GenApplicationId();
@@ -665,9 +665,41 @@ TEST_F(LibruntimeTest, InitAppliesOffClusterTenantIdToObjectStore)
         std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
     auto gateway = std::make_shared<MockGwClient>();
     auto objectStore = std::make_shared<MockObjectStore>();
-    DatasystemClients clients{objectStore, stateStore_, streamStore_, heteroStore_};
+    auto stateStore = std::make_shared<MockStateStore>();
+    DatasystemClients clients{objectStore, stateStore, streamStore_, heteroStore_};
 
     EXPECT_CALL(*objectStore, SetTenantId("default")).Times(1);
+    EXPECT_CALL(*stateStore, SetTenantId("default")).Times(1);
+    ASSERT_TRUE(runtime->Init(std::make_shared<YR::Libruntime::FSClient>(gateway), clients).OK());
+
+    EXPECT_CALL(*gateway, KillAsync(_, _, _))
+        .WillRepeatedly([=](const YR::Libruntime::KillRequest &, YR::Libruntime::KillCallBack cb, int) {
+            if (cb != nullptr) {
+                YR::Libruntime::KillResponse resp;
+                cb(resp, ErrorInfo());
+            }
+        });
+    runtime->Finalize(true);
+}
+
+TEST_F(LibruntimeTest, InitAppliesInClusterTenantIdWithoutDatasystemAuth)
+{
+    auto config = std::make_shared<YR::Libruntime::LibruntimeConfig>();
+    config->jobId = YR::utility::IDGenerator::GenApplicationId();
+    config->tenantId = "0";
+    config->inCluster = true;
+    config->enableAuth = false;
+    auto clientsMgr = std::make_shared<YR::Libruntime::ClientsManager>();
+    auto runtime = std::make_shared<YR::Libruntime::Libruntime>(
+        config, clientsMgr, YR::Libruntime::MetricsAdaptor::GetInstance(), sec_,
+        std::make_shared<DomainSocketClient>("/home/snuser/socket/runtime.sock"));
+    auto gateway = std::make_shared<MockGwClient>();
+    auto objectStore = std::make_shared<MockObjectStore>();
+    auto stateStore = std::make_shared<MockStateStore>();
+    DatasystemClients clients{objectStore, stateStore, streamStore_, heteroStore_};
+
+    EXPECT_CALL(*objectStore, SetTenantId("0")).Times(1);
+    EXPECT_CALL(*stateStore, SetTenantId("0")).Times(1);
     ASSERT_TRUE(runtime->Init(std::make_shared<YR::Libruntime::FSClient>(gateway), clients).OK());
 
     EXPECT_CALL(*gateway, KillAsync(_, _, _))

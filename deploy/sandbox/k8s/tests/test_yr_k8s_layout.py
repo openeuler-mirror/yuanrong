@@ -228,6 +228,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("FROM ${BASE_IMAGE}", controlplane_dockerfile)
         self.assertIn('ln -sf "${python_bin_dir}/yr" /usr/local/bin/yr', controlplane_dockerfile)
         self.assertIn('ln -sf "${python_bin_dir}/yrcli" /usr/local/bin/yrcli', controlplane_dockerfile)
+        self.assertIn("https://mirrors.aliyun.com/pypi/simple", controlplane_dockerfile)
+        self.assertIn("--trusted-host mirrors.aliyun.com", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-frontend.sh", controlplane_dockerfile)
         self.assertIn("ARG CONTROLPLANE_IMAGE=yr-controlplane", runtime_dockerfile)

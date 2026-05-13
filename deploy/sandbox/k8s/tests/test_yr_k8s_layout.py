@@ -1,4 +1,5 @@
 import pathlib
+import re
 import stat
 import subprocess
 import unittest
@@ -232,9 +233,20 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("--trusted-host mirrors.aliyun.com", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-master.sh", controlplane_dockerfile)
         self.assertIn("COPY --from=deploy bin/start-frontend.sh", controlplane_dockerfile)
-        self.assertIn("ARG CONTROLPLANE_IMAGE=yr-controlplane", runtime_dockerfile)
-        self.assertIn("FROM ${CONTROLPLANE_IMAGE}", runtime_dockerfile)
-        self.assertIn('--build-arg CONTROLPLANE_IMAGE="${CONTROLPLANE_IMAGE}"', build_script)
+        self.assertIn("ARG BASE_IMAGE=yr-base", runtime_dockerfile)
+        self.assertIn("FROM ${BASE_IMAGE}", runtime_dockerfile)
+        self.assertIn("COPY openyuanrong_sdk*.whl", runtime_dockerfile)
+        self.assertIn("pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl", runtime_dockerfile)
+        self.assertNotIn("openyuanrong-*.whl", runtime_dockerfile)
+        self.assertNotIn("CONTROLPLANE_IMAGE", runtime_dockerfile)
+        runtime_build = re.search(
+            r'build_image "\$\{RUNTIME_IMAGE\}".*?(?=\n\n  printf)',
+            build_script,
+            re.S,
+        )
+        self.assertIsNotNone(runtime_build)
+        self.assertIn('--build-arg BASE_IMAGE="${BASE_IMAGE}"', runtime_build.group(0))
+        self.assertNotIn("CONTROLPLANE_IMAGE", runtime_build.group(0))
         self.assertNotIn("images/Dockerfile.master", build_script)
         self.assertNotIn("images/Dockerfile.frontend", build_script)
         self.assertNotIn("yr-controlplane-base", build_script)
@@ -430,6 +442,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         )
         self.assertEqual(find_env(node_container, "YR_MASTER_IP"), master_access_name)
         self.assertEqual(find_env(node_container, "YR_ETCD_ADDR_LIST"), etcd_addr)
+        self.assertEqual(find_env(node_container, "DOCKER_DRIVER"), values["node"]["docker"]["storageDriver"])
+        self.assertEqual(node_container["resources"], values["node"]["resources"])
         self.assertEqual(
             sorted(p["hostPort"] for p in node_container["ports"]),
             sorted([
@@ -441,6 +455,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         node_mounts = {m["mountPath"] for m in node_container.get("volumeMounts", [])}
         self.assertNotIn("/proc/1", node_mounts)
         self.assertIn(values["debug"]["sidecar"]["sessionDir"], node_mounts)
+        self.assertIn("/var/lib/docker", node_mounts)
+        node_volumes = {v["name"]: v for v in node_ds["spec"]["template"]["spec"]["volumes"]}
+        self.assertEqual(node_volumes["docker-root"]["hostPath"]["path"], values["node"]["docker"]["rootHostPath"])
 
         traefik_cfg = find_manifest(manifests, "ConfigMap", "yr-traefik-configmap")
         traefik_dynamic_cfg = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")

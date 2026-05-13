@@ -36,6 +36,7 @@ from yr.cli.exec import copy_from_remote, copy_to_remote, run_client
 
 QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
+SANDBOX_CREATE_HTTP_TIMEOUT = 180
 
 
 __server_address = None
@@ -933,7 +934,7 @@ def sandbox_create(namespace, name):
         sys.exit(1)
 
     http_client = HTTPClient(
-        timeout=60,
+        timeout=SANDBOX_CREATE_HTTP_TIMEOUT,
         jwt_token=__jwt_token,
     )
     url = f"http://{__server_address}/api/sandbox/create"

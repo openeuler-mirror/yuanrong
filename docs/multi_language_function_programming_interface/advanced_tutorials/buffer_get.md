@@ -28,7 +28,7 @@ openYuanrong 支持在使用 `Put` 及 `invoke` 接口时直接传入 `YR::Buffe
 #include "yr/yr.h"
 
 int main(int argc, char *argv[]) {
-    YR::Init();
+    YR::Init(YR::Config{}, argc, argv);
 
     YR::CreateParam param;
     param.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT;
@@ -67,7 +67,7 @@ def echo(str):
 #include "yr/yr.h"
 
 int main(int argc, char *argv[]) {
-    YR::Init();
+    YR::Init(YR::Config{}, argc, argv);
 
     YR::CreateParam param;
     param.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT;

@@ -13,7 +13,7 @@ This directory currently contains:
 
 Run `make all` from the repository root before invoking `deploy/sandbox/k8s/build-images.sh`.
 
-The build script validates artifacts in the repository root `output/` directory, then builds local layered images. `yr-base` owns the shared Ubuntu/Python/runtime-library layer, `yr-compile` adds compile tools, `yr-controlplane` installs the control-plane wheels and entrypoints, `yr-node` adds node-only Docker/supervisor wiring, and `yr-runtime` follows the Kubernetes runtime image Dockerfile. Master and frontend share `yr-controlplane`; their behavior is selected by the Helm command. Runtime function containers use `yr-runtime` through the generated `services.yaml`. It still fails fast when required artifacts are missing.
+The build script validates artifacts in the repository root `output/` directory, then builds local layered images. `yr-base` owns the shared Ubuntu/Python/runtime-library layer, `yr-compile` adds compile tools, `yr-controlplane` installs the control-plane wheels and entrypoints, `yr-node` adds node-only Docker/supervisor wiring, and `yr-runtime` installs only the SDK wheel needed by function containers. Master and frontend share `yr-controlplane`; their behavior is selected by the Helm command. Runtime function containers use `yr-runtime` through the generated `services.yaml`. It still fails fast when required artifacts are missing.
 
 Required `output/` artifacts:
 

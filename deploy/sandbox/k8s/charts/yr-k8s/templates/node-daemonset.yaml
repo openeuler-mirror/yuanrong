@@ -48,6 +48,8 @@ spec:
               value: {{ .Values.node.ports.functionProxyGrpc.containerPort | quote }}
             - name: DS_WORKER_PORT
               value: {{ .Values.node.ports.dsWorker.containerPort | quote }}
+            - name: DOCKER_DRIVER
+              value: {{ .Values.node.docker.storageDriver | quote }}
           ports:
             - name: function-proxy
               containerPort: {{ .Values.node.ports.functionProxy.containerPort }}
@@ -90,6 +92,8 @@ spec:
               readOnly: true
             - name: session-dir
               mountPath: {{ .Values.debug.sidecar.sessionDir }}
+            - name: docker-root
+              mountPath: /var/lib/docker
         - name: debug-busybox
           image: {{ include "yr-k8s.image" (dict "root" . "image" .Values.debug.sidecar.image) }}
           imagePullPolicy: {{ .Values.debug.sidecar.image.pullPolicy }}
@@ -136,4 +140,8 @@ spec:
             secretName: {{ include "yr-k8s.fullname" . }}-runtime
         - name: session-dir
           emptyDir: {}
+        - name: docker-root
+          hostPath:
+            path: {{ .Values.node.docker.rootHostPath | quote }}
+            type: DirectoryOrCreate
 {{- end }}

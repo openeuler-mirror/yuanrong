@@ -42,6 +42,8 @@ class TestCliScripts(unittest.TestCase):
         fake_yr = types.ModuleType("yr")
         fake_yr_cli = types.ModuleType("yr.cli")
         fake_yr_cli_exec = types.ModuleType("yr.cli.exec")
+        fake_yr_cli_exec.copy_from_remote = lambda *args, **kwargs: None
+        fake_yr_cli_exec.copy_to_remote = lambda *args, **kwargs: None
         fake_yr_cli_exec.run_client = lambda *args, **kwargs: None
 
         with mock.patch.dict(
@@ -78,6 +80,35 @@ class TestCliScripts(unittest.TestCase):
                 insecure_option_count += 1
 
         self.assertEqual(insecure_option_count, 1)
+
+    def test_sandbox_create_options_are_optional_and_default_to_py310(self):
+        scripts_path = Path(__file__).resolve().parents[1] / "cli" / "scripts.py"
+        module = ast.parse(scripts_path.read_text())
+
+        sandbox_create_func = next(
+            node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "sandbox_create"
+        )
+
+        option_required_values = {}
+        runtime_default = None
+        for decorator in sandbox_create_func.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not isinstance(decorator.func, ast.Attribute):
+                continue
+            if decorator.func.attr != "option" or not decorator.args:
+                continue
+            option_name = decorator.args[0]
+            if not isinstance(option_name, ast.Constant) or option_name.value not in {"--namespace", "--name", "--runtime"}:
+                continue
+            required = next((keyword for keyword in decorator.keywords if keyword.arg == "required"), None)
+            option_required_values[option_name.value] = required.value.value
+            default = next((keyword for keyword in decorator.keywords if keyword.arg == "default"), None)
+            if option_name.value == "--runtime":
+                runtime_default = default.value.id
+
+        self.assertEqual(option_required_values, {"--namespace": False, "--name": False, "--runtime": False})
+        self.assertEqual(runtime_default, "DEFAULT_SANDBOX_RUNTIME")
 
     def test_query_instances_appends_pagination_params(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -216,6 +247,338 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn("invalid instances response: missing instances", output.getvalue())
+
+    def test_sandbox_create_uses_default_namespace_and_generates_missing_name(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        setattr(scripts, "__user", "tenant-a")
+
+        class FakeUUID:
+            def __init__(self, value):
+                self.hex = value
+
+        create_calls = []
+
+        def fake_create_sandbox_auto(namespace, name, runtime):
+            create_calls.append((namespace, name, runtime))
+            return f"{namespace}-{name}", None
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_auto", fake_create_sandbox_auto),
+            mock.patch.object(scripts.uuid, "uuid4", return_value=FakeUUID("name-id")) as uuid4_mock,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            scripts.sandbox_create(None, None, scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(create_calls, [(scripts.DEFAULT_SANDBOX_NAMESPACE, "name-id", scripts.DEFAULT_SANDBOX_RUNTIME)])
+        self.assertIn("sandbox created, instance_id=default-name-id", output.getvalue())
+        uuid4_mock.assert_called_once_with()
+
+    def test_sandbox_create_preserves_explicit_namespace_and_name(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        create_calls = []
+
+        def fake_create_sandbox_auto(namespace, name, runtime):
+            create_calls.append((namespace, name, runtime))
+            return f"{namespace}-{name}", None
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_auto", fake_create_sandbox_auto),
+            mock.patch.object(scripts.uuid, "uuid4") as uuid4_mock,
+            redirect_stdout(io.StringIO()),
+        ):
+            scripts.sandbox_create("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(create_calls, [("custom-ns", "custom-name", scripts.DEFAULT_SANDBOX_RUNTIME)])
+        uuid4_mock.assert_not_called()
+
+    def test_sandbox_runtime_function_id_uses_py310_suffix(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        self.assertEqual(
+            scripts.sandbox_runtime_function_id("python3.10", "default"),
+            "sn:cn:yrk:default:function:0-defaultservice-py310:$latest",
+        )
+
+    def test_create_sandbox_via_sdk_returns_create_instance_id_without_get(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example:443")
+        setattr(scripts, "__jwt_token", "token")
+
+        class FakeConfig:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+                self.auth_token = ""
+                self.tenant_id = ""
+                self.enable_tls = None
+
+        class FakeInvokeOptions:
+            def __init__(self):
+                self.custom_extensions = {}
+
+        fake_sandbox_instance = mock.Mock()
+        fake_sandbox_instance.instance_id = "default-name-id"
+        fake_sandbox_instance.real_id = "real-instance-id"
+        fake_creator = mock.Mock()
+        fake_creator.invoke.return_value = fake_sandbox_instance
+        fake_options = mock.Mock(return_value=fake_creator)
+        fake_sandbox_instance_class = mock.Mock()
+        fake_sandbox_instance_class.options = fake_options
+        fake_yr = mock.Mock()
+        fake_yr.Config = FakeConfig
+        fake_yr.InvokeOptions = FakeInvokeOptions
+        fake_yr.sandbox.SandboxInstance = fake_sandbox_instance_class
+
+        with mock.patch.object(scripts, "yr", fake_yr):
+            instance_id = scripts.create_sandbox_via_sdk("default", "name-id", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(instance_id, "real-instance-id")
+        fake_yr.get.assert_not_called()
+        fake_yr.init.assert_called_once()
+        fake_yr.finalize.assert_called_once()
+
+    def test_create_sandbox_auto_prefers_sdk_create(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_via_sdk", return_value="sdk-real-id") as sdk_create,
+            mock.patch.object(scripts, "create_sandbox_via_frontend") as frontend_create,
+            mock.patch.object(scripts, "query_instance", return_value=(True, {"id": "actual-sdk-id"})),
+        ):
+            instance_id, data = scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(instance_id, "actual-sdk-id")
+        self.assertIsNone(data)
+        sdk_create.assert_called_once_with("default", "box", "python3.10")
+        frontend_create.assert_not_called()
+
+    def test_create_sandbox_auto_uses_frontend_api_when_sdk_is_unsupported(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        setattr(scripts, "__user", "tenant-a")
+        encoded = scripts.base64.b64encode(
+            scripts.json.dumps({"instance_id": "tenant-a-box"}).encode()
+        ).decode()
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                self.__class__.kwargs = kwargs
+
+            def request(self, url, data, method="POST", headers=None):
+                self.__class__.url = url
+                self.__class__.data = data
+                self.__class__.headers = headers
+                self.__class__.method = method
+                return {"success": True, "data": {"data": encoded}}
+
+        with (
+            mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
+            mock.patch.object(scripts, "create_sandbox_via_sdk", side_effect=RuntimeError("function not found: 0-defaultservice-py310")) as sdk_create,
+            mock.patch.object(
+                scripts,
+                "query_instance",
+                return_value=(
+                    True,
+                    {"id": "actual-tenant-a-box", "function": "default/0-defaultservice-py310/$latest", "status": "running"},
+                ),
+            ),
+        ):
+            instance_id, data = scripts.create_sandbox_auto("tenant-a", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        self.assertEqual(instance_id, "actual-tenant-a-box")
+        self.assertEqual(data, {"data": encoded})
+        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/api/sandbox/create")
+        self.assertEqual(FakeHTTPClient.data, {"name": "box", "namespace": "tenant-a", "runtime": "python3.10"})
+        self.assertEqual(FakeHTTPClient.headers, {"X-Tenant-ID": "tenant-a"})
+        self.assertEqual(FakeHTTPClient.method, "POST")
+        sdk_create.assert_called_once_with("tenant-a", "box", "python3.10")
+
+    def test_create_sandbox_auto_does_not_fallback_for_duplicate_sdk_error(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(scripts, "create_sandbox_via_sdk", side_effect=RuntimeError("same instance id already exists")),
+            mock.patch.object(scripts, "create_sandbox_via_frontend") as frontend_create,
+            self.assertRaisesRegex(RuntimeError, "same instance id"),
+        ):
+            scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        frontend_create.assert_not_called()
+
+    def test_create_sandbox_auto_rejects_old_py39_frontend_fallback(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {
+                    "success": False,
+                    "status_code": 500,
+                    "error": "Executable path of python3.9 is not found",
+                }
+
+        with (
+            mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
+            mock.patch.object(scripts, "create_sandbox_via_sdk", side_effect=RuntimeError("function not found: 0-defaultservice-py310")) as sdk_create,
+            mock.patch.object(scripts, "query_instance", return_value=(True, {"id": "default-box"})),
+            self.assertRaisesRegex(RuntimeError, "Executable path of python3.9"),
+        ):
+            scripts.create_sandbox_auto("default", "box", scripts.DEFAULT_SANDBOX_RUNTIME)
+
+        sdk_create.assert_called_once_with("default", "box", "python3.10")
+
+    def test_sandbox_list_prints_header_and_status(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__user", "tenant-a")
+
+        def fake_query_instances(user=None):
+            return True, {
+                "instances": [
+                    {"id": "tenant-a-box", "tenantID": "tenant-a", "status": "running"},
+                    {"id": "app-not-sandbox", "tenantID": "tenant-a", "status": "running"},
+                ]
+            }
+
+        with mock.patch.object(scripts, "query_instances", fake_query_instances), redirect_stdout(io.StringIO()) as output:
+            scripts.sandbox_list(None)
+
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            ["INSTANCE_ID   TENANT_ID  STATUS", "tenant-a-box  tenant-a   running"],
+        )
+
+    def test_delete_sandbox_via_sdk_uses_async_terminate(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        runtime = mock.Mock()
+        scripts.yr.init = mock.Mock()
+        scripts.yr.finalize = mock.Mock()
+        scripts.yr.kill_instance = mock.Mock()
+        scripts.yr.runtime_holder = types.SimpleNamespace(
+            global_runtime=types.SimpleNamespace(get_runtime=lambda: runtime)
+        )
+
+        with (
+            mock.patch.object(scripts, "build_sandbox_sdk_config", return_value=object()) as build_config,
+            mock.patch.object(scripts.yr, "init") as yr_init,
+            mock.patch.object(scripts.yr, "finalize") as yr_finalize,
+        ):
+            scripts.delete_sandbox_via_sdk("sandbox-id")
+
+        build_config.assert_called_once_with(scripts.DEFAULT_SANDBOX_RUNTIME)
+        yr_init.assert_called_once()
+        runtime.terminate_instance.assert_called_once_with("sandbox-id")
+        scripts.yr.kill_instance.assert_not_called()
+        yr_finalize.assert_called_once()
+
+    def test_sandbox_delete_uses_sdk_first(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        with (
+            mock.patch.object(scripts, "delete_sandbox_via_sdk") as sdk_delete,
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
+            mock.patch.object(scripts, "HTTPClient") as http_client,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            scripts.sandbox_delete("sandbox-id")
+
+        sdk_delete.assert_called_once_with("sandbox-id")
+        http_client.assert_not_called()
+        self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
+
+    def test_sandbox_delete_falls_back_to_frontend_and_passes_tls_options(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+        setattr(scripts, "__insecure", True)
+        setattr(scripts, "__jwt_token", "token")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                self.__class__.kwargs = kwargs
+
+            def request(self, url, data, method="POST", headers=None):
+                self.__class__.url = url
+                self.__class__.method = method
+                return {"success": True, "data": {}}
+
+        with (
+            mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
+            mock.patch.object(scripts, "delete_sandbox_via_sdk", side_effect=RuntimeError("sdk delete failed")),
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", return_value=True),
+            redirect_stdout(io.StringIO()),
+        ):
+            scripts.sandbox_delete("sandbox-id")
+
+        self.assertEqual(FakeHTTPClient.url, "http://frontend.example/api/sandbox/sandbox-id")
+        self.assertEqual(FakeHTTPClient.method, "DELETE")
+        self.assertTrue(FakeHTTPClient.kwargs["insecure"])
+        self.assertEqual(FakeHTTPClient.kwargs["jwt_token"], "token")
+
+    def test_sandbox_delete_uses_frontend_when_sdk_delete_leaves_instance(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "frontend.example")
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, method="POST", headers=None):
+                return {"success": True, "data": {}}
+
+        with (
+            mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
+            mock.patch.object(scripts, "wait_until_sandbox_deleted", side_effect=[False, True]),
+            mock.patch.object(scripts, "delete_sandbox_via_sdk") as sdk_delete,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            scripts.sandbox_delete("sandbox-id")
+
+        sdk_delete.assert_called_once_with("sandbox-id")
+        self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
+
+    def test_wait_until_sandbox_deleted_polls_until_missing(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        clock = mock.Mock()
+        clock.time.side_effect = [0, 1, 1]
+
+        with (
+            mock.patch.object(scripts, "sandbox_exists", side_effect=[True, False]),
+            mock.patch.object(scripts, "time", clock),
+        ):
+            self.assertTrue(scripts.wait_until_sandbox_deleted("sandbox-id", timeout=30))
+
+        clock.sleep.assert_called_once_with(1)
+
+    def test_exec_uses_wss_for_443_token_only_connection(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+        setattr(scripts, "__server_address", "124.70.166.142:443")
+        setattr(scripts, "__client_cert", None)
+        setattr(scripts, "__client_key", None)
+        setattr(scripts, "__ca_cert", None)
+        setattr(scripts, "__insecure", True)
+        setattr(scripts, "__jwt_token", "token")
+        captured = {}
+
+        async def fake_run_client(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+        with mock.patch.object(scripts, "run_client", fake_run_client):
+            scripts.exec(False, False, True, "instance-id", "bash")
+
+        self.assertEqual(captured["args"][:2], ("124.70.166.142", "443"))
+        self.assertTrue(captured["kwargs"]["use_ssl"])
+        self.assertFalse(captured["kwargs"]["verify_server"])
+        self.assertIsNone(captured["kwargs"]["cert_file"])
+        self.assertIsNone(captured["kwargs"]["key_file"])
+        self.assertEqual(captured["kwargs"]["token"], "token")
 
 
 if __name__ == "__main__":

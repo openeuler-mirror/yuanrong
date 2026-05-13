@@ -22,6 +22,7 @@ import uuid
 import shutil
 import sys
 import subprocess
+import time
 import click
 import json
 import logging
@@ -37,6 +38,8 @@ from yr.cli.exec import copy_from_remote, copy_to_remote, run_client
 QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
 SANDBOX_CREATE_HTTP_TIMEOUT = 180
+DEFAULT_SANDBOX_NAMESPACE = "default"
+DEFAULT_SANDBOX_RUNTIME = "python3.10"
 
 
 __server_address = None
@@ -48,6 +51,10 @@ __insecure = False
 __user = None
 __client_auth_type = "mutual"  # "mutual" or "one-way"
 __jwt_token = None
+
+
+def use_tls_for_server_address(server_address):
+    return bool(server_address and server_address.rsplit(":", 1)[-1] == "443")
 
 
 class FunctionName:
@@ -552,6 +559,209 @@ def parse_cp_targets(src: str, dst: str) -> Dict[str, Any]:
     }
 
 
+def sandbox_runtime_function_id(runtime, tenant_id):
+    if runtime.startswith("python3."):
+        suffix = f"py{runtime.replace('python', '').replace('.', '')}"
+    else:
+        suffix = runtime
+    return f"sn:cn:yrk:{tenant_id}:function:0-defaultservice-{suffix}:$latest"
+
+
+def decode_frontend_sandbox_instance_id(data):
+    if not isinstance(data, dict):
+        return ""
+    if isinstance(data.get("instance_id"), str):
+        return data["instance_id"]
+    inner = data.get("data", "")
+    if isinstance(inner, dict):
+        instance_id = inner.get("instance_id", "")
+        return instance_id if isinstance(instance_id, str) else ""
+    if not isinstance(inner, str) or not inner:
+        return ""
+    try:
+        decoded = json.loads(base64.b64decode(inner).decode())
+    except Exception:
+        return ""
+    instance_id = decoded.get("instance_id", "")
+    return instance_id if isinstance(instance_id, str) else ""
+
+
+def should_fallback_to_sdk_for_sandbox_create(resp):
+    status_code = resp.get("status_code")
+    if status_code in (404, 405, 501):
+        return True
+    error_text = json.dumps(resp.get("error", resp), ensure_ascii=False).lower()
+    fallback_markers = (
+        "404 page not found",
+        "no route",
+        "not support",
+        "unsupported",
+        "executable path of python3.9",
+        "0-defaultservice-py39",
+    )
+    return any(marker in error_text for marker in fallback_markers)
+
+
+def should_fallback_to_frontend_for_sandbox_create(error):
+    error_text = str(error).lower()
+    if "same instance id" in error_text or "already exists" in error_text:
+        return False
+    fallback_markers = (
+        "function not found",
+        "not found",
+        "not support",
+        "unsupported",
+        "0-defaultservice-py310",
+    )
+    return any(marker in error_text for marker in fallback_markers)
+
+
+def create_sandbox_via_frontend(namespace, name, runtime):
+    http_client = HTTPClient(
+        timeout=SANDBOX_CREATE_HTTP_TIMEOUT,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
+        jwt_token=__jwt_token,
+    )
+    url = f"http://{__server_address}/api/sandbox/create"
+    headers = {}
+    if __user:
+        headers["X-Tenant-ID"] = __user
+    resp = http_client.request(
+        url,
+        {"name": name, "namespace": namespace, "runtime": runtime},
+        headers=headers,
+        method="POST",
+    )
+    if resp["success"]:
+        data = resp["data"]
+        return True, decode_frontend_sandbox_instance_id(data), data
+    if should_fallback_to_sdk_for_sandbox_create(resp):
+        return False, "", resp
+    raise RuntimeError(resp.get("error", resp))
+
+
+def build_sandbox_sdk_config(runtime):
+    tenant_id = __user or "default"
+    cfg = yr.Config(
+        server_address=__server_address,
+        function_id=sandbox_runtime_function_id(runtime, tenant_id),
+        in_cluster=False,
+    )
+    cfg.auth_token = __jwt_token or ""
+    cfg.tenant_id = tenant_id
+    if use_tls_for_server_address(__server_address):
+        cfg.enable_tls = True
+    return cfg
+
+
+def create_sandbox_via_sdk(namespace, name, runtime):
+    cfg = build_sandbox_sdk_config(runtime)
+    yr.init(cfg)
+    try:
+        opt = yr.InvokeOptions()
+        opt.custom_extensions["lifecycle"] = "detached"
+        opt.idle_timeout = 60 * 60 * 24 * 7
+        opt.cpu = 1000
+        opt.memory = 2048
+        opt.name = name
+        opt.namespace = namespace
+        opt.skip_serialize = True
+
+        sandbox = yr.sandbox.SandboxInstance.options(opt).invoke()
+        return sandbox.real_id
+    finally:
+        yr.finalize()
+
+
+def resolve_created_sandbox_instance_id(namespace, name, instance_id, timeout=30):
+    candidates = []
+    if instance_id:
+        candidates.append(instance_id)
+    if namespace and name:
+        candidates.append(f"{namespace}-{name}")
+    deadline = time.time() + timeout
+    while True:
+        for candidate in dict.fromkeys(candidates):
+            ret, resp = query_instance(candidate, __user)
+            if ret:
+                return resp.get("id", candidate)
+        if time.time() >= deadline:
+            break
+        time.sleep(1)
+    return instance_id
+
+
+def create_sandbox_auto(namespace, name, runtime):
+    try:
+        instance_id = create_sandbox_via_sdk(namespace, name, runtime)
+        return resolve_created_sandbox_instance_id(namespace, name, instance_id), None
+    except Exception as sdk_error:
+        if not should_fallback_to_frontend_for_sandbox_create(sdk_error):
+            raise
+
+    supported, instance_id, data = create_sandbox_via_frontend(namespace, name, runtime)
+    if supported:
+        resolved_id = resolve_created_sandbox_instance_id(namespace, name, instance_id)
+        ret, instance = query_instance(resolved_id, __user)
+        if ret and sandbox_instance_matches_runtime(instance, runtime) and sandbox_instance_is_usable(instance):
+            return resolved_id, data
+        raise RuntimeError(
+            f"frontend sandbox create produced incompatible instance: {json.dumps(instance if ret else data, ensure_ascii=False)}"
+        )
+    raise RuntimeError(data.get("error", data) if isinstance(data, dict) else data)
+
+
+def delete_sandbox_via_sdk(sandbox_id, runtime=DEFAULT_SANDBOX_RUNTIME):
+    cfg = build_sandbox_sdk_config(runtime)
+    yr.init(cfg)
+    try:
+        yr.runtime_holder.global_runtime.get_runtime().terminate_instance(sandbox_id)
+    finally:
+        yr.finalize()
+
+
+def get_sandbox_status(instance):
+    return (
+        instance.get("status")
+        or instance.get("state")
+        or instance.get("phase")
+        or instance.get("instanceStatus")
+        or instance.get("statusMessage")
+        or "N/A"
+    )
+
+
+def sandbox_instance_matches_runtime(instance, runtime):
+    function = str(instance.get("function", "")).lower()
+    if runtime == "python3.10":
+        return "0-defaultservice-py310" in function
+    return True
+
+
+def sandbox_instance_is_usable(instance):
+    status = get_sandbox_status(instance).lower()
+    return status not in ("fatal", "failed", "error")
+
+
+def sandbox_exists(sandbox_id):
+    ret, _ = query_instance(sandbox_id, __user)
+    return ret
+
+
+def wait_until_sandbox_deleted(sandbox_id, timeout=30):
+    deadline = time.time() + timeout
+    while True:
+        if not sandbox_exists(sandbox_id):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(1)
+
+
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.option(
     "--server-address",
@@ -917,47 +1127,41 @@ def sandbox():
 @sandbox.command("create")
 @click.option(
     "--namespace",
-    required=True,
+    required=False,
     type=str,
     help="Namespace for sandbox instance",
 )
 @click.option(
     "--name",
-    required=True,
+    required=False,
     type=str,
     help="Name for sandbox instance",
 )
-def sandbox_create(namespace, name):
-    """Create a detached sandbox instance via frontend API."""
+@click.option(
+    "--runtime",
+    required=False,
+    type=click.Choice(["python3.10"], case_sensitive=False),
+    default=DEFAULT_SANDBOX_RUNTIME,
+    show_default=True,
+    help="Runtime for sandbox instance",
+)
+def sandbox_create(namespace, name, runtime):
+    """Create a detached sandbox instance."""
     if not __server_address:
         print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
         sys.exit(1)
+    namespace = namespace or DEFAULT_SANDBOX_NAMESPACE
+    name = name or uuid.uuid4().hex
 
-    http_client = HTTPClient(
-        timeout=SANDBOX_CREATE_HTTP_TIMEOUT,
-        jwt_token=__jwt_token,
-    )
-    url = f"http://{__server_address}/api/sandbox/create"
-    headers = {}
-    if __user:
-        headers["X-Tenant-ID"] = __user
-    resp = http_client.request(url, {"name": name, "namespace": namespace}, headers=headers, method="POST")
-    if resp["success"]:
-        data = resp["data"]
-        inner = data.get("data", "") if isinstance(data, dict) else ""
-        if inner:
-            try:
-                decoded = json.loads(base64.b64decode(inner).decode())
-                instance_id = decoded.get("instance_id", "")
-            except Exception:
-                instance_id = ""
-        if instance_id:
-            print(f"sandbox created, instance_id={instance_id}")
-        else:
-            print(f"sandbox created, response={json.dumps(data, ensure_ascii=False)}")
-    else:
-        print(f"sandbox create failed, name={name}, namespace={namespace}, error={resp.get('error', resp)}")
+    try:
+        instance_id, data = create_sandbox_auto(namespace, name, runtime)
+    except Exception as e:
+        print(f"sandbox create failed, name={name}, namespace={namespace}, runtime={runtime}, error={e}")
         sys.exit(1)
+    if instance_id:
+        print(f"sandbox created, instance_id={instance_id}")
+    else:
+        print(f"sandbox created, response={json.dumps(data, ensure_ascii=False)}")
 
 
 @sandbox.command("list")
@@ -975,8 +1179,13 @@ def sandbox_list(namespace):
         print(f"failed to list instances: {resp.get('error', resp)}")
         sys.exit(1)
 
+    instances, error = get_instance_list(resp) if ret else ([], None)
+    if error is not None:
+        print(f"failed to list instances: {error['error']}")
+        sys.exit(1)
+
     sandboxes = []
-    for instance in resp:
+    for instance in instances:
         instance_id = instance.get("id", "")
         if not instance_id:
             continue
@@ -987,14 +1196,22 @@ def sandbox_list(namespace):
         if namespace and not instance_id.startswith(f"{namespace}-"):
             continue
         tenant_id = instance.get("tenantID", "N/A")
-        sandboxes.append((instance_id, tenant_id))
+        sandboxes.append((instance_id, tenant_id, get_sandbox_status(instance)))
 
     if not sandboxes:
         print("no sandbox instance found")
         return
 
-    for sandbox_id, tenant_id in sandboxes:
-        print(f"{sandbox_id}\t{tenant_id}")
+    headers = ("INSTANCE_ID", "TENANT_ID", "STATUS")
+    widths = [
+        max(len(headers[index]), *(len(str(row[index])) for row in sandboxes))
+        for index in range(len(headers))
+    ]
+    formatter = "  ".join(f"{{:<{width}}}" for width in widths)
+
+    print(formatter.format(*headers).rstrip())
+    for sandbox_id, tenant_id, status in sandboxes:
+        print(formatter.format(sandbox_id, tenant_id, status).rstrip())
 
 
 @sandbox.command("query")
@@ -1021,17 +1238,37 @@ def sandbox_delete(sandbox_id):
         print("Error: server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
         sys.exit(1)
 
+    sdk_error = None
+    try:
+        delete_sandbox_via_sdk(sandbox_id)
+        if wait_until_sandbox_deleted(sandbox_id):
+            print(f"succeed to delete sandbox: {sandbox_id}")
+            return
+    except Exception as e:
+        sdk_error = e
+
     http_client = HTTPClient(
         timeout=30,
+        client_cert=__client_cert,
+        client_key=__client_key,
+        ca_cert=__ca_cert,
+        insecure=__insecure,
+        client_auth_type=__client_auth_type,
         jwt_token=__jwt_token,
     )
     url = f"http://{__server_address}/api/sandbox/{sandbox_id}"
     resp = http_client.request(url, {}, method="DELETE")
-    if resp["success"]:
+    if resp["success"] and wait_until_sandbox_deleted(sandbox_id):
         print(f"succeed to delete sandbox: {sandbox_id}")
-    else:
+        return
+
+    if sdk_error is not None:
+        print(f"failed to delete sandbox {sandbox_id}: {sdk_error}")
+    elif not resp["success"]:
         print(f"failed to delete sandbox {sandbox_id}: {resp.get('error', resp)}")
-        sys.exit(1)
+    else:
+        print(f"failed to delete sandbox {sandbox_id}: instance still exists after delete")
+    sys.exit(1)
 
 
 @cli.command()
@@ -1493,7 +1730,12 @@ def run_spark(script, args):
 @click.argument("instance", type=str)
 @click.argument("command", type=str)
 def exec(stdin, tty, verify_server, instance, command):
-    use_ssl = __client_cert is not None and __client_key is not None
+    use_ssl = (
+        use_tls_for_server_address(__server_address)
+        or __insecure
+        or __ca_cert is not None
+        or (__client_cert is not None and __client_key is not None)
+    )
     try:
         host, port = __server_address.split(":")
         asyncio.run(
@@ -1509,7 +1751,7 @@ def exec(stdin, tty, verify_server, instance, command):
                 cert_file=__client_cert,
                 key_file=__client_key,
                 ca_file=__ca_cert,
-                verify_server=verify_server,
+                verify_server=verify_server and not __insecure,
                 token=__jwt_token,
             )
         )

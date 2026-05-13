@@ -91,6 +91,8 @@ public:
 
     virtual ErrorInfo Init(const DsConnectOptions &options) = 0;
 
+    virtual void SetTenantId(const std::string &tenantId) = 0;
+
     /**
      * @brief Set the value of a key by datasystem StateClient.
      * @param[in] key The key to set.

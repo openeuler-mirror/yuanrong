@@ -1047,7 +1047,7 @@ def delete(function_name, no_clear_package, version):
         code_path = function_info.get("codePath")
         if code_path and code_path.startswith("ds://"):
             key = code_path.strip("ds://").split(".")[0]
-            with YRContext(__server_address, __ds_address):
+            with YRContext(__server_address, __ds_address, __user):
                 yr.kv_del(key)
             print(f"succeed to del package {code_path}")
     ret, _ = delete_function(function_name, __user)
@@ -1062,7 +1062,7 @@ def delete(function_name, no_clear_package, version):
 def clear(package):
     if package.startswith("ds://"):
         key = package.strip("ds://").split(".")[0]
-        with YRContext(__server_address, __ds_address):
+        with YRContext(__server_address, __ds_address, __user):
             yr.kv_del(key)
         print(f"succeed to del {package}")
 
@@ -1073,7 +1073,7 @@ def download(package):
     if package.startswith("ds://"):
         key = package.strip("ds://").split(".")[0]
         file_name = package.strip("ds://")
-        with YRContext(__server_address, __ds_address):
+        with YRContext(__server_address, __ds_address, __user):
             with open(file_name, "wb") as f:
                 value = yr.kv_get(key)
                 f.write(value)

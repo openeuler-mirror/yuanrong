@@ -1818,9 +1818,6 @@ ErrorInfo Libruntime::SetTraceId(const std::string &traceId)
 
 ErrorInfo Libruntime::SetTenantId(const std::string &tenantId, bool isReturnErrWhenTenantIDEmpty)
 {
-    if (!config->enableAuth && config->inCluster) {
-        return ErrorInfo();
-    }
     if (isReturnErrWhenTenantIDEmpty && tenantId.empty()) {
         auto msg = "tenant id is empty, please set the correct tenant id or function urn in config.";
         YRLOG_ERROR("failed to set tenantId, err: {}", msg);
@@ -1833,6 +1830,10 @@ ErrorInfo Libruntime::SetTenantId(const std::string &tenantId, bool isReturnErrW
                          "initialized or exiting gracefully.");
     }
     objStore->SetTenantId(tenantId);
+    auto stateStore = std::atomic_load(&dsClients.dsStateStore);
+    if (stateStore) {
+        stateStore->SetTenantId(tenantId);
+    }
     this->config->tenantId = tenantId;
     YRLOG_DEBUG("succeed to set tenant id, tenant id is {}", tenantId);
     return ErrorInfo();

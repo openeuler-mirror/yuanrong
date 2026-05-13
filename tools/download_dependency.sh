@@ -43,23 +43,6 @@ THIRD_PARTY_LOG_DIR="${RUNTIME_OUTPUT_DIR}/logs/thirdparty"
 MODULES="runtime"
 bash ${BASE_DIR}/download_opensource.sh -M $MODULES -T $THIRD_PARTY_DIR
 RUNTIME_THIRD_PARTY_CACHE=${RUNTIME_THIRD_PARTY_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/runtime_deps/"}
-DATA_SYSTEM_CACHE=${DATA_SYSTEM_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/yr-datasystem.tar.gz"}
-METRICS_CACHE=${METRICS_CACHE:-"https://build-logs.openeuler.openatom.cn:38080/temp-archived/openeuler/openYuanrong/yr_cache/$(uname -m)/metrics.tar.gz"}
-function check_datasystem() {
-    # check whether datasystem exist
-    if [ ! -d "${YR_DATASYSTEM_BIN_DIR}"/output/sdk/cpp/include ]; then
-        echo "datasystem sdk not exist!"
-        exit 1
-    fi
-}
-
-function check_metrics(){
-    # check whether metrics exit
-    if [ ! -d "${YR_METRICS_BIN_DIR}"/lib ]; then
-        echo "metrics sdk not exist!"
-        exit 1
-    fi
-}
 
 function run_logged() {
     local name="$1"
@@ -71,93 +54,6 @@ function run_logged() {
         echo "[thirdparty] ${name} failed, see ${log_file}"
         return 1
     fi
-}
-
-function download_datasystem() {
-    # check whether datasystem exist
-    if [ -d "${YR_DATASYSTEM_BIN_DIR}"/output/sdk/cpp/include ]; then
-        echo "datasystem sdk exist."
-        return
-    fi
-    DS_OUT_DIR="${YR_DATASYSTEM_BIN_DIR}/output"
-    mkdir -p "${DS_OUT_DIR}"
-    pushd "${DS_OUT_DIR}"
-    wget -q -O datasystem.tar.gz ${DATA_SYSTEM_CACHE}
-    tar --no-same-owner -zxf datasystem.tar.gz --strip-components=1
-    popd
-}
-
-function download_metrics() {
-    # check whether datasystem exist
-    if [ -d "${YR_METRICS_BIN_DIR}"/lib ]; then
-        echo "datasystem sdk exist."
-        return
-    fi
-    cd ${RUNTIME_SRC_DIR}
-    wget -q -O metrics.tar.gz ${METRICS_CACHE}
-    tar --no-same-owner -zxf metrics.tar.gz
-}
-
-function compile_datasystem() {
-    # check whether datasystem exist
-    if [ -d "${YR_DATASYSTEM_BIN_DIR}"/output/sdk/cpp/include ]; then
-        echo "datasystem sdk exist."
-        return
-    fi
-    cd ${YR_DATASYSTEM_BIN_DIR}
-    bash build.sh -X off
-    cd output
-    ds_filename=$(ls *.tar.gz)
-    tar -xf $ds_filename -C ${YR_DATASYSTEM_BIN_DIR}/output/ --strip-components=1
-    mkdir -p ${YR_FUNCTIONSYSTEM_BIN_DIR}/vendor/src
-    cp -a $ds_filename ${YR_FUNCTIONSYSTEM_BIN_DIR}/vendor/src/yr-datasystem.tar.gz
-    cp -f ${ds_filename} $RUNTIME_OUTPUT_DIR/
-}
-
-function compile_functionsystem() {
-    if [ -d "${YR_METRICS_BIN_DIR}"/lib ]; then
-        echo "metrics sdk exist."
-        return
-    fi
-    cd ${YR_FUNCTIONSYSTEM_BIN_DIR}
-    bash run.sh build
-    bash run.sh pack
-    cd output
-    tar -xf ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/metrics.tar.gz -C ${RUNTIME_SRC_DIR}/
-    cp -f ${YR_FUNCTIONSYSTEM_BIN_DIR}/output/yr-functionsystem*.tar.gz $RUNTIME_OUTPUT_DIR/
-}
-
-function compile_frontend() {
-    cd ${YR_FRONTEND_SRC_DIR}
-    bash build.sh
-    cd output
-    cp -f ${YR_FRONTEND_SRC_DIR}/output/yr-frontend*.tar.gz $RUNTIME_OUTPUT_DIR/
-}
-
-function compile_dashboard() {
-    cd ${YR_DASHBOARD_SRC_DIR}
-    bash build.sh
-}
-
-function compile_all(){
-  if [ ! -d "${THIRD_PARTY_DIR}/boost/lib" ]; then
-    pushd "${THIRD_PARTY_DIR}/boost/"
-    chmod -R 700 "${THIRD_PARTY_DIR}/boost/"
-    run_logged boost-bootstrap ./bootstrap.sh --without-libraries=python
-    run_logged boost-build ./b2 cxxflags=-fPIC cflags=-fPIC link=static install --with-fiber --with-atomic --prefix="${THIRD_PARTY_DIR}/boost"
-    popd
-  fi
-  local openssl_install_dir="${THIRD_PARTY_DIR}/openssl/install_root"
-  if [ ! -d "${openssl_install_dir}" ]; then
-    pushd "${THIRD_PARTY_DIR}/openssl/"
-    chmod -R 700 "${THIRD_PARTY_DIR}/openssl/"
-    run_logged openssl-config ./config enable-ssl3 enable-ssl3-method --prefix="${openssl_install_dir}"
-    run_logged openssl-build bash -lc "make -j build_libs && make install_dev"
-    if [[ -d ${openssl_install_dir}/lib64 && ! -d ${openssl_install_dir}/lib ]];then
-      cp -fr ${openssl_install_dir}/lib64 ${openssl_install_dir}/lib
-    fi
-    popd
-  fi
 }
 
 function download_third_party_cache() {
@@ -182,40 +78,26 @@ function download_cache() {
     popd
 }
 
-# Detect macOS
-IS_MACOS=false
-if [[ "$(uname)" == "Darwin" ]]; then
-    IS_MACOS=true
-    echo "Detected macOS - skipping datasystem and metrics download"
-fi
+function compile_all() {
+    if [ ! -d "${THIRD_PARTY_DIR}/boost/lib" ]; then
+        pushd "${THIRD_PARTY_DIR}/boost/"
+        chmod -R 700 "${THIRD_PARTY_DIR}/boost/"
+        run_logged boost-bootstrap ./bootstrap.sh --without-libraries=python
+        run_logged boost-build ./b2 cxxflags=-fPIC cflags=-fPIC link=static install --with-fiber --with-atomic --prefix="${THIRD_PARTY_DIR}/boost"
+        popd
+    fi
+    local openssl_install_dir="${THIRD_PARTY_DIR}/openssl/install_root"
+    if [ ! -d "${openssl_install_dir}" ]; then
+        pushd "${THIRD_PARTY_DIR}/openssl/"
+        chmod -R 700 "${THIRD_PARTY_DIR}/openssl/"
+        run_logged openssl-config ./config enable-ssl3 enable-ssl3-method --prefix="${openssl_install_dir}"
+        run_logged openssl-build bash -lc "make -j build_libs && make install_dev"
+        if [[ -d ${openssl_install_dir}/lib64 && ! -d ${openssl_install_dir}/lib ]]; then
+            cp -fr ${openssl_install_dir}/lib64 ${openssl_install_dir}/lib
+        fi
+        popd
+    fi
+}
 
-if [ "$BUILD_ALL" == "true" ]; then
-  cd $RUNTIME_SRC_DIR
-  if [ ! -d ${YR_FUNCTIONSYSTEM_BIN_DIR} ]; then
-    git clone https://gitcode.com/openeuler/yuanrong-functionsystem.git -b master functionsystem
-  fi
-  if [ ! -d ${YR_DATASYSTEM_BIN_DIR} ]; then
-    git clone https://gitcode.com/openeuler/yuanrong-datasystem.git -b master datasystem
-  fi
-  if [ ! -d ${YR_FRONTEND_SRC_DIR} ]; then
-    git clone https://gitcode.com/openeuler/yuanrong-frontend.git -b master ../frontend
-  fi
-  mkdir -p $RUNTIME_OUTPUT_DIR
-  compile_datasystem
-  compile_functionsystem
-  compile_frontend
-  compile_dashboard
-else
-  # Skip datasystem and metrics on macOS
-  if [ "$IS_MACOS" != "true" ]; then
-    download_datasystem
-    download_metrics
-  fi
-fi
 download_cache
-# Skip datasystem and metrics check on macOS
-if [ "$IS_MACOS" != "true" ]; then
-  check_datasystem
-  check_metrics
-fi
 compile_all

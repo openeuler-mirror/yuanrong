@@ -51,15 +51,22 @@ void InvokeCollector::OnGaugeMutation(const std::string &metricName)
         return;
     }
 
-    if (metricsAdaptor_ != nullptr && !g_defaultConcurrentMetricReportedStack.empty() &&
-        g_defaultConcurrentMetricReportedStack.back()) {
+    int64_t activeReports = activeDefaultConcurrentMetricReports_.load();
+    while (metricsAdaptor_ != nullptr && activeReports > 0 &&
+           !activeDefaultConcurrentMetricReports_.compare_exchange_weak(activeReports, activeReports - 1)) {
+    }
+    if (metricsAdaptor_ != nullptr && activeReports > 0) {
         GaugeData gauge;
         gauge.name = DEFAULT_CONCURRENT_METRIC_NAME;
         gauge.description = DEFAULT_CONCURRENT_METRIC_DESC;
         gauge.unit = DEFAULT_CUSTOM_METRIC_UNIT;
         gauge.value = 1;
         LogMetricError(metricsAdaptor_->DecreaseGauge(gauge), "rollback default concurrent metric");
-        g_defaultConcurrentMetricReportedStack.back() = false;
+        if (!g_defaultConcurrentMetricReportedStack.empty() && g_defaultConcurrentMetricReportedStack.back()) {
+            g_defaultConcurrentMetricReportedStack.back() = false;
+        } else {
+            canceledDefaultConcurrentMetricReports_.fetch_add(1);
+        }
     }
     defaultConcurrentMetricOverridden_ = true;
 }
@@ -97,6 +104,9 @@ void InvokeCollector::BeforeInvoke(const libruntime::MetaData &metaData, const L
         auto err = metricsAdaptor_->IncreaseGauge(gauge);
         LogMetricError(err, "report default concurrent metric");
         reportedDefaultConcurrentMetric = err.OK();
+        if (reportedDefaultConcurrentMetric) {
+            activeDefaultConcurrentMetricReports_.fetch_add(1);
+        }
     }
     g_defaultConcurrentMetricReportedStack.push_back(reportedDefaultConcurrentMetric);
 }
@@ -123,12 +133,17 @@ void InvokeCollector::AfterInvoke(const libruntime::MetaData &metaData, const Li
     }
 
     if (reportedDefaultConcurrentMetric) {
+        if (canceledDefaultConcurrentMetricReports_.load() > 0) {
+            canceledDefaultConcurrentMetricReports_.fetch_sub(1);
+            return;
+        }
         GaugeData gauge;
         gauge.name = DEFAULT_CONCURRENT_METRIC_NAME;
         gauge.description = DEFAULT_CONCURRENT_METRIC_DESC;
         gauge.unit = DEFAULT_CUSTOM_METRIC_UNIT;
         gauge.value = 1;
         LogMetricError(metricsAdaptor_->DecreaseGauge(gauge), "report default concurrent metric");
+        activeDefaultConcurrentMetricReports_.fetch_sub(1);
     }
 }
 

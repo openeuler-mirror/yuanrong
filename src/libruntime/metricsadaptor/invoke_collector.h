@@ -17,6 +17,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -45,6 +46,8 @@ private:
     std::shared_ptr<MetricsAdaptor> metricsAdaptor_;
     std::atomic<bool> defaultConcurrentMetricOverridden_{false};
     std::atomic<bool> defaultInvokeMetricOverridden_{false};
+    std::atomic<int64_t> activeDefaultConcurrentMetricReports_{0};
+    std::atomic<int64_t> canceledDefaultConcurrentMetricReports_{0};
 };
 
 }  // namespace Libruntime

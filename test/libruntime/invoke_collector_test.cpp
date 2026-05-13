@@ -42,6 +42,9 @@ std::shared_ptr<MetricsAdaptor> BuildSampleOnlyMetricsAdaptor()
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
     metricsAdaptor->userEnable_ = true;
     metricsAdaptor->prometheusPullExporterEnabled_ = true;
+    metricsAdaptor->prometheusPullExporterEnabledInstruments_ = {
+        "yr_custom_concurrent_num", "yr_custom_invoke_num"
+    };
     return metricsAdaptor;
 }
 
@@ -154,6 +157,37 @@ TEST_F(InvokeCollectorTest, BusinessOverrideStopsDefaultMetricsTest)
     auto counterValue = metricsAdaptor->GetValueUInt64Counter(currentCounter);
     ASSERT_TRUE(counterValue.first.OK());
     ASSERT_EQ(counterValue.second, 4);
+}
+
+TEST_F(InvokeCollectorTest, BusinessOverrideFromAnotherThreadStopsDefaultConcurrentMetricTest)
+{
+    auto metricsAdaptor = BuildSampleOnlyMetricsAdaptor();
+    InvokeCollector collector(metricsAdaptor);
+    auto metaData = BuildInvokeMetaData();
+    auto config = BuildInvokeConfig();
+
+    collector.BeforeInvoke(metaData, config);
+
+    ErrorCode reportErr = ErrorCode::ERR_OK;
+    std::thread reportThread([&collector, metricsAdaptor, &reportErr]() {
+        GaugeData gauge;
+        gauge.name = "yr_custom_concurrent_num";
+        gauge.description = "business override concurrent";
+        gauge.unit = "count";
+        gauge.value = 100;
+        collector.OnGaugeMutation(gauge.name);
+        reportErr = metricsAdaptor->SetGauge(gauge).Code();
+    });
+    reportThread.join();
+    ASSERT_EQ(reportErr, ErrorCode::ERR_OK);
+
+    collector.AfterInvoke(metaData, config);
+
+    GaugeData currentGauge;
+    currentGauge.name = "yr_custom_concurrent_num";
+    auto gaugeValue = metricsAdaptor->GetValueGauge(currentGauge);
+    ASSERT_TRUE(gaugeValue.first.OK());
+    ASSERT_EQ(gaugeValue.second, 100);
 }
 }  // namespace test
 }  // namespace YR

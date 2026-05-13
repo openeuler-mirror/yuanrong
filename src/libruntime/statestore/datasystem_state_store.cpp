@@ -115,6 +115,12 @@ ErrorInfo DSCacheStateStore::Init(const DsConnectOptions &options)
     return this->initErr;
 }
 
+void DSCacheStateStore::SetTenantId(const std::string &tenantId)
+{
+    (void)datasystem::Context::SetTenantId(tenantId);
+    connectOpts.tenantId = tenantId;
+}
+
 ErrorInfo DSCacheStateStore::GenerateKey(std::string &returnKey)
 {
     STATE_STORE_INIT_ONCE();

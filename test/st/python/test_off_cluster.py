@@ -117,14 +117,14 @@ def require_plain_http_for_yrcli():
         pytest.skip("yrcli off-cluster smoke requires YR_ENABLE_TLS=false")
 
 
-def _run_yrcli(*args, timeout=120, user="default"):
+def _run_yrcli(*args, timeout=120, user=None):
     command = [
         _get_yrcli_path(),
         "--server-address",
         _get_addr(),
-        "--user",
-        user,
     ]
+    if user is not None:
+        command.extend(["--user", user])
     token = _get_jwt_token()
     if token:
         command.extend(["--jwt-token", token])
@@ -625,12 +625,11 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
         "--function-json",
         str(function_json),
         "--update",
-        user="0",
         timeout=180,
     )
     assert "succeed to deploy function" in deployed.stdout or "succeed to update function" in deployed.stdout
     try:
-        queried = _run_yrcli("query", "-f", f"{namespace}@{function}", user="0")
+        queried = _run_yrcli("query", "-f", f"{namespace}@{function}")
         assert namespace in queried.stdout
         assert function in queried.stdout
         invoked = _run_yrcli(
@@ -641,10 +640,9 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
             '{"text": "ping"}',
             "--timeout",
             "120",
-            user="0",
             timeout=150,
         )
         assert '"ok": true' in invoked.stdout
         assert '"echo": "ping"' in invoked.stdout
     finally:
-        _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package", user="0")
+        _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package")

@@ -107,6 +107,8 @@ public:
 
     ErrorInfo Init(const DsConnectOptions &options) override;
 
+    void SetTenantId(const std::string &tenantId) override;
+
     ErrorInfo Write(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam) override;
 
     //  Set Multiple kv pair
@@ -336,6 +338,11 @@ public:
     {
         (void)options;
         return STATESTORE_NOT_ENABLED_ERROR;
+    }
+
+    void SetTenantId(const std::string &tenantId) override
+    {
+        (void)tenantId;
     }
 
     ErrorInfo Write(const std::string &key, std::shared_ptr<Buffer> value, SetParam setParam) override

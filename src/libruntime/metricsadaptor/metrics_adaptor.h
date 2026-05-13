@@ -111,6 +111,10 @@ private:
                                                                  const std::string &backendKey,
                                                                  const std::string &backendName,
                                                                  const nlohmann::json &exporterValue);
+    std::string BuildHttpExporterInitConfig(const std::string &httpExporterType, const std::string &backendName,
+                                            const nlohmann::json &exporterValue);
+    void ConfigurePushHttpExporterTLS(nlohmann::json &initConfigJson);
+    void ConfigurePullHttpExporterTLS(nlohmann::json &initConfigJson);
     void InitImmediatelyExport(const std::shared_ptr<observability::sdk::metrics::MeterProvider> &mp,
                                const nlohmann::json &backendValue,
                                const std::function<std::string(std::string)> &getFileName);

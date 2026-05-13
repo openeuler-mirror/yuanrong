@@ -217,47 +217,54 @@ bool Security::ReadOnce()
         return false;
     }
 
-    this->dsConf_.authEnable = tlsConf.dsauthenable();
-    this->dsConf_.encryptEnable = tlsConf.dsencryptenable();
-    this->dsConf_.clientPublicKey = tlsConf.dsclientpublickey();
-    this->dsConf_.clientPrivateKey = SensitiveValue(tlsConf.dsclientprivatekey());
-    this->dsConf_.serverPublicKey = tlsConf.dsserverpublickey();
-
-    this->fsConf_.authEnable = tlsConf.serverauthenable();
-    this->fsConf_.rootCertData = tlsConf.rootcertdata();
-    this->metricsConf_.rootCertData = tlsConf.metricsrootcertdata();
-    this->metricsConf_.certChainData = tlsConf.metricscertdata();
-    this->metricsConf_.privateKeyData = SensitiveData(tlsConf.metricskeydata());
-
-    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().accesskey().empty()) {
-        this->ak_ = tlsConf.tenantcredentials().accesskey();
-    } else {
-        this->ak_ = tlsConf.accesskey();
-    }
-
-    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().secretkey().empty()) {
-        this->sk_ = SensitiveValue(tlsConf.tenantcredentials().secretkey());
-    } else {
-        this->sk_ = SensitiveValue(tlsConf.securitykey());
-    }
-
-    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().datakey().empty()) {
-        this->dk_ = SensitiveValue(tlsConf.tenantcredentials().datakey());
-    }
-
-    if (tlsConf.has_tenantcredentials()) {
-        this->isCredential_ = tlsConf.tenantcredentials().iscredential();
-    }
-
+    UpdateDataSystemConfig(tlsConf);
+    UpdateFunctionAndMetricsConfig(tlsConf);
+    UpdateTenantCredentials(tlsConf);
     this->token_ = SensitiveValue(tlsConf.token());
-
     this->fsConnMode_ = tlsConf.enableservermode();
-
     this->serverNameoverride_ = tlsConf.servernameoverride();
     YRLOG_INFO("Read tls config finished, fs auth: {}, ds auth: {}, is credential {}, ak {}, sk {}, token {}",
                this->fsConf_.authEnable, this->dsConf_.authEnable, isCredential_, !ak_.empty(), !sk_.Empty(),
                !token_.Empty());
     return true;
+}
+
+void Security::UpdateDataSystemConfig(const common::TLSConfig &tlsConf)
+{
+    this->dsConf_.authEnable = tlsConf.dsauthenable();
+    this->dsConf_.encryptEnable = tlsConf.dsencryptenable();
+    this->dsConf_.clientPublicKey = tlsConf.dsclientpublickey();
+    this->dsConf_.clientPrivateKey = SensitiveValue(tlsConf.dsclientprivatekey());
+    this->dsConf_.serverPublicKey = tlsConf.dsserverpublickey();
+}
+
+void Security::UpdateFunctionAndMetricsConfig(const common::TLSConfig &tlsConf)
+{
+    this->fsConf_.authEnable = tlsConf.serverauthenable();
+    this->fsConf_.rootCertData = tlsConf.rootcertdata();
+    this->metricsConf_.rootCertData = tlsConf.metricsrootcertdata();
+    this->metricsConf_.certChainData = tlsConf.metricscertdata();
+    this->metricsConf_.privateKeyData = SensitiveData(tlsConf.metricskeydata());
+}
+
+void Security::UpdateTenantCredentials(const common::TLSConfig &tlsConf)
+{
+    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().accesskey().empty()) {
+        this->ak_ = tlsConf.tenantcredentials().accesskey();
+    } else {
+        this->ak_ = tlsConf.accesskey();
+    }
+    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().secretkey().empty()) {
+        this->sk_ = SensitiveValue(tlsConf.tenantcredentials().secretkey());
+    } else {
+        this->sk_ = SensitiveValue(tlsConf.securitykey());
+    }
+    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().datakey().empty()) {
+        this->dk_ = SensitiveValue(tlsConf.tenantcredentials().datakey());
+    }
+    if (tlsConf.has_tenantcredentials()) {
+        this->isCredential_ = tlsConf.tenantcredentials().iscredential();
+    }
 }
 
 void Security::Stop(void)

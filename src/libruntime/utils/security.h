@@ -24,6 +24,7 @@
 #include "certs_utils.h"
 #include "datasystem/utils/sensitive_value.h"
 #include "sensitive_data.h"
+#include "src/libruntime/fsclient/protobuf/common.grpc.pb.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/utility/notification_utility.h"
@@ -150,6 +151,9 @@ private:
     void Stop(void);
 
     bool ReadOnce();
+    void UpdateDataSystemConfig(const common::TLSConfig &tlsConf);
+    void UpdateFunctionAndMetricsConfig(const common::TLSConfig &tlsConf);
+    void UpdateTenantCredentials(const common::TLSConfig &tlsConf);
 
     boost::asio::io_context streamReaderIoContext_;
     boost::asio::posix::stream_descriptor confStreamDesc_;

@@ -250,52 +250,72 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitHttpExporter(con
                     backendName);
         return nullptr;
     }
-    std::string initConfig;
-    if (exporterValue.find("initConfig") != exporterValue.end()) {
-        auto initConfigJson = exporterValue.at("initConfig");
-        if (httpExporterType == PROMETHEUS_PUSH_EXPORTER || httpExporterType == AOM_ALARM_EXPORTER) {
-            initConfigJson["jobName"] = "runtime";
-            if (initConfigJson.find("ip") != initConfigJson.end() &&
-                initConfigJson.find("port") != initConfigJson.end()) {
-                initConfigJson["endpoint"] = initConfigJson.at("ip").get<std::string>() + ":" +
-                                             std::to_string(initConfigJson.at("port").get<int>());
-            }
-        }
-        try {
-            YRLOG_INFO("metrics http exporter for backend {}, initConfig: {}", backendName,
-                       RedactSensitiveMetricConfig(initConfigJson).dump());
-        } catch (std::exception &e) {
-            YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
-        }
-        if ((httpExporterType == PROMETHEUS_PUSH_EXPORTER || httpExporterType == AOM_ALARM_EXPORTER) &&
-            Config::Instance().YR_SSL_ENABLE()) {
-            initConfigJson["isSSLEnable"] = true;
-            initConfigJson["rootCertFile"] = Config::Instance().YR_SSL_ROOT_FILE();
-            initConfigJson["certFile"] = Config::Instance().YR_SSL_CERT_FILE();
-            initConfigJson["keyFile"] = Config::Instance().YR_SSL_KEY_FILE();
-            auto ret = std::getenv(YR_SSL_PASSPHRASE_KEY);
-            if (ret != nullptr) {
-                initConfigJson["passphrase"] = ret;
-                const int replaceOpt = 1;
-                setenv(YR_SSL_PASSPHRASE_KEY, "", replaceOpt);
-            } else {
-                YRLOG_WARN("can not get metrics passphrase from env.");
-            }
-        }
-        if (httpExporterType == PROMETHEUS_PULL_EXPORTER && initConfigJson.value("isSSLEnable", false) &&
-            !metricsRootCertData_.empty() && !metricsCertData_.empty() && !metricsKeyData_.Empty()) {
-            initConfigJson["rootCertData"] = metricsRootCertData_;
-            initConfigJson["certData"] = metricsCertData_;
-            initConfigJson["keyData"] = std::string(metricsKeyData_.GetData(), metricsKeyData_.GetSize());
-        }
-        try {
-            initConfig = initConfigJson.dump();
-        } catch (std::exception &e) {
-            YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
-        }
-    }
+    auto initConfig = BuildHttpExporterInitConfig(httpExporterType, backendName, exporterValue);
     std::string error;
     return MetricsPlugin::LoadExporterFromLibrary(GetLibraryPath(httpExporterType), initConfig, error);
+}
+
+std::string MetricsAdaptor::BuildHttpExporterInitConfig(const std::string &httpExporterType,
+                                                        const std::string &backendName,
+                                                        const nlohmann::json &exporterValue)
+{
+    std::string initConfig;
+    auto initConfigJson = exporterValue.at("initConfig");
+    if (httpExporterType == PROMETHEUS_PUSH_EXPORTER || httpExporterType == AOM_ALARM_EXPORTER) {
+        initConfigJson["jobName"] = "runtime";
+        if (initConfigJson.find("ip") != initConfigJson.end() && initConfigJson.find("port") != initConfigJson.end()) {
+            initConfigJson["endpoint"] =
+                initConfigJson.at("ip").get<std::string>() + ":" + std::to_string(initConfigJson.at("port").get<int>());
+        }
+    }
+    try {
+        YRLOG_INFO("metrics http exporter for backend {}, initConfig: {}", backendName,
+                   RedactSensitiveMetricConfig(initConfigJson).dump());
+    } catch (std::exception &e) {
+        YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
+    }
+    if (httpExporterType == PROMETHEUS_PUSH_EXPORTER || httpExporterType == AOM_ALARM_EXPORTER) {
+        ConfigurePushHttpExporterTLS(initConfigJson);
+    }
+    if (httpExporterType == PROMETHEUS_PULL_EXPORTER) {
+        ConfigurePullHttpExporterTLS(initConfigJson);
+    }
+    try {
+        initConfig = initConfigJson.dump();
+    } catch (std::exception &e) {
+        YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
+    }
+    return initConfig;
+}
+
+void MetricsAdaptor::ConfigurePushHttpExporterTLS(nlohmann::json &initConfigJson)
+{
+    if (!Config::Instance().YR_SSL_ENABLE()) {
+        return;
+    }
+    initConfigJson["isSSLEnable"] = true;
+    initConfigJson["rootCertFile"] = Config::Instance().YR_SSL_ROOT_FILE();
+    initConfigJson["certFile"] = Config::Instance().YR_SSL_CERT_FILE();
+    initConfigJson["keyFile"] = Config::Instance().YR_SSL_KEY_FILE();
+    auto ret = std::getenv(YR_SSL_PASSPHRASE_KEY);
+    if (ret != nullptr) {
+        initConfigJson["passphrase"] = ret;
+        const int replaceOpt = 1;
+        setenv(YR_SSL_PASSPHRASE_KEY, "", replaceOpt);
+    } else {
+        YRLOG_WARN("can not get metrics passphrase from env.");
+    }
+}
+
+void MetricsAdaptor::ConfigurePullHttpExporterTLS(nlohmann::json &initConfigJson)
+{
+    if (!initConfigJson.value("isSSLEnable", false) || metricsRootCertData_.empty() || metricsCertData_.empty() ||
+        metricsKeyData_.Empty()) {
+        return;
+    }
+    initConfigJson["rootCertData"] = metricsRootCertData_;
+    initConfigJson["certData"] = metricsCertData_;
+    initConfigJson["keyData"] = std::string(metricsKeyData_.GetData(), metricsKeyData_.GetSize());
 }
 
 const MetricsSdk::ExportConfigs MetricsAdaptor::BuildExportConfigs(const nlohmann::json &exporterValue)

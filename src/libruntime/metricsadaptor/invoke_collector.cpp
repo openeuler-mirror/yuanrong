@@ -51,9 +51,12 @@ void InvokeCollector::OnGaugeMutation(const std::string &metricName)
         return;
     }
 
-    int64_t activeReports = activeDefaultConcurrentMetricReports_.load();
-    while (metricsAdaptor_ != nullptr && activeReports > 0 &&
-           !activeDefaultConcurrentMetricReports_.compare_exchange_weak(activeReports, activeReports - 1)) {
+    int64_t activeReports = 0;
+    if (metricsAdaptor_ != nullptr && activeDefaultConcurrentMetricReports_.load() > 0) {
+        activeReports = activeDefaultConcurrentMetricReports_.fetch_sub(1);
+        if (activeReports <= 0) {
+            activeDefaultConcurrentMetricReports_.fetch_add(1);
+        }
     }
     if (metricsAdaptor_ != nullptr && activeReports > 0) {
         GaugeData gauge;

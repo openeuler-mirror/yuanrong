@@ -209,6 +209,7 @@ group_of_java_tests(
         "org.yuanrong.services.runtime.action.TestStream",
         "org.yuanrong.services.runtime.utils.TestDataTypeAdapter",
         "org.yuanrong.services.runtime.utils.TestUtil",
+        "org.yuanrong.TestCustomMetrics",
         "org.yuanrong.TestGroupOptions",
         "org.yuanrong.TestInvokeOptions",
         "org.yuanrong.TestSetParam",

@@ -19,7 +19,7 @@ from unittest.mock import Mock, patch
 
 from yr.config_manager import ConfigManager
 from yr.config import Config
-from yr import Gauge, UInt64Counter, DoubleCounter
+from yr import Gauge, UInt64Counter, DoubleCounter, CustomGauge, CustomCounter
 
 
 class TestMetrics(TestCase):
@@ -134,6 +134,68 @@ class TestMetrics(TestCase):
         with self.assertRaises(ValueError):
             ConfigManager().init(Config(is_driver=True))
             data.get_value()
+
+        ConfigManager().init(Config(is_driver=False, ds_address="127.0.0.1:31222"))
+        self.assertEqual(data.get_value(), 10)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_custom_gauge(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.set_gauge.side_effect = RuntimeError("mock exception")
+        mock_runtime.increase_gauge.side_effect = RuntimeError("mock exception")
+        mock_runtime.decrease_gauge.side_effect = RuntimeError("mock exception")
+        mock_runtime.get_value_gauge.return_value = 6.0
+        get_runtime.return_value = mock_runtime
+
+        data = CustomGauge("yr_user_queue_depth", "queue depth", "count")
+
+        with self.assertRaises(ValueError):
+            data.set(-1)
+
+        with self.assertRaises(ValueError):
+            data.inc(0)
+
+        with self.assertRaises(ValueError):
+            data.dec(0)
+
+        with self.assertRaises(ValueError):
+            ConfigManager().init(Config(is_driver=True))
+            data.set(1)
+
+        with self.assertRaises(RuntimeError):
+            ConfigManager().init(Config(is_driver=False, ds_address="127.0.0.1:31222"))
+            data.set(1)
+
+        mock_runtime.set_gauge.side_effect = None
+        with self.assertRaises(RuntimeError):
+            data.inc(1)
+
+        mock_runtime.increase_gauge.side_effect = None
+        with self.assertRaises(RuntimeError):
+            data.dec(1)
+
+        mock_runtime.decrease_gauge.side_effect = None
+        self.assertEqual(data.get_value(), 6.0)
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_custom_counter(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.increase_uint64_counter.side_effect = RuntimeError("mock exception")
+        mock_runtime.get_value_uint64_counter.return_value = 10
+        get_runtime.return_value = mock_runtime
+
+        data = CustomCounter("yr_user_tokens_total", "token total", "count")
+
+        with self.assertRaises(ValueError):
+            data.inc(0)
+
+        with self.assertRaises(ValueError):
+            ConfigManager().init(Config(is_driver=True))
+            data.inc()
+
+        with self.assertRaises(RuntimeError):
+            ConfigManager().init(Config(is_driver=False, ds_address="127.0.0.1:31222"))
+            data.inc()
 
         ConfigManager().init(Config(is_driver=False, ds_address="127.0.0.1:31222"))
         self.assertEqual(data.get_value(), 10)

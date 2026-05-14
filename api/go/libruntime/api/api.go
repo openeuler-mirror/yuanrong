@@ -77,6 +77,10 @@ type LibruntimeAPI interface {
 	IsHealth() bool
 	IsDsHealth() bool
 	GetActiveMasterAddr() string
+	SetGauge(data GaugeData) error
+	IncreaseGauge(data GaugeData) error
+	DecreaseGauge(data GaugeData) error
+	IncreaseUInt64Counter(data UInt64CounterData) error
 }
 
 // KvClient -

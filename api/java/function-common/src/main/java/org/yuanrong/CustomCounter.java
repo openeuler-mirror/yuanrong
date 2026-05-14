@@ -1,0 +1,72 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.yuanrong;
+
+import org.yuanrong.errorcode.ErrorCode;
+import org.yuanrong.errorcode.ErrorInfo;
+import org.yuanrong.errorcode.Pair;
+import org.yuanrong.exception.LibRuntimeException;
+import org.yuanrong.jni.LibRuntime;
+
+/**
+ * Custom uint64 counter metric helper for Java FaaS functions.
+ *
+ * @since 2026/04/21
+ */
+public class CustomCounter {
+    private final String name;
+    private final String description;
+    private final String unit;
+
+    public CustomCounter(String name, String description, String unit) {
+        this.name = name;
+        this.description = description;
+        this.unit = unit;
+    }
+
+    /**
+     * Increases the counter by the given delta.
+     *
+     * @param value counter delta
+     * @throws LibRuntimeException thrown when libruntime reports an error
+     */
+    public void inc(long value) throws LibRuntimeException {
+        throwIfError(LibRuntime.increaseUInt64Counter(name, description, unit, value));
+    }
+
+    /**
+     * Returns the current counter value.
+     *
+     * @return current counter value
+     * @throws LibRuntimeException thrown when libruntime reports an error
+     */
+    public long getValue() throws LibRuntimeException {
+        Pair<ErrorInfo, Long> result = LibRuntime.getValueUInt64Counter(name, description, unit);
+        if (result == null) {
+            throw new LibRuntimeException("get counter returns null");
+        }
+        throwIfError(result.getFirst());
+        return result.getSecond();
+    }
+
+    private static void throwIfError(ErrorInfo errorInfo) throws LibRuntimeException {
+        if (errorInfo != null && !ErrorCode.ERR_OK.equals(errorInfo.getErrorCode())) {
+            throw new LibRuntimeException(errorInfo.getErrorCode(), errorInfo.getModuleCode(),
+                errorInfo.getErrorMessage());
+        }
+    }
+}

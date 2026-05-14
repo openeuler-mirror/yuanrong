@@ -254,6 +254,12 @@ ErrorInfo LibruntimeManager::CreateLibruntime(std::shared_ptr<LibruntimeConfig> 
             return err;
         }
     }
+    std::string metricsRootCertData;
+    std::string metricsCertData;
+    std::string metricsKeyData;
+    if (security->GetMetricsTLSConfig(metricsRootCertData, metricsCertData, metricsKeyData)) {
+        metricsAdaptor->SetMetricsTLSConfig(metricsRootCertData, metricsCertData, metricsKeyData);
+    }
     auto [enableDsAuth, encryptEnable] = security->GetDataSystemConfig(
         librtConfig->runtimePublicKey, librtConfig->runtimePrivateKey, librtConfig->dsPublicKey);
     librtConfig->enableAuth = enableDsAuth;

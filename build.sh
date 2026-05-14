@@ -207,7 +207,23 @@ function build_python_sdk() {
         cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
         rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
     fi
+    for metrics_lib_dir in "${BASE_DIR}/metrics/lib" "${BASE_DIR}/functionsystem/output/metrics/lib"; do
+        if [ -f "${metrics_lib_dir}/libobservability-prometheus-pull-exporter.so" ]; then
+            cp -f "${metrics_lib_dir}/libobservability-prometheus-pull-exporter.so" \
+                "$OUTPUT_BASE/runtime/service/python/yr/"
+            break
+        fi
+    done
     rm -f $OUTPUT_BASE/runtime/service/python/yr/fnruntime.pyx
+}
+
+function sync_metrics_plugins() {
+    local src_dir="${BASE_DIR}/functionsystem/output/metrics/lib"
+    local dst_dir="${BASE_DIR}/metrics/lib"
+    if [ -f "${src_dir}/libobservability-prometheus-pull-exporter.so" ]; then
+        mkdir -p "${dst_dir}"
+        cp -f "${src_dir}/libobservability-prometheus-pull-exporter.so" "${dst_dir}/"
+    fi
 }
 
 function install_python_requirements() {
@@ -391,6 +407,7 @@ BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSIO
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR
+sync_metrics_plugins
 bazel ${BAZEL_PRE_OPTIONS} ${BAZEL_COMMAND} ${BAZEL_OPTIONS} -- ${BAZEL_TARGETS}
 
 PYTHON3_SDK_BIN_PATH=$PYTHON3_BIN_PATH

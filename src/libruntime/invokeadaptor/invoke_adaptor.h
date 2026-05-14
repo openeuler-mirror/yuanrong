@@ -44,6 +44,7 @@
 #include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/invokeadaptor/task_submitter.h"
 #include "src/libruntime/libruntime_config.h"
+#include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/objectstore/object_store.h"
@@ -73,7 +74,8 @@ public:
                   std::shared_ptr<RuntimeContext> rtCtx, FinalizeCallback cb,
                   std::shared_ptr<WaitingObjectManager> waitManager, std::shared_ptr<InvokeOrderManager> invokeOrderMgr,
                   std::shared_ptr<ClientsManager> clientsMgr, std::shared_ptr<MetricsAdaptor> metricsAdaptor,
-                  std::shared_ptr<GeneratorIdMap> genIdMapper, std::shared_ptr<GeneratorReceiver> generatorReceiver,
+                  std::shared_ptr<InvokeCollector> invokeCollector, std::shared_ptr<GeneratorIdMap> genIdMapper,
+                  std::shared_ptr<GeneratorReceiver> generatorReceiver,
                   std::shared_ptr<GeneratorNotifier> generatorNotifier,
                   std::shared_ptr<YR::scene::DowngradeController> downgrade = nullptr);
 
@@ -229,6 +231,8 @@ private:
     // load user function libraries
     CallResult InitCall(const CallRequest &req, const libruntime::MetaData &metaData);
 
+    bool IsMetricsEnabled() const;
+    bool IsMetricsEnabled(const libruntime::MetaData &metaData) const;
     void InitMetricsAdaptor(bool userEnable);
     void ReportMetrics(const std::string &requestId, const std::string &traceId, int value);
 
@@ -257,6 +261,7 @@ private:
     std::shared_ptr<ExecutionManager> execMgr;
     std::shared_ptr<ClientsManager> clientsMgr;
     std::shared_ptr<MetricsAdaptor> metricsAdaptor;
+    std::shared_ptr<InvokeCollector> invokeCollector_;
     std::shared_ptr<AliasRouting> ar;
     std::shared_ptr<FiberPool> fiberPool_;
     std::shared_ptr<GeneratorIdMap> map_;

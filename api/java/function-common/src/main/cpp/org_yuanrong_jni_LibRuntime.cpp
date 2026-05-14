@@ -92,6 +92,50 @@ static std::string get_runtime_context_callback(JNIEnv *env, jclass c)
     return resultStr;
 }
 
+static jobject BoxJavaLong(JNIEnv *env, jlong value)
+{
+    jclass longClass = env->FindClass("java/lang/Long");
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, longClass, nullptr, "failed to load java.lang.Long");
+    jmethodID constructor = env->GetMethodID(longClass, "<init>", "(J)V");
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, constructor, nullptr, "failed to load Long constructor");
+    jobject boxed = env->NewObject(longClass, constructor, value);
+    env->DeleteLocalRef(longClass);
+    return boxed;
+}
+
+static jobject BoxJavaDouble(JNIEnv *env, jdouble value)
+{
+    jclass doubleClass = env->FindClass("java/lang/Double");
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, doubleClass, nullptr, "failed to load java.lang.Double");
+    jmethodID constructor = env->GetMethodID(doubleClass, "<init>", "(D)V");
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, constructor, nullptr, "failed to load Double constructor");
+    jobject boxed = env->NewObject(doubleClass, constructor, value);
+    env->DeleteLocalRef(doubleClass);
+    return boxed;
+}
+
+static YR::Libruntime::GaugeData MakeGaugeData(JNIEnv *env, jstring name, jstring description, jstring unit,
+                                               jdouble value)
+{
+    YR::Libruntime::GaugeData gauge;
+    gauge.name = YR::jni::JNIString::FromJava(env, name);
+    gauge.description = YR::jni::JNIString::FromJava(env, description);
+    gauge.unit = YR::jni::JNIString::FromJava(env, unit);
+    gauge.value = value;
+    return gauge;
+}
+
+static YR::Libruntime::UInt64CounterData MakeUInt64CounterData(JNIEnv *env, jstring name, jstring description,
+                                                               jstring unit, jlong value)
+{
+    YR::Libruntime::UInt64CounterData counter;
+    counter.name = YR::jni::JNIString::FromJava(env, name);
+    counter.description = YR::jni::JNIString::FromJava(env, description);
+    counter.unit = YR::jni::JNIString::FromJava(env, unit);
+    counter.value = static_cast<uint64_t>(value);
+    return counter;
+}
+
 JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_Init(JNIEnv *env, jclass c, jobject jconfig)
 {
     // definition of functionExecutaionCallback
@@ -270,6 +314,90 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_InvokeInstance(JNIEnv
     jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, jreturnDataObjId);
     env->DeleteLocalRef(jerr);
     env->DeleteLocalRef(jreturnDataObjId);
+    return jpair;
+}
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_setGauge(JNIEnv *env, jclass c, jstring name,
+                                                                    jstring description, jstring unit, jdouble value)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->SetGauge(MakeGaugeData(env, name, description, unit, value));
+    return YR::jni::JNIErrorInfo::FromCc(env, err);
+}
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_increaseGauge(JNIEnv *env, jclass c, jstring name,
+                                                                         jstring description, jstring unit,
+                                                                         jdouble value)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->IncreaseGauge(MakeGaugeData(env, name, description, unit, value));
+    return YR::jni::JNIErrorInfo::FromCc(env, err);
+}
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_decreaseGauge(JNIEnv *env, jclass c, jstring name,
+                                                                         jstring description, jstring unit,
+                                                                         jdouble value)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->DecreaseGauge(MakeGaugeData(env, name, description, unit, value));
+    return YR::jni::JNIErrorInfo::FromCc(env, err);
+}
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_getValueGauge(JNIEnv *env, jclass c, jstring name,
+                                                                         jstring description, jstring unit)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto [err, gaugeValue] = libRuntime->GetValueGauge(MakeGaugeData(env, name, description, unit, 0));
+    jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, jerr, nullptr, "failed to convert gauge error info from cc to java");
+    jobject jvalue = BoxJavaDouble(env, gaugeValue);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, jvalue, nullptr, "failed to box gauge value");
+    jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, jvalue);
+    env->DeleteLocalRef(jerr);
+    env->DeleteLocalRef(jvalue);
+    return jpair;
+}
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_increaseUInt64Counter(JNIEnv *env, jclass c, jstring name,
+                                                                                  jstring description, jstring unit,
+                                                                                  jlong value)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto err = libRuntime->IncreaseUInt64Counter(MakeUInt64CounterData(env, name, description, unit, value));
+    return YR::jni::JNIErrorInfo::FromCc(env, err);
+}
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_getValueUInt64Counter(JNIEnv *env, jclass c, jstring name,
+                                                                                  jstring description, jstring unit)
+{
+    auto rtCtx = get_runtime_context_callback(env, c);
+    auto libRuntime = YR::Libruntime::LibruntimeManager::Instance().GetLibRuntime(rtCtx);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, libRuntime, nullptr, "exception occurred because LibRuntime is null");
+    libRuntime->SetTenantIdWithPriority();
+    auto [err, counterValue] = libRuntime->GetValueUInt64Counter(
+        MakeUInt64CounterData(env, name, description, unit, 0));
+    jobject jerr = YR::jni::JNIErrorInfo::FromCc(env, err);
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, jerr, nullptr, "failed to convert counter error info from cc to java");
+    jobject jvalue = BoxJavaLong(env, static_cast<jlong>(counterValue));
+    CHECK_NULL_THROW_NEW_AND_RETURN(env, jvalue, nullptr, "failed to box counter value");
+    jobject jpair = YR::jni::JNIPair::CreateJPair(env, jerr, jvalue);
+    env->DeleteLocalRef(jerr);
+    env->DeleteLocalRef(jvalue);
     return jpair;
 }
 

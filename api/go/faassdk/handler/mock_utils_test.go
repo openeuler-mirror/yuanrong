@@ -113,6 +113,11 @@ func (m mockLibruntimeClient) KVSetWithoutKey(value []byte, param api.SetParam) 
 	panic("implement me")
 }
 
+func (m mockLibruntimeClient) KVMSetTx(keys []string, values [][]byte, param api.MSetParam) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (m mockLibruntimeClient) KVGet(key string, timeoutms uint) ([]byte, error) {
 	//TODO implement me
 	panic("implement me")
@@ -223,7 +228,7 @@ func (m mockLibruntimeClient) GetEvent(objectID string, cb api.GetEventCallback)
 	panic("implement me")
 }
 
-func (m mockLibruntimeClient) DeleteEventCallback(objectID string, cb api.GetEventCallback) {
+func (m mockLibruntimeClient) DeleteGetEventCallback(objectID string) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -238,7 +243,16 @@ func (m mockLibruntimeClient) CreateClient(config api.ConnectArguments) (api.KvC
 	panic("implement me")
 }
 
-func (m *mockLibruntimeClient) UpdateSchdulerInfo(schedulerName string, option string) {
+func (m mockLibruntimeClient) ReleaseGRefs(remoteClientID string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) GetCredential() api.Credential {
+	return api.Credential{}
+}
+
+func (m *mockLibruntimeClient) UpdateSchdulerInfo(schedulerName string, schedulerId string, option string) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -253,6 +267,26 @@ func (m *mockLibruntimeClient) IsDsHealth() bool {
 
 func (m *mockLibruntimeClient) GetActiveMasterAddr() string {
 	return "mockMasterAddr"
+}
+
+func (m mockLibruntimeClient) SetGauge(data api.GaugeData) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) IncreaseGauge(data api.GaugeData) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) DecreaseGauge(data api.GaugeData) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m mockLibruntimeClient) IncreaseUInt64Counter(data api.UInt64CounterData) error {
+	//TODO implement me
+	panic("implement me")
 }
 
 // Append -

@@ -384,7 +384,8 @@ bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 
 [function_agent.env]
 LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib"
-RUNTIME_METRICS_CONFIG = "false"
+RUNTIME_METRICS_CONFIG = "{{ values.fs.metrics.metrics_config }}"
+RUNTIME_METRICS_CONFIG_FILE = "{{ values.fs.metrics.metrics_config_file }}"
 INIT_LABELS = ""
 HOST_IP = "{{ values.function_agent.ip }}"
 NODE_ID = "{{ values.node_id }}"

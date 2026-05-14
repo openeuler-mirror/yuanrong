@@ -23,7 +23,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-
 #include "absl/synchronization/notification.h"
 #include "agent_session_manager.h"
 #include "general_execution_manager.h"
@@ -181,15 +180,16 @@ InvokeAdaptor::InvokeAdaptor(
     std::shared_ptr<FSClient> &fsClient, std::shared_ptr<MemoryStore> memStore, std::shared_ptr<RuntimeContext> rtCtx,
     FinalizeCallback cb, std::shared_ptr<WaitingObjectManager> waitManager,
     std::shared_ptr<InvokeOrderManager> invokeOrderMgr, std::shared_ptr<ClientsManager> clientsMgr,
-    std::shared_ptr<MetricsAdaptor> inputMetricsAdaptor, std::shared_ptr<GeneratorIdMap> genIdMapper,
-    std::shared_ptr<GeneratorReceiver> generatorReceiver, std::shared_ptr<GeneratorNotifier> generatorNotifier,
-    std::shared_ptr<YR::scene::DowngradeController> downgrade)
+    std::shared_ptr<MetricsAdaptor> inputMetricsAdaptor, std::shared_ptr<InvokeCollector> invokeCollector,
+    std::shared_ptr<GeneratorIdMap> genIdMapper, std::shared_ptr<GeneratorReceiver> generatorReceiver,
+    std::shared_ptr<GeneratorNotifier> generatorNotifier, std::shared_ptr<YR::scene::DowngradeController> downgrade)
     : dependencyResolver(dependencyResolver),
       runtimeContext(rtCtx),
       finalizeCb_(cb),
       invokeOrderMgr(invokeOrderMgr),
       clientsMgr(clientsMgr),
       metricsAdaptor(inputMetricsAdaptor),
+      invokeCollector_(std::move(invokeCollector)),
       map_(genIdMapper),
       agentSessionEnabled_(IsTruthyEnv(std::getenv(USE_AGENT_SESSION_ENV)))
 {
@@ -280,10 +280,10 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
         this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE,
                                                        YR::Libruntime::Config::Instance().YR_ASYNCIO_MAX_CONCURRENCY());
     }
-    YRLOG_DEBUG("enable metrics is {}, api type is {}", Config::Instance().ENABLE_METRICS(),
+    YRLOG_DEBUG("enable metrics is {}, api type is {}", IsMetricsEnabled(metaData),
                 fmt::underlying(this->librtConfig->selfApiType));
-    if (Config::Instance().ENABLE_METRICS() && !isPosix) {
-        InitMetricsAdaptor(metaData.config().enablemetrics());
+    if (IsMetricsEnabled(metaData) && !isPosix) {
+        InitMetricsAdaptor(true);
     }
     if (this->librtConfig->selfApiType != libruntime::ApiType::Posix) {
         auto res = InitCall(req->Immutable(), metaData);
@@ -558,8 +558,8 @@ RecoverResponse InvokeAdaptor::RecoverHandler(const RecoverRequest &req)
         std::lock_guard<std::mutex> lk(recoveredBufMtx_);
         recoveredBuf_.assign(reinterpret_cast<const char *>(buf->ImmutableData()), buf->GetSize());
     }
-    if (Config::Instance().ENABLE_METRICS()) {
-        InitMetricsAdaptor(librtConfig->enableMetrics);
+    if (IsMetricsEnabled()) {
+        InitMetricsAdaptor(true);
     }
     common::FunctionGroupRunningInfo runningInfo;
     bool isPosix = this->librtConfig->selfApiType == libruntime::ApiType::Posix;
@@ -818,7 +818,13 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
         }
     }
 
+    if (invokeCollector_) {
+        invokeCollector_->BeforeInvoke(metaData, *this->librtConfig);
+    }
     auto err = options.functionExecuteCallback(functionMeta, metaData.invoketype(), rawArgs, returnObjects);
+    if (invokeCollector_) {
+        invokeCollector_->AfterInvoke(metaData, *this->librtConfig);
+    }
     for (size_t i = 0; i < returnObjects.size(); i++) {
         if (returnObjects[i]->buffer != nullptr && returnObjects[i]->buffer->IsNative() &&
             returnObjects[i]->putDone == false) {
@@ -2161,7 +2167,7 @@ ErrorInfo InvokeAdaptor::WaitAndCheckResp(std::shared_future<ResponseType> &futu
 
 void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::string &traceId, int value)
 {
-    if (!Config::Instance().ENABLE_METRICS() || !MetricsAdaptor::GetInstance()->IsInited()) {
+    if (!IsMetricsEnabled() || !MetricsAdaptor::GetInstance()->IsInited()) {
         return;
     }
     YR::Libruntime::GaugeData data;
@@ -2173,6 +2179,17 @@ void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::strin
     if (!err.OK()) {
         YRLOG_WARN("failed to report metrics, requestid: {}, traceid: {}, value: {}", requestId, traceId, value);
     }
+}
+
+bool InvokeAdaptor::IsMetricsEnabled() const
+{
+    return Config::Instance().ENABLE_METRICS() || librtConfig->enableMetrics;
+}
+
+bool InvokeAdaptor::IsMetricsEnabled(const libruntime::MetaData &metaData) const
+{
+    // Invoke requests may omit enableMetrics in proto3, so preserve the instance-level value after create/recover.
+    return Config::Instance().ENABLE_METRICS() || metaData.config().enablemetrics() || librtConfig->enableMetrics;
 }
 
 std::shared_ptr<InvokeSpec> InvokeAdaptor::BuildCreateSpec(std::shared_ptr<InvokeSpec> spec)

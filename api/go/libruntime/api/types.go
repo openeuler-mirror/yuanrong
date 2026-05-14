@@ -120,6 +120,22 @@ type FunctionMeta struct {
 	Language  LanguageType
 }
 
+// GaugeData custom gauge metric payload.
+type GaugeData struct {
+	Name        string
+	Description string
+	Unit        string
+	Value       float64
+}
+
+// UInt64CounterData custom counter metric payload.
+type UInt64CounterData struct {
+	Name        string
+	Description string
+	Unit        string
+	Value       uint64
+}
+
 // StackTracesInfo stack info
 type StackTracesInfo struct {
 	Code        int

@@ -331,6 +331,20 @@ typedef struct tagCSubscriptionConfig {
     char *traceId;
 } CSubscriptionConfig;
 
+typedef struct tagCGaugeData {
+    char *name;
+    char *description;
+    char *unit;
+    double value;
+} CGaugeData;
+
+typedef struct tagCUInt64CounterData {
+    char *name;
+    char *description;
+    char *unit;
+    uint64_t value;
+} CUInt64CounterData;
+
 typedef void (*CGetAsyncCallback)(char *cObjectID, CErrorInfo *cErr, void *userData);
 
 typedef void (*CGetEventCallback)(char *cObjectID, CErrorInfo *cErr, void *userData);
@@ -400,6 +414,10 @@ extern void GoRawCallback(char *cKey, CErrorInfo cErr, CBuffer cResultRaw);
 
 // object
 CErrorInfo CSetTenantId(const char *cTenantId, int cTenantIdLen);
+CErrorInfo CSetGauge(CGaugeData *data);
+CErrorInfo CIncreaseGauge(CGaugeData *data);
+CErrorInfo CDecreaseGauge(CGaugeData *data);
+CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *data);
 void CWait(char **objIds, int size_objIds, int waitNum, int timeoutSec, CWaitResult *result);
 CErrorInfo CPutCommon(char *objectId, CBuffer data, char **nestedIds, int sizeNestedIds, char isPutRaw,
                       CCreateParam param);

@@ -230,6 +230,50 @@ func GetCredential() api.Credential {
 	return GoCredential(cCredential)
 }
 
+// SetGauge reports a custom gauge metric by setting its current value.
+func SetGauge(data api.GaugeData) error {
+	cData := cGaugeData(data)
+	defer freeCGaugeData(cData)
+	cErr := C.CSetGauge(cData)
+	if code := int(cErr.code); code != 0 {
+		return codeNotZeroErr(code, cErr, "set gauge: ")
+	}
+	return nil
+}
+
+// IncreaseGauge reports a custom gauge metric by increasing its current value.
+func IncreaseGauge(data api.GaugeData) error {
+	cData := cGaugeData(data)
+	defer freeCGaugeData(cData)
+	cErr := C.CIncreaseGauge(cData)
+	if code := int(cErr.code); code != 0 {
+		return codeNotZeroErr(code, cErr, "increase gauge: ")
+	}
+	return nil
+}
+
+// DecreaseGauge reports a custom gauge metric by decreasing its current value.
+func DecreaseGauge(data api.GaugeData) error {
+	cData := cGaugeData(data)
+	defer freeCGaugeData(cData)
+	cErr := C.CDecreaseGauge(cData)
+	if code := int(cErr.code); code != 0 {
+		return codeNotZeroErr(code, cErr, "decrease gauge: ")
+	}
+	return nil
+}
+
+// IncreaseUInt64Counter reports a custom counter metric by increasing its current value.
+func IncreaseUInt64Counter(data api.UInt64CounterData) error {
+	cData := cUInt64CounterData(data)
+	defer freeCUInt64CounterData(cData)
+	cErr := C.CIncreaseUInt64Counter(cData)
+	if code := int(cErr.code); code != 0 {
+		return codeNotZeroErr(code, cErr, "increase uint64 counter: ")
+	}
+	return nil
+}
+
 // KVGetMulti -
 func (c *KvClientImpl) KVGetMulti(keys []string, timeoutMs ...uint32) ([][]byte, api.ErrorInfo) {
 	status := kvClientCheckNil(c)
@@ -468,6 +512,42 @@ func CSafeGoStringN(message *C.char, length C.int) string {
 	} else {
 		return C.GoStringN(message, length)
 	}
+}
+
+func cGaugeData(data api.GaugeData) *C.CGaugeData {
+	return &C.CGaugeData{
+		name:        CSafeString(data.Name),
+		description: CSafeString(data.Description),
+		unit:        CSafeString(data.Unit),
+		value:       C.double(data.Value),
+	}
+}
+
+func freeCGaugeData(data *C.CGaugeData) {
+	if data == nil {
+		return
+	}
+	CSafeFree(data.name)
+	CSafeFree(data.description)
+	CSafeFree(data.unit)
+}
+
+func cUInt64CounterData(data api.UInt64CounterData) *C.CUInt64CounterData {
+	return &C.CUInt64CounterData{
+		name:        CSafeString(data.Name),
+		description: CSafeString(data.Description),
+		unit:        CSafeString(data.Unit),
+		value:       C.uint64_t(data.Value),
+	}
+}
+
+func freeCUInt64CounterData(data *C.CUInt64CounterData) {
+	if data == nil {
+		return
+	}
+	CSafeFree(data.name)
+	CSafeFree(data.description)
+	CSafeFree(data.unit)
 }
 
 // Send sends an element.

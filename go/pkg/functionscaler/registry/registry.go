@@ -300,6 +300,16 @@ func GetFuncMetaInfoFromEtcdValue(etcdValue []byte) *commonTypes.FunctionMetaInf
 		log.GetLogger().Errorf("failed to unmarshal etcd value to function meta info %s", err.Error())
 		return nil
 	}
+	metricsMeta := struct {
+		ExtendedMetaData struct {
+			EnableMetrics bool `json:"enable_metrics"`
+		} `json:"extendedMetaData"`
+	}{}
+	if err = json.Unmarshal(etcdValue, &metricsMeta); err != nil {
+		log.GetLogger().Errorf("failed to unmarshal etcd value to function metrics meta info %s", err.Error())
+		return nil
+	}
+	funcMetaInfo.ExtendedMetaData.EnableMetrics = metricsMeta.ExtendedMetaData.EnableMetrics
 	// set default value
 	if config.GlobalConfig.Scenario == types.ScenarioFunctionGraph && strings.Contains(funcMetaInfo.FuncMetaData.Runtime,
 		types.CustomContainerRuntimeType) && funcMetaInfo.ResourceMetaData.EphemeralStorage == 0 {

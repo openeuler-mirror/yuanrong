@@ -265,3 +265,19 @@ func (r *ClusterModeRuntime) IsDsHealth() bool {
 func (r *ClusterModeRuntime) GetActiveMasterAddr() string {
 	return clibruntime.GetActiveMasterAddr()
 }
+
+func (r *ClusterModeRuntime) SetGauge(data api.GaugeData) error {
+	return clibruntime.SetGauge(data)
+}
+
+func (r *ClusterModeRuntime) IncreaseGauge(data api.GaugeData) error {
+	return clibruntime.IncreaseGauge(data)
+}
+
+func (r *ClusterModeRuntime) DecreaseGauge(data api.GaugeData) error {
+	return clibruntime.DecreaseGauge(data)
+}
+
+func (r *ClusterModeRuntime) IncreaseUInt64Counter(data api.UInt64CounterData) error {
+	return clibruntime.IncreaseUInt64Counter(data)
+}

@@ -52,6 +52,24 @@ JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_CreateInstance(JNIEnv
 JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_InvokeInstance(JNIEnv *, jclass, jobject, jstring,
                                                                                  jobject, jobject);
 
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_setGauge(JNIEnv *, jclass, jstring, jstring, jstring,
+                                                                    jdouble);
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_increaseGauge(JNIEnv *, jclass, jstring, jstring, jstring,
+                                                                         jdouble);
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_decreaseGauge(JNIEnv *, jclass, jstring, jstring, jstring,
+                                                                         jdouble);
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_getValueGauge(JNIEnv *, jclass, jstring, jstring,
+                                                                         jstring);
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_increaseUInt64Counter(JNIEnv *, jclass, jstring, jstring,
+                                                                                  jstring, jlong);
+
+JNIEXPORT jobject JNICALL Java_org_yuanrong_jni_LibRuntime_getValueUInt64Counter(JNIEnv *, jclass, jstring, jstring,
+                                                                                  jstring);
+
 /*
  * Class:     org_yuanrong_jni_LibRuntime
  * Method:    Get

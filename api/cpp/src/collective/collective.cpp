@@ -91,9 +91,9 @@ int CollectiveGroup::GetWorldSize() const
 
 void CheckGroupNameValid(const std::string &groupName)
 {
-    static const std::regex GROUP_NAME_REGEX(R"(^[a-zA-Z0-9\-_!#%\^\*\(\)\+\=\:;]*$)");
+    static const std::regex GROUP_NAME_REGEX(R"(^[a-zA-Z0-9_!#%^*()+=:;-]+$)");
     ThrowIfTrue(!std::regex_match(groupName, GROUP_NAME_REGEX), YR::Libruntime::ErrorCode::ERR_PARAM_INVALID,
-                R"(groupName is invalid. It should match the regex: ^[a-zA-Z0-9\-_!#%^\*\(\)\+\=\:;]*$)");
+                R"(groupName is invalid. It should match the regex: ^[a-zA-Z0-9_!#%^*()+=:;-]+$)");
 }
 
 void InitCollectiveGroup(const CollectiveGroupSpec &groupSpec, int rank, const std::string &prefix)

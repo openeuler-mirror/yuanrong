@@ -91,7 +91,7 @@ void TaskSubmitter::Init()
     insManagers[libruntime::ApiType::Serve] = faasInsManager;
     insManagers[libruntime::ApiType::Function] = normalInsManager;
     this->UpdateConfig();
-    if (Config::Instance().ENABLE_METRICS()) {
+    if (MetricsEnabled()) {
         this->metricsEnable_ = true;
     }
     faasInsManager->StartBatchRenewTimer();
@@ -956,7 +956,7 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
             YRLOG_DEBUG("there is no invoke data of req: {}, no need update", reqId);
             return;
         }
-        if (!this->metricsAdaptor_ || !Config::Instance().ENABLE_METRICS() || this->metricsAdaptor_->IsInited()) {
+        if (!this->metricsAdaptor_ || !MetricsEnabled() || this->metricsAdaptor_->IsInited()) {
             return;
         }
         it->second->endTime = GetCurrentTimestampNs();
@@ -981,6 +981,11 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
         YRLOG_WARN("failed to report metrics, req id is {}, trace id is {}, err code is {}, msg is {}", reqId,
                    data->traceId, fmt::underlying(reportErr.Code()), reportErr.Msg());
     }
+}
+
+bool TaskSubmitter::MetricsEnabled() const
+{
+    return Config::Instance().ENABLE_METRICS() || (libRuntimeConfig != nullptr && libRuntimeConfig->enableMetrics);
 }
 }  // namespace Libruntime
 }  // namespace YR

@@ -75,6 +75,7 @@ public:
     void UpdateFaasInvokeLog(const std::string &reqId, const ErrorInfo &err);
 
 private:
+    bool MetricsEnabled() const;
     void EraseInsResourceMap();
     std::vector<RequestResource> GetScheduleResources();
     void AddFaasCancelTimer(std::shared_ptr<InvokeSpec> spec);

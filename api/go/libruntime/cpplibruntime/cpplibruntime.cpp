@@ -34,6 +34,7 @@ using YR::Libruntime::ErrorCode;
 using YR::Libruntime::ErrorInfo;
 using YR::Libruntime::ExistenceOpt;
 using YR::Libruntime::FunctionMeta;
+using YR::Libruntime::GaugeData;
 using YR::Libruntime::InstanceAllocation;
 using YR::Libruntime::InvokeArg;
 using YR::Libruntime::InvokeOptions;
@@ -54,6 +55,7 @@ using YR::Libruntime::StreamConsumer;
 using YR::Libruntime::StreamProducer;
 using YR::Libruntime::SubscriptionConfig;
 using YR::Libruntime::WriteMode;
+using YR::Libruntime::UInt64CounterData;
 
 #ifdef __cplusplus
 extern "C" {
@@ -225,6 +227,44 @@ void CheckNullAndAssignValue(const char *str, const int len, std::string &return
     if (str != nullptr && len > 0) {
         returnValue = std::string(str, len);
     }
+}
+
+static GaugeData BuildGaugeData(CGaugeData *cData)
+{
+    GaugeData data;
+    if (cData == nullptr) {
+        return data;
+    }
+    if (cData->name != nullptr) {
+        data.name = cData->name;
+    }
+    if (cData->description != nullptr) {
+        data.description = cData->description;
+    }
+    if (cData->unit != nullptr) {
+        data.unit = cData->unit;
+    }
+    data.value = cData->value;
+    return data;
+}
+
+static UInt64CounterData BuildUInt64CounterData(CUInt64CounterData *cData)
+{
+    UInt64CounterData data;
+    if (cData == nullptr) {
+        return data;
+    }
+    if (cData->name != nullptr) {
+        data.name = cData->name;
+    }
+    if (cData->description != nullptr) {
+        data.description = cData->description;
+    }
+    if (cData->unit != nullptr) {
+        data.unit = cData->unit;
+    }
+    data.value = cData->value;
+    return data;
 }
 
 char *StringToCString(const std::string &input)
@@ -1014,6 +1054,46 @@ CErrorInfo CSetTenantId(const char *cTenantId, int cTenantIdLen)
         return ErrorInfoToCError(err);
     }
     err = lrt->SetTenantId(tenantId, true);
+    return ErrorInfoToCError(err);
+}
+
+CErrorInfo CSetGauge(CGaugeData *cData)
+{
+    auto [lrt, err] = getLibRuntime();
+    if (!err.OK()) {
+        return ErrorInfoToCError(err);
+    }
+    err = lrt->SetGauge(BuildGaugeData(cData));
+    return ErrorInfoToCError(err);
+}
+
+CErrorInfo CIncreaseGauge(CGaugeData *cData)
+{
+    auto [lrt, err] = getLibRuntime();
+    if (!err.OK()) {
+        return ErrorInfoToCError(err);
+    }
+    err = lrt->IncreaseGauge(BuildGaugeData(cData));
+    return ErrorInfoToCError(err);
+}
+
+CErrorInfo CDecreaseGauge(CGaugeData *cData)
+{
+    auto [lrt, err] = getLibRuntime();
+    if (!err.OK()) {
+        return ErrorInfoToCError(err);
+    }
+    err = lrt->DecreaseGauge(BuildGaugeData(cData));
+    return ErrorInfoToCError(err);
+}
+
+CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *cData)
+{
+    auto [lrt, err] = getLibRuntime();
+    if (!err.OK()) {
+        return ErrorInfoToCError(err);
+    }
+    err = lrt->IncreaseUInt64Counter(BuildUInt64CounterData(cData));
     return ErrorInfoToCError(err);
 }
 

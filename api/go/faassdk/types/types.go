@@ -259,6 +259,45 @@ func (f *ExitResponse) GetErrorMessage() string {
 	return f.ErrorMessage
 }
 
+const (
+	// CustomMetricTypeGauge custom gauge metric type.
+	CustomMetricTypeGauge = "gauge"
+	// CustomMetricTypeCounter custom counter metric type.
+	CustomMetricTypeCounter = "counter"
+	// CustomMetricOperationSet set gauge value.
+	CustomMetricOperationSet = "set"
+	// CustomMetricOperationInc increase metric value.
+	CustomMetricOperationInc = "inc"
+	// CustomMetricOperationDec decrease gauge value.
+	CustomMetricOperationDec = "dec"
+)
+
+// MetricsReportRequest custom metric report request.
+type MetricsReportRequest struct {
+	MetricName  string  `json:"metricName"`
+	MetricType  string  `json:"metricType"`
+	Description string  `json:"description"`
+	Unit        string  `json:"unit"`
+	Operation   string  `json:"operation"`
+	Value       float64 `json:"value"`
+}
+
+// MetricsReportResponse custom metric report response.
+type MetricsReportResponse struct {
+	StatusCode   int    `json:"statusCode"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+// GetStatusCode MetricsReportResponse get status code.
+func (r *MetricsReportResponse) GetStatusCode() int {
+	return r.StatusCode
+}
+
+// GetErrorMessage MetricsReportResponse get error message.
+func (r *MetricsReportResponse) GetErrorMessage() string {
+	return r.ErrorMessage
+}
+
 // Response interface
 type Response interface {
 	GetStatusCode() int

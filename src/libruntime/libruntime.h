@@ -40,6 +40,7 @@
 #include "src/libruntime/generator/generator_receiver.h"
 #include "src/libruntime/invokeadaptor/invoke_adaptor.h"
 #include "src/libruntime/libruntime_config.h"
+#include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/objectstore/object_id_pool.h"
 #include "src/libruntime/streamstore/stream_producer_consumer.h"
@@ -829,6 +830,34 @@ public:
     virtual std::pair<ErrorInfo, double> GetValueDoubleCounter(const YR::Libruntime::DoubleCounterData &data);
 
     /*!
+      @brief Set the value of a gauge
+      @param gauge the data containing the gauge information
+      @return ErrorInfo indicating the success or failure of the operation
+    */
+    virtual ErrorInfo SetGauge(const YR::Libruntime::GaugeData &gauge);
+
+    /*!
+      @brief Increase the value of a gauge
+      @param gauge the data containing the gauge information
+      @return ErrorInfo indicating the success or failure of the operation
+    */
+    virtual ErrorInfo IncreaseGauge(const YR::Libruntime::GaugeData &gauge);
+
+    /*!
+      @brief Decrease the value of a gauge
+      @param gauge the data containing the gauge information
+      @return ErrorInfo indicating the success or failure of the operation
+    */
+    virtual ErrorInfo DecreaseGauge(const YR::Libruntime::GaugeData &gauge);
+
+    /*!
+      @brief Get the value of a gauge
+      @param gauge the data containing the gauge information
+      @return a pair containing ErrorInfo and the current value of the gauge
+    */
+    virtual std::pair<ErrorInfo, double> GetValueGauge(const YR::Libruntime::GaugeData &gauge);
+
+    /*!
       @brief Report the value of a gauge
       @param gauge the data containing the gauge information
       @return ErrorInfo indicating the success or failure of the operation
@@ -1157,6 +1186,7 @@ private:
     std::shared_ptr<InvokeOrderManager> invokeOrderMgr;
     std::shared_ptr<ClientsManager> clientsMgr;
     std::shared_ptr<MetricsAdaptor> metricsAdaptor;
+    std::shared_ptr<InvokeCollector> invokeCollector;
     std::shared_ptr<Security> security_;
     std::shared_ptr<RuntimeContext> runtimeContext;
     std::shared_ptr<DomainSocketClient> socketClient_;

@@ -745,6 +745,10 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo ResetDoubleCounter(const CDoubleCounterData & data);
         CErrorInfo IncreaseDoubleCounter(const CDoubleCounterData & data);
         pair[CErrorInfo, float] GetValueDoubleCounter(const CDoubleCounterData & data);
+        CErrorInfo SetGauge(const CGaugeData & gauge);
+        CErrorInfo IncreaseGauge(const CGaugeData & gauge);
+        CErrorInfo DecreaseGauge(const CGaugeData & gauge);
+        pair[CErrorInfo, float] GetValueGauge(const CGaugeData & gauge);
         CErrorInfo ReportGauge(const CGaugeData & gauge);
         CErrorInfo SetAlarm(const string & name, const string & description, const CAlarmInfo & alarmInfo);
 
@@ -844,6 +848,5 @@ cdef extern from "src/libruntime/fmclient/fm_client.h" namespace "YR::Libruntime
         QueryNamedInsResponse() except +
         int names_size() const
         string names(int idx) const
-
 
 

@@ -61,10 +61,14 @@ TEST_F(CollectiveTest, InvalidGroupNameTest)
     std::string groupName1 = "test@group1";
     std::string groupName2 = "test/group1";
     std::string groupName3 = "test-group1";
+    std::string groupName4 = "";
     auto res = ins.Function(&CollectiveActor::InitCollectiveGroup).Invoke(groupName1, 0, 1);
     EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(res), 2002, "groupName is invalid. It should match the regex");
 
     res = ins.Function(&CollectiveActor::InitCollectiveGroup).Invoke(groupName2, 0, 1);
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(res), 2002, "groupName is invalid. It should match the regex");
+
+    res = ins.Function(&CollectiveActor::InitCollectiveGroup).Invoke(groupName4, 0, 1);
     EXPECT_THROW_WITH_CODE_AND_MSG(YR::Get(res), 2002, "groupName is invalid. It should match the regex");
 
     YR::Collective::CollectiveGroupSpec spec1{
@@ -81,13 +85,19 @@ TEST_F(CollectiveTest, InvalidGroupNameTest)
     EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec2, {ins.GetInstanceId()}, {0}), 1001,
                                    "groupName is invalid. It should match the regex");
 
+    YR::Collective::CollectiveGroupSpec spec4{
+        .worldSize = 1,
+        .groupName = groupName4,
+    };
+    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec4, {ins.GetInstanceId()}, {0}), 1001,
+                                   "groupName is invalid. It should match the regex");
+
     YR::Collective::CollectiveGroupSpec spec3{
         .worldSize = 1,
         .groupName = groupName3,
     };
+    YR::Collective::DestroyCollectiveGroup(groupName3);
     YR::Collective::CreateCollectiveGroup(spec3, {ins.GetInstanceId()}, {0});
-    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec3, {ins.GetInstanceId()}, {0}), 1001,
-                                   "already existed, please destroy it first");
     YR::Collective::DestroyCollectiveGroup(groupName3);
 }
 

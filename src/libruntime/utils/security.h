@@ -24,6 +24,7 @@
 #include "certs_utils.h"
 #include "datasystem/utils/sensitive_value.h"
 #include "sensitive_data.h"
+#include "src/libruntime/fsclient/protobuf/common.grpc.pb.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/libruntime_config.h"
 #include "src/utility/notification_utility.h"
@@ -66,6 +67,17 @@ public:
      * @return false function system auth disabled
      */
     bool GetFunctionSystemConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey);
+
+    /**
+     * @brief Get in-memory certificate material for metrics exporter TLS.
+     *
+     * @param rootCACert root CA certificates
+     * @param certChain certificate chain
+     * @param privateKey private key
+     * @return true all certificate fields are present
+     * @return false metrics exporter TLS certificate material is not provided
+     */
+    bool GetMetricsTLSConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey);
 
     /**
      * @brief Get the Token
@@ -139,6 +151,9 @@ private:
     void Stop(void);
 
     bool ReadOnce();
+    void UpdateDataSystemConfig(const common::TLSConfig &tlsConf);
+    void UpdateFunctionAndMetricsConfig(const common::TLSConfig &tlsConf);
+    void UpdateTenantCredentials(const common::TLSConfig &tlsConf);
 
     boost::asio::io_context streamReaderIoContext_;
     boost::asio::posix::stream_descriptor confStreamDesc_;
@@ -160,6 +175,12 @@ private:
         SensitiveData privateKeyData;
     };
     FunctionSystemSecurityConfig fsConf_;
+    struct MetricsSecurityConfig {
+        std::string rootCertData = "";
+        std::string certChainData = "";
+        SensitiveData privateKeyData;
+    };
+    MetricsSecurityConfig metricsConf_;
     SensitiveValue token_ = "";
     std::string ak_ = "";
     SensitiveValue sk_ = "";

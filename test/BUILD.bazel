@@ -33,6 +33,19 @@ cc_test(
   linkstatic = True,
 )
 
+cc_test(
+  name = "invoke_collector_test",
+  srcs = [
+    "libruntime/invoke_collector_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//:runtime_lib",
+  ],
+  linkstatic = True,
+)
+
 
 cc_test(
   name = "traceadaptor_test",

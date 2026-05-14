@@ -37,13 +37,21 @@ SANDBOX_ARM64_SDK_STEP="build-sdk-arm64-cp39"
 SANDBOX_MANIFEST_SDK_DEPENDS=""
 SANDBOX_MANIFEST_RUNTIME_DEPENDS=""
 SANDBOX_RUNTIME_IMAGE_STEPS=""
+SANDBOX_TEST_PYPI_DEPENDS=""
+SANDBOX_SDK_STEPS=""
 for SDK_PYTHON_VERSION in ${SDK_PYTHON_VERSIONS}; do
   SDK_SUFFIX="$(sdk_python_suffix "${SDK_PYTHON_VERSION}")"
+  SANDBOX_SDK_STEPS="${SANDBOX_SDK_STEPS:+${SANDBOX_SDK_STEPS} }build-sdk-amd64-${SDK_SUFFIX}"
+  SANDBOX_TEST_PYPI_DEPENDS="${SANDBOX_TEST_PYPI_DEPENDS}"$'\n'"      - \"build-sdk-amd64-${SDK_SUFFIX}\""
   SANDBOX_MANIFEST_SDK_DEPENDS="${SANDBOX_MANIFEST_SDK_DEPENDS}"$'\n'"      - \"build-sdk-amd64-${SDK_SUFFIX}\""
   if is_enabled "${ENABLE_LINUX_ARM}"; then
+    SANDBOX_SDK_STEPS="${SANDBOX_SDK_STEPS} build-sdk-arm64-${SDK_SUFFIX}"
+    SANDBOX_TEST_PYPI_DEPENDS="${SANDBOX_TEST_PYPI_DEPENDS}"$'\n'"      - \"build-sdk-arm64-${SDK_SUFFIX}\""
     SANDBOX_MANIFEST_SDK_DEPENDS="${SANDBOX_MANIFEST_SDK_DEPENDS}"$'\n'"      - \"build-sdk-arm64-${SDK_SUFFIX}\""
   fi
   if is_enabled "${ENABLE_MACOS_SDK}"; then
+    SANDBOX_SDK_STEPS="${SANDBOX_SDK_STEPS} build-sdk-macos-arm64-${SDK_SUFFIX}"
+    SANDBOX_TEST_PYPI_DEPENDS="${SANDBOX_TEST_PYPI_DEPENDS}"$'\n'"      - \"build-sdk-macos-arm64-${SDK_SUFFIX}\""
     SANDBOX_MANIFEST_SDK_DEPENDS="${SANDBOX_MANIFEST_SDK_DEPENDS}"$'\n'"      - \"build-sdk-macos-arm64-${SDK_SUFFIX}\""
   fi
 done
@@ -114,6 +122,49 @@ cat << YAML
     timeout_in_minutes: 60
     artifact_paths:
       - "artifacts/sandbox-smoke/**/*"
+YAML
+}
+
+emit_test_pypi_publish() {
+cat << YAML
+  - label: ":snake: Publish Wheels TestPyPI"
+    key: "publish-wheels-testpypi"
+    depends_on:
+${SANDBOX_TEST_PYPI_DEPENDS}
+    command: |
+      set -e
+      rm -rf artifacts/test-pypi-wheels
+      mkdir -p artifacts/test-pypi-wheels
+      for step_key in ${SANDBOX_SDK_STEPS}; do
+        buildkite-agent artifact download "artifacts/openyuanrong-sdk/openyuanrong_sdk*.whl" artifacts/test-pypi-wheels --step "\$\$step_key" || true
+      done
+      find artifacts/test-pypi-wheels -type f -name 'openyuanrong_sdk*.whl' -print | sort
+      bash .buildkite/upload_test_pypi_wheels.sh artifacts/test-pypi-wheels
+    env:
+      BUILDKITE_AGENT_NAME: "agent-stack-k8s"
+      SANDBOX_SDK_STEPS: "${SANDBOX_SDK_STEPS}"
+    agents:
+      queue: "default"
+      os: "linux"
+      arch: "amd64"
+    plugins:
+      - kubernetes:
+          podSpec:
+            containers:
+              - image: "$BUILDER_IMAGE"
+                resources:
+                  requests: { cpu: "1", memory: "1Gi" }
+                  limits: { cpu: "2", memory: "2Gi" }
+                env:
+                  - name: TEST_PYPI_API_TOKEN
+                    valueFrom:
+                      secretKeyRef:
+                        name: test-pypi-credentials
+                        key: api-token
+                        optional: true
+    timeout_in_minutes: 30
+    artifact_paths:
+      - "artifacts/test-pypi-wheels/**/*"
 YAML
 }
 
@@ -224,7 +275,10 @@ cat << YAML
       export FUNCTIONSYSTEM_JOBS
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
-      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$YR_BUILD_VERSION"
       
@@ -511,7 +565,10 @@ cat << YAML
       export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSION}"
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
-      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$BUILD_VERSION"
@@ -536,33 +593,6 @@ cat << YAML
       cp "output/openyuanrong_sdk-\$\$BUILD_VERSION"-*.whl artifacts/openyuanrong-sdk/
       ls -lh artifacts/openyuanrong-sdk/
       bash .buildkite/upload_buildkite_packages.sh artifacts/openyuanrong-sdk/*.whl
-
-      echo "=== Upload openyuanrong-sdk to TestPyPI ==="
-      if [ -z "\$\${TEST_PYPI_API_TOKEN:-}" ]; then
-        echo "WARNING: TEST_PYPI_API_TOKEN not set, skipping TestPyPI upload"
-      elif printf '%s\n' artifacts/openyuanrong-sdk/openyuanrong_sdk-*.whl | grep -q '+.*\.whl'; then
-        echo "WARNING: openyuanrong-sdk uses local version \$\$BUILD_VERSION; PyPI/TestPyPI reject local versions, skipping TestPyPI upload"
-      else
-        python3 -m pip show twine >/dev/null 2>&1 || \
-          python3 -m pip install -q --retries 2 --timeout 60 \
-            --index-url "\$\${PIP_INDEX_URL:-https://mirrors.huaweicloud.com/repository/pypi/simple}" \
-            --trusted-host "\$\${PIP_TRUSTED_HOST:-mirrors.huaweicloud.com}" \
-            twine
-        PYPI_ATTEMPT=1
-        until TWINE_USERNAME=__token__ TWINE_PASSWORD="\$\$TEST_PYPI_API_TOKEN" \
-          python3 -m twine upload \
-            --repository-url https://test.pypi.org/legacy/ \
-            --skip-existing \
-            artifacts/openyuanrong-sdk/openyuanrong_sdk-*.whl; do
-          if [ "\$\$PYPI_ATTEMPT" -ge 3 ]; then
-            echo "ERROR: TestPyPI upload failed after \$\$PYPI_ATTEMPT attempts"
-            exit 1
-          fi
-          PYPI_ATTEMPT=\$\$((PYPI_ATTEMPT + 1))
-          echo "WARNING: TestPyPI upload failed; retrying attempt \$\$PYPI_ATTEMPT/3"
-          sleep 15
-        done
-      fi
     agents:
       queue: "default"
       os: "linux"
@@ -585,12 +615,6 @@ cat << YAML
                     value: "1"
                   - name: GOPROXY
                     value: "https://goproxy.cn,direct"
-                  - name: TEST_PYPI_API_TOKEN
-                    valueFrom:
-                      secretKeyRef:
-                        name: test-pypi-credentials
-                        key: api-token
-                        optional: true
                   - name: BUILDKITE_PACKAGE_UPLOAD_TOKEN
                     valueFrom:
                       secretKeyRef:
@@ -719,7 +743,10 @@ cat << YAML
       export FUNCTIONSYSTEM_JOBS
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
-      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$YR_BUILD_VERSION"
 
@@ -989,7 +1016,10 @@ cat << YAML
       export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSION}"
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
-      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       echo "Package version: \$\$BUILD_VERSION"
@@ -1220,7 +1250,10 @@ cat << YAML
       git submodule update --init --recursive --force --jobs=4
       COMMIT_FOR_VERSION="\$\${BUILDKITE_COMMIT:-\$\$(git rev-parse HEAD)}"
       SHORT_COMMIT=\$\$(printf '%s' "\$\$COMMIT_FOR_VERSION" | cut -c1-12)
-      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}"
+      TAG_BUILD_VERSION="\$\${YR_RELEASE_TAG:-\$\${BUILDKITE_TAG:-}}"
+      TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#refs/tags/}"
+      case "\$\$TAG_BUILD_VERSION" in v[0-9]*) TAG_BUILD_VERSION="\$\${TAG_BUILD_VERSION#v}" ;; esac
+      YR_BUILD_VERSION="\$\${YR_BUILD_VERSION:-\$\${BUILD_VERSION:-\$\${TAG_BUILD_VERSION:-0.7.0+\$\$SHORT_COMMIT}}}"
       export BUILD_VERSION="\$\$YR_BUILD_VERSION"
       export COMMIT_ID="\$\$COMMIT_FOR_VERSION"
       export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSION}"
@@ -1251,3 +1284,5 @@ YAML
 done
 ;;
 esac
+
+emit_test_pypi_publish

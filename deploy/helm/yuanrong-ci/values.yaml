@@ -182,11 +182,15 @@ gitcodeWebhookRelay:
       BUILDKITE_AGENT_NAME: agent-stack-k8s
       ENABLE_MACOS_SDK: "true"
     triggerPush: false
+    triggerTagPush: true
     triggerMergeRequest: true
   filters:
     pushBranches:
       - feature/sandbox
       - feature/ci-buildkite-k8s
+    tagPatterns:
+      - "[0-9]*"
+      - "v[0-9]*"
     mergeRequestTargetBranches:
       - feature/sandbox
     mergeRequestActions:

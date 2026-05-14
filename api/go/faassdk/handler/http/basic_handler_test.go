@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	urlpkg "net/url"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -445,6 +446,28 @@ func Test_basicHandler_isCustomHealthCheckReady(t *testing.T) {
 				baseURL:     "127.0.0.1",
 				healthRoute: healthRoute,
 			}
+			convey.So(handler.isCustomHealthCheckReady(), convey.ShouldBeTrue)
+		})
+		convey.Convey("custom container remote debug skips custom health check", func() {
+			err := os.Setenv(customContainerRemoteDebugEnvKey, "1")
+			convey.So(err, convey.ShouldBeNil)
+			defer os.Unsetenv(customContainerRemoteDebugEnvKey)
+			handler := &basicHandler{
+				funcSpec: &types.FuncSpec{ExtendedMetaData: types.ExtendedMetaData{
+					CustomHealthCheck: types.CustomHealthCheck{
+						TimeoutSeconds:   1,
+						PeriodSeconds:    1,
+						FailureThreshold: 10,
+					},
+				}},
+				baseURL:     "127.0.0.1",
+				healthRoute: healthRoute,
+			}
+			p := gomonkey.ApplyFunc((*basicHandler).sendRequest, func(_ *basicHandler, request *http.Request,
+				timeout time.Duration) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusInternalServerError}, nil
+			})
+			defer p.Reset()
 			convey.So(handler.isCustomHealthCheckReady(), convey.ShouldBeTrue)
 		})
 	})

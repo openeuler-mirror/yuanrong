@@ -49,16 +49,17 @@ import (
 )
 
 const (
-	listenIP              = "127.0.0.1"
-	mebibyte              = 1024 * 1024
-	maxResponseSize       = 6 * mebibyte
-	defaultTimeout        = 3
-	healthRoute           = "healthz"
-	killSignalAliasUpdate = 64
-	schedulerArgIndex     = 2
-	shutdownCheckInterval = 100 * time.Millisecond
-	checkReadyInterval    = 10 * time.Millisecond
-	argsMinLength         = 2
+	listenIP                         = "127.0.0.1"
+	mebibyte                         = 1024 * 1024
+	maxResponseSize                  = 6 * mebibyte
+	defaultTimeout                   = 3
+	healthRoute                      = "healthz"
+	customContainerRemoteDebugEnvKey = "YR_CUSTOM_CONTAINER_REMOTE_DEBUG"
+	killSignalAliasUpdate            = 64
+	schedulerArgIndex                = 2
+	shutdownCheckInterval            = 100 * time.Millisecond
+	checkReadyInterval               = 10 * time.Millisecond
+	argsMinLength                    = 2
 )
 
 var (
@@ -128,7 +129,7 @@ func (bh *basicHandler) getHTTPClient(timeout time.Duration) *http.Client {
 	})
 	return &http.Client{
 		Transport: transport,
-		Timeout: timeout,
+		Timeout:   timeout,
 	}
 }
 
@@ -239,7 +240,7 @@ func (bh *basicHandler) sendRequest(request *http.Request, timeout time.Duration
 	bh.setHTTPHeader(request.Header)
 	response, err := bh.getHTTPClient(timeout).Do(request)
 	if err != nil {
-		logger.GetLogger().Errorf("failed to send request with timeout %d s, error %s", 
+		logger.GetLogger().Errorf("failed to send request with timeout %d s, error %s",
 			int(timeout.Seconds()), err.Error())
 		return nil, err
 	}
@@ -350,8 +351,8 @@ func (bh *basicHandler) processCallRequest(args []api.Arg, traceID string,
 	totalTime.UserFuncBeginTime = time.Now()
 	result, err, _ := executeWithTimeout(func() (interface{}, error) {
 		request.Header.Set("Content-Type", "application/json")
-		return bh.sendRequest(request, time.Duration(timeoutSeconds) * time.Second)
-	}, time.Duration(timeoutSeconds) * time.Second, bh.monitor.ErrChan)
+		return bh.sendRequest(request, time.Duration(timeoutSeconds)*time.Second)
+	}, time.Duration(timeoutSeconds)*time.Second, bh.monitor.ErrChan)
 	totalTime.UserFuncTotalTime = time.Since(totalTime.UserFuncBeginTime)
 	if bh.logger != nil {
 		bh.logger.syncTo(time.Now())
@@ -657,6 +658,10 @@ func (bh *basicHandler) HealthCheckHandler() (api.HealthType, error) {
 }
 
 func (bh *basicHandler) isCustomHealthCheckReady() bool {
+	if isCustomContainerRemoteDebugEnabled() {
+		logger.GetLogger().Infof("custom container remote debug is enabled, skip custom health check readiness")
+		return true
+	}
 	check := bh.funcSpec.ExtendedMetaData.CustomHealthCheck
 	if check.TimeoutSeconds == 0 || check.PeriodSeconds == 0 || check.FailureThreshold == 0 {
 		logger.GetLogger().Infof("custom health check is disabled, no need check")
@@ -679,4 +684,9 @@ func (bh *basicHandler) isCustomHealthCheckReady() bool {
 		return true
 	}
 	return false
+}
+
+func isCustomContainerRemoteDebugEnabled() bool {
+	_, ok := os.LookupEnv(customContainerRemoteDebugEnvKey)
+	return ok
 }

@@ -246,6 +246,10 @@ func (f *fakeSDKClient) DeleteGetEvent(objectID string) {
 
 }
 
+func (f *fakeSDKClient) DeleteGetEventCallback(objectID string) {
+
+}
+
 func (f *fakeSDKClient) GetFormatLogger() api.FormatLogger {
 	//TODO implement me
 	panic("implement me")
@@ -258,6 +262,10 @@ func (f *fakeSDKClient) CreateClient(config api.ConnectArguments) (api.KvClient,
 func (f *fakeSDKClient) ReleaseGRfs(remoteClientID string) error {
 	// TODO implement me
 	panic("implement me")
+}
+
+func (f *fakeSDKClient) ReleaseGRefs(remoteClientID string) error {
+	return nil
 }
 
 func (f *fakeSDKClient) SaveState(state []byte) (string, error) {
@@ -1638,6 +1646,18 @@ func TestCustomContainerHandler_checkHealth(t *testing.T) {
 			crossClusterInvoker: &crossclusterinvoke.Invoker{},
 		}
 		convey.Convey("check runtime health failed", func() {
+			ch.funcSpec.ExtendedMetaData.CustomHealthCheck.TimeoutSeconds = 1
+			ch.funcSpec.ExtendedMetaData.CustomHealthCheck.PeriodSeconds = 1
+			ch.funcSpec.ExtendedMetaData.CustomHealthCheck.FailureThreshold = 1
+			p := gomonkey.ApplyFunc((*CustomContainerHandler).checkRuntime, func(_ *CustomContainerHandler,
+				request *http.Request, check types.CustomHealthCheck) error {
+				return fmt.Errorf("error")
+			})
+			defer p.Reset()
+			ch.checkHealth()
+		})
+		convey.Convey("custom container remote debug skips health check", func() {
+			t.Setenv(customContainerRemoteDebugEnvKey, "1")
 			ch.funcSpec.ExtendedMetaData.CustomHealthCheck.TimeoutSeconds = 1
 			ch.funcSpec.ExtendedMetaData.CustomHealthCheck.PeriodSeconds = 1
 			ch.funcSpec.ExtendedMetaData.CustomHealthCheck.FailureThreshold = 1

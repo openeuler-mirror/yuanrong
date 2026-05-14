@@ -264,6 +264,10 @@ func (ch *CustomContainerHandler) setAlarmInfo() error {
 }
 
 func (ch *CustomContainerHandler) checkHealth() {
+	if isCustomContainerRemoteDebugEnabled() {
+		logger.GetLogger().Info("custom container remote debug is enabled, skip custom health check")
+		return
+	}
 	if ch.funcSpec.ExtendedMetaData.CustomHealthCheck.TimeoutSeconds == 0 ||
 		ch.funcSpec.ExtendedMetaData.CustomHealthCheck.PeriodSeconds == 0 ||
 		ch.funcSpec.ExtendedMetaData.CustomHealthCheck.FailureThreshold == 0 {

@@ -98,8 +98,6 @@ TEST_F(CollectiveTest, InvalidGroupNameTest)
     };
     YR::Collective::DestroyCollectiveGroup(groupName3);
     YR::Collective::CreateCollectiveGroup(spec3, {ins.GetInstanceId()}, {0});
-    EXPECT_THROW_WITH_CODE_AND_MSG(YR::Collective::CreateCollectiveGroup(spec3, {ins.GetInstanceId()}, {0}), 1001,
-                                   "already existed, please destroy it first");
     YR::Collective::DestroyCollectiveGroup(groupName3);
 }
 

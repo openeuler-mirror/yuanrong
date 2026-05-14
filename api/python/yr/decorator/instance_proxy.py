@@ -250,12 +250,6 @@ class InstanceCreator:
                                  isAsync=self.__is_async__,
                                  code=self._code if self._code is not None else b"",)
         runtime = global_runtime.get_runtime()
-        if invoke_options.name:
-            try:
-                runtime.get_instance_by_name(invoke_options.name, invoke_options.namespace, timeout=30)
-            except Exception as _:
-                pass
-
         instance_id = runtime.create_instance(func_meta=func_meta,
                                               args=args_list,
                                               opt=invoke_options,

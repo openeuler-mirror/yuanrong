@@ -51,8 +51,9 @@ def create_ssl_context(
     Returns:
         ssl.SSLContext or None if TLS is not configured
     """
-    # If no certificates are provided, return None (no TLS)
-    if not cert_file and not key_file and not ca_file:
+    # If no certificates are provided and verification is enabled, let
+    # websockets build the default TLS context for wss:// URLs.
+    if not cert_file and not key_file and not ca_file and verify_server:
         return None
     
     try:

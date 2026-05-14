@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import asyncio
+import contextlib
 import time
 import os
 
@@ -488,38 +489,50 @@ def test_invoke_inconsistent_return_values(init_yr):
 
 @pytest.mark.smoke
 def test_kv_write_and_get_with_new_arguments_success(init_yr):
+    key = "kv-py-id-testNewArguments"
     # Test ExistenceOpt
-    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE,
-                yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
-    assert yr.kv_read("key1") == b"value1"
-    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE,
-                yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
-    with pytest.raises(RuntimeError):
-        yr.kv_write("key1", b"value1", yr.ExistenceOpt.NX,
+    try:
+        yr.kv_write(key, b"value1", yr.ExistenceOpt.NONE,
                     yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
-    yr.kv_del("key1")
+        assert yr.kv_read(key) == b"value1"
+        yr.kv_write(key, b"value1", yr.ExistenceOpt.NONE,
+                    yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
+        try:
+            yr.kv_write(key, b"value1", yr.ExistenceOpt.NX,
+                        yr.WriteMode.NONE_L2_CACHE_EVICT, 0)
+        except RuntimeError:
+            pass
+        assert yr.kv_read(key) == b"value1"
+    finally:
+        with contextlib.suppress(RuntimeError):
+            yr.kv_del(key)
 
     # Test ttl_second
-    yr.kv_write("key1", b"value1", yr.ExistenceOpt.NONE,
+    ttl_key = "kv-py-id-testNewArgumentsTtl"
+    yr.kv_write(ttl_key, b"value1", yr.ExistenceOpt.NONE,
                 yr.WriteMode.NONE_L2_CACHE_EVICT, 1)
-    assert yr.kv_read("key1") == b"value1"
+    assert yr.kv_read(ttl_key) == b"value1"
     time.sleep(1.5)
     with pytest.raises(RuntimeError):
-        yr.kv_read("key1", 0)
+        yr.kv_read(ttl_key, 0)
 
 
 @pytest.mark.smoke
 def test_kv_set_and_get(init_yr):
-    yr.kv_set("key1", b"value1")
-    assert yr.kv_get("key1") == b"value1"
-    get_param = yr.GetParam()
-    get_param.offset = 0
-    get_param.size = 0
-    params = yr.GetParams()
-    params.get_params = [get_param]
-    res = yr.kv_get_with_param(["key1"], params)
-    assert res[0] == b"value1"
-    yr.kv_del("key1")
+    key = "kv-py-id-testKvSetAndGet"
+    try:
+        yr.kv_set(key, b"value1")
+        assert yr.kv_get(key) == b"value1"
+        get_param = yr.GetParam()
+        get_param.offset = 0
+        get_param.size = 0
+        params = yr.GetParams()
+        params.get_params = [get_param]
+        res = yr.kv_get_with_param([key], params)
+        assert res[0] == b"value1"
+    finally:
+        with contextlib.suppress(RuntimeError):
+            yr.kv_del(key)
 
 
 @pytest.mark.smoke

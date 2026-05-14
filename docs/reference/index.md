@@ -5,11 +5,14 @@
   :hidden:
 
   development-tools.md
-  glossary.md
+  blog.md
   releases.md
+  glossary.md
 ```
 
-本章节包含两个部分：
+本章节包含四个部分：
 
-- [词汇表](./glossary.md)：介绍 openYuanrong 常用术语。
-- [下载 openYuanrong](./releases.md)：请下载您需要的版本包。
+- [开发工具](./development-tools.md)：openYuanrong 开发工具。
+- [博客](./blog.md)：openYuanrong 相关的技术文章。
+- [下载 openYuanrong](./releases.md)：openYuanrong 安装包下载。
+- [词汇表](./glossary.md)：openYuanrong 常用术语。

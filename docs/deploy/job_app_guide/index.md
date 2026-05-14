@@ -21,23 +21,9 @@
 
 openYuanrong 函数可能运行在集群中的任意节点，因此这些依赖需要在每个 openYuanrong 节点存在并保持一致。在生产环境中，建议预先安装相关的依赖。
 
-## 使用 REST API 提交作业
-
-部署集群后（在 VM 或 Kubernetes 上），您就可以运行作业应用程序了！
-
-![](../../images/running_job_ways.png)
-
-提交到作业 API 的内容包括：
-
-- 一个入口命令，例如 python my_script.py
-
-- 一个运行时环境，用于指定应用程序的文件和包依赖项。
-
-作业可以由位于集群外部的远程客户端提交。
-
-提交作业后，它将运行一次直到完成或失败，而与原始提交者的连接无关。重试或使用不同参数进行的不同运行应由提交者处理。作业与集群的生命周期绑定，若集群崩溃，则该集群上所有正在运行的作业都将被终止。
-
 ## 本地运行作业类应用
+
+可以在 openYuanrong 集群节点上直接运行作业类应用中的 Driver 程序，方便实时查看应用输出。
 
 ### Python 应用
 
@@ -174,3 +160,11 @@ pom.xml 文件参考：
 ```
 
 构建成功将在 `yr-java-demo/target` 目录下生成 jar 包 `main-1.0.0.jar`。以使用 `/opt/openyuanrong/function/demo` 作为代码路径为例，需要拷贝 `main-1.0.0.jar` 文件到集群所有节点该路径下。在 `target` 目录下执行命令 `java -Dyr.codePath=/opt/openyuanrong/function/demo -cp ./main-1.0.0.jar com.demo.Main` 即可运行应用。
+
+## 使用 REST API 提交作业
+
+您也可以使用 REST API 向 openYuanrong 集群提交一个作业，和本地运行的区别是，Driver 程序也会以 openYuanrong 函数的方式运行在集群中。
+
+提交作业后，它将异步运行，直到完成或失败。需要重试或者使用不同参数运行作业时，需再次提交作业。作业与集群的生命周期绑定，集群崩溃时，所有正在运行的作业都将被终止。
+
+参考[作业管理 API](./api/index.md) 了解如何使用。

@@ -17,7 +17,7 @@ yr start --master
 ```text
 To join an existing cluster, execute the following commands in your shell on worker nodes:
 
-yr start -s 'values.etcd.address=[{ip="x.x.x.x",peer_port="xxxxx",port="xxxxx"}]' -s 'values.ds_master.ip="x.x.x.x"' -s 'values.ds_master.port="xxxxx"' -s 'values.function_master.ip="x.x.x.x"' -s 'values.function_master.global_scheduler_port="xxxxx"'
+yr start -s 'values.etcd.address=[{ip="x.x.x.x",peer_port="xxxx",port="xxxx"}]' -s 'values.ds_master.ip="x.x.x.x"' -s 'values.ds_master.port="xxxx"' -s 'values.function_master.ip="x.x.x.x"' -s 'values.function_master.global_scheduler_port="xxxx"'
 
 OR
 
@@ -28,7 +28,7 @@ EOF
 
 OR
 
-yr start --master_address http://x.x.x.x:xxxxx
+yr start --master_address http://x.x.x.x:xxxx
 ```
 
 此时，openYuanrong 服务已经可以使用。需要多节点集群部署时，在其余主机上直接执行主节点打印的推荐命令，部署[从节点](glossary-agent-node)。

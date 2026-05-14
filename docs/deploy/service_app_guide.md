@@ -54,7 +54,7 @@ ldd ./handler | awk '/=>/ {print $3}' | grep -v '^$' | tr '\n' '\0' | xargs zip 
 
 函数支持通过 REST API 同步调用，流式（Server-Send Events）或非流式应答。流式应答数据将被分块，逐步生成并返回。非流式应答一次性返回全部结果。
 
-使用[调用函数服务] API 执行函数调用，API 涉及的主要配置项如下：
+使用[调用服务](../multi_language_function_programming_interface/api/function_service/function_invocation.md) API 执行函数调用，API 涉及的主要配置项如下：
 
 - Header 参数 `Accept`：在使用流式应答时设置。
 - Header 参数 `X-Pool-Label`：在 K8s 集群上部署时，函数实例亲和的资源池标签。

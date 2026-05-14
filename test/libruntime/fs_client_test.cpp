@@ -480,12 +480,19 @@ TEST_F(FSClientGrpcTest, GrpcClientTest_CallRequestCall)
             auto err = called.WaitForNotification();
             EXPECT_TRUE(err.OK());
         }
-        auto ackHandler = [](const CallResultAck &req) -> void {};
+        NotificationUtility acked;
+        auto ackHandler = [&acked](const CallResultAck &req) -> void { acked.Notify(); };
         CallResult res;
         res.set_requestid(reqId);
         auto messageSpec = std::make_shared<CallResultMessageSpec>();
         messageSpec->Mutable() = std::move(res);
         fsClient_->ReturnCallResult(messageSpec, true, ackHandler);
+        CallResultAck ack;
+        grpcServer->SendAfterRead(*GenStreamMsg(YR::utility::IDGenerator::GenMessageId(reqId, 0), ack));
+        {
+            auto err = acked.WaitForNotification();
+            EXPECT_TRUE(err.OK());
+        }
     }
     {
         auto reqId = YR::utility::IDGenerator::GenRequestId();

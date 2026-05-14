@@ -54,7 +54,7 @@ const std::string DEFAULT_GROUP_NAME = "default";
 struct CollectiveGroupSpec {
     int worldSize;  ///< Total number of processes in the group (world size).
     std::string groupName =
-        "default";  ///< Name of the group, default is "default". Must match regex: ^[a-zA-Z0-9\-_!#%\^\*\(\)\+\=\:;]*$
+        "default";  ///< Name of the group, default is "default". Must match regex: ^[a-zA-Z0-9_!#%^*()+=:;-]+$
     Backend backend = Backend::GLOO;           ///< Backend type to use, default is GLOO.
     int timeout = DEFAULT_COLLECTIVE_TIMEOUT;  ///< Operation timeout in milliseconds, default is 60000 ms (60 seconds).
 };

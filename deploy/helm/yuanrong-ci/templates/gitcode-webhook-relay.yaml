@@ -59,10 +59,14 @@ spec:
               value: {{ .Values.gitcodeWebhookRelay.buildkite.env | toJson | quote }}
             - name: RELAY_TRIGGER_PUSH
               value: {{ .Values.gitcodeWebhookRelay.buildkite.triggerPush | quote }}
+            - name: RELAY_TRIGGER_TAG_PUSH
+              value: {{ .Values.gitcodeWebhookRelay.buildkite.triggerTagPush | quote }}
             - name: RELAY_TRIGGER_MERGE_REQUEST
               value: {{ .Values.gitcodeWebhookRelay.buildkite.triggerMergeRequest | quote }}
             - name: RELAY_ALLOWED_PUSH_BRANCHES
               value: {{ join "," .Values.gitcodeWebhookRelay.filters.pushBranches | quote }}
+            - name: RELAY_ALLOWED_TAG_PATTERNS
+              value: {{ join "," .Values.gitcodeWebhookRelay.filters.tagPatterns | quote }}
             - name: RELAY_ALLOWED_MR_TARGET_BRANCHES
               value: {{ join "," .Values.gitcodeWebhookRelay.filters.mergeRequestTargetBranches | quote }}
             - name: RELAY_ALLOWED_MR_ACTIONS

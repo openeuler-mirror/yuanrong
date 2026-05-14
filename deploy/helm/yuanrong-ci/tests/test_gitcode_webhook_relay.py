@@ -36,6 +36,9 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         relay.SETTINGS.update(
             {
                 "trigger_mr": True,
+                "trigger_push": False,
+                "trigger_tag_push": True,
+                "tag_patterns": {"[0-9]*", "v[0-9]*"},
                 "mr_actions": {"merge"},
                 "mr_target_branches": {"feature/sandbox"},
                 "skip_wip": True,
@@ -104,6 +107,89 @@ class GitCodeWebhookRelayTest(unittest.TestCase):
         self.assertEqual(second_code, 202)
         self.assertEqual(second_result["reason"], "duplicate merge request build trigger")
         self.assertEqual(len(self.triggered), 1)
+
+    def test_tag_push_triggers_release_build_version_and_testpypi(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/0.7.50",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "uuid": "tag-delivery-1",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "triggered")
+        self.assertEqual(result["event"], "tag_push")
+        self.assertEqual(result["tag"], "0.7.50")
+        self.assertEqual(result["version"], "0.7.50")
+        self.assertEqual(self.triggered[0]["branch"], "0.7.50")
+        self.assertEqual(self.triggered[0]["commit"], "abcdef1234567890")
+        extra_env = self.triggered[0]["extra_env"]
+        self.assertEqual(extra_env["BUILD_VERSION"], "0.7.50")
+        self.assertEqual(extra_env["YR_BUILD_VERSION"], "0.7.50")
+        self.assertEqual(extra_env["BUILDKITE_TAG"], "0.7.50")
+        self.assertEqual(extra_env["PUBLISH_TEST_PYPI"], "1")
+        self.assertEqual(extra_env["BUILDKITE_PACKAGE_UPLOAD_ENABLED"], "0")
+
+    def test_v_prefixed_tag_push_strips_v_for_build_version(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/v0.7.50",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["version"], "0.7.50")
+        self.assertEqual(self.triggered[0]["extra_env"]["BUILD_VERSION"], "0.7.50")
+
+    def test_tag_push_event_kind_routes_to_tag_handler(self):
+        code, result = relay.handle_event(
+            {
+                "object_kind": "tag_push",
+                "ref": "refs/tags/0.7.50",
+                "after": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["event"], "tag_push")
+        self.assertEqual(self.triggered[0]["extra_env"]["BUILD_VERSION"], "0.7.50")
+
+    def test_tag_push_is_deduplicated(self):
+        payload = {
+            "ref": "refs/tags/0.7.50",
+            "after": "abcdef1234567890",
+            "checkout_sha": "abcdef1234567890",
+            "project": {"path_with_namespace": "openeuler/yuanrong"},
+        }
+
+        first_code, _ = relay.handle_push(dict(payload))
+        second_code, second_result = relay.handle_push(dict(payload, uuid="tag-delivery-2"))
+
+        self.assertEqual(first_code, 200)
+        self.assertEqual(second_code, 202)
+        self.assertEqual(second_result["reason"], "duplicate tag build trigger")
+        self.assertEqual(len(self.triggered), 1)
+
+    def test_tag_delete_is_skipped(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/0.7.50",
+                "after": "0" * 40,
+                "checkout_sha": "0" * 40,
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "tag deletion or missing commit")
+        self.assertEqual(self.triggered, [])
 
     def test_buildkite_repository_overrides_static_buildkite_repo_env(self):
         relay.SETTINGS["buildkite_env"] = {"BUILDKITE_REPO": "https://gitcode.com/yuchaow/yuanrong.git"}

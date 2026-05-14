@@ -119,6 +119,6 @@ The image must be mirrored to SWR before deploying (Docker Hub is blocked):
 GitCode WebHook settings:
   URL: {{- if .Values.gitcodeWebhookRelay.ingress.enabled }} https://{{ .Values.gitcodeWebhookRelay.ingress.host }}{{ .Values.gitcodeWebhookRelay.path }}{{- else }} expose the Service first, then use {{ .Values.gitcodeWebhookRelay.path }}{{- end }}
   Content-Type: application/json
-  Events: Commit Event, Pull Request Event
+  Events: Commit Event, Tag Push Event, Pull Request Event
   Secret: set the GitCode WebHook password to the same value as webhook-token and webhook-signature-secret in secret {{ .Values.gitcodeWebhookRelay.secretName }}
 {{- end }}

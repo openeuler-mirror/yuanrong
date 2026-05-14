@@ -7,6 +7,7 @@ import os
 import sys
 import threading
 import time
+from fnmatch import fnmatchcase
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import error, request
 
@@ -47,8 +48,10 @@ SETTINGS = {
     "message_prefix": os.getenv("BUILDKITE_MESSAGE_PREFIX", "Triggered by GitCode"),
     "buildkite_env": json.loads(os.getenv("BUILDKITE_ENV_JSON", "{}")),
     "trigger_push": env_bool("RELAY_TRIGGER_PUSH", True),
+    "trigger_tag_push": env_bool("RELAY_TRIGGER_TAG_PUSH", True),
     "trigger_mr": env_bool("RELAY_TRIGGER_MERGE_REQUEST", True),
     "push_branches": env_csv("RELAY_ALLOWED_PUSH_BRANCHES"),
+    "tag_patterns": env_csv("RELAY_ALLOWED_TAG_PATTERNS"),
     "mr_target_branches": env_csv("RELAY_ALLOWED_MR_TARGET_BRANCHES"),
     "mr_actions": env_csv("RELAY_ALLOWED_MR_ACTIONS"),
     "skip_wip": env_bool("RELAY_SKIP_WORK_IN_PROGRESS", True),
@@ -112,9 +115,22 @@ def respond(handler, code, payload):
     handler.wfile.write(data)
 
 
-def parse_push_branch(ref):
-    prefix = "refs/heads/"
-    return ref[len(prefix):] if ref.startswith(prefix) else ref
+def parse_push_ref(ref):
+    if ref.startswith("refs/heads/"):
+        return "branch", ref[len("refs/heads/"):]
+    if ref.startswith("refs/tags/"):
+        return "tag", ref[len("refs/tags/"):]
+    return "unknown", ref
+
+
+def normalize_tag_version(tag):
+    if tag.startswith("v") and len(tag) > 1 and tag[1].isdigit():
+        return tag[1:]
+    return tag
+
+
+def is_zero_commit(commit):
+    return bool(commit) and set(commit) == {"0"}
 
 
 def reserve_build_key(build_key):
@@ -177,16 +193,22 @@ def skip_response(reason, details=None):
 
 
 def handle_push(payload):
+    ref = payload.get("ref", "")
+    ref_kind, ref_name = parse_push_ref(ref)
+    if ref_kind == "tag":
+        return handle_tag_push(payload, ref_name)
+    if ref_kind != "branch":
+        return skip_response("unsupported push ref", {"ref": ref})
+
     if not SETTINGS["trigger_push"]:
         return skip_response("push trigger disabled")
 
-    ref = payload.get("ref", "")
-    branch = parse_push_branch(ref)
+    branch = ref_name
     if SETTINGS["push_branches"] and branch not in SETTINGS["push_branches"]:
         return skip_response("push branch filtered", {"branch": branch})
 
     commit = payload.get("checkout_sha") or payload.get("after")
-    if not commit:
+    if not commit or is_zero_commit(commit):
         return 400, {"status": "error", "reason": "missing push commit sha"}
 
     project = payload.get("project", {}).get("path_with_namespace", "")
@@ -207,6 +229,57 @@ def handle_push(payload):
         "status": "triggered",
         "event": "push",
         "branch": branch,
+        "commit": commit,
+        "build_url": build.get("web_url"),
+        "build_number": build.get("number"),
+    }
+
+
+def handle_tag_push(payload, tag):
+    if not SETTINGS["trigger_tag_push"]:
+        return skip_response("tag push trigger disabled")
+    if SETTINGS["tag_patterns"] and not any(fnmatchcase(tag, pattern) for pattern in SETTINGS["tag_patterns"]):
+        return skip_response("tag filtered", {"tag": tag})
+
+    commit = payload.get("checkout_sha") or payload.get("after")
+    if not commit or is_zero_commit(commit):
+        return skip_response("tag deletion or missing commit", {"tag": tag})
+
+    project = payload.get("project", {}).get("path_with_namespace", "")
+    build_version = normalize_tag_version(tag)
+    build_key = f"tag_push:{tag}:{commit}"
+    if not reserve_build_key(build_key):
+        return skip_response("duplicate tag build trigger", {"tag": tag, "commit": commit})
+
+    message = f"{SETTINGS['message_prefix']}: tag {project} {tag} {commit[:12]}"
+    try:
+        build = trigger_buildkite(
+            branch=tag,
+            commit=commit,
+            message=message,
+            extra_env={
+                "GITCODE_EVENT_KIND": "tag_push",
+                "GITCODE_PROJECT_PATH": project,
+                "GITCODE_REF": payload.get("ref", ""),
+                "GITCODE_TAG": tag,
+                "BUILDKITE_TAG": tag,
+                "YR_RELEASE_TAG": tag,
+                "BUILD_VERSION": build_version,
+                "YR_BUILD_VERSION": build_version,
+                "PUBLISH_TEST_PYPI": "1",
+                "BUILDKITE_PACKAGE_UPLOAD_ENABLED": "0",
+                "GITCODE_EVENT_UUID": payload.get("uuid", ""),
+            },
+        )
+    except Exception:
+        release_build_key(build_key)
+        raise
+
+    return 200, {
+        "status": "triggered",
+        "event": "tag_push",
+        "tag": tag,
+        "version": build_version,
         "commit": commit,
         "build_url": build.get("web_url"),
         "build_number": build.get("number"),
@@ -303,7 +376,7 @@ def normalize_merge_request_action(action, attrs, payload):
 
 def handle_event(payload):
     kind = payload.get("object_kind") or payload.get("event_type") or payload.get("event_name")
-    if kind == "push":
+    if kind in {"push", "tag_push"}:
         return handle_push(payload)
     if kind == "merge_request":
         return handle_merge_request(payload)

@@ -17,7 +17,7 @@
 package monitor
 
 import (
-	"bufio"
+	"bytes"
 	"reflect"
 	"sync"
 	"testing"
@@ -38,25 +38,23 @@ func TestInitMemMonitor(t *testing.T) {
 					return uint64(100), nil
 				}),
 				ApplyFunc(NewCGroupMemoryParser, func() (*Parser, error) {
-					return &Parser{
-						f:      nil,
-						reader: bufio.NewReader(nil),
-						parser: cgroupMemoryParserFunc,
-					}, nil
+					return NewReadSeekerParser(bytes.NewReader([]byte("rss 100\n")), cgroupMemoryParserFunc), nil
 				}),
 				ApplyMethod(reflect.TypeOf(new(Parser)), "Read", func(_ *Parser) (interface{}, error) {
 					return uint64(100), nil
 				}),
-				ApplyMethod(reflect.TypeOf(new(Parser)), "Close", func() error {
+				ApplyMethod(reflect.TypeOf(new(Parser)), "Close", func(_ *Parser) error {
 					return nil
 				}),
 			}
+			stopCh := make(chan struct{})
 			defer func() {
+				close(stopCh)
+				time.Sleep(time.Duration(2*config.MemDetectIntervalMs) * time.Millisecond)
 				for idx := range patches {
 					patches[idx].Reset()
 				}
 			}()
-			stopCh := make(chan struct{})
 			err := InitMemMonitor(stopCh)
 			assert.Nil(t, err)
 			assert.Equal(t, uint64(0x0), memory.monitor.used)

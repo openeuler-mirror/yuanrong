@@ -8,6 +8,11 @@ ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK:-true}"
 ENABLE_LINUX_ARM="${ENABLE_LINUX_ARM:-true}"
 ENABLE_SANDBOX_PACKAGE="${ENABLE_SANDBOX_PACKAGE:-true}"
 ENABLE_SANDBOX_K8S_TEST="${ENABLE_SANDBOX_K8S_TEST:-${ENABLE_SANDBOX_BEIJING4_DEPLOY:-true}}"
+ENABLE_RUST_FUNCTIONSYSTEM_ST="${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}"
+RUST_BUILDER_IMAGE="${RUST_BUILDER_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/compile-ubuntu2004-rust:v20260507_x86_64}"
+FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanrong-functionsystem.git}"
+FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
+BUILD_ALL_IMAGE="${BUILDER_IMAGE}"
 ENABLE_SANDBOX_MANIFEST="${ENABLE_SANDBOX_MANIFEST:-${ENABLE_LINUX_ARM}}"
 SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12}"
 SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"
@@ -18,6 +23,24 @@ is_enabled() {
     *) return 1 ;;
   esac
 }
+
+validate_ci_value() {
+  local name="$1"
+  local value="$2"
+  local pattern="$3"
+
+  if [[ ! "$value" =~ $pattern ]]; then
+    echo "Invalid $name for dynamic pipeline: $value" >&2
+    exit 1
+  fi
+}
+
+if is_enabled "${ENABLE_RUST_FUNCTIONSYSTEM_ST}"; then
+  validate_ci_value "FUNCTIONSYSTEM_REPO" "$FUNCTIONSYSTEM_REPO" '^[A-Za-z0-9._:/@+~-]+$'
+  validate_ci_value "FUNCTIONSYSTEM_BRANCH" "$FUNCTIONSYSTEM_BRANCH" '^[A-Za-z0-9._/-]+$'
+  validate_ci_value "RUST_BUILDER_IMAGE" "$RUST_BUILDER_IMAGE" '^[A-Za-z0-9._:/@-]+$'
+  BUILD_ALL_IMAGE="${RUST_BUILDER_IMAGE}"
+fi
 
 sdk_python_suffix() {
   case "$1" in
@@ -331,6 +354,14 @@ cat << YAML
       echo "=== [2/3] Submodule Update ==="
       git submodule sync --recursive
       git submodule update --init --recursive --force --jobs=4
+
+      case "${ENABLE_RUST_FUNCTIONSYSTEM_ST:-false}" in
+        1|true|TRUE|yes|YES|on|ON)
+          echo "=== [2.5/6] Replace functionsystem source with Rust branch ==="
+          rm -rf functionsystem
+          git clone --depth 1 --branch "${FUNCTIONSYSTEM_BRANCH}" "${FUNCTIONSYSTEM_REPO}" functionsystem
+          ;;
+      esac
       
       echo "=== [3/6] Starting Build (JOBS=\$\$JOBS, FUNCTIONSYSTEM_JOBS=\$\$FUNCTIONSYSTEM_JOBS) ==="
       # Snapshot bazel-remote before build (to compute delta later)
@@ -509,7 +540,7 @@ cat << YAML
       - kubernetes:
           podSpec:
             containers:
-              - image: "$BUILDER_IMAGE"
+              - image: "$BUILD_ALL_IMAGE"
                 volumeMounts:
                   - name: build-cache
                     mountPath: /mnt/paas

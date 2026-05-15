@@ -86,7 +86,7 @@ jobs stuck in `Pending`/`Init` before the build command starts.
 | `swr-pull-secret` | `default` | `.dockerconfigjson` | Build Image/Test K8S image pulls and Docker config fallback |
 | `swr-pull-secret` | `build-tools` | `.dockerconfigjson` | Webhook relay, cache-aging, and chart-managed pod image pulls |
 | `sandbox-target-kubeconfig` | `default` | `kubeconfig` | Test K8S mounted kubeconfig |
-| `test-pypi-credentials` | `default` | `api-token` | Build X86 upload of `openyuanrong_sdk*.whl` to TestPyPI |
+| `test-pypi-credentials` | `default` | `api-token` | Tag-release upload of `openyuanrong_sdk*.whl` to TestPyPI |
 | `gitcode-webhook-relay-auth` | `build-tools` | `buildkite-api-token`, `webhook-token`, `webhook-signature-secret` | GitCode webhook relay |
 
 Before enabling the pipeline on a fresh cluster, fill and apply:
@@ -111,9 +111,9 @@ manifest, pass `--set secrets.targetKubeconfig.create=true` and provide the
 kubeconfig content through a private values file or equivalent secret manager
 workflow.
 
-TestPyPI publishing is limited to `openyuanrong_sdk*.whl` from the X86 build
-release artifacts. If `test-pypi-credentials` is missing, the pipeline skips
-this upload without failing the build.
+TestPyPI publishing is limited to `openyuanrong_sdk*.whl` from SDK build steps,
+and is enabled for tag-triggered release builds. When publishing is enabled,
+`test-pypi-credentials` must contain a valid TestPyPI API token.
 
 ## GitCode webhook relay
 
@@ -138,7 +138,7 @@ GitCode WebHook settings:
 |-----|-----|
 | URL | `https://<ingress-host>/webhook/gitcode` |
 | Content-Type | `application/json` |
-| Events | `Commit Event`, `Pull Request Event` |
+| Events | `Commit Event`, `Tag Push Event`, `Pull Request Event` |
 | Secret | Set GitCode WebHook password to the same value as `webhook-token` and `webhook-signature-secret` |
 
 The relay validates the GitCode token or signature, filters branches/actions, and then
@@ -148,9 +148,13 @@ accepts a valid `X-GitCode-Signature-256` first and falls back to
 `X-GitCode-Token` or GitLab-compatible token headers, which keeps the install
 compatible with observed GitCode delivery headers.
 
-By default it is configured for **merge-only** triggering:
+By default it is configured for merge-triggered CI and tag-triggered release builds:
 
 - `push` events do not start builds
+- tag push events matching `gitcodeWebhookRelay.filters.tagPatterns` start
+  release builds; tag `0.7.50` builds version `0.7.50`, disables Buildkite
+  Package Registry uploads, and enables TestPyPI upload for
+  `openyuanrong_sdk*.whl`
 - only merge-request action `merge` is accepted; GitCode merged PR payloads
   that report `action=update` with merged state are normalized to `merge`
 - merge events build the **target branch commit after merge**

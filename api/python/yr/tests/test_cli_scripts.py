@@ -199,6 +199,15 @@ class TestCliScripts(unittest.TestCase):
         self.assertFalse(ret)
         self.assertEqual(resp["error"], "invalid instances response: missing instances")
 
+    def test_function_name_preserves_single_segment_system_function(self):
+        scripts = self.load_cli_scripts_with_stubbed_deps()
+
+        function_name = scripts.FunctionName("0-system-faasExecutorPython3.10", "$latest")
+
+        self.assertEqual(function_name.full_name_no_version(), "0-system-faasExecutorPython3.10")
+        self.assertEqual(function_name.full_name(), "0-system-faasExecutorPython3.10:$latest")
+        self.assertEqual(str(function_name), "0-system-faasExecutorPython3.10:$latest")
+
     def test_list_instances_passes_pagination_params(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__user", "tenant-a")

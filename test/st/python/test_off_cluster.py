@@ -19,10 +19,6 @@
 These tests exercise the core SDK APIs against a remote YuanRong cluster
 from outside the cluster using TLS + in_cluster=False (off-cluster / 云外).
 
-Off-cluster known limitations (marked as skip):
-  - Worker cannot read-back ObjectRef data stored on the driver's local DS
-  - Instance terminate() may timeout (driver cannot control remote lifecycle)
-
 Run:
     export YR_SERVER_ADDRESS=<ip:port>
     export YR_JWT_TOKEN=<jwt_token>   # optional
@@ -34,7 +30,6 @@ Run:
 
 import os
 import json
-import shutil
 import subprocess
 import sys
 import time
@@ -60,14 +55,15 @@ def _get_enable_tls():
     return os.getenv("YR_ENABLE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _get_yrcli_path():
-    sibling = os.path.join(os.path.dirname(sys.executable), "yrcli")
-    if os.path.exists(sibling):
-        return sibling
-    found = shutil.which("yrcli")
-    if found:
-        return found
-    raise RuntimeError("yrcli executable not found next to test Python or on PATH")
+def _get_yrcli_command():
+    return [sys.executable, "-m", "yr.cli.scripts"]
+
+
+def _get_faas_runtime():
+    return os.getenv(
+        "YR_OFF_CLUSTER_FAAS_RUNTIME",
+        f"python{sys.version_info.major}.{sys.version_info.minor}",
+    )
 
 
 def _unique_name(prefix):
@@ -120,7 +116,7 @@ def require_plain_http_for_yrcli():
 
 def _run_yrcli(*args, timeout=120, user=None):
     command = [
-        _get_yrcli_path(),
+        *_get_yrcli_command(),
         "--server-address",
         _get_addr(),
     ]
@@ -130,12 +126,16 @@ def _run_yrcli(*args, timeout=120, user=None):
     if token:
         command.extend(["--jwt-token", token])
     command.extend(args)
+    env = os.environ.copy()
+    if not _get_enable_tls():
+        env.pop("YR_INSECURE", None)
     result = subprocess.run(
         command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         timeout=timeout,
+        env=env,
     )
     assert result.returncode == 0, (
         f"yrcli {' '.join(args)} failed with {result.returncode}\n"
@@ -143,6 +143,20 @@ def _run_yrcli(*args, timeout=120, user=None):
         f"stderr:\n{result.stderr}"
     )
     return result
+
+
+def _ensure_faas_runtime(runtime):
+    deployed = _run_yrcli(
+        "deploy-language-rt",
+        "--runtime",
+        runtime,
+        "--no-rootfs",
+        timeout=180,
+    )
+    assert (
+        "Successfully deployed FaaS language runtime function" in deployed.stdout
+        or "Successfully updated FaaS language runtime function" in deployed.stdout
+    )
 
 
 # ============================================================
@@ -239,10 +253,9 @@ def test_invoke_string(init_yr, require_remote_python_runtime):
     assert yr.get(ref) == 15
 
 
-@pytest.mark.skip(reason="off-cluster: worker cannot read-back ObjectRef from driver's local DS")
 @pytest.mark.smoke
 def test_invoke_with_object_ref_arg(init_yr):
-    """Pass ObjectRef as argument — runtime should auto-resolve on worker side."""
+    """Pass ObjectRef as argument; runtime should auto-resolve on worker side."""
     @yr.invoke
     def get_nums():
         return [10, 20, 30]
@@ -256,10 +269,9 @@ def test_invoke_with_object_ref_arg(init_yr):
     assert yr.get(ref, timeout=120) == 60
 
 
-@pytest.mark.skip(reason="off-cluster: worker cannot read-back ObjectRef from driver's local DS")
 @pytest.mark.smoke
 def test_invoke_with_nested_ref(init_yr):
-    """Nested ObjectRefs inside a list argument."""
+    """Pass nested ObjectRefs inside a list argument."""
     @yr.invoke
     def get_num(x):
         return x
@@ -293,7 +305,6 @@ def test_invoke_return_none(init_yr, require_remote_python_runtime):
     assert ref is None
 
 
-@pytest.mark.skip(reason="off-cluster: large bytes result stored on worker DS, driver cannot read back")
 @pytest.mark.smoke
 def test_invoke_with_big_bytes(init_yr):
     @yr.invoke
@@ -374,7 +385,6 @@ def test_instance_named(init_yr, require_remote_python_runtime):
     assert yr.get(ins2.add.invoke()) == 2
 
 
-@pytest.mark.skip(reason="off-cluster: worker cannot read-back ObjectRef from driver's local DS")
 @pytest.mark.smoke
 def test_instance_pass_to_invoke(init_yr):
     """Pass an instance as argument to a stateless function."""
@@ -519,7 +529,7 @@ def test_repeated_invoke_stability(init_yr, require_remote_python_runtime):
 def test_sandbox_create_exec_and_terminate(init_yr):
     sandbox = None
     for attempt in range(2):
-        sandbox = yr.sandbox.create(name=_unique_name(f"off-cluster-sdk-sandbox-{attempt}"), idle_timeout=600)
+        sandbox = yr.sandbox.create(name=_unique_name(f"sdk-sbox-{attempt}"), idle_timeout=600)
         if sandbox is not None:
             break
         time.sleep(5)
@@ -575,6 +585,8 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
     namespace = "faaspy"
     function = _unique_name("yrcli-faas").replace("-", "")
     full_name = f"0@{namespace}@{function}"
+    runtime = _get_faas_runtime()
+    _ensure_faas_runtime(runtime)
     code_dir = tmp_path / "faas"
     code_dir.mkdir()
     handler_path = code_dir / "handler.py"
@@ -600,7 +612,7 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
         json.dumps(
             {
                 "name": full_name,
-                "runtime": "python3.9",
+                "runtime": runtime,
                 "description": "yrcli off-cluster smoke handler",
                 "handler": "handler.handler",
                 "kind": "faas",
@@ -637,6 +649,8 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
         queried = _run_yrcli("query", "-f", f"{namespace}@{function}")
         assert namespace in queried.stdout
         assert function in queried.stdout
+        function_info = json.loads(queried.stdout)
+        assert function_info.get("runtime") == runtime
         invoked = _run_yrcli(
             "invoke",
             "-f",

@@ -7,47 +7,63 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")"; pwd)
+REPO_ROOT=$(cd "${SCRIPT_DIR}/../.."; pwd)
 TEST_DIR="${SCRIPT_DIR}/python"
 
 # Defaults
 SERVER_ADDRESS=""
 PYTHON_BIN=""
-EXTRA_ARGS=""
+USE_UV_VENV="${YR_OFF_CLUSTER_USE_UV_VENV:-true}"
+VERIFY_VENV="${YR_OFF_CLUSTER_VENV:-/tmp/yr-offcluster-venv}"
 JWT_TOKEN="${YR_JWT_TOKEN:-}"
 ENABLE_TLS="${YR_ENABLE_TLS:-true}"
 
 usage() {
     cat <<EOF
-Usage: bash $0 -a <ip:port> [-p python_path] [-t jwt_token] [-- pytest args...]
+Usage: bash $0 -a <ip:port> [-p python_path] [-t jwt_token] [--no-uv-venv] [-- pytest args...]
 
 Options:
     -a  Cluster address (required), e.g. <server-ip>:<port>
-    -p  Python binary path (default: prefer active conda/current Python, then common local envs)
+    -p  Base Python used to create the uv verification venv
+        (default: python3.10; with --no-uv-venv, Python used directly)
     -t  JWT token for X-Auth authentication (default: read from YR_JWT_TOKEN)
+    --no-uv-venv
+        Use the selected Python directly instead of creating a uv venv from output wheels.
     YR_ENABLE_TLS=false may be used for non-TLS off-cluster endpoints.
+    YR_OFF_CLUSTER_VENV may override the uv venv path (default: ${VERIFY_VENV}).
     -h  Show this help
 
 Examples:
-    conda activate py310 && bash $0 -a <server-ip>:<port>
     bash $0 -a <server-ip>:<port>
-    bash $0 -a <server-ip>:<port> -p /usr/bin/python3.9
+    bash $0 -a <server-ip>:<port> -p /usr/bin/python3.10
+    bash $0 -a <server-ip>:<port> --no-uv-venv -p /path/to/installed/python
     bash $0 -a <server-ip>:<port> -t <jwt_token>
     export YR_JWT_TOKEN=<jwt_token> && bash $0 -a <server-ip>:<port>
     bash $0 -a <server-ip>:<port> -- -k test_put_get
 EOF
 }
 
-# Parse args before --
-while getopts "a:p:t:h" opt; do
-    case "${opt}" in
-        a) SERVER_ADDRESS="${OPTARG}" ;;
-        p) PYTHON_BIN="${OPTARG}" ;;
-        t) JWT_TOKEN="${OPTARG}" ;;
-        h) usage; exit 0 ;;
-        *) usage; exit 1 ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a)
+            SERVER_ADDRESS="$2"; shift 2 ;;
+        -p)
+            PYTHON_BIN="$2"; shift 2 ;;
+        -t)
+            JWT_TOKEN="$2"; shift 2 ;;
+        --no-uv-venv)
+            USE_UV_VENV=false; shift ;;
+        -h|--help)
+            usage; exit 0 ;;
+        --)
+            shift
+            break ;;
+        -*)
+            usage; exit 1 ;;
+        *)
+            break ;;
     esac
 done
-shift $((OPTIND - 1))
 
 # Everything after -- is passed to pytest
 PYTEST_ARGS=("$@")
@@ -89,9 +105,66 @@ find_usable_python() {
     return 1
 }
 
-# Auto-detect a usable Python with openyuanrong installed
-if [ -z "${PYTHON_BIN}" ]; then
-    PYTHON_BIN=$(find_usable_python || true)
+is_enabled() {
+    case "$1" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+resolve_single_file() {
+    local pattern="$1"
+    local matches=()
+
+    mapfile -t matches < <(compgen -G "${pattern}" | sort -V)
+    if [ "${#matches[@]}" -eq 0 ]; then
+        echo "ERROR: Missing required artifact matching ${pattern}" >&2
+        return 1
+    fi
+    if [ "${#matches[@]}" -ne 1 ]; then
+        echo "ERROR: Expected exactly one artifact matching ${pattern}, found ${#matches[@]}" >&2
+        printf '%s\n' "${matches[@]}" >&2
+        return 1
+    fi
+
+    printf '%s\n' "${matches[0]}"
+}
+
+prepare_uv_venv() {
+    local base_python="$1"
+    local sdk_wheel
+    local runtime_wheel
+
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "ERROR: uv is required for the default off-cluster verification venv." >&2
+        echo "       Install uv or pass --no-uv-venv with a Python that already has openyuanrong installed." >&2
+        exit 1
+    fi
+
+    sdk_wheel="$(resolve_single_file "${REPO_ROOT}/output/openyuanrong_sdk*.whl")"
+    runtime_wheel="$(resolve_single_file "${REPO_ROOT}/output/openyuanrong-*.whl")"
+
+    rm -rf "${VERIFY_VENV}"
+    uv venv --python "${base_python}" "${VERIFY_VENV}"
+    uv pip install --python "${VERIFY_VENV}/bin/python" \
+        --no-cache \
+        "${sdk_wheel}" \
+        "${runtime_wheel}" \
+        pytest
+
+    PYTHON_BIN="${VERIFY_VENV}/bin/python"
+}
+
+if is_enabled "${USE_UV_VENV}"; then
+    if [ -z "${PYTHON_BIN}" ]; then
+        PYTHON_BIN="python3.10"
+    fi
+    prepare_uv_venv "${PYTHON_BIN}"
+else
+    # Auto-detect a usable Python with openyuanrong installed.
+    if [ -z "${PYTHON_BIN}" ]; then
+        PYTHON_BIN=$(find_usable_python || true)
+    fi
 fi
 
 if [ -z "${PYTHON_BIN}" ]; then
@@ -101,6 +174,9 @@ fi
 
 echo "=== Off-Cluster (云外) openyuanrong Smoke Test ==="
 echo "Python:    ${PYTHON_BIN}"
+if is_enabled "${USE_UV_VENV}"; then
+    echo "Venv:      ${VERIFY_VENV}"
+fi
 echo "Cluster:   ${SERVER_ADDRESS}"
 echo "Test dir:  ${TEST_DIR}"
 if [ -n "${JWT_TOKEN}" ]; then

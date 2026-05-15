@@ -67,10 +67,13 @@ class FunctionName:
         self.type = "0"
         self.service = None
         self.name = None
+        self.simple_name = None
         self.version = version
         self.parse()
 
     def __str__(self):
+        if self.simple_name:
+            return f"{self.simple_name}:{self.version}"
         return f"{self.service}@{self.name}:{self.version}"
 
     def parse(self):
@@ -90,14 +93,26 @@ class FunctionName:
                 self.name = parts[1]
             else:
                 raise ValueError(f"Invalid function name format: {self.raw_name}")
+        else:
+            self.simple_name = name_part
 
     def full_name(self):
         """Get full function name"""
+        if self.simple_name:
+            return f"{self.simple_name}:{self.version}"
         return f"{self.type}@{self.service}@{self.name}:{self.version}"
 
     def full_name_no_version(self):
         """Get full function name without version"""
+        if self.simple_name:
+            return self.simple_name
         return f"{self.type}@{self.service}@{self.name}"
+
+    def invocation_path(self):
+        """Get URL path components used by the FaaS invocation endpoint."""
+        if self.simple_name:
+            return f"{self.simple_name}:{self.version}"
+        return "/".join([self.service, f"{self.name}:{self.version}"])
 
 
 class HTTPClient:
@@ -521,7 +536,7 @@ def invoke_function(function_name, payload, headers=None, user=None, timeout=30)
         jwt_token=__jwt_token,
         accept_status=(200, 202),  # Accept 202 for async invoke
     )
-    url = f"http://{__server_address}/invocations/{user}/{str(function_name).replace('@', '/')}"
+    url = f"http://{__server_address}/invocations/{user}/{function_name.invocation_path()}"
     resp = http_client.request(url, payload, headers=headers, method="POST")
     if resp["success"]:
         return True, resp["data"]

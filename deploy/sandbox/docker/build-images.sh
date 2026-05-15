@@ -12,6 +12,7 @@ CONTROLPLANE_IMAGE="${YR_CONTROLPLANE_IMAGE:-yr-controlplane}"
 RUNTIME_IMAGE="${YR_RUNTIME_IMAGE:-aio-yr-runtime}"
 AIO_IMAGE="${YR_AIO_IMAGE:-aio-yr}"
 RUNTIME_TAR="${OUTPUT_DIR}/aio-yr-runtime.tar"
+DEPLOY_CONTEXT_DIR="${OUTPUT_DIR}/.yr-k8s-deploy"
 required_files=(
     "${OUTPUT_DIR}/runtime-launcher"
 )
@@ -62,6 +63,15 @@ python_build_args_from_wheel() {
     esac
 }
 
+stage_controlplane_context() {
+    rm -rf "${DEPLOY_CONTEXT_DIR}"
+    mkdir -p "${DEPLOY_CONTEXT_DIR}/bin"
+    cp \
+        "${SANDBOX_DIR}/k8s/bin/start-master.sh" \
+        "${SANDBOX_DIR}/k8s/bin/start-frontend.sh" \
+        "${DEPLOY_CONTEXT_DIR}/bin/"
+}
+
 for required_file in "${required_files[@]}"; do
     if [ ! -e "${required_file}" ]; then
         echo "Missing required build artifact: ${required_file}" >&2
@@ -88,6 +98,7 @@ python_version="${python_build_args[0]}"
 python_major_minor="${python_build_args[1]}"
 
 mkdir -p "${OUTPUT_DIR}"
+stage_controlplane_context
 DOCKER_BUILDKIT=1 docker build \
     --build-arg PYTHON_VERSION="${python_version}" \
     --build-arg PYTHON_MAJOR_MINOR="${python_major_minor}" \

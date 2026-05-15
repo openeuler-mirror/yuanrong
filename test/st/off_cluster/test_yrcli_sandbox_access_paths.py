@@ -24,7 +24,6 @@ verify gateway port forwarding plus reverse tunnel access.
 import os
 import base64
 import re
-import shutil
 import signal
 import socket
 import subprocess
@@ -56,16 +55,6 @@ def _server_address():
 
 def _yrcli_command():
     python_bin = os.environ.get("YRCLI_VERIFY_PYTHON_BIN") or sys.executable
-    repo_root = os.environ.get("YR_REPO_ROOT")
-    if repo_root:
-        return [python_bin, "-m", "yr.cli.scripts"]
-
-    sibling = os.path.join(os.path.dirname(python_bin), "yrcli")
-    if os.path.exists(sibling):
-        return [sibling]
-    found = shutil.which("yrcli")
-    if found:
-        return [found]
     return [python_bin, "-m", "yr.cli.scripts"]
 
 

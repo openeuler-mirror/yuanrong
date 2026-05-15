@@ -3,6 +3,7 @@ set -euo pipefail
 
 PACKAGE_REGISTRY_URL="${BUILDKITE_PACKAGE_REGISTRY_URL:-https://api.buildkite.com/v2/packages/organizations/openyuanrong/registries/openyuanrong/packages}"
 PACKAGE_UPLOAD_TOKEN="${BUILDKITE_PACKAGE_UPLOAD_TOKEN:-${BUILDKITE_PACKAGES_TOKEN:-}}"
+PACKAGE_UPLOAD_ENABLED="${BUILDKITE_PACKAGE_UPLOAD_ENABLED:-}"
 PACKAGE_UPLOAD_REQUIRED="${BUILDKITE_PACKAGE_UPLOAD_REQUIRED:-0}"
 
 is_enabled() {
@@ -11,6 +12,19 @@ is_enabled() {
         *) return 1 ;;
     esac
 }
+
+if [ -z "${PACKAGE_UPLOAD_ENABLED}" ]; then
+    if [ -n "${BUILDKITE_TAG:-}" ]; then
+        PACKAGE_UPLOAD_ENABLED=0
+    else
+        PACKAGE_UPLOAD_ENABLED=1
+    fi
+fi
+
+if ! is_enabled "${PACKAGE_UPLOAD_ENABLED}"; then
+    printf 'BUILDKITE_PACKAGE_UPLOAD_ENABLED is disabled; skipping Buildkite package upload.\n' >&2
+    exit 0
+fi
 
 if [ -z "${PACKAGE_UPLOAD_TOKEN}" ]; then
     printf 'BUILDKITE_PACKAGE_UPLOAD_TOKEN is not set; skipping Buildkite package upload.\n' >&2

@@ -24,6 +24,8 @@ AIO_CONTAINER_NAME="${AIO_CONTAINER_NAME:-aio-yr}"
 AIO_PORT="${AIO_PORT:-38888}"
 PYTHON_BIN="${PYTHON_BIN:-python3.10}"
 RUNTIME_PYTHON="${RUNTIME_PYTHON:-${PYTHON_BIN}}"
+USE_UV_VENV="${YRCLI_VERIFY_USE_UV_VENV:-true}"
+VERIFY_VENV="${YRCLI_VERIFY_VENV:-/tmp/yrcli-sandbox-verify-venv}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 8)}"
 FUNCTIONSYSTEM_JOBS="${FUNCTIONSYSTEM_JOBS:-8}"
 COMPILE_USER_SPEC="${COMPILE_USER_SPEC:-$(stat -c '%u:%g' "${REPO_ROOT}")}"
@@ -56,9 +58,11 @@ Options:
   --repo-root-in-container DIR Repo path inside compile container (default: host repo path)
   --aio-container-name NAME    AIO container name (default: ${AIO_CONTAINER_NAME})
   --aio-port PORT              Host port for AIO HTTP endpoint (default: ${AIO_PORT})
-  --python-bin PATH            Python used to run pytest and local yrcli (default: ${PYTHON_BIN})
+  --python-bin PATH            Base Python used to create the uv verification venv
+                               (default: ${PYTHON_BIN}; with --no-uv-venv, used directly)
   --runtime-python PATH        Python runtime used for runtime/openyuanrong wheels
                                (default: ${RUNTIME_PYTHON})
+  --verify-venv DIR            uv verification venv path (default: ${VERIFY_VENV})
   --jobs N                     build JOBS value (default: ${JOBS})
   --functionsystem-jobs N      FUNCTIONSYSTEM_JOBS value (default: ${FUNCTIONSYSTEM_JOBS})
   --functionsystem-cache-dir D FS_VENDOR_CACHE_DIR used during compile
@@ -69,6 +73,7 @@ Options:
   --skip-image                 Skip host make image
   --skip-start                 Skip docker compose start
   --skip-clean                 Skip generated function system vendor cleanup before compile
+  --no-uv-venv                 Use --python-bin directly instead of installing output wheels into uv venv
   -h, --help                   Show this help
 
 Useful environment:
@@ -96,6 +101,8 @@ while [[ $# -gt 0 ]]; do
             PYTHON_BIN="$2"; shift 2 ;;
         --runtime-python)
             RUNTIME_PYTHON="$2"; shift 2 ;;
+        --verify-venv)
+            VERIFY_VENV="$2"; shift 2 ;;
         --jobs)
             JOBS="$2"; shift 2 ;;
         --functionsystem-jobs)
@@ -112,6 +119,8 @@ while [[ $# -gt 0 ]]; do
             SKIP_START=1; shift ;;
         --skip-clean)
             SKIP_CLEAN=1; shift ;;
+        --no-uv-venv)
+            USE_UV_VENV=false; shift ;;
         -h|--help)
             usage; exit 0 ;;
         --)
@@ -127,6 +136,56 @@ done
 
 log_step() {
     printf '\n==> %s\n' "$*"
+}
+
+is_enabled() {
+    case "$1" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+resolve_single_file() {
+    local pattern="$1"
+    local matches=()
+
+    mapfile -t matches < <(compgen -G "${pattern}" | sort -V)
+    if [ "${#matches[@]}" -eq 0 ]; then
+        echo "Missing required artifact matching ${pattern}" >&2
+        return 1
+    fi
+    if [ "${#matches[@]}" -ne 1 ]; then
+        echo "Expected exactly one artifact matching ${pattern}, found ${#matches[@]}" >&2
+        printf '%s\n' "${matches[@]}" >&2
+        return 1
+    fi
+
+    printf '%s\n' "${matches[0]}"
+}
+
+prepare_verify_venv() {
+    local base_python="$1"
+    local sdk_wheel
+    local runtime_wheel
+
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "uv is required for the default verification venv. Install uv or pass --no-uv-venv." >&2
+        exit 1
+    fi
+
+    sdk_wheel="$(resolve_single_file "${REPO_ROOT}/output/openyuanrong_sdk*.whl")"
+    runtime_wheel="$(resolve_single_file "${REPO_ROOT}/output/openyuanrong-*.whl")"
+
+    log_step "Prepare uv verification venv ${VERIFY_VENV}"
+    rm -rf "${VERIFY_VENV}"
+    uv venv --python "${base_python}" "${VERIFY_VENV}"
+    uv pip install --python "${VERIFY_VENV}/bin/python" \
+        --no-cache \
+        "${sdk_wheel}" \
+        "${runtime_wheel}" \
+        pytest
+
+    PYTHON_BIN="${VERIFY_VENV}/bin/python"
 }
 
 if [[ "${SKIP_COMPILE}" -eq 0 ]]; then
@@ -194,9 +253,11 @@ if ! curl -fsS "http://127.0.0.1:${AIO_PORT}/" >/dev/null 2>&1; then
     exit 1
 fi
 
+if is_enabled "${USE_UV_VENV}"; then
+    prepare_verify_venv "${PYTHON_BIN}"
+fi
+
 log_step "Run yrcli sandbox access-path verification"
-export YR_REPO_ROOT="${REPO_ROOT}"
-export PYTHONPATH="${REPO_ROOT}/api/python${PYTHONPATH:+:${PYTHONPATH}}"
 export YR_SERVER_ADDRESS="127.0.0.1:${AIO_PORT}"
 export YR_GATEWAY_ADDRESS="${YR_GATEWAY_ADDRESS:-127.0.0.1:${AIO_PORT}}"
 export YR_ENABLE_TLS="false"

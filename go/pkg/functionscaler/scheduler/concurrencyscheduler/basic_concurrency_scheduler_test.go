@@ -163,6 +163,29 @@ func TestGetInstanceNumber(t *testing.T) {
 	assert.Equal(t, 1, getNum)
 }
 
+func TestAddInstanceSetIsNewInstance(t *testing.T) {
+	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:           "testFunction",
+		FuncMetaSignature: "new-sig",
+		InstanceMetaData:  commonTypes.InstanceMetaData{ConcurrentNum: 1},
+	}, resspeckey.ResSpecKey{}, "",
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance),
+		queue.NewPriorityQueue(getInstanceID, priorityFuncForReservedInstance))
+	bcs.isFuncOwner = true
+	err := bcs.AddInstance(&types.Instance{
+		InstanceID:     "instance1",
+		FuncSig:        "old-sig",
+		ConcurrentNum:  1,
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commonTypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	})
+	assert.Nil(t, err)
+	obj := bcs.selfInstanceQueue.GetByID("instance1")
+	insElem, ok := obj.(*instanceElement)
+	assert.True(t, ok)
+	assert.False(t, insElem.isNewInstance)
+}
+
 func TestAcquireInstanceBasic(t *testing.T) {
 	bcs := newBasicConcurrencyScheduler(&types.FunctionSpecification{
 		FuncKey:          "testFunction",

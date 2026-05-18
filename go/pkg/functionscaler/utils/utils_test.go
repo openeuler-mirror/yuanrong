@@ -341,6 +341,14 @@ func TestBuildInstanceFromInsSpec(t *testing.T) {
 			})
 			convey.So(len(instance.MetricLabelValues), convey.ShouldEqual, 8)
 		})
+		convey.Convey("get instance az", func() {
+			instance := BuildInstanceFromInsSpec(&commonTypes.InstanceSpecification{
+				Extensions: commonTypes.Extensions{
+					AZ: "az1",
+				},
+			}, nil)
+			convey.So(instance.AZ, convey.ShouldEqual, "az1")
+		})
 	})
 }
 

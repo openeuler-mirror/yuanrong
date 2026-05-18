@@ -212,6 +212,86 @@ func TestHandleFuncSpecUpdateScaled(t *testing.T) {
 	})
 }
 
+func TestHandleFuncSpecUpdateScaledPriorityAZ(t *testing.T) {
+	InsThdReqQueue := requestqueue.NewInsAcqReqQueue("testFunction", 50*time.Millisecond)
+	rcs := NewScaledConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
+	}, resspeckey.ResSpecKey{}, InsThdReqQueue)
+	scaledScheduler := rcs.(*ScaledConcurrencyScheduler)
+	assert.Nil(t, scaledScheduler.AddInstance(&types.Instance{
+		InstanceID:     "instance-az2",
+		ConcurrentNum:  2,
+		AZ:             "az2",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, scaledScheduler.AddInstance(&types.Instance{
+		InstanceID:     "instance-az1",
+		ConcurrentNum:  2,
+		AZ:             "az1",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	rcs.ConnectWithInstanceScaler(&fakeInstanceScaler{})
+	rcs.HandleFuncSpecUpdate(&types.FunctionSpecification{
+		InstanceMetaData: commontypes.InstanceMetaData{
+			ConcurrentNum: 2,
+		},
+		ExtendedMetaData: commontypes.ExtendedMetaData{
+			PriorityAZ: "az1",
+		},
+	})
+	assert.Equal(t, "instance-az1", scaledScheduler.otherInstanceQueue.Front().(*instanceElement).instance.InstanceID)
+}
+
+func TestPriorityFuncForScaledInstanceBonus(t *testing.T) {
+	priorityFunc := priorityFuncForScaledInstance(2)
+	preferredNewWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: true,
+		isPriorityAZ:  true,
+	})
+	assert.Nil(t, err)
+	newWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az2"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: true,
+	})
+	assert.Nil(t, err)
+	oldWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: false,
+	})
+	assert.Nil(t, err)
+	assert.Greater(t, preferredNewWeight, newWeight)
+	assert.Greater(t, newWeight, oldWeight)
+}
+
+func TestPriorityFuncForScaledInstanceFallback(t *testing.T) {
+	insQue := &instanceQueueWithBuffer{
+		queue:  queue.NewPriorityQueue(getInstanceID, priorityFuncForScaledInstance(2)),
+		buffer: make([]*instanceElement, 0, utils.DefaultSliceSize),
+		idFunc: getInstanceID,
+	}
+	err := insQue.PushBack(&instanceElement{
+		instance:      &types.Instance{InstanceID: "instance-priority", ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{},
+		isNewInstance: true,
+		isPriorityAZ:  true,
+	})
+	assert.Nil(t, err)
+	err = insQue.PushBack(&instanceElement{
+		instance:      &types.Instance{InstanceID: "instance-old", ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: false,
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, "instance-old", insQue.Front().(*instanceElement).instance.InstanceID)
+}
+
 func TestAddInstancePublishScaled(t *testing.T) {
 	defer gomonkey.ApplyMethod(reflect.TypeOf(&selfregister.SchedulerProxy{}), "IsFuncOwner", func(
 		*selfregister.SchedulerProxy, string) bool {

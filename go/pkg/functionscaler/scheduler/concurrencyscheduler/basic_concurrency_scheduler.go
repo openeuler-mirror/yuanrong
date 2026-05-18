@@ -70,7 +70,30 @@ type instanceElement struct {
 	threadIndex    int
 	threadIDPrefix string
 	isNewInstance  bool
+	isPriorityAZ   bool
 	threadMap      map[string]struct{}
+}
+
+func getInstancePriorityBonus(insElem *instanceElement) int {
+	if insElem == nil || insElem.instance == nil {
+		return 0
+	}
+
+	bonus := 0
+	if insElem.isNewInstance && len(insElem.threadMap) > 0 {
+		bonus += insElem.instance.ConcurrentNum
+	}
+	if insElem.isPriorityAZ && len(insElem.threadMap) > 0 {
+		bonus += insElem.instance.ConcurrentNum
+	}
+	return bonus
+}
+
+func checkInstancePriorityAZ(instance *types.Instance, funcSpec *types.FunctionSpecification) bool {
+	if instance == nil || funcSpec == nil {
+		return false
+	}
+	return funcSpec.ExtendedMetaData.PriorityAZ != "" && funcSpec.ExtendedMetaData.PriorityAZ == instance.AZ
 }
 
 func (i *instanceElement) PutThreadToThreadMap(threadID string) {
@@ -696,6 +719,7 @@ func (bcs *basicConcurrencyScheduler) AcquireInstance(insAcqReq *types.InstanceA
 }
 
 func (bcs *basicConcurrencyScheduler) HandleFuncSpecUpdate(funcSpec *types.FunctionSpecification) {
+	bcs.funcSpec = funcSpec
 	bcs.handleFuncSpecUpdate(bcs.selfInstanceQueue, funcSpec)
 	bcs.handleFuncSpecUpdate(bcs.otherInstanceQueue, funcSpec)
 }
@@ -714,6 +738,11 @@ func (bcs *basicConcurrencyScheduler) handleFuncSpecUpdate(instanceQueue queue.Q
 		}
 		if insElem.instance.FuncSig == funcSpec.FuncMetaSignature && !insElem.isNewInstance {
 			insElem.isNewInstance = true
+			needUpdate[insElem.instance.InstanceID] = insElem
+		}
+		isPriorityAZ := checkInstancePriorityAZ(insElem.instance, funcSpec)
+		if insElem.isPriorityAZ != isPriorityAZ {
+			insElem.isPriorityAZ = isPriorityAZ
 			needUpdate[insElem.instance.InstanceID] = insElem
 		}
 		return true
@@ -1240,8 +1269,14 @@ func (bcs *basicConcurrencyScheduler) AddInstance(instance *types.Instance) erro
 	var (
 		err error
 	)
+	isNewInstance := true
+	if instance.FuncSig != bcs.funcSpec.FuncMetaSignature {
+		isNewInstance = false
+	}
 	insElem := &instanceElement{
-		instance: instance,
+		instance:      instance,
+		isNewInstance: isNewInstance,
+		isPriorityAZ:  checkInstancePriorityAZ(instance, bcs.funcSpec),
 	}
 	insElem.initThreadMap()
 	if isSelfInstance {
@@ -1333,6 +1368,7 @@ func (bcs *basicConcurrencyScheduler) HandleInstanceUpdate(instance *types.Insta
 		insElem := &instanceElement{
 			instance:      instance,
 			isNewInstance: isNewInstance,
+			isPriorityAZ:  checkInstancePriorityAZ(instance, bcs.funcSpec),
 		}
 		insElem.initThreadMap()
 		if err := instanceQueue.PushBack(insElem); err != nil {
@@ -1352,6 +1388,7 @@ func (bcs *basicConcurrencyScheduler) HandleInstanceUpdate(instance *types.Insta
 		}
 		insElem.instance = instance
 		insElem.isNewInstance = isNewInstance
+		insElem.isPriorityAZ = checkInstancePriorityAZ(instance, bcs.funcSpec)
 		if err := instanceQueue.UpdateObjByID(instance.InstanceID, insElem); err != nil {
 			logger.Errorf("failed to update instance %s with status %+v", instance.InstanceID, instance.InstanceStatus)
 			return

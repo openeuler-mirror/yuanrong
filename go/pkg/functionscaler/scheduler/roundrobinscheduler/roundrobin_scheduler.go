@@ -49,14 +49,17 @@ type instanceObserver struct {
 
 // RoundRobinScheduler will schedule instance according to concurrency usage for reserved instance
 type RoundRobinScheduler struct {
-	instanceScaler      scaler.InstanceScaler
-	instanceQueue       []*types.Instance
-	subHealthInstance   map[string]*types.Instance
-	observers           map[scheduler.InstanceTopic][]*instanceObserver
-	funcKeyWithRes      string
-	curIndex            int
-	isReserve           bool
-	checkScalingTimeout time.Duration
+	instanceScaler       scaler.InstanceScaler
+	instanceQueue        []*types.Instance
+	subHealthInstance    map[string]*types.Instance
+	observers            map[scheduler.InstanceTopic][]*instanceObserver
+	funcKeyWithRes       string
+	priorityAZ           string
+	priorityHealthyCount int
+	prioritySubHealthCnt int
+	curIndex             int
+	isReserve            bool
+	checkScalingTimeout  time.Duration
 	sync.RWMutex
 }
 
@@ -85,7 +88,7 @@ func (rs *RoundRobinScheduler) GetInstanceNumber(onlySelf bool) int {
 // CheckInstanceExist checks if instance exist
 func (rs *RoundRobinScheduler) CheckInstanceExist(instance *types.Instance) bool {
 	rs.RLock()
-	_, existSubHealth := rs.subHealthInstance[instance.InstanceID]
+	existSubHealth := rs.getSubHealthyInstance(instance.InstanceID) != nil
 	existHealth := rs.getHealthyInstance(instance.InstanceID) != nil
 	rs.RUnlock()
 	return existSubHealth || existHealth
@@ -145,7 +148,7 @@ func (rs *RoundRobinScheduler) AcquireInstance(insAcqReq *types.InstanceAcquireR
 
 func (rs *RoundRobinScheduler) acquireInstanceDesignateInstanceID(insAcqReq *types.InstanceAcquireRequest,
 	instance *types.Instance, exist bool) (*types.InstanceAllocation, error) {
-	if instance, exist = rs.subHealthInstance[insAcqReq.DesignateInstanceID]; exist {
+	if instance = rs.getSubHealthyInstance(insAcqReq.DesignateInstanceID); instance != nil {
 		return nil, scheduler.ErrInsSubHealthy
 	}
 	if instance = rs.getHealthyInstance(insAcqReq.DesignateInstanceID); instance != nil {
@@ -167,15 +170,12 @@ func (rs *RoundRobinScheduler) ReleaseInstance(insAlloc *types.InstanceAllocatio
 func (rs *RoundRobinScheduler) AddInstance(instance *types.Instance) error {
 	rs.Lock()
 	defer rs.Unlock()
-	if _, exist := rs.subHealthInstance[instance.InstanceID]; exist {
-		return scheduler.ErrInsAlreadyExist
-	}
-	if getInstance := rs.getHealthyInstance(instance.InstanceID); getInstance != nil {
+	if rs.getSubHealthyInstance(instance.InstanceID) != nil || rs.getHealthyInstance(instance.InstanceID) != nil {
 		return scheduler.ErrInsAlreadyExist
 	}
 	switch instance.InstanceStatus.Code {
 	case int32(constant.KernelInstanceStatusSubHealth):
-		rs.subHealthInstance[instance.InstanceID] = instance
+		rs.addSubHealthyInstance(instance)
 	case int32(constant.KernelInstanceStatusRunning):
 		rs.addHealthyInstance(instance)
 	default:
@@ -194,12 +194,11 @@ func (rs *RoundRobinScheduler) PopInstance(force bool) *types.Instance {
 	rs.Lock()
 	defer rs.Unlock()
 	var instance *types.Instance
-	if instance = rs.selectSubHealthyInstance(); instance != nil {
-		delete(rs.subHealthInstance, instance.InstanceID)
-	} else {
-		if instance = rs.popHealthyInstance(); instance == nil {
-			return nil
-		}
+	if instance = rs.popSubHealthyInstance(); instance == nil {
+		instance = rs.popHealthyInstance()
+	}
+	if instance == nil {
+		return nil
 	}
 	rs.publishInsThdEvent(scheduler.TotalInsThdTopic, -instance.ConcurrentNum)
 	return instance
@@ -212,10 +211,9 @@ func (rs *RoundRobinScheduler) DelInstance(instance *types.Instance) error {
 	var (
 		// concurrentNum may be updated and this instance could be an old one, so we get inQueIns from internal
 		inQueIns *types.Instance
-		exist    bool
 	)
-	if inQueIns, exist = rs.subHealthInstance[instance.InstanceID]; exist {
-		delete(rs.subHealthInstance, instance.InstanceID)
+	if inQueIns = rs.getSubHealthyInstance(instance.InstanceID); inQueIns != nil {
+		rs.delSubHealthyInstance(instance.InstanceID)
 	} else {
 		if inQueIns = rs.getHealthyInstance(instance.InstanceID); inQueIns == nil {
 			return scheduler.ErrInsNotExist
@@ -248,6 +246,17 @@ func (rs *RoundRobinScheduler) ConnectWithInstanceScaler(instanceScaler scaler.I
 
 // HandleFuncSpecUpdate handles funcSpec update comes from ETCD
 func (rs *RoundRobinScheduler) HandleFuncSpecUpdate(funcSpec *types.FunctionSpecification) {
+	rs.Lock()
+	defer rs.Unlock()
+	priorityAZ := ""
+	if funcSpec != nil {
+		priorityAZ = funcSpec.ExtendedMetaData.PriorityAZ
+	}
+	if rs.priorityAZ == priorityAZ {
+		return
+	}
+	rs.priorityAZ = priorityAZ
+	rs.refreshPriorityCountersLocked()
 }
 
 // roundrobinscheduler不处理evicting状态实例，
@@ -267,7 +276,7 @@ func (rs *RoundRobinScheduler) HandleInstanceUpdate(instance *types.Instance) {
 	}
 	rs.RLock()
 	existHealth := rs.getHealthyInstance(instance.InstanceID) != nil
-	_, existSubHealth := rs.subHealthInstance[instance.InstanceID]
+	existSubHealth := rs.getSubHealthyInstance(instance.InstanceID) != nil
 	rs.RUnlock()
 	if !existHealth && !existSubHealth {
 		// 适配静态函数
@@ -282,7 +291,7 @@ func (rs *RoundRobinScheduler) HandleInstanceUpdate(instance *types.Instance) {
 			logger.Infof("instance transitions from healthy to sub-healthy")
 			rs.Lock()
 			rs.delHealthyInstance(instance.InstanceID)
-			rs.subHealthInstance[instance.InstanceID] = instance
+			rs.addSubHealthyInstance(instance)
 			rs.Unlock()
 		} else if !existHealth && existSubHealth {
 			logger.Warnf("no need to add sub-healthy instance repeatedly")
@@ -299,7 +308,7 @@ func (rs *RoundRobinScheduler) HandleInstanceUpdate(instance *types.Instance) {
 		} else if !existHealth && existSubHealth {
 			// maybe we should update this instance object to handle update inside an instance
 			rs.Lock()
-			delete(rs.subHealthInstance, instance.InstanceID)
+			rs.delSubHealthyInstance(instance.InstanceID)
 			rs.addHealthyInstance(instance)
 			rs.Unlock()
 		} else if !existHealth && !existSubHealth {
@@ -341,6 +350,9 @@ func (rs *RoundRobinScheduler) getHealthyInstance(targetID string) *types.Instan
 
 func (rs *RoundRobinScheduler) addHealthyInstance(instance *types.Instance) {
 	rs.instanceQueue = append(rs.instanceQueue, instance)
+	if rs.isPriorityAZInstance(instance) {
+		rs.priorityHealthyCount++
+	}
 }
 
 func (rs *RoundRobinScheduler) delHealthyInstance(targetID string) {
@@ -348,39 +360,133 @@ func (rs *RoundRobinScheduler) delHealthyInstance(targetID string) {
 	for index, instance := range rs.instanceQueue {
 		if instance.InstanceID == targetID {
 			targetIndex = index
+			if rs.isPriorityAZInstance(instance) {
+				rs.priorityHealthyCount--
+			}
 			break
 		}
 	}
 	if targetIndex == -1 {
 		return
 	}
-	rs.instanceQueue = append(rs.instanceQueue[0:targetIndex], rs.instanceQueue[targetIndex+1:]...)
+	rs.instanceQueue = append(rs.instanceQueue[:targetIndex], rs.instanceQueue[targetIndex+1:]...)
 }
 
 func (rs *RoundRobinScheduler) popHealthyInstance() *types.Instance {
+	if instance := rs.popHealthyInstanceByPriority(false); instance != nil {
+		return instance
+	}
+	return rs.popHealthyInstanceByPriority(true)
+}
+
+func (rs *RoundRobinScheduler) popHealthyInstanceByPriority(priority bool) *types.Instance {
+	if len(rs.instanceQueue) == 0 {
+		return nil
+	}
+	for index := len(rs.instanceQueue) - 1; index >= 0; index-- {
+		instance := rs.instanceQueue[index]
+		if rs.isPriorityAZInstance(instance) != priority {
+			continue
+		}
+		rs.instanceQueue = append(rs.instanceQueue[:index], rs.instanceQueue[index+1:]...)
+		if priority {
+			rs.priorityHealthyCount--
+		}
+		return instance
+	}
+	return nil
+}
+
+func (rs *RoundRobinScheduler) selectHealthyInstance() *types.Instance {
 	queLen := len(rs.instanceQueue)
 	if queLen == 0 {
 		return nil
 	}
-	instance := rs.instanceQueue[queLen-1]
-	rs.instanceQueue = rs.instanceQueue[:queLen-1]
-	return instance
-}
-
-func (rs *RoundRobinScheduler) selectHealthyInstance() *types.Instance {
-	if rs.curIndex >= len(rs.instanceQueue) {
-		rs.curIndex = rs.curIndex % len(rs.instanceQueue)
+	if rs.curIndex >= queLen {
+		rs.curIndex = rs.curIndex % queLen
 	}
-	instance := rs.instanceQueue[rs.curIndex]
-	rs.curIndex++
+	startIndex := rs.curIndex
+	if rs.priorityAZ != "" && rs.priorityHealthyCount > 0 {
+		for offset := 0; offset < queLen; offset++ {
+			index := (startIndex + offset) % queLen
+			instance := rs.instanceQueue[index]
+			if !rs.isPriorityAZInstance(instance) {
+				continue
+			}
+			rs.curIndex = (index + 1) % queLen
+			return instance
+		}
+	}
+	instance := rs.instanceQueue[startIndex]
+	rs.curIndex = (startIndex + 1) % queLen
 	return instance
 }
 
-func (rs *RoundRobinScheduler) selectSubHealthyInstance() *types.Instance {
-	for _, instance := range rs.subHealthInstance {
+func (rs *RoundRobinScheduler) getSubHealthyInstance(targetID string) *types.Instance {
+	if instance, ok := rs.subHealthInstance[targetID]; ok {
 		return instance
 	}
 	return nil
+}
+
+func (rs *RoundRobinScheduler) addSubHealthyInstance(instance *types.Instance) {
+	rs.subHealthInstance[instance.InstanceID] = instance
+	if rs.isPriorityAZInstance(instance) {
+		rs.prioritySubHealthCnt++
+	}
+}
+
+func (rs *RoundRobinScheduler) delSubHealthyInstance(targetID string) {
+	if instance, ok := rs.subHealthInstance[targetID]; ok {
+		if rs.isPriorityAZInstance(instance) {
+			rs.prioritySubHealthCnt--
+		}
+		delete(rs.subHealthInstance, targetID)
+	}
+}
+
+func (rs *RoundRobinScheduler) popSubHealthyInstance() *types.Instance {
+	if len(rs.subHealthInstance) == 0 {
+		return nil
+	}
+	for instanceID, instance := range rs.subHealthInstance {
+		if rs.isPriorityAZInstance(instance) {
+			continue
+		}
+		delete(rs.subHealthInstance, instanceID)
+		return instance
+	}
+	if rs.prioritySubHealthCnt == 0 {
+		return nil
+	}
+	for instanceID, instance := range rs.subHealthInstance {
+		if !rs.isPriorityAZInstance(instance) {
+			continue
+		}
+		delete(rs.subHealthInstance, instanceID)
+		rs.prioritySubHealthCnt--
+		return instance
+	}
+	return nil
+}
+
+func (rs *RoundRobinScheduler) isPriorityAZInstance(instance *types.Instance) bool {
+	return instance != nil && rs.priorityAZ != "" && instance.AZ == rs.priorityAZ
+}
+
+func (rs *RoundRobinScheduler) refreshPriorityCountersLocked() {
+	rs.priorityHealthyCount = 0
+	for _, instance := range rs.instanceQueue {
+		if rs.isPriorityAZInstance(instance) {
+			rs.priorityHealthyCount++
+		}
+	}
+	rs.prioritySubHealthCnt = 0
+	for _, instance := range rs.subHealthInstance {
+		if rs.isPriorityAZInstance(instance) {
+			rs.prioritySubHealthCnt++
+		}
+	}
 }
 
 // publishInsThdEvent will notify observers of specific topic of instance

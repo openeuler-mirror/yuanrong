@@ -202,6 +202,82 @@ func TestHandleFuncSpecUpdateReserved(t *testing.T) {
 	})
 }
 
+func TestHandleFuncSpecUpdateReservedPriorityAZ(t *testing.T) {
+	InsThdReqQueue := requestqueue.NewInsAcqReqQueue("", 10)
+	rcs := NewReservedConcurrencyScheduler(&types.FunctionSpecification{
+		FuncKey:          "testFunction",
+		InstanceMetaData: commontypes.InstanceMetaData{ConcurrentNum: 2},
+	}, resspeckey.ResSpecKey{}, 50*time.Millisecond, InsThdReqQueue)
+	reservedScheduler := rcs.(*ReservedConcurrencyScheduler)
+	assert.Nil(t, reservedScheduler.AddInstance(&types.Instance{
+		InstanceID:     "instance-az2",
+		ConcurrentNum:  2,
+		AZ:             "az2",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	assert.Nil(t, reservedScheduler.AddInstance(&types.Instance{
+		InstanceID:     "instance-az1",
+		ConcurrentNum:  2,
+		AZ:             "az1",
+		ResKey:         resspeckey.ResSpecKey{},
+		InstanceStatus: commontypes.InstanceStatus{Code: int32(constant.KernelInstanceStatusRunning)},
+	}))
+	rcs.ConnectWithInstanceScaler(&fakeInstanceScaler{})
+	rcs.HandleFuncSpecUpdate(&types.FunctionSpecification{
+		InstanceMetaData: commontypes.InstanceMetaData{
+			ConcurrentNum: 2,
+		},
+		ExtendedMetaData: commontypes.ExtendedMetaData{
+			PriorityAZ: "az1",
+		},
+	})
+	assert.Equal(t, "instance-az1", reservedScheduler.otherInstanceQueue.Front().(*instanceElement).instance.InstanceID)
+}
+
+func TestPriorityFuncForReservedInstanceBonus(t *testing.T) {
+	priorityFunc := priorityFuncForReservedInstance
+	preferredNewWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: true,
+		isPriorityAZ:  true,
+	})
+	assert.Nil(t, err)
+	newWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az2"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: true,
+	})
+	assert.Nil(t, err)
+	oldWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: false,
+	})
+	assert.Nil(t, err)
+	assert.Greater(t, preferredNewWeight, newWeight)
+	assert.Greater(t, newWeight, oldWeight)
+}
+
+func TestPriorityFuncForReservedInstanceFallback(t *testing.T) {
+	priorityFunc := priorityFuncForReservedInstance
+	exhaustedPriorityWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{},
+		isNewInstance: true,
+		isPriorityAZ:  true,
+	})
+	assert.Nil(t, err)
+	availableOldWeight, err := priorityFunc(&instanceElement{
+		instance:      &types.Instance{ConcurrentNum: 2, AZ: "az1"},
+		threadMap:     map[string]struct{}{"thread1": {}},
+		isNewInstance: false,
+	})
+	assert.Nil(t, err)
+	assert.Less(t, exhaustedPriorityWeight, availableOldWeight)
+}
+
 func TestAddInstancePublishReserved(t *testing.T) {
 	defer gomonkey.ApplyFunc((*selfregister.SchedulerProxy).IsFuncOwner, func(_ *selfregister.SchedulerProxy,
 		funcKey string) bool {

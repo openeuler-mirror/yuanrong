@@ -132,6 +132,7 @@ func assembleSchedulerWithRoundRobinPolicy(instanceQueue *ScaledInstanceQueue,
 		return ErrUnsupportedInstanceType
 	}
 	instanceQueue.SetInstanceScheduler(instanceScheduler)
+	instanceScheduler.HandleFuncSpecUpdate(instanceQueue.funcSpec)
 	return nil
 }
 

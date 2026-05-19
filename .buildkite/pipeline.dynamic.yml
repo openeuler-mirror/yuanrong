@@ -1320,7 +1320,7 @@ cat << YAML
         OBS_UPLOAD_CHANNEL="release"
         OBS_UPLOAD_VERSION_ARGS="--version \$\$BUILD_VERSION"
       fi
-      bash .buildkite/upload_obs_artifacts.sh \
+      OBS_PYTHON=python3 bash .buildkite/upload_obs_artifacts.sh \
         --output artifacts/openyuanrong-sdk/obs-urls.txt \
         --platform macos \
         --arch arm64 \

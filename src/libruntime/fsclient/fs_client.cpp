@@ -170,12 +170,24 @@ void FSClient::EventAsync(const std::shared_ptr<EventMessageSpec> &req, int time
 
 std::string FSClient::GetEventServerIP()
 {
-    return this->fsIntf->GetSelfIP();
+    return this->ipAddr;
 }
 
 int FSClient::GetEventServerPort()
 {
     return this->fsIntf->GetSelfPort();
+}
+
+bool FSClient::NeedReInit() const
+{
+    return fsIntf ? fsIntf->NeedReInit() : false;
+}
+
+void FSClient::ReInit()
+{
+    if (fsIntf) {
+        fsIntf->ReInit();
+    }
 }
 
 }  // namespace Libruntime

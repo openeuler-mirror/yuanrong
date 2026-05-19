@@ -890,15 +890,18 @@ func (c *invokerLibruntimeMock) Kill(instanceID string, signal int, payload []by
 	return nil
 }
 
-func (c *invokerLibruntimeMock) CreateInstanceRaw(createReqRaw []byte) (createRespRaw []byte, err error) {
+func (c *invokerLibruntimeMock) CreateInstanceRaw(createReqRaw []byte,
+	option api.RawRequestOption) (createRespRaw []byte, err error) {
 	return []byte{}, nil
 }
 
-func (c *invokerLibruntimeMock) InvokeByInstanceIdRaw(invokeReqRaw []byte) (resultRaw []byte, err error) {
+func (c *invokerLibruntimeMock) InvokeByInstanceIdRaw(invokeReqRaw []byte,
+	option api.RawRequestOption) (resultRaw []byte, err error) {
 	return []byte{}, nil
 }
 
-func (f *invokerLibruntimeMock) KillRaw(killReqRaw []byte) (killRespRaw []byte, err error) {
+func (f *invokerLibruntimeMock) KillRaw(killReqRaw []byte,
+	option api.RawRequestOption) (killRespRaw []byte, err error) {
 	return []byte{}, nil
 }
 
@@ -908,6 +911,10 @@ func (f *invokerLibruntimeMock) SaveState(state []byte) (stateID string, err err
 
 func (f *invokerLibruntimeMock) LoadState(checkpointID string) (state []byte, err error) {
 	return []byte{}, nil
+}
+
+func (f *invokerLibruntimeMock) DeleteGetEventCallback(objectID string) {
+	return
 }
 
 func (f *invokerLibruntimeMock) Exit(code int, message string) {
@@ -986,19 +993,11 @@ func (f *invokerLibruntimeMock) GDecreaseRef(objectIDs []string, remoteClientID 
 	return []string{}, nil
 }
 
-func (c *invokerLibruntimeMock) ReleaseGRefs(remoteClientID string) error {
-	return nil
-}
-
 func (f *invokerLibruntimeMock) GetAsync(objectID string, cb api.GetAsyncCallback) {
 	return
 }
 
 func (f *invokerLibruntimeMock) GetEvent(objectID string, cb api.GetEventCallback) {
-	return
-}
-
-func (f *invokerLibruntimeMock) DeleteGetEventCallback(objectID string) {
 	return
 }
 
@@ -1055,22 +1054,6 @@ func (f *invokerLibruntimeMock) IsDsHealth() bool {
 
 func (f *invokerLibruntimeMock) GetActiveMasterAddr() string {
 	return "mockMasterAddr"
-}
-
-func (f *invokerLibruntimeMock) SetGauge(data api.GaugeData) error {
-	return nil
-}
-
-func (f *invokerLibruntimeMock) IncreaseGauge(data api.GaugeData) error {
-	return nil
-}
-
-func (f *invokerLibruntimeMock) DecreaseGauge(data api.GaugeData) error {
-	return nil
-}
-
-func (f *invokerLibruntimeMock) IncreaseUInt64Counter(data api.UInt64CounterData) error {
-	return nil
 }
 
 func TestKVGet(t *testing.T) {

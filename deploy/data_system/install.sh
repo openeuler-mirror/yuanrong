@@ -40,7 +40,7 @@ function install_ds_master() {
       -minloglevel="${DS_LOG_LEVEL}" \
       -health_check_path="${data_system_install_dir}"/master/health \
       -ready_check_path="${data_system_install_dir}"/master/ready \
-      -enable_reconciliation=false \
+      -enable_reconciliation=${ENABLE_DISTRIBUTED_MASTER} \
       -rpc_thread_num=${DS_RPC_THREAD_NUM} \
       -heartbeat_interval_ms=${DS_HEARTBEAT_INTERVAL_MS} \
       -enable_multi_stubs=true \
@@ -67,7 +67,7 @@ function install_ds_master() {
       -log_monitor=${DS_LOG_MONITOR_ENABLE} \
       -zmq_chunk_sz=${ZMQ_CHUNK_SZ} \
       -enable_lossless_data_exit_mode=${ENABLE_LOSSLESS_DATA_EXIT_MODE} \
-      -enable_distributed_master=false -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_master${STD_LOG_SUFFIX} 2>&1 &
+      -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} -node_role=${DS_NODE_ROLE:-master} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_master${STD_LOG_SUFFIX} 2>&1 &
     DS_MASTER_PID="$!"
     if data_system_health_check "ds_master" "${DS_MASTER_PID}"; then
       log_info "succeed to start  data system master, port=${DS_MASTER_PORT}, pid=${DS_MASTER_PID}"
@@ -114,6 +114,11 @@ function install_ds_worker() {
   if [ "X${ENABLE_DISTRIBUTED_MASTER}" = "Xtrue" ]; then
     DS_MASTER_ADDRESS=""
   fi
+  # Derive default node_role: master node in distributed mode acts as a ring member
+  local _default_node_role="worker"
+  if [ "X${ENABLE_MASTER}" = "Xtrue" ] && [ "X${ENABLE_DISTRIBUTED_MASTER}" = "Xtrue" ]; then
+    _default_node_role="master"
+  fi
   OPENSSL_CONF="" LD_LIBRARY_PATH="${DATA_SYSTEM_DIR}/service/lib:${LD_LIBRARY_PATH}" "${DATA_SYSTEM_DIR}"/service/datasystem_worker \
     -master_address=${DS_MASTER_ADDRESS} \
     -log_dir="${DS_LOG_PATH}" -shared_memory_size_mb=${MEM4DATA} -worker_address="${IP_ADDRESS}:${DS_WORKER_PORT}" \
@@ -150,7 +155,7 @@ function install_ds_worker() {
     -log_monitor=${DS_LOG_MONITOR_ENABLE} \
     -zmq_chunk_sz=${ZMQ_CHUNK_SZ} \
     -enable_lossless_data_exit_mode=${ENABLE_LOSSLESS_DATA_EXIT_MODE} \
-    -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_worker${STD_LOG_SUFFIX} 2>&1 &
+    -enable_distributed_master=${ENABLE_DISTRIBUTED_MASTER} -node_role=${DS_NODE_ROLE:-${_default_node_role}} -stderrthreshold=3 >> "${DS_LOG_PATH}"/ds_worker${STD_LOG_SUFFIX} 2>&1 &
   DS_WORKER_PID="$!"
   log_info "succeed to start data system worker, port=${DS_WORKER_PORT}, pid=${DS_WORKER_PID}"
 }

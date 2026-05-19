@@ -97,9 +97,6 @@ ErrorInfo Security::InitWithDriver(std::shared_ptr<LibruntimeConfig> librtConfig
         this->sk_ = SensitiveValue(librtConfig->sk_);
         this->isCredential_ = true;
         this->dsConf_.authEnable = true;
-        if (!librtConfig->dk_.Empty()) {
-            this->dk_ = SensitiveValue(librtConfig->dk_);
-        }
     }
     return ErrorInfo();
 }
@@ -217,54 +214,44 @@ bool Security::ReadOnce()
         return false;
     }
 
-    UpdateDataSystemConfig(tlsConf);
-    UpdateFunctionAndMetricsConfig(tlsConf);
-    UpdateTenantCredentials(tlsConf);
-    this->token_ = SensitiveValue(tlsConf.token());
-    this->fsConnMode_ = tlsConf.enableservermode();
-    this->serverNameoverride_ = tlsConf.servernameoverride();
-    YRLOG_INFO("Read tls config finished, fs auth: {}, ds auth: {}, is credential {}, ak {}, sk {}, token {}",
-               this->fsConf_.authEnable, this->dsConf_.authEnable, isCredential_, !ak_.empty(), !sk_.Empty(),
-               !token_.Empty());
-    return true;
-}
-
-void Security::UpdateDataSystemConfig(const common::TLSConfig &tlsConf)
-{
     this->dsConf_.authEnable = tlsConf.dsauthenable();
     this->dsConf_.encryptEnable = tlsConf.dsencryptenable();
     this->dsConf_.clientPublicKey = tlsConf.dsclientpublickey();
     this->dsConf_.clientPrivateKey = SensitiveValue(tlsConf.dsclientprivatekey());
     this->dsConf_.serverPublicKey = tlsConf.dsserverpublickey();
-}
 
-void Security::UpdateFunctionAndMetricsConfig(const common::TLSConfig &tlsConf)
-{
     this->fsConf_.authEnable = tlsConf.serverauthenable();
     this->fsConf_.rootCertData = tlsConf.rootcertdata();
-    this->metricsConf_.rootCertData = tlsConf.metricsrootcertdata();
-    this->metricsConf_.certChainData = tlsConf.metricscertdata();
-    this->metricsConf_.privateKeyData = SensitiveData(tlsConf.metricskeydata());
-}
 
-void Security::UpdateTenantCredentials(const common::TLSConfig &tlsConf)
-{
     if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().accesskey().empty()) {
         this->ak_ = tlsConf.tenantcredentials().accesskey();
     } else {
         this->ak_ = tlsConf.accesskey();
     }
+
     if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().secretkey().empty()) {
         this->sk_ = SensitiveValue(tlsConf.tenantcredentials().secretkey());
     } else {
         this->sk_ = SensitiveValue(tlsConf.securitykey());
     }
-    if (tlsConf.has_tenantcredentials() && !tlsConf.tenantcredentials().datakey().empty()) {
-        this->dk_ = SensitiveValue(tlsConf.tenantcredentials().datakey());
+
+    if (tlsConf.has_tenantcredentials()) {
+        this->dk_ = tlsConf.tenantcredentials().datakey();
     }
+
     if (tlsConf.has_tenantcredentials()) {
         this->isCredential_ = tlsConf.tenantcredentials().iscredential();
     }
+
+    this->token_ = SensitiveValue(tlsConf.token());
+
+    this->fsConnMode_ = tlsConf.enableservermode();
+
+    this->serverNameoverride_ = tlsConf.servernameoverride();
+    YRLOG_INFO("Read tls config finished, fs auth: {}, ds auth: {}, is credential {}, ak {}, sk {}, token {}",
+               this->fsConf_.authEnable, this->dsConf_.authEnable, isCredential_, !ak_.empty(), !sk_.Empty(),
+               !token_.Empty());
+    return true;
 }
 
 void Security::Stop(void)
@@ -306,19 +293,6 @@ bool Security::GetFunctionSystemConfig(std::string &rootCACert, std::string &cer
     return this->fsConf_.authEnable;
 }
 
-bool Security::GetMetricsTLSConfig(std::string &rootCACert, std::string &certChain, std::string &privateKey)
-{
-    rootCACert = this->metricsConf_.rootCertData;
-    certChain = this->metricsConf_.certChainData;
-    if (this->metricsConf_.privateKeyData.Empty()) {
-        privateKey.clear();
-    } else {
-        privateKey =
-            std::string(this->metricsConf_.privateKeyData.GetData(), this->metricsConf_.privateKeyData.GetSize());
-    }
-    return !rootCACert.empty() && !certChain.empty() && !privateKey.empty();
-}
-
 void Security::GetToken(SensitiveValue &token)
 {
     token = this->token_;
@@ -328,13 +302,6 @@ void Security::GetAKSK(std::string &ak, SensitiveValue &sk)
 {
     ak = this->ak_;
     sk = this->sk_;
-}
-
-void Security::GetAKSKDK(std::string &ak, SensitiveValue &sk, SensitiveValue &dk)
-{
-    ak = this->ak_;
-    sk = this->sk_;
-    dk = this->dk_;
 }
 
 void Security::WhenTokenUpdated(std::function<void(const SensitiveValue &)> updateTokenHandler)
@@ -368,9 +335,7 @@ bool Security::IsFsAuthEnable()
 
 Credential Security::GetCredential()
 {
-    return Credential{ak : this->ak_,
-                      sk : std::string(this->sk_.GetData(), this->sk_.GetSize()),
-                      dk : std::string(this->dk_.GetData(), this->dk_.GetSize())};
+    return Credential{.ak = this->ak_, .sk = std::string(this->sk_.GetData(), this->sk_.GetSize()), .dk = this->dk_};
 }
 
 void Security::SetAKSKAndCredential(const std::string &ak, const SensitiveValue &sk)

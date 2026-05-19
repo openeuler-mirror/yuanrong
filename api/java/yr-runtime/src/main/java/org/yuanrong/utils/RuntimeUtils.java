@@ -71,11 +71,6 @@ public class RuntimeUtils {
     }
 
 
-    /**
-     * Load KEY=value lines from a file into JVM system properties (same keys as setJavaProcessEnv).
-     *
-     * @param envFilePath path to env file; empty or missing file is ignored with log
-     */
     public static void loadEnvFromFile(String envFilePath) {
         if (envFilePath == null || envFilePath.trim().isEmpty()) {
             LOGGER.info("Environment file is empty");
@@ -97,7 +92,7 @@ public class RuntimeUtils {
                     continue;
                 }
                 String[] kv = parseLine(line, lineNum, envFilePath);
-                if (kv.length == 0) {
+                if (kv == null) {
                     continue;
                 }
                 // Write into JVM system properties (globally visible)
@@ -122,14 +117,14 @@ public class RuntimeUtils {
         int idx = line.indexOf('=');
         if (idx == -1) {
             LOGGER.warn("{}:{}  invalid line, missing '=': {}", filePath, lineNum, line);
-            return new String[0];
+            return null;
         }
         String key = line.substring(0, idx).trim();
         // Keep the spaces, no quotes.
         String value = line.substring(idx + 1).trim();
         if (key.isEmpty()) {
             LOGGER.warn("{}:{}  empty key", filePath, lineNum);
-            return new String[0];
+            return null;
         }
         return new String[]{key, value};
     }

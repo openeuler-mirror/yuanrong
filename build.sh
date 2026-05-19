@@ -15,7 +15,6 @@
 
 
 set -e
-source /etc/profile.d/*.sh
 
 readonly USAGE="
 Usage: bash build.sh [-thdDcCrvPSbEm:j:GU]
@@ -41,7 +40,7 @@ Options:
     -m mem limit(MB)
     -h usage.
     -j concurrency limit
-    -G enable gloo collective operations (default: disabled)
+    -G enable gloo collective operations (default: enabled)
     -U enable UCC collective operations (default: disabled)
 "
 
@@ -49,14 +48,25 @@ BASE_DIR=$(
     cd "$(dirname "$0")"
     pwd
 )
-BUILD_BASE="${BASE_DIR}/build"
+BUILD_BASE="${BAZEL_OUTPUT_USER_ROOT:-${BASE_DIR}/build}"
 OUTPUT_DIR="${BASE_DIR}/output"
-OUTPUT_BASE="${BASE_DIR}/build/output"
+OUTPUT_BASE="${BAZEL_OUTPUT_BASE:-${BUILD_BASE}/output}"
 BAZEL_COMMAND="build"
 BUILD_VERSION="v0.0.1"
-BAZEL_OPTIONS=""
+BAZEL_OPTIONS="--experimental_cc_shared_library=true --verbose_failures --strategy=CcStrip=standalone --@opentelemetry_cpp//api:with_abseil=true"
 BAZEL_OPTIONS_CONFIG=" --config=release "
 BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_python_pkg //api/go:yr_go_pkg"
+
+# On macOS, check for Java availability and adjust targets
+if [[ "$(uname)" == "Darwin" ]]; then
+    if ! java -version &>/dev/null; then
+        echo "Warning: Java not available, skipping Java targets"
+        BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/python:yr_python_pkg"
+    else
+        BAZEL_TARGETS="//api/cpp:yr_cpp_pkg //api/java:yr_java_pkg //api/python:yr_python_pkg"
+    fi
+fi
+
 BAZEL_PRE_OPTIONS="--output_user_root=${BUILD_BASE} --output_base=${OUTPUT_BASE}"
 THIRD_PARTY_DIR="${BASE_DIR}/thirdparty"
 PYTHON3_BIN_PATH="python3"
@@ -67,14 +77,14 @@ SANITIZER="off"
 BAZEL_OPTIONS_ENV=""
 SECBRELLA_CCE="OFF"
 PACKAGE_ALL="false"
-ENABLE_GLOO="false"
+ENABLE_GLOO="true"
 ENABLE_UCC="false"
+ENABLE_DATASYSTEM="true"
+MACOS_DEPLOYMENT_TARGET=""
 LD_LIBRARY_PATH=/opt/buildtools/python3.7/lib:/opt/buildtools/python3.9/lib:/opt/buildtools/python3.11/lib:/opt/buildtools/python3.12/lib:/opt/buildtools/python3.13/lib:${LD_LIBRARY_PATH}
 BOOST_VERSION="1.87.0"
 export BUILD_ALL="false"
-if [ ! -d "${THIRD_PARTY_DIR}" ]; then
-  mkdir -p "${THIRD_PARTY_DIR}"
-fi
+
 function usage() {
     echo -e "$USAGE"
 }
@@ -94,6 +104,13 @@ log_error() {
 log_fatal() {
     echo "[BUILD_FATAL][$(date +%b\ %d\ %H:%M:%S)]$*"
     exit 1
+}
+
+function pip_flags_for_python() {
+    local py="$1"
+    if "${py}" -m pip install --help 2>/dev/null | grep -q -- '--break-system-packages'; then
+        echo "--break-system-packages"
+    fi
 }
 
 MODULE_LIST=(\
@@ -180,60 +197,41 @@ function build_python_sdk() {
     API_DIR="$BASE_DIR/api"
     cd $API_DIR/python
     rm -rf build/ dist/ *.egg-info
+    # Ensure packaging is available (setup.py requires it)
+    local pip_flag
+    pip_flag="$(pip_flags_for_python "${PYTHON3_SDK_BIN_PATH}")"
+    "${PYTHON3_SDK_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -q packaging wheel
     # Determine python runtime version for services.yaml
     if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
         PYTHON_RUNTIME_VERSION=python3.11
     else
         PYTHON_RUNTIME_VERSION=$PYTHON3_BIN_PATH
     fi
-    # Main wheel declares install_requires on openyuanrong_sdk; build and ship both.
-    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
     mkdir -p ${OUTPUT_DIR}
     mkdir -p $OUTPUT_BASE/runtime/sdk/python/
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE= PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
+    SETUP_TYPE=sdk PYTHON_RUNTIME_VERSION=$PYTHON_RUNTIME_VERSION $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
+    cp -R $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
     chmod 750 $BASE_DIR/output/*.whl
-    cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
     if [ -e "${OUTPUT_BASE}"/runtime/service/python/yr ]; then
-        cp -arf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
-        cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
+        cp -Rf $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
         rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
     else
         mkdir -p $OUTPUT_BASE/runtime/service/python/yr
-        cp -ar $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
-        cp -ar $API_DIR/python/dist/*whl $OUTPUT_BASE/runtime/sdk/python/
+        cp -R $API_DIR/python/yr/* $OUTPUT_BASE/runtime/service/python/yr
         rm -rf $OUTPUT_BASE/runtime/service/python/yr/tests
     fi
-    for metrics_lib_dir in "${BASE_DIR}/metrics/lib" "${BASE_DIR}/functionsystem/output/metrics/lib"; do
-        if [ -f "${metrics_lib_dir}/libobservability-prometheus-pull-exporter.so" ]; then
-            cp -f "${metrics_lib_dir}/libobservability-prometheus-pull-exporter.so" \
-                "$OUTPUT_BASE/runtime/service/python/yr/"
-            break
-        fi
-    done
     rm -f $OUTPUT_BASE/runtime/service/python/yr/fnruntime.pyx
-}
-
-function sync_metrics_plugins() {
-    local src_dir="${BASE_DIR}/functionsystem/output/metrics/lib"
-    local dst_dir="${BASE_DIR}/metrics/lib"
-    if [ -f "${src_dir}/libobservability-prometheus-pull-exporter.so" ]; then
-        mkdir -p "${dst_dir}"
-        cp -f "${src_dir}/libobservability-prometheus-pull-exporter.so" "${dst_dir}/"
-    fi
+    rm -rf $OUTPUT_BASE/runtime/service/python/yr/runtime
 }
 
 function install_python_requirements() {
-    "${PYTHON3_BIN_PATH}" -m pip install -U pip setuptools wheel
-    "${PYTHON3_BIN_PATH}" -m pip install pytest coverage
-    "${PYTHON3_BIN_PATH}" -m pip install -r api/python/requirements.txt
-    "${PYTHON3_BIN_PATH}" -m pip install numpy
-    "${PYTHON3_BIN_PATH}" -m pip install fastapi
-    "${PYTHON3_BIN_PATH}" -m pip install aiohttp # only for test
-    "${PYTHON3_BIN_PATH}" -m pip install requests
+    local pip_flag
+    pip_flag="$(pip_flags_for_python "${PYTHON3_BIN_PATH}")"
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} pytest coverage
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} -r api/python/requirements.txt
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} numpy
+    "${PYTHON3_BIN_PATH}" -m pip install ${pip_flag:+$pip_flag} fastapi
 }
 
 function check_sanitizers() {
@@ -283,10 +281,10 @@ while getopts 'athr:l:v:S:DcCgPET:p:B:m:j:gGU' opt; do
         BAZEL_OPTIONS_CONFIG=" --config=debug "
         ;;
     m)
-        BAZEL_OPTIONS="$BAZEL_OPTIONS --local_ram_resources=${OPTARG} "
+        BAZEL_OPTIONS_ENV="$BAZEL_OPTIONS_ENV --local_ram_resources=${OPTARG} "
         ;;
     j)
-        BAZEL_OPTIONS="$BAZEL_OPTIONS --jobs=${OPTARG} "
+        BAZEL_OPTIONS_ENV="$BAZEL_OPTIONS_ENV --jobs=${OPTARG} "
         ;;
     c)
         BAZEL_COMMAND="coverage"
@@ -380,20 +378,27 @@ if [ -n "${REMOTE_CACHE}" ]; then
     fi
 fi
 
-if [ "$BAZEL_COMMAND" != "clean" ]; then
+if [ -n "${BAZEL_REPOSITORY_CACHE:-}" ]; then
+    mkdir -p "${BAZEL_REPOSITORY_CACHE}"
+    BAZEL_OPTIONS="$BAZEL_OPTIONS --repository_cache=${BAZEL_REPOSITORY_CACHE}"
+fi
+
+if [ "$BAZEL_COMMAND" != "clean" ] && [ "${SKIP_RUNTIME_DEPENDENCY_DOWNLOAD:-0}" != "1" ]; then
    bash ${BASE_DIR}/tools/download_dependency.sh
 fi
 
 API_DIR="${BASE_DIR}/api"
-sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/pom.xml
-sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-api-sdk/pom.xml
-sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/function-common/pom.xml
-sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
-
-if command -v "${PYTHON3_BIN_PATH}" >/dev/null 2>&1; then
-    "${PYTHON3_BIN_PATH}" -m pip install -U wheel
+# Use sed with cross-platform compatibility (macOS requires -i '')
+if [[ "$(uname)" == "Darwin" ]]; then
+    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/pom.xml
+    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-api-sdk/pom.xml
+    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/function-common/pom.xml
+    sed -i '' "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
 else
-    pip3 install -U wheel
+    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/pom.xml
+    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-api-sdk/pom.xml
+    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/function-common/pom.xml
+    sed -i "s/<version>1.0.0<\/version>/<version>${BUILD_VERSION}<\/version>/" $API_DIR/java/yr-runtime/pom.xml
 fi
 
 PYTHON_BIN_FULL_PATH="$(command -v "${PYTHON3_BIN_PATH}" 2>/dev/null || true)"
@@ -401,13 +406,31 @@ if [[ -z "${PYTHON_BIN_FULL_PATH}" ]]; then
     log_fatal "python not found: ${PYTHON3_BIN_PATH}"
 fi
 
+if [[ "$(uname)" == "Darwin" ]]; then
+    ENABLE_DATASYSTEM="false"
+    ENABLE_GLOO="false"
+    if [[ "$(uname -m)" == "arm64" ]]; then
+        MACOS_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
+        export MACOSX_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET}"
+        BAZEL_OPTIONS="${BAZEL_OPTIONS} --macos_minimum_os=${MACOS_DEPLOYMENT_TARGET}"
+    fi
+fi
+
 # - action_env: for genrules (e.g. api/python/BUILD.bazel suffix rename)
 # - repo_env: for @local_config_python (python headers + libs) to match the selected interpreter
-BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH=$(go env GOPATH) --action_env=GOEXPERIMENT=$(go env GOEXPERIMENT) --action_env=GOCACHE=$(go env GOCACHE) --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON3_BIN_PATH} --define ENABLE_GLOO=${ENABLE_GLOO}"
+export GOPATH="$(go env GOPATH)"
+export GOMODCACHE="$(go env GOMODCACHE)"
+export GOENV="$(go env GOENV)"
+export GOFLAGS="$(go env GOFLAGS)"
+export GOEXPERIMENT="$(go env GOEXPERIMENT)"
+export GOCACHE="$(go env GOCACHE)"
+BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=BOOST_VERSION=$BOOST_VERSION --action_env=GOPATH --action_env=GOMODCACHE --action_env=GOENV --action_env=GOFLAGS --action_env=GOEXPERIMENT --action_env=GOCACHE --action_env=BUILD_VERSION=${BUILD_VERSION} --action_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --repo_env=PYTHON3_BIN_PATH=${PYTHON_BIN_FULL_PATH} --define ENABLE_GLOO=${ENABLE_GLOO} --define ENABLE_DATASYSTEM=${ENABLE_DATASYSTEM}"
+if [[ -n "${MACOS_DEPLOYMENT_TARGET}" ]]; then
+    BAZEL_OPTIONS_ENV="${BAZEL_OPTIONS_ENV} --action_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET} --repo_env=MACOSX_DEPLOYMENT_TARGET=${MACOS_DEPLOYMENT_TARGET}"
+fi
 BAZEL_OPTIONS="${BAZEL_OPTIONS} ${BAZEL_OPTIONS_CONFIG} ${BAZEL_OPTIONS_ENV}"
 
 cd $BASE_DIR
-sync_metrics_plugins
 bazel ${BAZEL_PRE_OPTIONS} ${BAZEL_COMMAND} ${BAZEL_OPTIONS} -- ${BAZEL_TARGETS}
 
 PYTHON3_SDK_BIN_PATH=$PYTHON3_BIN_PATH
@@ -435,45 +458,20 @@ fi
 if [ "$BAZEL_COMMAND" == "build" ]; then
     mkdir -p ${OUTPUT_DIR}
     tar -czf ${OUTPUT_DIR}/yr-runtime-${BUILD_VERSION}.tar.gz -C ${OUTPUT_BASE} runtime
-    # tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
+    if [ -d "${OUTPUT_BASE}/symbols" ] && [ "$(ls -A ${OUTPUT_BASE}/symbols 2>/dev/null)" ]; then
+        tar -czf ${OUTPUT_DIR}/symbols_libruntime.tar.gz -C ${OUTPUT_BASE} symbols
+    fi
 fi
 
 if [ "$PACKAGE_ALL" == "true" ]; then
-    # Determine the python version to use in package
-    if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
-        # Default to python3.11 when building multiple versions
-        PACKAGE_PYTHON_VERSION=python3.11
-    else
-        # Use the specified python version
-        PACKAGE_PYTHON_VERSION=$PYTHON3_BIN_PATH
-    fi
-
     start=$(date +%s)
     bash ${BASE_DIR}/scripts/package_yuanrong.sh -v ${BUILD_VERSION}
-    end1=$(date +%s)
-    echo "Package openyuanrong.tar.gz elapsed: $((end1 - start)) seconds"
-
     cd "$BASE_DIR"/api/python
     rm -rf build/ dist/ *.egg-info
-    PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=dashboard PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=faas PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=sdk_cpp PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=runtime PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    rm -rf build/ dist/ *.egg-info
-    SETUP_TYPE=full PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
-    cp -ar $API_DIR/python/dist/*whl $BASE_DIR/output/
-    end2=$(date +%s)
-    echo "Package openyuanrong.whl elapsed: $((end2 - end1)) seconds"
+    SETUP_TYPE= PYTHON_RUNTIME_VERSION=${PACKAGE_PYTHON_VERSION} $PYTHON3_SDK_BIN_PATH setup.py bdist_wheel
+    cp -R $API_DIR/python/dist/*whl $BASE_DIR/output/
+    end=$(date +%s)
+    echo "Package openyuanrong.whl elapsed: $((end - start)) seconds"
     chmod 750 $BASE_DIR/output/*.whl
 fi
 cd -

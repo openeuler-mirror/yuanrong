@@ -221,7 +221,7 @@ func IsUnrecoverableError(err error) bool {
 			return true
 		}
 		if snErr.Code() == statuscode.UserFuncEntryNotFoundErrCode || snErr.Code() == statuscode.KernelEtcdWriteFailedCode ||
-			snErr.Code() == statuscode.WiseCloudNuwaColdStartErrCode || snErr.Code() == statuscode.StsConfigErrCode {
+			snErr.Code() == statuscode.WiseCloudNuwaColdStartErrCode {
 			return true
 		}
 	}
@@ -406,6 +406,7 @@ func BuildInstanceFromInsSpec(insSpec *commonTypes.InstanceSpecification,
 		MetricLabelValues: metricsLabels,
 		PodID:             insSpec.Extensions.PodNamespace + ":" + insSpec.Extensions.PodName,
 		PodDeploymentName: insSpec.Extensions.PodDeploymentName,
+		FunctionProxyID:   insSpec.FunctionProxyID,
 		AZ:                insSpec.Extensions.AZ,
 	}
 }
@@ -416,9 +417,6 @@ func CheckInstanceSessionValid(insSess commonTypes.InstanceSessionConfig) bool {
 		return false
 	}
 	if insSess.SessionTTL < 0 {
-		return false
-	}
-	if insSess.Concurrency == 0 || insSess.Concurrency < -1 {
 		return false
 	}
 	return true

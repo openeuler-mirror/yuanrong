@@ -18,7 +18,6 @@
 package instancepool
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -436,14 +435,6 @@ func (op *OneShotInstancePool) GetAndDeleteState(stateID string) bool {
 // DeleteStateInstance deletes state instance (not applicable for one-shot pool)
 func (op *OneShotInstancePool) DeleteStateInstance(stateID string, instanceID string) {
 	// One-shot instances don't support state
-}
-
-// QuerySession resolves session ID to instance ID. One-shot pool does not record sessions
-// (unlike GenericInstancePool.sessionRecordMap), so lookups always miss.
-func (op *OneShotInstancePool) QuerySession(sessionID string) (string, error) {
-	op.RLock()
-	defer op.RUnlock()
-	return "", fmt.Errorf("session %s not found", sessionID)
 }
 
 // handleManagedChange handles managed change (no-op for one-shot pool)

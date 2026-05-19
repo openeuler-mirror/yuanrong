@@ -18,7 +18,7 @@
 
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
-#include "json.hpp"
+
 #include "src/dto/status.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/fsclient/protobuf/bus_service.grpc.pb.h"
@@ -28,7 +28,6 @@
 #include "src/libruntime/fsclient/protobuf/lease_service.pb.h"
 #include "src/libruntime/fsclient/protobuf/runtime_rpc.grpc.pb.h"
 #include "src/libruntime/fsclient/protobuf/runtime_service.grpc.pb.h"
-#include "src/libruntime/invokeadaptor/agent_session_manager.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/thread_pool.h"
 
@@ -66,7 +65,6 @@ using LeaseResponse = ::lease_service::LeaseResponse;
 
 using CreateRequests = ::core_service::CreateRequests;
 using GroupOptions = ::core_service::GroupOptions;
-using BindOptions = ::core_service::BindOptions;
 using CreateResponses = ::core_service::CreateResponses;
 
 using CreateRequest = ::core_service::CreateRequest;
@@ -221,7 +219,7 @@ public:
 
 class EventMessageSpec : public MessgeSpec {
 public:
-    EventMessageSpec() : MessgeSpec() {};
+    EventMessageSpec() : MessgeSpec(){};
     explicit EventMessageSpec(const std::shared_ptr<::runtime_rpc::StreamingMessage> &msg) : MessgeSpec(msg) {}
     ~EventMessageSpec() override = default;
     EventRequest &Mutable()
@@ -264,6 +262,8 @@ using CallResultCallBack = std::function<void(const CallResultAck &)>;
 using ExitCallBack = std::function<void(const ExitResponse &)>;
 using StateSaveCallBack = std::function<void(const StateSaveResponse &)>;
 using StateLoadCallBack = std::function<void(const StateLoadResponse &)>;
+using InstanceRouteGetter = std::function<std::string(const std::string &)>;
+using InstanceProxyIDGetter = std::function<std::string(const std::string &)>;
 
 struct FSIntfHandlers {
     CallHandler init = nullptr;
@@ -277,33 +277,8 @@ struct FSIntfHandlers {
     SignalHandler signal = nullptr;
     HeartbeatHandler heartbeat = nullptr;
     EventHandler event = nullptr;
-};
-
-struct InterruptResponse {
-    std::map<std::string, std::string> headers{{"Content-Type", "application/json"}, {"X-Log-Type", "base64"}};
-    std::string billingDuration;
-    std::string innerCode = "0";
-    std::string invokeSummary;
-    std::string logResult;
-    int userFuncTime = 0;
-    int executorTime = 0;
-    std::map<std::string, std::string> body;
-
-    InterruptResponse() = default;
-
-    std::string toJson() const
-    {
-        nlohmann::json j;
-        j["headers"] = headers;
-        j["billingDuration"] = billingDuration;
-        j["innerCode"] = innerCode;
-        j["invokeSummary"] = invokeSummary;
-        j["logResult"] = logResult;
-        j["userFuncTime"] = userFuncTime;
-        j["executorTime"] = executorTime;
-        j["body"] = body;
-        return j.dump();
-    }
+    InstanceRouteGetter getInstanceRoute = nullptr;
+    InstanceProxyIDGetter getInstanceProxyID = nullptr;
 };
 
 class FSIntf {
@@ -316,6 +291,9 @@ public:
                             const std::string &runtimeID = "", const std::string &functionName = "",
                             const SubscribeFunc &subScribeCb = nullptr) = 0;
     virtual void Stop(void) = 0;
+    // Re-initialize after checkpoint restore. Only reinitializes network connections
+    // and thread pools, without clearing user data.
+    virtual void ReInit(void) {}
     void ReceiveRequestLoop(void);
     virtual void GroupCreateAsync(const CreateRequests &reqs, CreateRespsCallback respCallback, CreateCallBack callback,
                                   int timeoutSec = -1) = 0;
@@ -339,13 +317,6 @@ public:
     virtual void RemoveInsRtIntf(const std::string &instanceId) {}
     virtual ErrorInfo ReconnectProxyClient(const std::string &fsIp, int fsPort) { return ErrorInfo(); }
     void HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, CallCallBack callback);
-    void ProcessCallRequest(const std::shared_ptr<CallMessageSpec> &req, CallCallBack callback);
-    void HandleInterruptRequest(const google::protobuf::Map<std::string, std::string> &createOptions,
-                                const std::shared_ptr<CallMessageSpec> &req, CallResponse &resp);
-    std::string GetInterruptResponse(const google::protobuf::Map<std::string, std::string> &createOptions,
-                                     const std::string &requestId, CallResponse &resp);
-    std::shared_ptr<CallResultMessageSpec> BuildInterruptedCallResult(const std::shared_ptr<CallMessageSpec> &req,
-                                                                      std::string interruptResponse);
     void HandleNotifyRequest(const NotifyRequest &req, std::function<NotifyResponse(void)> createOrInvokeCallback,
                              NotifyCallBack callback);
     void HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCallBack callback);
@@ -358,24 +329,16 @@ public:
     void HandleEventRequest(const std::shared_ptr<EventMessageSpec> &req);
     int WaitRequestEmpty(uint64_t gracePeriodSec);
     void SetInitialized();
+    bool NeedReInit() const { return needReInit_.load(); }
+    void ResetNeedReInit() { needReInit_.store(false); }
     virtual void EventAsync(const std::shared_ptr<EventMessageSpec> &req, int timeoutSec = -1) {}
     virtual bool IsHealth() = 0;
     virtual void UpdateEventServerInfo(const std::string &ip, int port, const std::string &instaceId) {}
-    virtual int GetSelfPort() const
-    {
-        return -1;
-    }
-    virtual std::string GetSelfIP() const
-    {
-        return "";
-    }
-    void SetAgentSessionManager(const std::shared_ptr<AgentSessionManager> &agentSessionManager)
-    {
-        agentSessionManager_ = agentSessionManager;
-    }
+    virtual int GetSelfPort() const { return -1; }
 
 protected:
     void Clear();
+    const FSIntfHandlers &GetHandlers() const { return handlers; }
     std::string serverVersion_;
     std::string nodeIp_;
     std::string nodeId_;
@@ -387,7 +350,6 @@ private:
     bool cleared_{false};
     FSIntfHandlers handlers;
     bool syncHeartbeat;
-    std::shared_ptr<AgentSessionManager> agentSessionManager_;
     ThreadPool callReceiver;
     ThreadPool noitfyExecutor;
     ThreadPool checkpointRecoverExecutor;
@@ -401,6 +363,7 @@ private:
     absl::CondVar cv_;
     std::atomic<bool> isShutdownDone{false};
     std::unordered_set<std::string> processingRequestIds ABSL_GUARDED_BY(mu);
+    std::atomic<bool> needReInit_{false};  // checkpoint restore 后需要重新初始化
 
     class InstanceStatus {
     public:
@@ -452,12 +415,6 @@ private:
         bool WaitInitialized(void)
         {
             n.WaitForNotification();
-            absl::ReaderMutexLock lock(&this->mu);
-            return state == INITIALIZED;
-        }
-
-        bool IsInitialized()
-        {
             absl::ReaderMutexLock lock(&this->mu);
             return state == INITIALIZED;
         }

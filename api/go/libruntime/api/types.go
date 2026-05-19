@@ -109,31 +109,17 @@ const (
 
 // FunctionMeta function meta
 type FunctionMeta struct {
-	AppName   string
-	FuncName  string
-	FuncID    string
-	Sig       string
-	PoolLabel string
-	Name      *string
-	Namespace *string
-	Api       ApiType
-	Language  LanguageType
-}
-
-// GaugeData custom gauge metric payload.
-type GaugeData struct {
-	Name        string
-	Description string
-	Unit        string
-	Value       float64
-}
-
-// UInt64CounterData custom counter metric payload.
-type UInt64CounterData struct {
-	Name        string
-	Description string
-	Unit        string
-	Value       uint64
+	AppName    string
+	FuncName   string
+	FuncID     string
+	ModuleName string
+	ClassName  string
+	Sig        string
+	PoolLabel  string
+	Name       *string
+	Namespace  *string
+	Api        ApiType
+	Language   LanguageType
 }
 
 // StackTracesInfo stack info
@@ -257,7 +243,7 @@ type InvokeOptions struct {
 	AcquireTimeout       int
 	TrafficLimited       bool
 	ForceInvoke          bool
-    IsInterrupted        bool
+	BypassDataSystem     bool
 }
 
 // InstanceAllocation holds the allocation of instance
@@ -267,6 +253,8 @@ type InstanceAllocation struct {
 	InstanceID    string
 	LeaseID       string
 	LeaseInterval int64
+	RouteAddress  string // litebus address (ip:port) of the proxy where the instance runs, used as YR_ROUTE value
+	ProxyID       string // functionProxyID of the proxy where the instance runs, used for DR kill routing
 }
 
 // WriteModeEnum kv write mode

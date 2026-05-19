@@ -113,6 +113,7 @@ const (
 
 type createOption struct {
 	traceID       string
+	traceParent   string
 	callerPodName string
 }
 
@@ -145,6 +146,7 @@ type patSvcCreateResponse struct {
 type createInstanceRequest struct {
 	createEvent     []byte
 	traceID         string
+	traceParent     string
 	instanceName    string
 	callerPodName   string
 	poolLabel       string
@@ -183,7 +185,6 @@ type InstancePool interface {
 	handleManagedChange()
 	handleRatioChange(ratio int)
 	CleanOrphansInstanceQueue()
-	QuerySession(sessionID string) (string, error)
 }
 
 // GenericInstancePool is a generic instance pool to manage instances of a specific function
@@ -476,7 +477,6 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 		}
 		var (
 			insAlloc *types.InstanceAllocation
-			err      snerror.SNError
 		)
 		defer func() {
 			if insAlloc != nil && len(insAlloc.SessionInfo.SessionID) != 0 {
@@ -502,8 +502,7 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 				logger.Errorf("failed to acquire on-demand instance queue of function, error %s", err.Error())
 				return nil, err
 			}
-			insAlloc, err = onDemandInstanceQueue.AcquireInstance(insAcqReq)
-			return insAlloc, err
+			return onDemandInstanceQueue.AcquireInstance(insAcqReq)
 		}
 		if !insAcqReq.TrafficLimited {
 			reservedInstanceQueue, err := gi.acquireReservedInstanceQueue(resKey)
@@ -521,8 +520,7 @@ func (gi *GenericInstancePool) AcquireInstance(insAcqReq *types.InstanceAcquireR
 				return nil, err
 			}
 		}
-		insAlloc, err = gi.acquireInstanceFromScaleQueueWithBackup(resKey, insAcqReq, logger)
-		return insAlloc, err
+		return gi.acquireInstanceFromScaleQueueWithBackup(resKey, insAcqReq, logger)
 	}
 }
 
@@ -1219,18 +1217,6 @@ func (gi *GenericInstancePool) CleanOrphansInstanceQueue() {
 	gi.synced = true
 }
 
-func (gi *GenericInstancePool) QuerySession(sessionID string) (string, error) {
-	gi.RLock()
-	defer gi.RUnlock()
-
-	record, exist := gi.sessionRecordMap[sessionID]
-	if exist && record.instance != nil {
-		return record.instance.InstanceID, nil
-	}
-
-	return "", fmt.Errorf("session %s not found", sessionID)
-}
-
 func generateInstanceConfig(insConf *instanceconfig.Configuration) *instanceconfig.Configuration {
 	if insConf.InstanceMetaData.MinInstance < 0 {
 		insConf.InstanceMetaData.MinInstance = 0
@@ -1334,13 +1320,20 @@ func (gi *GenericInstancePool) checkTenantLimit(instanceType types.InstanceType)
 }
 
 func (gi *GenericInstancePool) createInstanceAndAddCallerPodName(resSpec *resspeckey.ResourceSpecification,
-	instanceType types.InstanceType, callerPodName string) (*types.Instance, error) {
-	return gi.createInstanceFunc("", instanceType, gi.defaultResKey, nil, createOption{callerPodName: callerPodName})
+	instanceType types.InstanceType, traceID, traceParent, callerPodName string) (*types.Instance, error) {
+	return gi.createInstanceFunc("", instanceType, gi.defaultResKey, nil, createOption{
+		traceID:       traceID,
+		traceParent:   traceParent,
+		callerPodName: callerPodName,
+	})
 }
 
 func (gi *GenericInstancePool) createInstance(traceID string, insName string, instanceType types.InstanceType,
-	resKey resspeckey.ResSpecKey, createEvent []byte) (*types.Instance, error) {
-	return gi.createInstanceFunc(insName, instanceType, resKey, createEvent, createOption{traceID: traceID})
+	resKey resspeckey.ResSpecKey, createEvent []byte, traceParent string) (*types.Instance, error) {
+	return gi.createInstanceFunc(insName, instanceType, resKey, createEvent, createOption{
+		traceID:     traceID,
+		traceParent: traceParent,
+	})
 }
 
 func (gi *GenericInstancePool) createInstanceFunc(insName string, instanceType types.InstanceType,
@@ -1387,6 +1380,7 @@ func (gi *GenericInstancePool) createInstanceFunc(insName string, instanceType t
 
 	createRequest := createInstanceRequest{
 		traceID:         createOption.traceID,
+		traceParent:     createOption.traceParent,
 		funcSpec:        gi.FuncSpec,
 		poolLabel:       gi.currentPoolLabel,
 		createTimeout:   gi.createTimeout,

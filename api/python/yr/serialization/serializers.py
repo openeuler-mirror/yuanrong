@@ -41,7 +41,6 @@ global_thread_local = threading.local()
 global_thread_local.object_refs = set()
 _logger = logging.getLogger(__name__)
 
-
 def pop_local_object_refs():
     """pop local object refs"""
     if not hasattr(global_thread_local, "object_refs"):
@@ -133,7 +132,11 @@ def _object_ref_deserializer(object_id):
 
 
 def object_ref_reducer(object_ref: ObjectRef):
-    """object ref reducer"""
+    """object ref reducer
+
+    Deprecated: This function is kept for backward compatibility.
+    ObjectRef now uses __reduce__ method for serialization with cloudpickle 3.x.
+    """
     global_thread_local.object_refs.add(object_ref)
     return _object_ref_deserializer, (object_ref.id,)
 
@@ -144,7 +147,10 @@ class PySerializer:
     @staticmethod
     def init():
         """init"""
-        cloudpickle.CloudPickler.dispatch[ObjectRef] = object_ref_reducer
+        # cloudpickle 3.x no longer uses CloudPickler.dispatch.
+        # ObjectRef now uses __reduce__ method for serialization.
+        # This method is kept for backward compatibility.
+        pass
 
     @staticmethod
     def serialize(value: Any) -> SerializedInterface:

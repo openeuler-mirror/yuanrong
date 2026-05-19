@@ -356,25 +356,25 @@ func TestCheckInstanceSessionValid(t *testing.T) {
 	convey.Convey("test CheckInstanceSessionValid", t, func() {
 		convey.Convey("CheckInstanceSessionValid", func() {
 			res := CheckInstanceSessionValid(commonTypes.InstanceSessionConfig{
-				SessionID:  "_123&0",
-				SessionTTL: 10,
+				SessionID:   "_123&0",
+				SessionTTL:  10,
 				Concurrency: 1,
 			})
 			convey.So(res, convey.ShouldEqual, true)
 			res = CheckInstanceSessionValid(commonTypes.InstanceSessionConfig{
-				SessionTTL: 10,
+				SessionTTL:  10,
 				Concurrency: 1,
 			})
 			convey.So(res, convey.ShouldEqual, false)
 			res = CheckInstanceSessionValid(commonTypes.InstanceSessionConfig{
-				SessionID:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				SessionTTL: 10,
+				SessionID:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				SessionTTL:  10,
 				Concurrency: 1,
 			})
 			convey.So(res, convey.ShouldEqual, false)
 			res = CheckInstanceSessionValid(commonTypes.InstanceSessionConfig{
-				SessionID:  "aaa",
-				SessionTTL: 0,
+				SessionID:   "aaa",
+				SessionTTL:  0,
 				Concurrency: 1,
 			})
 			convey.So(res, convey.ShouldEqual, true)

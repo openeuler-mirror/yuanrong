@@ -17,18 +17,18 @@
 #pragma once
 #include <optional>
 #include <string>
-#include "datasystem/utils/sensitive_value.h"
+#include <thread>
 #include "securec.h"
 #include "src/dto/config.h"
 #include "src/dto/function_group_running_info.h"
 #include "src/libruntime/libruntime_options.h"
+#include "src/libruntime/utils/sensitive_value.h"
 #include "src/proto/libruntime.pb.h"
 #include "src/utility/id_generator.h"
 #include "src/utility/logger/logger.h"
 
 namespace YR {
 namespace Libruntime {
-using SensitiveValue = datasystem::SensitiveValue;
 
 const int DEFAULT_RECYCLETIME = 2;
 const int MAX_RECYCLETIME = 3000;
@@ -201,7 +201,7 @@ struct LibruntimeConfig {
     std::string functionName = "";
     bool enableServerMode = false;
 
-    libruntime::LanguageType selfLanguage;
+    libruntime::LanguageType selfLanguage = libruntime::LanguageType::Python;
     std::unordered_map<libruntime::LanguageType, std::string> functionIds;
     libruntime::ApiType selfApiType = libruntime::ApiType::Function;
     std::string logLevel = "";
@@ -228,7 +228,7 @@ struct LibruntimeConfig {
     std::string verifyFilePath = "";
     char privateKeyPaaswd[MAX_PASSWD_LENGTH] = {0};
     std::shared_ptr<void> tlsContext = nullptr;
-    uint32_t httpIocThreadsNum = 200;
+    uint32_t httpIocThreadsNum = std::max(1u, std::thread::hardware_concurrency());
     int httpIdleTime = HTTP_IDLE_TIME;
     std::string serverName = "";
     bool skipServerVerify = true;  // Whether to skip server certificate verification

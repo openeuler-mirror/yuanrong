@@ -95,11 +95,6 @@ message CreateResourceGroupResponse {
   string           message    = 2;
 }
 
-message BindOptions {
-  string resource = 1;
-  common.BindStrategy policy = 2;
-};
-
 message GroupOptions {
   // group schedule timeout (sec)
   int64  timeout   = 1;
@@ -109,12 +104,11 @@ message GroupOptions {
   // indicated which rgroup submit to
   string rGroupName = 4;
   common.GroupPolicy   groupPolicy = 5;
-  // group binding resource and binding strategy
-  BindOptions bind = 6;
 }
 
 message InvokeOptions {
   map<string, string>	customTag = 1;
+  bool                bypass_datasystem = 2;
 }
 
 message InvokeRequest {
@@ -194,6 +188,7 @@ message SnapOptions {
   common.SnapType type = 1;
   int32           ttl  = 2;  // seconds
   bool            leaveRunning = 3;
+  string          functionType = 4;  // moduleName.className for actors
 }
 
 message SnapStartOptions {
@@ -208,13 +203,20 @@ message SnapInfo {
 
 message SnapStartedInfo {
   string instanceID = 1;
+  string routeAddress = 2;
+  string portMappings = 3;
+  string functionProxyID = 4;
+  string nodeID = 5;
+  string namespace = 6;
 }
 
 message KillRequest {
-  string instanceID = 1;
-  int32  signal     = 2;
-  bytes  payload    = 3;
-  string requestID  = 4;
+  string instanceID   = 1;
+  int32  signal       = 2;
+  bytes  payload      = 3;
+  string requestID    = 4;
+  string routeAddress = 5; // litebus bus URL of owner proxy (for DR kill routing)
+  string proxyID      = 6; // functionProxyID of owner proxy (for DR kill routing)
 }
 
 message InstanceTermination {

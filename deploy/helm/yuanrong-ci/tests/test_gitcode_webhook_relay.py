@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+
+import importlib.util
+import hashlib
+import hmac
+import os
+import unittest
+from pathlib import Path
+
+
+def load_relay_module():
+    os.environ.setdefault("BUILDKITE_ORGANIZATION", "test-org")
+    os.environ.setdefault("BUILDKITE_PIPELINE", "test-pipeline")
+    os.environ.setdefault("BUILDKITE_API_TOKEN", "test-token")
+    os.environ.setdefault("GITCODE_WEBHOOK_TOKEN", "test-webhook-token")
+
+    app_path = (
+        Path(__file__).resolve().parents[1]
+        / "files"
+        / "gitcode-webhook-relay"
+        / "app.py"
+    )
+    spec = importlib.util.spec_from_file_location("gitcode_webhook_relay", app_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+relay = load_relay_module()
+
+
+class GitCodeWebhookRelayTest(unittest.TestCase):
+    def setUp(self):
+        self.original_settings = relay.SETTINGS.copy()
+        self.original_trigger_buildkite = relay.trigger_buildkite
+        relay.SETTINGS.update(
+            {
+                "trigger_mr": True,
+                "trigger_push": False,
+                "trigger_tag_push": True,
+                "tag_patterns": {"[0-9]*", "v[0-9]*"},
+                "mr_actions": {"merge"},
+                "mr_target_branches": {"feature/sandbox"},
+                "skip_wip": True,
+                "use_virtual_merge_ref": False,
+                "buildkite_repository": "https://gitcode.com/openeuler/yuanrong.git",
+                "dedup_ttl_seconds": 900,
+                "message_prefix": "Triggered by GitCode",
+                "buildkite_env": {},
+            }
+        )
+        relay.BUILD_DEDUP_CACHE.clear()
+        self.triggered = []
+
+        def fake_trigger_buildkite(branch, commit, message, extra_env):
+            self.triggered.append(
+                {
+                    "branch": branch,
+                    "commit": commit,
+                    "message": message,
+                    "extra_env": extra_env,
+                }
+            )
+            return {"web_url": "https://buildkite.example/build/1", "number": 1}
+
+        relay.trigger_buildkite = fake_trigger_buildkite
+
+    def tearDown(self):
+        relay.SETTINGS.clear()
+        relay.SETTINGS.update(self.original_settings)
+        relay.BUILD_DEDUP_CACHE.clear()
+        relay.trigger_buildkite = self.original_trigger_buildkite
+
+    def merged_update_payload(self):
+        return {
+            "object_attributes": {
+                "action": "update",
+                "state": "merged",
+                "target_branch": "feature/sandbox",
+                "source_branch": "wip/webhook-macos-default",
+                "target_branch_commit": {"id": "56336d2c21f5"},
+                "last_commit": {"id": "98d3d2e45c12"},
+                "iid": 637,
+                "work_in_progress": False,
+            },
+            "project": {"path_with_namespace": "openeuler/yuanrong"},
+            "git_target_branch_commit_no": "56336d2c21f5",
+        }
+
+    def test_merged_update_triggers_target_branch_commit(self):
+        code, result = relay.handle_merge_request(self.merged_update_payload())
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "triggered")
+        self.assertEqual(result["branch"], "feature/sandbox")
+        self.assertEqual(result["commit"], "56336d2c21f5")
+        self.assertEqual(self.triggered[0]["extra_env"]["GITCODE_MR_ACTION"], "merge")
+
+    def test_duplicate_merged_update_is_skipped_by_target_commit(self):
+        first_code, first_result = relay.handle_merge_request(self.merged_update_payload())
+        second = self.merged_update_payload()
+        second["uuid"] = "637_second-delivery"
+        second_code, second_result = relay.handle_merge_request(second)
+
+        self.assertEqual(first_code, 200)
+        self.assertEqual(first_result["status"], "triggered")
+        self.assertEqual(second_code, 202)
+        self.assertEqual(second_result["reason"], "duplicate merge request build trigger")
+        self.assertEqual(len(self.triggered), 1)
+
+    def test_stable_tag_push_triggers_release_build_version_and_pypi(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/0.7.50",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "uuid": "tag-delivery-1",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "triggered")
+        self.assertEqual(result["event"], "tag_push")
+        self.assertEqual(result["tag"], "0.7.50")
+        self.assertEqual(result["version"], "0.7.50")
+        self.assertEqual(self.triggered[0]["branch"], "0.7.50")
+        self.assertEqual(self.triggered[0]["commit"], "abcdef1234567890")
+        extra_env = self.triggered[0]["extra_env"]
+        self.assertEqual(extra_env["BUILD_VERSION"], "0.7.50")
+        self.assertEqual(extra_env["YR_BUILD_VERSION"], "0.7.50")
+        self.assertEqual(extra_env["BUILDKITE_TAG"], "0.7.50")
+        self.assertEqual(extra_env["PUBLISH_TEST_PYPI"], "0")
+        self.assertEqual(extra_env["PUBLISH_PYPI"], "1")
+        self.assertEqual(extra_env["BUILDKITE_PACKAGE_UPLOAD_ENABLED"], "0")
+
+    def test_prerelease_tag_push_uses_testpypi(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/0.7.40.rc2",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "uuid": "tag-delivery-rc",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["status"], "triggered")
+        self.assertEqual(result["version"], "0.7.40.rc2")
+        extra_env = self.triggered[0]["extra_env"]
+        self.assertEqual(extra_env["BUILD_VERSION"], "0.7.40.rc2")
+        self.assertEqual(extra_env["PUBLISH_TEST_PYPI"], "1")
+        self.assertEqual(extra_env["PUBLISH_PYPI"], "0")
+        self.assertEqual(extra_env["BUILDKITE_PACKAGE_UPLOAD_ENABLED"], "0")
+
+    def test_v_prefixed_tag_push_strips_v_for_build_version(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/v0.7.50",
+                "after": "abcdef1234567890",
+                "checkout_sha": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["version"], "0.7.50")
+        self.assertEqual(self.triggered[0]["extra_env"]["BUILD_VERSION"], "0.7.50")
+
+    def test_tag_push_event_kind_routes_to_tag_handler(self):
+        code, result = relay.handle_event(
+            {
+                "object_kind": "tag_push",
+                "ref": "refs/tags/0.7.50",
+                "after": "abcdef1234567890",
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 200)
+        self.assertEqual(result["event"], "tag_push")
+        self.assertEqual(self.triggered[0]["extra_env"]["BUILD_VERSION"], "0.7.50")
+
+    def test_tag_push_is_deduplicated(self):
+        payload = {
+            "ref": "refs/tags/0.7.50",
+            "after": "abcdef1234567890",
+            "checkout_sha": "abcdef1234567890",
+            "project": {"path_with_namespace": "openeuler/yuanrong"},
+        }
+
+        first_code, _ = relay.handle_push(dict(payload))
+        second_code, second_result = relay.handle_push(dict(payload, uuid="tag-delivery-2"))
+
+        self.assertEqual(first_code, 200)
+        self.assertEqual(second_code, 202)
+        self.assertEqual(second_result["reason"], "duplicate tag build trigger")
+        self.assertEqual(len(self.triggered), 1)
+
+    def test_tag_delete_is_skipped(self):
+        code, result = relay.handle_push(
+            {
+                "ref": "refs/tags/0.7.50",
+                "after": "0" * 40,
+                "checkout_sha": "0" * 40,
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "tag deletion or missing commit")
+        self.assertEqual(self.triggered, [])
+
+    def test_buildkite_repository_overrides_static_buildkite_repo_env(self):
+        relay.SETTINGS["buildkite_env"] = {"BUILDKITE_REPO": "https://gitcode.com/yuchaow/yuanrong.git"}
+
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["body"] = req.data
+
+            class FakeResponse:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+                def read(self):
+                    return b'{"web_url":"https://buildkite.example/build/2","number":2}'
+
+            return FakeResponse()
+
+        original_urlopen = relay.request.urlopen
+        relay.request.urlopen = fake_urlopen
+        try:
+            build = self.original_trigger_buildkite(
+                branch="feature/sandbox",
+                commit="56336d2c21f5",
+                message="test",
+                extra_env={},
+            )
+        finally:
+            relay.request.urlopen = original_urlopen
+
+        self.assertEqual(build["number"], 2)
+        self.assertIn(
+            b'"BUILDKITE_REPO": "https://gitcode.com/openeuler/yuanrong.git"',
+            captured["body"],
+        )
+
+    def test_open_update_is_still_filtered(self):
+        code, result = relay.handle_merge_request(
+            {
+                "object_attributes": {
+                    "action": "update",
+                    "state": "opened",
+                    "target_branch": "feature/sandbox",
+                    "source_branch": "wip/webhook-macos-default",
+                    "last_commit": {"id": "98d3d2e45c12"},
+                    "iid": 637,
+                    "work_in_progress": False,
+                },
+                "project": {"path_with_namespace": "openeuler/yuanrong"},
+            }
+        )
+
+        self.assertEqual(code, 202)
+        self.assertEqual(result["reason"], "merge request action filtered")
+        self.assertEqual(result["details"]["action"], "update")
+        self.assertEqual(self.triggered, [])
+
+    def test_webhook_token_is_valid_when_signature_secret_is_also_set(self):
+        relay.SETTINGS["webhook_token"] = "gitcode-password"
+        relay.SETTINGS["signature_secret"] = "configured-signature-secret"
+
+        for header in ("X-GitCode-Token", "X-Gitlab-Token", "X-GitLab-Token", "X-Gitee-Token"):
+            with self.subTest(header=header):
+                self.assertTrue(
+                    relay.verify_request(
+                        b"{}",
+                        {header: "gitcode-password"},
+                    )
+                )
+
+    def test_empty_webhook_token_does_not_allow_missing_token_header(self):
+        relay.SETTINGS["webhook_token"] = ""
+        relay.SETTINGS["signature_secret"] = "configured-signature-secret"
+
+        self.assertFalse(relay.verify_request(b"{}", {}))
+
+    def test_valid_signature_is_accepted_before_token_fallback(self):
+        body = b'{"object_kind":"merge_request"}'
+        relay.SETTINGS["webhook_token"] = "gitcode-password"
+        relay.SETTINGS["signature_secret"] = "configured-signature-secret"
+        signature = "sha256=" + hmac.new(
+            relay.SETTINGS["signature_secret"].encode("utf-8"),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        self.assertTrue(
+            relay.verify_request(
+                body,
+                {
+                    "X-GitCode-Signature-256": signature,
+                    "X-GitCode-Token": "wrong-token",
+                },
+            )
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

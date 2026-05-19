@@ -16,15 +16,21 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <cstdlib>
+#include <boost/asio/ssl.hpp>
+#include <boost/beast/http.hpp>
 #include <string>
 #include <unistd.h>
+#include <climits>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+
+#ifndef ENABLE_OBSERVABILITY
+#define ENABLE_OBSERVABILITY
+#endif
 
 #define private public
 #include "metrics/api/provider.h"
-#include "metrics/exporters/exporter.h"
-#include "metrics/sdk/immediately_export_processor.h"
-#include "metrics/sdk/meter_provider.h"
 #include "src/dto/config.h"
 #include "src/libruntime/err_type.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
@@ -35,58 +41,8 @@ using namespace testing;
 using namespace YR::utility;
 using namespace YR::Libruntime;
 namespace MetricsApi = observability::api::metrics;
-namespace MetricsSdk = observability::sdk::metrics;
-namespace MetricsExporters = observability::exporters::metrics;
 namespace YR {
 namespace test {
-
-namespace {
-constexpr uint16_t DISABLED_PROMETHEUS_PULL_EXPORTER_PORT = 0;
-
-class FakeExporter : public MetricsExporters::Exporter {
-public:
-    MetricsExporters::ExportResult Export(
-        const std::vector<observability::sdk::metrics::MetricData> & /* data */) noexcept override
-    {
-        return MetricsExporters::ExportResult::SUCCESS;
-    }
-
-    observability::sdk::metrics::AggregationTemporality GetAggregationTemporality(
-        observability::sdk::metrics::InstrumentType /* instrumentType */) const noexcept override
-    {
-        return observability::sdk::metrics::AggregationTemporality::CUMULATIVE;
-    }
-
-    bool ForceFlush(std::chrono::microseconds /* timeout */) noexcept override
-    {
-        return true;
-    }
-
-    bool Shutdown(std::chrono::microseconds /* timeout */) noexcept override
-    {
-        return true;
-    }
-
-    void RegisterOnHealthChangeCb(const std::function<void(bool)> & /* onChange */) noexcept override {}
-};
-
-class ScopedPlatformEnv {
-public:
-    ScopedPlatformEnv()
-    {
-        setenv("POD_NAME", "runtime-pod", 1);
-        setenv("POD_NAMESPACE", "runtime-namespace", 1);
-        YR::Libruntime::Config::c = YR::Libruntime::Config();
-    }
-
-    ~ScopedPlatformEnv()
-    {
-        unsetenv("POD_NAME");
-        unsetenv("POD_NAMESPACE");
-        YR::Libruntime::Config::c = YR::Libruntime::Config();
-    }
-};
-}  // namespace
 
 nlohmann::json GetValidConfig()
 {
@@ -105,14 +61,42 @@ nlohmann::json GetValidConfig()
                         "service_id": ""
                     }
                 },
-                "exporters": []
+                "exporters": [
+                    {
+                        "fileExporter": {
+                            "enable": true,
+                            "fileDir": "/home/sn/metrics/",
+                            "rolling": {
+                                "enable": true,
+                                "maxFiles": 3,
+                                "maxSize": 10000
+                            },
+                            "contentType": "LABELS"
+                        }
+                    }
+                ]
             }
         },
         {
             "immediatelyExport": {
                 "name": "LingYun",
                 "enable": true,
-                "exporters": []
+                "exporters": [
+                    {
+                        "prometheusPushExporter": {
+                            "enable": true,
+                            "batchSize": 2,
+                            "batchIntervalSec": 10,
+                            "failureQueueMaxSize": 2,
+                            "failureDataDir": "/home/sn/metrics/failure",
+                            "failureDataFileMaxCapacity": 1,
+                            "initConfig": {
+                                "ip": "127.0.0.1",
+                                "port": 31061
+                            }
+                        }
+                    }
+                ]
             }
         }
     ]
@@ -227,70 +211,52 @@ nlohmann::json GetExportConfigs()
     return nlohmann::json::parse(jsonStr);
 }
 
-nlohmann::json GetPrometheusPullExporterSslConfig()
+static std::filesystem::path GetRunfilesRoot()
 {
-    nlohmann::json config = {
-        {"backends",
-         {{
-             {"immediatelyExport",
-              {
-                  {"name", "Runtime"},
-                  {"enable", true},
-                  {"exporters",
-                   {{
-                       {"prometheusPullExporter",
-                        {
-                            {"enable", false},
-                            {"enabledInstruments", {"yr_custom_concurrent_num", "yr_custom_invoke_num"}},
-                            {"initConfig",
-                             {
-                                 {"ip", "127.0.0.1"},
-                                 {"port", DISABLED_PROMETHEUS_PULL_EXPORTER_PORT},
-                                 {"metricsPath", "/metrics"},
-                                 {"isSSLEnable", true},
-                                 {"mutualTlsEnable", true},
-                                 {"rootCertFile", "/tmp/root.crt"},
-                                 {"certFile", "/tmp/server.crt"},
-                                 {"keyFile", "/tmp/server.key"},
-                                 {"passphrase", "secret"},
-                             }},
-                        }},
-                   }}},
-              }},
-         }}}
-    };
-    return config;
+    const char *testSrcDir = std::getenv("TEST_SRCDIR");
+    const char *testWorkspace = std::getenv("TEST_WORKSPACE");
+    if (testSrcDir == nullptr || testWorkspace == nullptr) {
+        return {};
+    }
+    return std::filesystem::path(testSrcDir) / testWorkspace;
 }
 
-std::shared_ptr<MetricsAdaptor> BuildMockInitializedMetricsAdaptor()
+static void PrepareExporterSo()
 {
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
-    auto provider = std::make_shared<MetricsSdk::MeterProvider>(MetricsSdk::LiteBusParams{});
-    MetricsSdk::ExportConfigs exportConfigs;
-    exportConfigs.exporterName = "mock";
-    exportConfigs.exportMode = MetricsSdk::ExportMode::IMMEDIATELY;
-    auto exporter = std::make_shared<FakeExporter>();
-    provider->AddMetricProcessor(std::make_shared<MetricsSdk::ImmediatelyExportProcessor>(std::move(exporter),
-                                                                                          exportConfigs));
-    MetricsApi::Provider::SetMeterProvider(provider);
-    metricsAdaptor->userEnable_ = true;
-    metricsAdaptor->Initialized_ = true;
-    metricsAdaptor->prometheusPullExporterEnabled_ = true;
-    metricsAdaptor->prometheusPullExporterEnabledInstruments_ = {
-        "name", "yr_custom_concurrent_num", "yr_custom_invoke_num"
-    };
-    return metricsAdaptor;
-}
+    static bool prepared = false;
+    if (prepared) {
+        return;
+    }
+    prepared = true;
 
-std::shared_ptr<MetricsAdaptor> BuildSampleOnlyMetricsAdaptor()
-{
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
-    metricsAdaptor->userEnable_ = true;
-    metricsAdaptor->prometheusPullExporterEnabled_ = true;
-    metricsAdaptor->prometheusPullExporterEnabledInstruments_ = {
-        "yr_custom_concurrent_num", "yr_custom_invoke_num"
+    auto runfilesRoot = GetRunfilesRoot();
+    if (runfilesRoot.empty()) {
+        std::cerr << "failed to get Bazel runfiles root\n";
+        return;
+    }
+    std::string dstDir = std::filesystem::current_path().string() + "/test";
+
+    std::filesystem::create_directories(dstDir);
+
+    const std::vector<std::string> exporters = {
+        "libobservability-metrics-file-exporter.so",
+        "libobservability-prometheus-push-exporter.so"
     };
-    return metricsAdaptor;
+
+    for (const auto& so : exporters) {
+        std::filesystem::path src = runfilesRoot / "src/utility/metrics" / so;
+        std::filesystem::path dst = dstDir + "/" +so;
+
+        try {
+            std::filesystem::copy_file(
+                src,
+                dst,
+                std::filesystem::copy_options::overwrite_existing
+            );
+        } catch (const std::filesystem::filesystem_error & e) {
+            std::cerr << "Failed to copy " << src << " to " << dst << ": " << e.what() << "\n";
+        }
+    }
 }
 
 class MetricsAdaptorTest : public testing::Test {
@@ -299,6 +265,7 @@ public:
     ~MetricsAdaptorTest(){};
     void SetUp() override
     {
+        PrepareExporterSo();
         Mkdir("/tmp/log");
         LogParam g_logParam = {
             .logLevel = "DEBUG",
@@ -384,7 +351,9 @@ TEST_F(MetricsAdaptorTest, InitNotEnableTest)
 TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
 {
     Config::c = Config();
-    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+    auto jsonStr = GetValidConfig();
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor->Init(jsonStr, true);
     YR::Libruntime::GaugeData gauge;
     gauge.name = "name";
     gauge.description = "desc";
@@ -401,7 +370,9 @@ TEST_F(MetricsAdaptorTest, DoubleGaugeTest)
 TEST_F(MetricsAdaptorTest, SetAlarmTest)
 {
     Config::c = Config();
-    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+    auto jsonStr = GetValidConfig();
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor->Init(jsonStr, true);
     YR::Libruntime::AlarmInfo alarmInfo;
     alarmInfo.alarmName = "name";
     alarmInfo.locationInfo = "info";
@@ -417,7 +388,9 @@ TEST_F(MetricsAdaptorTest, SetAlarmTest)
 TEST_F(MetricsAdaptorTest, DoubleCounterTest)
 {
     Config::c = Config();
-    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+    auto jsonStr = GetValidConfig();
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor->Init(jsonStr, true);
     YR::Libruntime::DoubleCounterData data;
     data.name = "name";
     data.description = "desc";
@@ -442,7 +415,9 @@ TEST_F(MetricsAdaptorTest, DoubleCounterTest)
 TEST_F(MetricsAdaptorTest, UInt64CounterTest)
 {
     Config::c = Config();
-    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
+    auto jsonStr = GetValidConfig();
+    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
+    metricsAdaptor->Init(jsonStr, true);
     YR::Libruntime::UInt64CounterData data;
     data.name = "name";
     data.description = "desc";
@@ -511,33 +486,6 @@ TEST_F(MetricsAdaptorTest, contextTest)
     ASSERT_EQ(result, "");
 }
 
-TEST_F(MetricsAdaptorTest, CanonicalizeLabelsInjectsPlatformLabels)
-{
-    ScopedPlatformEnv env;
-
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
-    std::unordered_map<std::string, std::string> labels = {{"biz", "value"}};
-    auto canonicalized = metricsAdaptor->CanonicalizeLabels(labels);
-
-    ASSERT_EQ(canonicalized["pod"], "runtime-pod");
-    ASSERT_EQ(canonicalized["namespace"], "runtime-namespace");
-    ASSERT_EQ(canonicalized["biz"], "value");
-}
-
-TEST_F(MetricsAdaptorTest, BuildPointLabelsInjectsPlatformLabels)
-{
-    ScopedPlatformEnv env;
-
-    auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
-    std::unordered_map<std::string, std::string> labels = {{"biz", "value"}};
-
-    const auto pointLabels = metricsAdaptor->BuildPointLabels(labels);
-
-    EXPECT_THAT(pointLabels, Contains(std::pair<std::string, std::string>("pod", "runtime-pod")));
-    EXPECT_THAT(pointLabels, Contains(std::pair<std::string, std::string>("namespace", "runtime-namespace")));
-    EXPECT_THAT(pointLabels, Contains(std::pair<std::string, std::string>("biz", "value")));
-}
-
 TEST_F(MetricsAdaptorTest, InitHttpExporterWithTLS)
 {
     auto metricsAdaptor = std::make_shared<MetricsAdaptor>();
@@ -551,18 +499,11 @@ TEST_F(MetricsAdaptorTest, InitHttpExporterWithTLS)
     YR::Libruntime::Config::c = YR::Libruntime::Config();
 
     auto config = GetPrometheusPushExporterConfig();
-    // Exporter may be null if SSL cert files are invalid; the key behavior under test is passphrase erasure.
-    metricsAdaptor->InitHttpExporter("prometheusPushExporter", "key", "name", config);
-    // Cleared via setenv(..., ""); on some platforms (e.g. Darwin) that removes the var, so getenv is nullptr.
+    auto ret = metricsAdaptor->InitHttpExporter("prometheusPushExporter", "key", "name", config);
+    ASSERT_NE(ret, nullptr);
     auto value = std::getenv("YR_SSL_PASSPHRASE");
-    EXPECT_TRUE(value == nullptr || value[0] == '\0');
-
-    unsetenv("YR_SSL_ENABLE");
-    unsetenv("YR_SSL_ROOT_FILE");
-    unsetenv("YR_SSL_CERT_FILE");
-    unsetenv("YR_SSL_KEY_FILE");
-    unsetenv("YR_SSL_PASSPHRASE");
-    YR::Libruntime::Config::c = YR::Libruntime::Config();
+    ASSERT_TRUE(value != nullptr);
+    ASSERT_EQ(std::string(value), "");
 }
 
 TEST_F(MetricsAdaptorTest, BuildExportConfigsTest)
@@ -573,119 +514,5 @@ TEST_F(MetricsAdaptorTest, BuildExportConfigsTest)
     auto config = metricsAdaptor->BuildExportConfigs(GetExportConfigs());
     ASSERT_TRUE(config.enabledInstruments.count("name") > 0);
 }
-
-TEST_F(MetricsAdaptorTest, DisabledPrometheusPullExporterSslConfigSchemaTest)
-{
-    auto config = GetPrometheusPullExporterSslConfig();
-    ASSERT_TRUE(config.contains("backends"));
-    const auto &exporter =
-        config.at("backends").at(0).at("immediatelyExport").at("exporters").at(0).at("prometheusPullExporter");
-    ASSERT_FALSE(exporter.at("enable").get<bool>());
-    ASSERT_TRUE(exporter.at("enabledInstruments").is_array());
-    const auto &initConfig = exporter.at("initConfig");
-    ASSERT_EQ(initConfig.at("ip").get<std::string>(), "127.0.0.1");
-    ASSERT_EQ(initConfig.at("port").get<uint16_t>(), DISABLED_PROMETHEUS_PULL_EXPORTER_PORT);
-    ASSERT_EQ(initConfig.at("metricsPath").get<std::string>(), "/metrics");
-    ASSERT_TRUE(initConfig.at("isSSLEnable").get<bool>());
-    ASSERT_TRUE(initConfig.at("mutualTlsEnable").get<bool>());
-    ASSERT_EQ(initConfig.at("rootCertFile").get<std::string>(), "/tmp/root.crt");
-    ASSERT_EQ(initConfig.at("certFile").get<std::string>(), "/tmp/server.crt");
-    ASSERT_EQ(initConfig.at("keyFile").get<std::string>(), "/tmp/server.key");
-    ASSERT_EQ(initConfig.at("passphrase").get<std::string>(), "secret");
-}
-
-TEST_F(MetricsAdaptorTest, GaugeDescriptionOverrideRecreatesInstrumentTest)
-{
-    Config::c = Config();
-    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
-
-    YR::Libruntime::GaugeData defaultGauge;
-    defaultGauge.name = "yr_custom_concurrent_num";
-    defaultGauge.description = "default runtime concurrent number";
-    defaultGauge.unit = "count";
-    defaultGauge.value = 1;
-    ASSERT_EQ(metricsAdaptor->SetGauge(defaultGauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    ASSERT_TRUE(metricsAdaptor->doubleGaugeMap_.count(defaultGauge.name) > 0);
-
-    YR::Libruntime::GaugeData overrideGauge = defaultGauge;
-    overrideGauge.description = "override concurrent";
-    overrideGauge.value = 9;
-    ASSERT_EQ(metricsAdaptor->SetGaugeSample(overrideGauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    ASSERT_EQ(metricsAdaptor->doubleGaugeMap_.count(overrideGauge.name), 0);
-    auto sampleKey =
-        metricsAdaptor->BuildMetricSampleKey(overrideGauge.name, metricsAdaptor->CanonicalizeLabels(overrideGauge.labels));
-    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.at(sampleKey).description, "override concurrent");
-    ASSERT_EQ(metricsAdaptor->SetGauge(overrideGauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    ASSERT_TRUE(metricsAdaptor->doubleGaugeMap_.count(overrideGauge.name) > 0);
-    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.at(sampleKey).description, "override concurrent");
-    auto gaugeValue = metricsAdaptor->GetValueGauge(overrideGauge);
-    ASSERT_TRUE(gaugeValue.first.OK());
-    ASSERT_EQ(gaugeValue.second, 9);
-
-    metricsAdaptor->CleanMetrics();
-    EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-}
-
-TEST_F(MetricsAdaptorTest, SampleOnlyMetricsEnabledByPullExporterFlagTest)
-{
-    Config::c = Config();
-    auto metricsAdaptor = BuildSampleOnlyMetricsAdaptor();
-    YR::Libruntime::GaugeData gauge;
-    gauge.name = "yr_custom_concurrent_num";
-    gauge.description = "custom concurrent";
-    gauge.unit = "count";
-    gauge.value = 5;
-    ASSERT_EQ(metricsAdaptor->SetGauge(gauge).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    auto gaugeValue = metricsAdaptor->GetValueGauge(gauge);
-    ASSERT_TRUE(gaugeValue.first.OK());
-    ASSERT_EQ(gaugeValue.second, 5);
-
-    YR::Libruntime::UInt64CounterData allowedCounter;
-    allowedCounter.name = "yr_custom_invoke_num";
-    allowedCounter.description = "custom invoke";
-    allowedCounter.unit = "count";
-    allowedCounter.value = 3;
-    ASSERT_EQ(metricsAdaptor->IncreaseUInt64Counter(allowedCounter).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    auto allowedValue = metricsAdaptor->GetValueUInt64Counter(allowedCounter);
-    ASSERT_TRUE(allowedValue.first.OK());
-    ASSERT_EQ(allowedValue.second, 3);
-
-    YR::Libruntime::UInt64CounterData blockedCounter;
-    blockedCounter.name = "yr_custom_blocked_num";
-    blockedCounter.description = "blocked";
-    blockedCounter.unit = "count";
-    blockedCounter.value = 7;
-    ASSERT_EQ(metricsAdaptor->IncreaseUInt64Counter(blockedCounter).Code(),
-              YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
-    auto blockedValue = metricsAdaptor->GetValueUInt64Counter(blockedCounter);
-    ASSERT_EQ(blockedValue.first.Code(), YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR);
-    ASSERT_EQ(blockedValue.second, 0);
-}
-
-TEST_F(MetricsAdaptorTest, ReportMetricsOnlyCachesPullEnabledInstrumentsTest)
-{
-    Config::c = Config();
-    auto metricsAdaptor = BuildMockInitializedMetricsAdaptor();
-
-    YR::Libruntime::GaugeData callMetric;
-    callMetric.name = "call_metric";
-    callMetric.labels["requestid"] = "request-1";
-    callMetric.labels["traceid"] = "trace-1";
-    callMetric.value = 1;
-    ASSERT_EQ(metricsAdaptor->ReportMetrics(callMetric).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    ASSERT_TRUE(metricsAdaptor->doubleGaugeSamples_.empty());
-
-    YR::Libruntime::GaugeData enabledMetric;
-    enabledMetric.name = "yr_custom_concurrent_num";
-    enabledMetric.description = "custom concurrent";
-    enabledMetric.unit = "count";
-    enabledMetric.value = 5;
-    ASSERT_EQ(metricsAdaptor->ReportMetrics(enabledMetric).Code(), YR::Libruntime::ErrorCode::ERR_OK);
-    ASSERT_EQ(metricsAdaptor->doubleGaugeSamples_.size(), 1);
-
-    metricsAdaptor->CleanMetrics();
-    EXPECT_EQ(MetricsApi::Provider::GetMeterProvider(), nullptr);
-}
-
 }  // namespace test
 }  // namespace YR

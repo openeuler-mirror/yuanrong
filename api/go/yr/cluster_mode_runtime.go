@@ -68,22 +68,40 @@ func (r *ClusterModeRuntime) InvokeByInstanceId(
 }
 
 // Kill send kill instance request
-func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte) error {
-	return clibruntime.Kill(instanceID, signal, payload)
+func (r *ClusterModeRuntime) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
+	// Extract routing information from InvokeOptions if provided by caller
+	// Priority: caller-provided > empty string (let C++ runtime auto-enrich from MemoryStore)
+	var routeAddress, proxyID string
+
+	if invokeOpt.CreateOpt != nil {
+		// Check for YR_ROUTE (litebus address)
+		if r, ok := invokeOpt.CreateOpt["YR_ROUTE"]; ok && r != "" {
+			routeAddress = r
+		}
+		// Check for YR_PROXY_ID (function proxy ID)
+		if p, ok := invokeOpt.CreateOpt["YR_PROXY_ID"]; ok && p != "" {
+			proxyID = p
+		}
+	}
+
+	// Pass routing info to C++ runtime; if empty, runtime will auto-enrich from MemoryStore
+	return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
 }
 
 // CreateInstanceRaw not support raw interface
-func (r *ClusterModeRuntime) CreateInstanceRaw(createReqRaw []byte) ([]byte, error) {
+func (r *ClusterModeRuntime) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 
 // InvokeByInstanceIdRaw not support raw interface
-func (r *ClusterModeRuntime) InvokeByInstanceIdRaw(invokeReqRaw []byte) ([]byte, error) {
+func (r *ClusterModeRuntime) InvokeByInstanceIdRaw(invokeReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
 	return nil, nil
 }
 
 // KillRaw not support raw interface
-func (r *ClusterModeRuntime) KillRaw(killReqRaw []byte) ([]byte, error) { return nil, nil }
+func (r *ClusterModeRuntime) KillRaw(killReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
+	return nil, nil
+}
 
 // SaveState no implement
 func (r *ClusterModeRuntime) SaveState(state []byte) (string, error) { return "", nil }
@@ -238,11 +256,6 @@ func (r *ClusterModeRuntime) CreateClient(config api.ConnectArguments) (api.KvCl
 	return nil, nil
 }
 
-// ReleaseGRefs release object refs by remote client id
-func (r *ClusterModeRuntime) ReleaseGRefs(remoteClientID string) error {
-	return fmt.Errorf("not support")
-}
-
 // GetCredential -
 func (r *ClusterModeRuntime) GetCredential() api.Credential {
 	return api.Credential{}
@@ -264,20 +277,4 @@ func (r *ClusterModeRuntime) IsDsHealth() bool {
 
 func (r *ClusterModeRuntime) GetActiveMasterAddr() string {
 	return clibruntime.GetActiveMasterAddr()
-}
-
-func (r *ClusterModeRuntime) SetGauge(data api.GaugeData) error {
-	return clibruntime.SetGauge(data)
-}
-
-func (r *ClusterModeRuntime) IncreaseGauge(data api.GaugeData) error {
-	return clibruntime.IncreaseGauge(data)
-}
-
-func (r *ClusterModeRuntime) DecreaseGauge(data api.GaugeData) error {
-	return clibruntime.DecreaseGauge(data)
-}
-
-func (r *ClusterModeRuntime) IncreaseUInt64Counter(data api.UInt64CounterData) error {
-	return clibruntime.IncreaseUInt64Counter(data)
 }

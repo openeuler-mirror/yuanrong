@@ -32,16 +32,7 @@ import (
 func TestGetFuncMetaSignature(t *testing.T) {
 	convey.Convey("success", t, func() {
 		signature := GetFuncMetaSignature(&types.FunctionMetaInfo{}, true)
-		convey.So(signature, convey.ShouldEqual, "1179860640")
-	})
-	convey.Convey("enable agent session affects signature", t, func() {
-		signature1 := GetFuncMetaSignature(&types.FunctionMetaInfo{
-			ExtendedMetaData: types.ExtendedMetaData{EnableAgentSession: false},
-		}, true)
-		signature2 := GetFuncMetaSignature(&types.FunctionMetaInfo{
-			ExtendedMetaData: types.ExtendedMetaData{EnableAgentSession: true},
-		}, true)
-		convey.So(signature1, convey.ShouldNotEqual, signature2)
+		convey.So(signature, convey.ShouldEqual, "1830885943")
 	})
 	convey.Convey("marshal error", t, func() {
 		defer gomonkey.ApplyFunc(json.Marshal, func(v interface{}) ([]byte, error) {

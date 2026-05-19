@@ -23,6 +23,8 @@
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
 #include "absl/synchronization/mutex.h"
 #include "src/dto/config.h"
 #include "src/libruntime/err_type.h"
@@ -102,8 +104,21 @@ public:
 
     void SetAvailable()
     {
+        std::function<void()> releaseCallback;
+        {
+            absl::WriterMutexLock l(&mu_);
+            isUsed_ = false;
+            releaseCallback = std::move(onRelease_);
+        }
+        if (releaseCallback) {
+            releaseCallback();
+        }
+    }
+
+    void SetOnRelease(std::function<void()> callback)
+    {
         absl::WriterMutexLock l(&mu_);
-        isUsed_ = false;
+        onRelease_ = std::move(callback);
     }
 
     void ResetConnActive()
@@ -158,11 +173,12 @@ protected:
     beast::flat_buffer buf_;
     std::shared_ptr<http::response_parser<http::string_body>> resParser_;
     http::request<http::string_body> req_;
-    bool isUsed_{true} ABSL_GUARDED_BY(mu_);
-    bool isConnectionAlive_{false} ABSL_GUARDED_BY(mu_);
-    std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_ ABSL_GUARDED_BY(mu_);
+    bool isUsed_{true};
+    bool isConnectionAlive_{false};
+    std::chrono::time_point<std::chrono::high_resolution_clock> lastActiveTime_;
     bool retried_{false};
     int idleTime_{120};
+    std::function<void()> onRelease_;
     mutable absl::Mutex mu_;
 };
 

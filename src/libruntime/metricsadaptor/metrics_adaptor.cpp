@@ -15,53 +15,30 @@
  */
 
 #include <dlfcn.h>
-#include <cstdlib>
-#include <sstream>
 #include <string>
-#include <unordered_set>
 #include "metrics_context.h"
 #include "metrics_adaptor.h"
 
 
+#ifdef ENABLE_OBSERVABILITY
 #include "metrics/api/metric_data.h"
 #include "metrics/api/null.h"
 #include "metrics/api/provider.h"
 #include "metrics/sdk/immediately_export_processor.h"
 #include "metrics/sdk/meter_provider.h"
+#endif  // ENABLE_OBSERVABILITY
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/logger/fileutils.h"
 
 namespace YR {
 namespace Libruntime {
+#ifdef ENABLE_OBSERVABILITY
 const char *const IMMEDIATELY_EXPORT = "immediatelyExport";
 const char *const FILE_EXPORTER = "fileExporter";
 const char *const PROMETHEUS_PUSH_EXPORTER = "prometheusPushExporter";
-const char *const PROMETHEUS_PULL_EXPORTER = "prometheusPullExporter";
 const char *const AOM_ALARM_EXPORTER = "aomAlarmExporter";
 const char *const YR_SSL_PASSPHRASE_KEY = "YR_SSL_PASSPHRASE";
-const char *const POD_NAME_ENV = "POD_NAME";
-const char *const POD_NAMESPACE_ENV = "POD_NAMESPACE";
-const char *const POD_LABEL = "pod";
-const char *const NAMESPACE_LABEL = "namespace";
-const std::unordered_set<std::string> SENSITIVE_CONFIG_KEYS = {
-    "rootCertData", "certData", "keyData", "passphrase"
-};
-
-nlohmann::json RedactSensitiveMetricConfig(nlohmann::json config)
-{
-    if (!config.is_object()) {
-        return config;
-    }
-    for (auto &[key, value] : config.items()) {
-        if (SENSITIVE_CONFIG_KEYS.find(key) != SENSITIVE_CONFIG_KEYS.end()) {
-            value = "***";
-        } else if (value.is_object()) {
-            value = RedactSensitiveMetricConfig(value);
-        }
-    }
-    return config;
-}
 
 std::string GetSelfSoPath()
 {
@@ -82,50 +59,70 @@ static std::string GetLibraryPath(const std::string &exporterType)
 {
     auto path = GetSelfSoPath();
     std::string filePath = "";
+#ifdef __APPLE__
+    const char* lib_ext = ".dylib";
+#else
+    const char* lib_ext = ".so";
+#endif
     if (exporterType == FILE_EXPORTER) {
-        filePath = path + "/libobservability-metrics-file-exporter.so";
+        filePath = path + "/libobservability-metrics-file-exporter" + lib_ext;
     } else if (exporterType == PROMETHEUS_PUSH_EXPORTER) {
-        filePath = path + "/libobservability-prometheus-push-exporter.so";
-    } else if (exporterType == PROMETHEUS_PULL_EXPORTER) {
-        filePath = path + "/libobservability-prometheus-pull-exporter.so";
+        filePath = path + "/libobservability-prometheus-push-exporter" + lib_ext;
     } else if (exporterType == AOM_ALARM_EXPORTER) {
-        filePath = path + "/libobservability-aom-alarm-exporter.so";
+        filePath = path + "/libobservability-aom-alarm-exporter" + lib_ext;
     }
     YRLOG_INFO("exporter {} get library path: {}", exporterType, filePath);
     return filePath;
 }
+#endif  // ENABLE_OBSERVABILITY
 
 std::once_flag MetricsAdaptor::initFlag;
 std::shared_ptr<MetricsAdaptor> MetricsAdaptor::instance = nullptr;
 
+std::shared_ptr<MetricsAdaptor> MetricsAdaptor::GetInstance()
+{
+    std::call_once(initFlag, []() { instance = std::make_shared<MetricsAdaptor>(); });
+    return instance;
+}
+
 MetricsAdaptor::MetricsAdaptor() {}
+
+MetricsAdaptor::~MetricsAdaptor()
+{
+#ifdef ENABLE_OBSERVABILITY
+    try {
+        if (Initialized_) {
+            CleanMetrics();
+        }
+        alarmMap_.clear();
+        doubleGaugeMap_.clear();
+        doubleCounterMap_.clear();
+        uInt64CounterMap_.clear();
+        enabledBackends_.clear();
+    } catch (...) {
+    }
+#endif
+}
 
 bool MetricsAdaptor::IsInited() const
 {
+#ifdef ENABLE_OBSERVABILITY
     return Initialized_;
-}
-
-void MetricsAdaptor::SetMetricsTLSConfig(const std::string &rootCertData, const std::string &certData,
-                                         const std::string &keyData)
-{
-    metricsRootCertData_ = rootCertData;
-    metricsCertData_ = certData;
-    metricsKeyData_ = SensitiveData(keyData);
+#else
+    return false;
+#endif
 }
 
 void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
 {
-    Initialized_ = false;
+#ifdef ENABLE_OBSERVABILITY
     userEnable_ = userEnable;
-    prometheusPullExporterEnabled_ = false;
-    prometheusPullExporterEnabledInstruments_.clear();
     YRLOG_DEBUG("start to init metrics adaptor, userEnable {}", userEnable);
     if (json.find("backends") == json.end()) {
-        YRLOG_WARN("metrics backends are none");
+        YRLOG_WARN("metrics backends is none");
         return;
     }
-    observability::sdk::metrics::LiteBusParams liteBusParam;
-    auto mp = std::make_shared<MetricsSdk::MeterProvider>(liteBusParam);
+    auto mp = std::make_shared<MetricsSdk::MeterProvider>();
     auto backends = json.at("backends");
     for (auto &[index, backend] : backends.items()) {
         YRLOG_DEBUG("metrics add backend index({})", index);
@@ -139,6 +136,11 @@ void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
         }
     }
     MetricsApi::Provider::SetMeterProvider(mp);
+#else
+    (void)json;
+    (void)userEnable;
+    YRLOG_DEBUG("metrics adaptor Init called but observability is disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 void MetricsAdaptor::SetContextAttr(const std::string &attr, const std::string &value)
@@ -151,6 +153,7 @@ std::string MetricsAdaptor::GetContextValue(const std::string &attr) const
     return metricsContext_.GetAttr(attr);
 }
 
+#ifdef ENABLE_OBSERVABILITY
 void MetricsAdaptor::InitImmediatelyExport(const std::shared_ptr<MetricsSdk::MeterProvider> &mp,
                                            const nlohmann::json &backendValue,
                                            const std::function<std::string(std::string)> &getFileName)
@@ -184,7 +187,9 @@ void MetricsAdaptor::InitImmediatelyExport(const std::shared_ptr<MetricsSdk::Met
         }
     }
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability::sdk::metrics::MeterProvider> &mp,
                                              const std::string &backendName, const nlohmann::json &exporters,
                                              const std::function<std::string(std::string)> &getFileName)
@@ -205,7 +210,7 @@ void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability
             auto processor = std::make_shared<observability::sdk::metrics::ImmediatelyExportProcessor>(
                 std::move(exporter), exportConfigs);
             mp->AddMetricProcessor(std::move(processor));
-        } else if (key == PROMETHEUS_PUSH_EXPORTER || key == PROMETHEUS_PULL_EXPORTER || key == AOM_ALARM_EXPORTER) {
+        } else if (key == PROMETHEUS_PUSH_EXPORTER || key == AOM_ALARM_EXPORTER) {
             auto &&exporter = InitHttpExporter(key, IMMEDIATELY_EXPORT, backendName, value);
             if (exporter == nullptr) {
                 YRLOG_ERROR("Failed to init exporter {}", key);
@@ -213,16 +218,6 @@ void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability
             }
             Initialized_ = true;
             auto exportConfigs = BuildExportConfigs(value);
-            if (key == PROMETHEUS_PULL_EXPORTER) {
-                std::lock_guard<std::mutex> lock(prometheus_pull_exporter_mutex_);
-                if (prometheusPullExporter_ != nullptr) {
-                    prometheusPullExporter_->Shutdown();
-                }
-                prometheusPullExporter_ = exporter;
-                prometheusPullExporterEnabled_ = true;
-                prometheusPullExporterEnabledInstruments_.insert(exportConfigs.enabledInstruments.begin(),
-                                                                 exportConfigs.enabledInstruments.end());
-            }
             exportConfigs.exporterName = key;
             exportConfigs.exportMode = MetricsSdk::ExportMode::IMMEDIATELY;
             auto processor =
@@ -233,7 +228,9 @@ void MetricsAdaptor::SetImmediatelyExporters(const std::shared_ptr<observability
         }
     }
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitHttpExporter(const std::string &httpExporterType,
                                                                              const std::string &backendKey,
                                                                              const std::string &backendName,
@@ -250,74 +247,46 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitHttpExporter(con
                     backendName);
         return nullptr;
     }
-    auto initConfig = BuildHttpExporterInitConfig(httpExporterType, backendName, exporterValue);
-    std::string error;
-    return MetricsPlugin::LoadExporterFromLibrary(GetLibraryPath(httpExporterType), initConfig, error);
-}
-
-std::string MetricsAdaptor::BuildHttpExporterInitConfig(const std::string &httpExporterType,
-                                                        const std::string &backendName,
-                                                        const nlohmann::json &exporterValue)
-{
     std::string initConfig;
-    auto initConfigJson = exporterValue.at("initConfig");
-    if (httpExporterType == PROMETHEUS_PUSH_EXPORTER || httpExporterType == AOM_ALARM_EXPORTER) {
+    if (exporterValue.find("initConfig") != exporterValue.end()) {
+        auto initConfigJson = exporterValue.at("initConfig");
         initConfigJson["jobName"] = "runtime";
         if (initConfigJson.find("ip") != initConfigJson.end() && initConfigJson.find("port") != initConfigJson.end()) {
             initConfigJson["endpoint"] =
                 initConfigJson.at("ip").get<std::string>() + ":" + std::to_string(initConfigJson.at("port").get<int>());
         }
+        try {
+            // print before set ssl config, which can't be printed
+            YRLOG_INFO("metrics http exporter for backend {}, initConfig: {}", backendName, initConfigJson.dump());
+        } catch (std::exception &e) {
+            YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
+        }
+        if (Config::Instance().YR_SSL_ENABLE()) {
+            initConfigJson["isSSLEnable"] = true;
+            initConfigJson["rootCertFile"] = Config::Instance().YR_SSL_ROOT_FILE();
+            initConfigJson["certFile"] = Config::Instance().YR_SSL_CERT_FILE();
+            initConfigJson["keyFile"] = Config::Instance().YR_SSL_KEY_FILE();
+            auto ret = std::getenv(YR_SSL_PASSPHRASE_KEY);
+            if (ret != nullptr) {
+                initConfigJson["passphrase"] = ret;
+                const int replaceOpt = 1;
+                setenv(YR_SSL_PASSPHRASE_KEY, "", replaceOpt);
+            } else {
+                YRLOG_WARN("can not get metrics passphrase from env.");
+            }
+        }
+        try {
+            initConfig = initConfigJson.dump();
+        } catch (std::exception &e) {
+            YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
+        }
     }
-    try {
-        YRLOG_INFO("metrics http exporter for backend {}, initConfig: {}", backendName,
-                   RedactSensitiveMetricConfig(initConfigJson).dump());
-    } catch (std::exception &e) {
-        YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
-    }
-    if (httpExporterType == PROMETHEUS_PUSH_EXPORTER || httpExporterType == AOM_ALARM_EXPORTER) {
-        ConfigurePushHttpExporterTLS(initConfigJson);
-    }
-    if (httpExporterType == PROMETHEUS_PULL_EXPORTER) {
-        ConfigurePullHttpExporterTLS(initConfigJson);
-    }
-    try {
-        initConfig = initConfigJson.dump();
-    } catch (std::exception &e) {
-        YRLOG_ERROR("dump initConfigJson failed, error: {}", e.what());
-    }
-    return initConfig;
+    std::string error;
+    return MetricsPlugin::LoadExporterFromLibrary(GetLibraryPath(httpExporterType), initConfig, error);
 }
+#endif  // ENABLE_OBSERVABILITY
 
-void MetricsAdaptor::ConfigurePushHttpExporterTLS(nlohmann::json &initConfigJson)
-{
-    if (!Config::Instance().YR_SSL_ENABLE()) {
-        return;
-    }
-    initConfigJson["isSSLEnable"] = true;
-    initConfigJson["rootCertFile"] = Config::Instance().YR_SSL_ROOT_FILE();
-    initConfigJson["certFile"] = Config::Instance().YR_SSL_CERT_FILE();
-    initConfigJson["keyFile"] = Config::Instance().YR_SSL_KEY_FILE();
-    auto ret = std::getenv(YR_SSL_PASSPHRASE_KEY);
-    if (ret != nullptr) {
-        initConfigJson["passphrase"] = ret;
-        const int replaceOpt = 1;
-        setenv(YR_SSL_PASSPHRASE_KEY, "", replaceOpt);
-    } else {
-        YRLOG_WARN("can not get metrics passphrase from env.");
-    }
-}
-
-void MetricsAdaptor::ConfigurePullHttpExporterTLS(nlohmann::json &initConfigJson)
-{
-    if (!initConfigJson.value("isSSLEnable", false) || metricsRootCertData_.empty() || metricsCertData_.empty() ||
-        metricsKeyData_.Empty()) {
-        return;
-    }
-    initConfigJson["rootCertData"] = metricsRootCertData_;
-    initConfigJson["certData"] = metricsCertData_;
-    initConfigJson["keyData"] = std::string(metricsKeyData_.GetData(), metricsKeyData_.GetSize());
-}
-
+#ifdef ENABLE_OBSERVABILITY
 const MetricsSdk::ExportConfigs MetricsAdaptor::BuildExportConfigs(const nlohmann::json &exporterValue)
 {
     try {
@@ -349,278 +318,82 @@ const MetricsSdk::ExportConfigs MetricsAdaptor::BuildExportConfigs(const nlohman
     }
     return exportConfigs;
 }
+#endif  // ENABLE_OBSERVABILITY
 
 void MetricsAdaptor::CleanMetrics() noexcept
 {
-    std::lock_guard<std::mutex> lock(prometheus_pull_exporter_mutex_);
-    if (prometheusPullExporter_ != nullptr) {
-        prometheusPullExporter_->Shutdown();
-        prometheusPullExporter_.reset();
-    }
-    Initialized_ = false;
-    userEnable_ = false;
-    prometheusPullExporterEnabled_ = false;
-    prometheusPullExporterEnabledInstruments_.clear();
+#ifdef ENABLE_OBSERVABILITY
     std::shared_ptr<MetricsApi::NullMeterProvider> null = nullptr;
     MetricsApi::Provider::SetMeterProvider(null);
-}
-
-bool MetricsAdaptor::MetricsEnabled() const
-{
-    return userEnable_ && (Initialized_ || prometheusPullExporterEnabled_.load());
-}
-
-bool MetricsAdaptor::IsMetricSampleEnabled(const std::string &name) const
-{
-    return prometheusPullExporterEnabled_.load() && prometheusPullExporterEnabledInstruments_.count(name) > 0;
-}
-
-ErrorInfo MetricsAdaptor::MetricSampleNotEnabledError(const std::string &name) const
-{
-    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                     "metric sample is not enabled by prometheus pull exporter enabledInstruments: " + name);
-}
-
-std::map<std::string, std::string> MetricsAdaptor::BuildPlatformLabels() const
-{
-    std::map<std::string, std::string> labels;
-    const auto podName = Config::Instance().POD_NAME();
-    if (!podName.empty()) {
-        labels[POD_LABEL] = podName;
-    } else if (const auto *envPodName = std::getenv(POD_NAME_ENV); envPodName != nullptr && *envPodName != '\0') {
-        labels[POD_LABEL] = envPodName;
-    }
-
-    if (const auto *envNamespace = std::getenv(POD_NAMESPACE_ENV);
-        envNamespace != nullptr && *envNamespace != '\0') {
-        labels[NAMESPACE_LABEL] = envNamespace;
-    }
-    return labels;
-}
-
-std::map<std::string, std::string> MetricsAdaptor::CanonicalizeLabels(
-    const std::unordered_map<std::string, std::string> &labels) const
-{
-    auto result = BuildPlatformLabels();
-    for (const auto &[key, value] : labels) {
-        result[key] = value;
-    }
-    return result;
-}
-
-MetricsSdk::PointLabels MetricsAdaptor::BuildPointLabels(const std::unordered_map<std::string, std::string> &labels)
-    const
-{
-    MetricsSdk::PointLabels pointLabels;
-    const auto canonicalized = CanonicalizeLabels(labels);
-    for (const auto &[key, value] : canonicalized) {
-        pointLabels.emplace_back(key, value);
-    }
-    return pointLabels;
-}
-
-std::string MetricsAdaptor::BuildMetricSampleKey(const std::string &name,
-                                                 const std::map<std::string, std::string> &labels) const
-{
-    std::ostringstream oss;
-    oss << name;
-    for (const auto &[labelName, labelValue] : labels) {
-        oss << '\n' << labelName << '=' << labelValue;
-    }
-    return oss.str();
-}
-
-template <typename Data, typename SampleMap, typename InstrumentMap, typename UpdateValue>
-void MetricsAdaptor::UpdateMetricSample(const Data &data, SampleMap &samples, InstrumentMap &instruments,
-                                        UpdateValue updateValue)
-{
-    auto labels = CanonicalizeLabels(data.labels);
-    auto key = BuildMetricSampleKey(data.name, labels);
-    auto &sample = samples[key];
-    if (!sample.name.empty() && (sample.description != data.description || sample.unit != data.unit)) {
-        instruments.erase(data.name);
-        sample.description = data.description;
-        sample.unit = data.unit;
-        sample.labels = labels;
-    }
-    if (sample.name.empty()) {
-        sample.name = data.name;
-        sample.description = data.description;
-        sample.unit = data.unit;
-        sample.labels = labels;
-    }
-    updateValue(sample, data);
-}
-
-ErrorInfo MetricsAdaptor::SetGaugeSample(const YR::Libruntime::GaugeData &gauge)
-{
-    std::lock_guard<std::mutex> l(gauge_mutex_);
-    UpdateMetricSample(gauge, doubleGaugeSamples_, doubleGaugeMap_,
-                       [](auto &sample, const auto &data) { sample.value = data.value; });
-    return ErrorInfo();
-}
-
-ErrorInfo MetricsAdaptor::IncreaseGaugeSample(const YR::Libruntime::GaugeData &gauge)
-{
-    std::lock_guard<std::mutex> l(gauge_mutex_);
-    UpdateMetricSample(gauge, doubleGaugeSamples_, doubleGaugeMap_,
-                       [](auto &sample, const auto &data) { sample.value += data.value; });
-    return ErrorInfo();
-}
-
-ErrorInfo MetricsAdaptor::DecreaseGaugeSample(const YR::Libruntime::GaugeData &gauge)
-{
-    std::lock_guard<std::mutex> l(gauge_mutex_);
-    UpdateMetricSample(gauge, doubleGaugeSamples_, doubleGaugeMap_, [](auto &sample, const auto &data) {
-        sample.value -= data.value;
-        if (sample.value < 0) {
-            sample.value = 0;
-        }
-    });
-    return ErrorInfo();
-}
-
-std::pair<ErrorInfo, double> MetricsAdaptor::GetGaugeSampleValue(const YR::Libruntime::GaugeData &gauge)
-{
-    std::lock_guard<std::mutex> l(gauge_mutex_);
-    auto key = BuildMetricSampleKey(gauge.name, CanonicalizeLabels(gauge.labels));
-    auto it = doubleGaugeSamples_.find(key);
-    if (it == doubleGaugeSamples_.end()) {
-        return std::make_pair(ErrorInfo(), 0);
-    }
-    return std::make_pair(ErrorInfo(), it->second.value);
-}
-
-void MetricsAdaptor::SetUInt64CounterSample(const YR::Libruntime::UInt64CounterData &data)
-{
-    std::lock_guard<std::mutex> l(uint64_counter_mutex_);
-    UpdateMetricSample(data, uint64CounterSamples_, uInt64CounterMap_,
-                       [](auto &sample, const auto &data) { sample.value = data.value; });
-}
-
-void MetricsAdaptor::ResetUInt64CounterSample(const YR::Libruntime::UInt64CounterData &data)
-{
-    std::lock_guard<std::mutex> l(uint64_counter_mutex_);
-    UpdateMetricSample(data, uint64CounterSamples_, uInt64CounterMap_,
-                       [](auto &sample, const auto & /* data */) { sample.value = 0; });
-}
-
-void MetricsAdaptor::IncreaseUInt64CounterSample(const YR::Libruntime::UInt64CounterData &data)
-{
-    std::lock_guard<std::mutex> l(uint64_counter_mutex_);
-    UpdateMetricSample(data, uint64CounterSamples_, uInt64CounterMap_,
-                       [](auto &sample, const auto &data) { sample.value += data.value; });
-}
-
-std::pair<ErrorInfo, uint64_t> MetricsAdaptor::GetUInt64CounterSampleValue(
-    const YR::Libruntime::UInt64CounterData &data)
-{
-    std::lock_guard<std::mutex> l(uint64_counter_mutex_);
-    auto key = BuildMetricSampleKey(data.name, CanonicalizeLabels(data.labels));
-    auto it = uint64CounterSamples_.find(key);
-    if (it == uint64CounterSamples_.end()) {
-        return std::make_pair(ErrorInfo(), 0);
-    }
-    return std::make_pair(ErrorInfo(), it->second.value);
-}
-
-void MetricsAdaptor::SetDoubleCounterSample(const YR::Libruntime::DoubleCounterData &data)
-{
-    std::lock_guard<std::mutex> l(double_counter_mutex_);
-    UpdateMetricSample(data, doubleCounterSamples_, doubleCounterMap_,
-                       [](auto &sample, const auto &data) { sample.value = data.value; });
-}
-
-void MetricsAdaptor::ResetDoubleCounterSample(const YR::Libruntime::DoubleCounterData &data)
-{
-    std::lock_guard<std::mutex> l(double_counter_mutex_);
-    UpdateMetricSample(data, doubleCounterSamples_, doubleCounterMap_,
-                       [](auto &sample, const auto & /* data */) { sample.value = 0; });
-}
-
-void MetricsAdaptor::IncreaseDoubleCounterSample(const YR::Libruntime::DoubleCounterData &data)
-{
-    std::lock_guard<std::mutex> l(double_counter_mutex_);
-    UpdateMetricSample(data, doubleCounterSamples_, doubleCounterMap_,
-                       [](auto &sample, const auto &data) { sample.value += data.value; });
-}
-
-std::pair<ErrorInfo, double> MetricsAdaptor::GetDoubleCounterSampleValue(
-    const YR::Libruntime::DoubleCounterData &data)
-{
-    std::lock_guard<std::mutex> l(double_counter_mutex_);
-    auto key = BuildMetricSampleKey(data.name, CanonicalizeLabels(data.labels));
-    auto it = doubleCounterSamples_.find(key);
-    if (it == doubleCounterSamples_.end()) {
-        return std::make_pair(ErrorInfo(), 0);
-    }
-    return std::make_pair(ErrorInfo(), it->second.value);
+#else
+    YRLOG_DEBUG("metrics adaptor CleanMetrics called but observability is disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::SetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return MetricSampleNotEnabledError(data.name);
-    }
-    SetUInt64CounterSample(data);
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return ReportUInt64Counter(data);
     }
-    return ErrorInfo();
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::ResetUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return MetricSampleNotEnabledError(data.name);
-    }
-    ResetUInt64CounterSample(data);
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return DoResetUInt64Counter(data);
     }
-    return ErrorInfo();
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::IncreaseUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return MetricSampleNotEnabledError(data.name);
-    }
-    IncreaseUInt64CounterSample(data);
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return DoIncreaseUInt64Counter(data);
     }
-    return ErrorInfo();
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 std::pair<ErrorInfo, uint64_t> MetricsAdaptor::GetValueUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
-                                        YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
-                              0);
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return std::make_pair(MetricSampleNotEnabledError(data.name), 0);
-    }
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return DoGetValueUInt64Counter(data);
     }
-    return GetUInt64CounterSampleValue(data);
+    return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                                    YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
+                          0);
+#else
+    (void)data;
+    return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                                    YR::Libruntime::ModuleCode::RUNTIME,
+                                    "metrics not supported: observability disabled"),
+                          0);
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportUInt64Counter(const YR::Libruntime::UInt64CounterData &data)
 {
     std::lock_guard<std::mutex> l(uint64_counter_mutex_);
@@ -628,7 +401,10 @@ ErrorInfo MetricsAdaptor::ReportUInt64Counter(const YR::Libruntime::UInt64Counte
     if (!err.OK()) {
         return err;
     }
-    auto labels = BuildPointLabels(data.labels);
+    MetricsSdk::PointLabels labels;
+    for (auto iter = data.labels.begin(); iter != data.labels.end(); ++iter) {
+        labels.emplace_back(*iter);
+    }
     uInt64CounterMap_.find(data.name)->second->Set(data.value, labels);
     YRLOG_DEBUG("finished set uint64 counter value {}", data.value);
     return ErrorInfo();
@@ -641,8 +417,7 @@ ErrorInfo MetricsAdaptor::DoResetUInt64Counter(const YR::Libruntime::UInt64Count
     if (!err.OK()) {
         return err;
     }
-    auto labels = BuildPointLabels(data.labels);
-    uInt64CounterMap_.find(data.name)->second->Set(0, labels);
+    uInt64CounterMap_.find(data.name)->second->Reset();
     YRLOG_DEBUG("finished reset uint64 counter, name {}", data.name);
     return ErrorInfo();
 }
@@ -656,11 +431,7 @@ ErrorInfo MetricsAdaptor::DoIncreaseUInt64Counter(const YR::Libruntime::UInt64Co
     }
     auto iter = uInt64CounterMap_.find(data.name);
     if (iter != uInt64CounterMap_.end()) {
-        auto labels = BuildPointLabels(data.labels);
-        const auto key = BuildMetricSampleKey(data.name, CanonicalizeLabels(data.labels));
-        const auto sampleIt = uint64CounterSamples_.find(key);
-        const auto current = sampleIt == uint64CounterSamples_.end() ? data.value : sampleIt->second.value;
-        iter->second->Set(current, labels);
+        iter->second->Increment(data.value);
         YRLOG_DEBUG("finished increase uint64 counter value {}", data.value);
     }
     return ErrorInfo();
@@ -699,71 +470,72 @@ ErrorInfo MetricsAdaptor::InitUInt64Counter(const YR::Libruntime::UInt64CounterD
     uInt64CounterMap_[data.name] = std::move(uInt64Counter);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
 ErrorInfo MetricsAdaptor::SetDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return MetricSampleNotEnabledError(data.name);
-    }
-    SetDoubleCounterSample(data);
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return ReportDoubleCounter(data);
     }
-    return ErrorInfo();
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::ResetDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return MetricSampleNotEnabledError(data.name);
-    }
-    ResetDoubleCounterSample(data);
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return DoResetDoubleCounter(data);
     }
-    return ErrorInfo();
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::IncreaseDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return MetricSampleNotEnabledError(data.name);
-    }
-    IncreaseDoubleCounterSample(data);
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return DoIncreaseDoubleCounter(data);
     }
-    return ErrorInfo();
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)data;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 std::pair<ErrorInfo, double> MetricsAdaptor::GetValueDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
-    if (!MetricsEnabled()) {
-        return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
-                                        YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
-                              0);
-    }
-    if (!IsMetricSampleEnabled(data.name)) {
-        return std::make_pair(MetricSampleNotEnabledError(data.name), 0);
-    }
-    if (Initialized_) {
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
         return DoGetValueDoubleCounter(data);
     }
-    return GetDoubleCounterSampleValue(data);
+    return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                                    YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
+                          0);
+#else
+    (void)data;
+    return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
+                                    YR::Libruntime::ModuleCode::RUNTIME,
+                                    "metrics not supported: observability disabled"),
+                          0);
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportDoubleCounter(const YR::Libruntime::DoubleCounterData &data)
 {
     std::lock_guard<std::mutex> l(double_counter_mutex_);
@@ -771,7 +543,10 @@ ErrorInfo MetricsAdaptor::ReportDoubleCounter(const YR::Libruntime::DoubleCounte
     if (!err.OK()) {
         return err;
     }
-    auto labels = BuildPointLabels(data.labels);
+    MetricsSdk::PointLabels labels;
+    for (auto iter = data.labels.begin(); iter != data.labels.end(); ++iter) {
+        labels.emplace_back(*iter);
+    }
     auto it = doubleCounterMap_.find(data.name);
     if (it != doubleCounterMap_.end()) {
         it->second->Set(data.value, labels);
@@ -789,8 +564,7 @@ ErrorInfo MetricsAdaptor::DoResetDoubleCounter(const YR::Libruntime::DoubleCount
     }
     auto it = doubleCounterMap_.find(data.name);
     if (it != doubleCounterMap_.end()) {
-        auto labels = BuildPointLabels(data.labels);
-        it->second->Set(0, labels);
+        it->second->Reset();
     }
     YRLOG_DEBUG("finished reset double counter, name: {}", data.name);
     return ErrorInfo();
@@ -805,11 +579,7 @@ ErrorInfo MetricsAdaptor::DoIncreaseDoubleCounter(const YR::Libruntime::DoubleCo
     }
     auto it = doubleCounterMap_.find(data.name);
     if (it != doubleCounterMap_.end()) {
-        auto labels = BuildPointLabels(data.labels);
-        const auto key = BuildMetricSampleKey(data.name, CanonicalizeLabels(data.labels));
-        const auto sampleIt = doubleCounterSamples_.find(key);
-        const auto current = sampleIt == doubleCounterSamples_.end() ? data.value : sampleIt->second.value;
-        it->second->Set(current, labels);
+        it->second->Increment(data.value);
     }
     YRLOG_DEBUG("finished increase double counter value {}", data.value);
     return ErrorInfo();
@@ -852,106 +622,45 @@ ErrorInfo MetricsAdaptor::InitDoubleCounter(const YR::Libruntime::DoubleCounterD
     doubleCounterMap_[data.name] = std::move(doubleCounter);
     return ErrorInfo();
 }
-
-ErrorInfo MetricsAdaptor::SetGauge(const YR::Libruntime::GaugeData &gauge)
-{
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(gauge.name)) {
-        return MetricSampleNotEnabledError(gauge.name);
-    }
-    auto err = SetGaugeSample(gauge);
-    if (!err.OK() || !Initialized_) {
-        return err;
-    }
-    return ReportDoubleGauge(gauge, {"node_id", "ip"});
-}
-
-ErrorInfo MetricsAdaptor::IncreaseGauge(const YR::Libruntime::GaugeData &gauge)
-{
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(gauge.name)) {
-        return MetricSampleNotEnabledError(gauge.name);
-    }
-    auto err = IncreaseGaugeSample(gauge);
-    if (!err.OK() || !Initialized_) {
-        return err;
-    }
-    auto current = GetGaugeSampleValue(gauge);
-    if (!current.first.OK()) {
-        return current.first;
-    }
-    YR::Libruntime::GaugeData currentGauge = gauge;
-    currentGauge.value = current.second;
-    return ReportDoubleGauge(currentGauge, {"node_id", "ip"});
-}
-
-ErrorInfo MetricsAdaptor::DecreaseGauge(const YR::Libruntime::GaugeData &gauge)
-{
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
-    }
-    if (!IsMetricSampleEnabled(gauge.name)) {
-        return MetricSampleNotEnabledError(gauge.name);
-    }
-    auto err = DecreaseGaugeSample(gauge);
-    if (!err.OK() || !Initialized_) {
-        return err;
-    }
-    auto current = GetGaugeSampleValue(gauge);
-    if (!current.first.OK()) {
-        return current.first;
-    }
-    YR::Libruntime::GaugeData currentGauge = gauge;
-    currentGauge.value = current.second;
-    return ReportDoubleGauge(currentGauge, {"node_id", "ip"});
-}
-
-std::pair<ErrorInfo, double> MetricsAdaptor::GetValueGauge(const YR::Libruntime::GaugeData &gauge)
-{
-    if (!MetricsEnabled()) {
-        return std::make_pair(ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR,
-                                        YR::Libruntime::ModuleCode::RUNTIME, "not enable metrics"),
-                              0);
-    }
-    if (!IsMetricSampleEnabled(gauge.name)) {
-        return std::make_pair(MetricSampleNotEnabledError(gauge.name), 0);
-    }
-    return GetGaugeSampleValue(gauge);
-}
+#endif  // ENABLE_OBSERVABILITY
 
 ErrorInfo MetricsAdaptor::ReportMetrics(const YR::Libruntime::GaugeData &gauge)
 {
-    if (!MetricsEnabled()) {
-        return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
-                         "not enable metrics");
+#ifdef ENABLE_OBSERVABILITY
+    if (Initialized_) {
+        std::list<std::string> contextAttrs = {"node_id", "ip"};
+        return ReportDoubleGauge(gauge, contextAttrs);
     }
-    if (IsMetricSampleEnabled(gauge.name)) {
-        auto err = SetGaugeSample(gauge);
-        if (!err.OK()) {
-            return err;
-        }
-    }
-    if (!Initialized_) {
-        return ErrorInfo();
-    }
-    return ReportDoubleGauge(gauge, {"node_id", "ip"});
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)gauge;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
 ErrorInfo MetricsAdaptor::ReportGauge(const YR::Libruntime::GaugeData &gauge)
 {
-    return SetGauge(gauge);
+#ifdef ENABLE_OBSERVABILITY
+    if (userEnable_ && Initialized_) {
+        std::list<std::string> contextAttrs = {"node_id", "ip"};
+        return ReportDoubleGauge(gauge, contextAttrs);
+    }
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "not enable metrics");
+#else
+    (void)gauge;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportDoubleGauge(const YR::Libruntime::GaugeData &gauge,
                                             const std::list<std::string> &contextAttrs)
 {
+    (void)contextAttrs;  // Suppress unused parameter warning
     std::unique_lock<std::mutex> l(gauge_mutex_);
     auto err = InitDoubleGauge(gauge);
     if (!err.OK()) {
@@ -965,7 +674,10 @@ ErrorInfo MetricsAdaptor::ReportDoubleGauge(const YR::Libruntime::GaugeData &gau
     }
     auto it = doubleGaugeMap_.find(gauge.name);
     l.unlock();
-    auto labels = BuildPointLabels(gauge.labels);
+    MetricsSdk::PointLabels labels;
+    for (auto iter = gauge.labels.begin(); iter != gauge.labels.end(); ++iter) {
+        labels.emplace_back(*iter);
+    }
     it->second->Set(gauge.value, labels);
     YRLOG_DEBUG("finished set gauge value {}", gauge.value);
     return ErrorInfo();
@@ -990,18 +702,28 @@ ErrorInfo MetricsAdaptor::InitDoubleGauge(const YR::Libruntime::GaugeData &gauge
     doubleGaugeMap_[gauge.name] = std::move(gaugeData);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
 ErrorInfo MetricsAdaptor::SetAlarm(const std::string &name, const std::string &description,
                                    const YR::Libruntime::AlarmInfo &alarmInfo)
 {
+#ifdef ENABLE_OBSERVABILITY
     if (userEnable_ && Initialized_) {
         return ReportAlarm(name, description, alarmInfo);
     }
     YRLOG_ERROR("failed to set alarm, userEnable: {}, initialized: {}", userEnable_, Initialized_);
     return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
                      "not enable metrics");
+#else
+    (void)name;
+    (void)description;
+    (void)alarmInfo;
+    return ErrorInfo(YR::Libruntime::ErrorCode::ERR_INNER_SYSTEM_ERROR, YR::Libruntime::ModuleCode::RUNTIME,
+                     "metrics not supported: observability disabled");
+#endif  // ENABLE_OBSERVABILITY
 }
 
+#ifdef ENABLE_OBSERVABILITY
 ErrorInfo MetricsAdaptor::ReportAlarm(const std::string &name, const std::string &description,
                                       const YR::Libruntime::AlarmInfo &alarmInfo)
 {
@@ -1057,7 +779,9 @@ ErrorInfo MetricsAdaptor::InitAlarm(const std::string &name, const std::string &
     alarmMap_[name] = std::move(alarm);
     return ErrorInfo();
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitFileExporter(
     const std::string &backendKey, const std::string &backendName, const nlohmann::json &exporterValue,
     const std::function<std::string(std::string)> &getFileName)
@@ -1094,7 +818,9 @@ std::shared_ptr<MetricsExporters::Exporter> MetricsAdaptor::InitFileExporter(
     std::string error;
     return MetricsPlugin::LoadExporterFromLibrary(GetLibraryPath(FILE_EXPORTER), initConfig, error);
 }
+#endif  // ENABLE_OBSERVABILITY
 
+#ifdef ENABLE_OBSERVABILITY
 std::string MetricsAdaptor::GetMetricsFilesName(const std::string &backendName)
 {
     // file reporting is not supported currently,this function is not implemented.
@@ -1103,5 +829,6 @@ std::string MetricsAdaptor::GetMetricsFilesName(const std::string &backendName)
     }
     return backendName + "-metrics.data";
 }
+#endif  // ENABLE_OBSERVABILITY
 }  // namespace Libruntime
 }  // namespace YR

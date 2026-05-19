@@ -34,7 +34,6 @@ using YR::Libruntime::ErrorCode;
 using YR::Libruntime::ErrorInfo;
 using YR::Libruntime::ExistenceOpt;
 using YR::Libruntime::FunctionMeta;
-using YR::Libruntime::GaugeData;
 using YR::Libruntime::InstanceAllocation;
 using YR::Libruntime::InvokeArg;
 using YR::Libruntime::InvokeOptions;
@@ -55,7 +54,6 @@ using YR::Libruntime::StreamConsumer;
 using YR::Libruntime::StreamProducer;
 using YR::Libruntime::SubscriptionConfig;
 using YR::Libruntime::WriteMode;
-using YR::Libruntime::UInt64CounterData;
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,6 +67,11 @@ extern "C" {
         return ErrorInfoToCError(ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "failed to get valid consumer.")); \
     }
 
+#ifdef __cplusplus
+}  // extern "C" - close here, C++ helper functions follow
+#endif
+
+// C++ helper functions - these use C++ types and should NOT have C linkage
 std::tuple<std::shared_ptr<YR::Libruntime::Libruntime>, ErrorInfo> getLibRuntime()
 {
     auto lrt = LibruntimeManager::Instance().GetLibRuntime();
@@ -124,7 +127,6 @@ ErrorInfo CErrorToErrorInfo(CErrorInfo *cerr)
         stackTraces.emplace_back(std::move(stackTrace));
     }
     err.SetStackTraceInfos(stackTraces);
-    free(cerr->stackTracesInfo->stackTraces);
     free(cerr->stackTracesInfo);
     free(cerr);
     return err;
@@ -229,44 +231,6 @@ void CheckNullAndAssignValue(const char *str, const int len, std::string &return
     }
 }
 
-static GaugeData BuildGaugeData(CGaugeData *cData)
-{
-    GaugeData data;
-    if (cData == nullptr) {
-        return data;
-    }
-    if (cData->name != nullptr) {
-        data.name = cData->name;
-    }
-    if (cData->description != nullptr) {
-        data.description = cData->description;
-    }
-    if (cData->unit != nullptr) {
-        data.unit = cData->unit;
-    }
-    data.value = cData->value;
-    return data;
-}
-
-static UInt64CounterData BuildUInt64CounterData(CUInt64CounterData *cData)
-{
-    UInt64CounterData data;
-    if (cData == nullptr) {
-        return data;
-    }
-    if (cData->name != nullptr) {
-        data.name = cData->name;
-    }
-    if (cData->description != nullptr) {
-        data.description = cData->description;
-    }
-    if (cData->unit != nullptr) {
-        data.unit = cData->unit;
-    }
-    data.value = cData->value;
-    return data;
-}
-
 char *StringToCString(const std::string &input)
 {
     char *ret = nullptr;
@@ -343,14 +307,30 @@ void InsAllocationToCInsAllocation(const InstanceAllocation &alloc, CInstanceAll
     cInsAlloc->instanceId = CString(alloc.instanceId);
     cInsAlloc->leaseId = CString(alloc.leaseId);
     cInsAlloc->tLeaseInterval = alloc.tLeaseInterval;
+    cInsAlloc->routeAddress = CString(alloc.routeAddress);
+    cInsAlloc->proxyID = CString(alloc.proxyID);
 }
 
 CFunctionMeta FunctionMetaToCFunctionMeta(const FunctionMeta &function)
 {
     CFunctionMeta cFuncMeta{};
     cFuncMeta.appName = const_cast<char *>(function.appName.c_str());
+    cFuncMeta.moduleName = const_cast<char *>(function.moduleName.c_str());
     cFuncMeta.funcName = const_cast<char *>(function.funcName.c_str());
+    cFuncMeta.className = const_cast<char *>(function.className.c_str());
+    cFuncMeta.languageType = static_cast<int>(function.languageType);
+    cFuncMeta.signature = const_cast<char *>(function.signature.c_str());
+    cFuncMeta.poolLabel = const_cast<char *>(function.poolLabel.c_str());
+    cFuncMeta.apiType = static_cast<CApiType>(function.apiType);
     cFuncMeta.functionId = const_cast<char *>(function.functionId.c_str());
+    if (!function.name.empty()) {
+        cFuncMeta.hasName = 1;
+        cFuncMeta.name = const_cast<char *>(function.name.c_str());
+    }
+    if (!function.ns.empty()) {
+        cFuncMeta.hasNs = 1;
+        cFuncMeta.ns = const_cast<char *>(function.ns.c_str());
+    }
     return cFuncMeta;
 }
 
@@ -449,12 +429,17 @@ void FuncExecSubmitHook(std::function<void(void)> &&f)
     GoFunctionExecutionPoolSubmit(funcPtr);
 }
 
-void ParseAndSetBasicConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
+// C interface functions - these need C linkage for Go interop
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+CErrorInfo CInit(CLibruntimeConfig *config)
 {
+    LibruntimeConfig librtCfg{};
     YR::ParseIpAddr(config->functionSystemAddress, librtCfg.functionSystemIpAddr, librtCfg.functionSystemPort);
     YR::ParseIpAddr(config->grpcAddress, librtCfg.functionSystemRtServerIpAddr, librtCfg.functionSystemRtServerPort);
     YR::ParseIpAddr(config->dataSystemAddress, librtCfg.dataSystemIpAddr, librtCfg.dataSystemPort);
-    librtCfg.iamAddress = config->iamAddress;
     librtCfg.runtimeId = config->runtimeId;
     librtCfg.instanceId = config->instanceId;
     librtCfg.functionName = config->functionName;
@@ -463,34 +448,28 @@ void ParseAndSetBasicConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCf
     librtCfg.selfApiType = static_cast<libruntime::ApiType>(config->apiType);
     librtCfg.inCluster = config->inCluster != 0;
     librtCfg.isDriver = config->isDriver != 0;
-}
 
-void SetMTLSConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
-{
     librtCfg.enableMTLS = config->enableMTLS != 0;
     librtCfg.privateKeyPath = config->privateKeyPath;
     librtCfg.certificateFilePath = config->certificateFilePath;
     librtCfg.verifyFilePath = config->verifyFilePath;
     librtCfg.primaryKeyStoreFile = config->primaryKeyStoreFile;
     librtCfg.standbyKeyStoreFile = config->standbyKeyStoreFile;
-}
-
-ErrorInfo SetEncryptConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
-{
     librtCfg.encryptEnable = config->enableDsEncrypt != 0;
     librtCfg.runtimePublicKeyPath = config->runtimePublicKeyContextPath;
     librtCfg.runtimePrivateKeyPath = config->runtimePrivateKeyContextPath;
     librtCfg.dsPublicKeyPath = config->dsPublicKeyContextPath;
     librtCfg.ak_ = config->systemAuthAccessKey;
-    librtCfg.sk_ = datasystem::SensitiveValue(config->systemAuthSecretKey, config->systemAuthSecretKeySize);
-    librtCfg.dk_ = datasystem::SensitiveValue(config->systemAuthDataKey, config->systemAuthDataKeySize);
-    size_t len = strlen(config->privateKeyPaaswd) + 1;
-    (void)memcpy_s(librtCfg.privateKeyPaaswd, YR::Libruntime::MAX_PASSWD_LENGTH, config->privateKeyPaaswd, len);
-    return librtCfg.Decrypt();
-}
+    librtCfg.sk_ = YR::Libruntime::SensitiveValue(config->systemAuthSecretKey, config->systemAuthSecretKeySize);
+    auto len = sizeof(config->privateKeyPaaswd);
+    (void)memcpy_s(librtCfg.privateKeyPaaswd, len, config->privateKeyPaaswd, len);
+    auto decryptErr = librtCfg.Decrypt();
+    if (!decryptErr.OK()) {
+        return ErrorInfoToCError(decryptErr);
+    }
 
-void SetCallbacks(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
-{
+    librtCfg.functionIds[libruntime::LanguageType::Golang] = config->functionId;
+    librtCfg.selfLanguage = libruntime::LanguageType::Golang;
     librtCfg.libruntimeOptions.loadFunctionCallback = LoadFunctionsWrapper;
     librtCfg.libruntimeOptions.functionExecuteCallback = FunctionExecutionWrapper;
     librtCfg.libruntimeOptions.checkpointCallback = CheckpointWrapper;
@@ -502,30 +481,11 @@ void SetCallbacks(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
     } else {
         librtCfg.libruntimeOptions.healthCheckCallback = nullptr;
     }
-}
-
-void SetFinalConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
-{
-    librtCfg.functionIds[libruntime::LanguageType::Golang] = config->functionId;
-    librtCfg.selfLanguage = libruntime::LanguageType::Golang;
     librtCfg.jobId = config->jobId;
     librtCfg.funcExecSubmitHook = FuncExecSubmitHook;
     librtCfg.maxConcurrencyCreateNum = config->maxConcurrencyCreateNum;
     librtCfg.enableSigaction = config->enableSigaction;
     librtCfg.enableEvent = config->enableEvent != 0;
-}
-
-CErrorInfo CInit(CLibruntimeConfig *config)
-{
-    LibruntimeConfig librtCfg{};
-    ParseAndSetBasicConfig(config, librtCfg);
-    SetMTLSConfig(config, librtCfg);
-    auto decryptErr = SetEncryptConfig(config, librtCfg);
-    if (!decryptErr.OK()) {
-        return ErrorInfoToCError(decryptErr);
-    }
-    SetCallbacks(config, librtCfg);
-    SetFinalConfig(config, librtCfg);
     auto err = LibruntimeManager::Instance().Init(librtCfg);
     return ErrorInfoToCError(err);
 }
@@ -533,6 +493,16 @@ CErrorInfo CInit(CLibruntimeConfig *config)
 void CReceiveRequestLoop(void)
 {
     LibruntimeManager::Instance().ReceiveRequestLoop();
+}
+
+char CNeedReInit(void)
+{
+    return LibruntimeManager::Instance().NeedReInit() ? 1 : 0;
+}
+
+void CReInit(void)
+{
+    LibruntimeManager::Instance().ReInit();
 }
 
 void CExecShutdownHandler(int sigNum)
@@ -543,17 +513,21 @@ void CExecShutdownHandler(int sigNum)
 static FunctionMeta BuildFunctionMeta(CFunctionMeta *cFuncMeta)
 {
     FunctionMeta funcMeta;
+    auto safeString = [](const char *value) -> std::string { return value == nullptr ? "" : value; };
+    funcMeta.appName = safeString(cFuncMeta->appName);
+    funcMeta.moduleName = safeString(cFuncMeta->moduleName);
     funcMeta.apiType = static_cast<libruntime::ApiType>(cFuncMeta->apiType);
-    funcMeta.funcName = cFuncMeta->funcName;
-    funcMeta.functionId = cFuncMeta->functionId;
+    funcMeta.funcName = safeString(cFuncMeta->funcName);
+    funcMeta.className = safeString(cFuncMeta->className);
+    funcMeta.functionId = safeString(cFuncMeta->functionId);
     funcMeta.languageType = static_cast<libruntime::LanguageType>(cFuncMeta->languageType);
-    funcMeta.signature = cFuncMeta->signature;
-    funcMeta.poolLabel = cFuncMeta->poolLabel;
+    funcMeta.signature = safeString(cFuncMeta->signature);
+    funcMeta.poolLabel = safeString(cFuncMeta->poolLabel);
     if (cFuncMeta->hasName) {
-        funcMeta.name = cFuncMeta->name;
+        funcMeta.name = safeString(cFuncMeta->name);
     }
     if (cFuncMeta->hasNs) {
-        funcMeta.ns = cFuncMeta->ns;
+        funcMeta.ns = safeString(cFuncMeta->ns);
     }
     return funcMeta;
 }
@@ -722,8 +696,8 @@ static InvokeOptions BuildInvokeOptions(CInvokeOptions *cInvokeOpts)
     if (cInvokeOpts->forceInvoke != 0) {
         invokeOpts.forceInvoke = true;
     }
-    if (cInvokeOpts->isInterrupted != 0) {
-        invokeOpts.isInterrupted = true;
+    if (cInvokeOpts->bypassDatasystem != 0) {
+        invokeOpts.bypassDatasystem = true;
     }
     for (int i = 0; i < cInvokeOpts->size_invokeLabels; i++) {
         invokeOpts.invokeLabels.emplace(cInvokeOpts->invokeLabels[i].key, cInvokeOpts->invokeLabels[i].value);
@@ -870,36 +844,44 @@ void RawCallbackWrapper(const std::string context, const ErrorInfo &err, std::sh
     GoRawCallback(const_cast<char *>(context.c_str()), ErrorInfoToCError(err), cResult);
 }
 
-void CCreateInstanceRaw(CBuffer cReqRaw, char *cContext)
+void CCreateInstanceRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
         return;  // 以后把报错抛出去
     }
-    lrt->CreateInstanceRaw(reqRaw, std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
+    lrt->CreateInstanceRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
+                           std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
-void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cContext)
+void CInvokeByInstanceIdRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
         return;  // 以后把报错抛出去
     }
-    lrt->InvokeByInstanceIdRaw(reqRaw, std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
+    lrt->InvokeByInstanceIdRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
+                               std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
-void CKillRaw(CBuffer cReqRaw, char *cContext)
+void CKillRaw(CBuffer cReqRaw, char *cTraceParent, char *cContext)
 {
     auto reqRaw = std::make_shared<NativeBuffer>(cReqRaw.buffer, cReqRaw.size_buffer);
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
         return;  // 以后把报错抛出去
     }
-    lrt->KillRaw(reqRaw, std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
+    lrt->KillRaw(reqRaw, cTraceParent == nullptr ? "" : cTraceParent,
+                 std::bind(RawCallbackWrapper, std::string(cContext), _1, _2));
 }
 
+#ifdef __cplusplus
+}  // extern "C" - close here for C++ helper function
+#endif
+
+// C++ helper function - uses C++ types
 ErrorInfo ToCBuffer(std::shared_ptr<Buffer> buf, CBuffer *data)
 {
     data->size_buffer = buf->GetSize();
@@ -924,6 +906,11 @@ ErrorInfo ToCBuffer(std::shared_ptr<Buffer> buf, CBuffer *data)
     }
     return ErrorInfo();
 }
+
+// C interface functions continue
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 CErrorInfo CGet(char *objId, int timeoutSec, CBuffer *data)
 {
@@ -995,7 +982,7 @@ void CGetEvent(char *objectId, void *userData)
             auto cErr = ErrorInfoToCError(err);
             CBuffer cBuf = {0};
             if (err.OK()) {
-                cErr = ErrorInfoToCError(ToCBuffer(data->buffer, &cBuf));
+                cErr = ErrorInfoToCError(ToCBuffer(data->data, &cBuf));
             }
             auto cObjectId = const_cast<char *>(data->id.c_str());
             GoGetEventCallback(cObjectId, cBuf, &cErr, userData);
@@ -1003,7 +990,7 @@ void CGetEvent(char *objectId, void *userData)
         userData);
 }
 
-CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData)
+CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData, char *routeAddress, char *proxyID)
 {
     std::shared_ptr<NativeBuffer> data;
     if (cData.buffer != nullptr) {
@@ -1013,10 +1000,12 @@ CErrorInfo CKill(char *instanceId, int sigNo, CBuffer cData)
     if (!err.OK()) {
         return ErrorInfoToCError(err);
     }
+    std::string route = routeAddress == nullptr ? "" : std::string(routeAddress);
+    std::string proxy = proxyID == nullptr ? "" : std::string(proxyID);
     if (data) {
-        err = lrt->Kill(instanceId, sigNo, data);
+        err = lrt->KillWithRouting(instanceId, sigNo, data, route, proxy);
     } else {
-        err = lrt->Kill(instanceId, sigNo);
+        err = lrt->KillWithRouting(instanceId, sigNo, route, proxy);
     }
     return ErrorInfoToCError(err);
 }
@@ -1054,46 +1043,6 @@ CErrorInfo CSetTenantId(const char *cTenantId, int cTenantIdLen)
         return ErrorInfoToCError(err);
     }
     err = lrt->SetTenantId(tenantId, true);
-    return ErrorInfoToCError(err);
-}
-
-CErrorInfo CSetGauge(CGaugeData *cData)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return ErrorInfoToCError(err);
-    }
-    err = lrt->SetGauge(BuildGaugeData(cData));
-    return ErrorInfoToCError(err);
-}
-
-CErrorInfo CIncreaseGauge(CGaugeData *cData)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return ErrorInfoToCError(err);
-    }
-    err = lrt->IncreaseGauge(BuildGaugeData(cData));
-    return ErrorInfoToCError(err);
-}
-
-CErrorInfo CDecreaseGauge(CGaugeData *cData)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return ErrorInfoToCError(err);
-    }
-    err = lrt->DecreaseGauge(BuildGaugeData(cData));
-    return ErrorInfoToCError(err);
-}
-
-CErrorInfo CIncreaseUInt64Counter(CUInt64CounterData *cData)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return ErrorInfoToCError(err);
-    }
-    err = lrt->IncreaseUInt64Counter(BuildUInt64CounterData(cData));
     return ErrorInfoToCError(err);
 }
 
@@ -1266,16 +1215,6 @@ CErrorInfo CDecreaseReferenceCommon(char **cObjIds, int size_cObjIds, char *cRem
     auto [err1, failedIds] = decreRet;
     StringsToCStrings(failedIds, cFailedIds, size_cFailedIds);
     return ErrorInfoToCError(err1);
-}
-
-CErrorInfo CReleaseGRefs(char *cRemoteId)
-{
-    auto [lrt, err] = getLibRuntime();
-    if (!err.OK()) {
-        return ErrorInfoToCError(err);
-    }
-    err = lrt->ReleaseGRefs(cRemoteId);
-    return ErrorInfoToCError(err);
 }
 
 CErrorInfo CKVWrite(char *key, CBuffer data, CSetParam param)
@@ -1881,7 +1820,7 @@ char* CGetActiveMasterAddr()
 {
     auto [lrt, err] = getLibRuntime();
     if (!err.OK()) {
-        return "";
+        return CString("");
     }
     return CString(lrt->GetActiveMasterAddr());
 }

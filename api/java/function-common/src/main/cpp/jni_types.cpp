@@ -52,7 +52,8 @@ const int INSTANCE_PREFERRED = 21;
 const int INSTANCE_PREFERRED_ANTI = 22;
 const int INSTANCE_REQUIRED = 23;
 const int INSTANCE_REQUIRED_ANTI = 24;
-const int MAX_PASSWD_LENGTH = 100;
+// MAX_PASSWD_LENGTH is reserved for future use
+__attribute__((unused)) const int MAX_PASSWD_LENGTH = 100;
 const int POD = 1;
 const int NODE = 2;
 
@@ -694,7 +695,7 @@ void JNILibRuntimeConfig::Init(JNIEnv *env)
     jmIsEnableMetrics_ = GetJMethod(env, clz_, "isEnableMetrics", "()Z");
     jmIsEnableMTLS_ = GetJMethod(env, clz_, "isEnableMTLS", "()Z");
     jmIsEnableDsEncrypt_ = GetJMethod(env, clz_, "isEnableDsEncrypt", "()Z");
-    jmIsEnableFrontendTLS_ = GetJMethod(env, clz_, "isEnableFrontendTLS", "()Z");
+    jmIsEnableFrontendTLS_ = GetJMethod(env ,clz_, "isEnableFrontendTLS", "()Z");
     jmGetCertificateFilePath_ = GetJMethod(env, clz_, "getCertificateFilePath", "()Ljava/lang/String;");
     jmGetPrivateKeyPath_ = GetJMethod(env, clz_, "getPrivateKeyPath", "()Ljava/lang/String;");
     jmGetDsPublicKeyContextPath_ = GetJMethod(env, clz_, "getDsPublicKeyContextPath", "()Ljava/lang/String;");
@@ -816,12 +817,8 @@ YR::Libruntime::LibruntimeConfig JNILibRuntimeConfig::FromJava(JNIEnv *env, cons
         const char *passwd = env->GetStringUTFChars(jStrPasswd, nullptr);
         if (passwd != nullptr) {
             size_t passwdLen = strlen(passwd) + 1;
-            std::vector<char> passwdBuf(passwdLen);
-            (void)memcpy_s(passwdBuf.data(), passwdBuf.size(), passwd, passwdLen);
-            (void)memset_s(const_cast<char *>(passwd), passwdLen, 0, passwdLen);
+            memcpy_s(libConfig.privateKeyPaaswd, passwdLen, passwd, passwdLen);
             env->ReleaseStringUTFChars(jStrPasswd, passwd);
-            (void)memcpy_s(libConfig.privateKeyPaaswd, passwdLen, passwdBuf.data(), passwdLen);
-            (void)memset_s(passwdBuf.data(), passwdBuf.size(), 0, passwdBuf.size());
         }
     }
     libConfig.inCluster = static_cast<bool>(env->CallBooleanMethod(meta, jmIsInCluster_));
@@ -1449,9 +1446,7 @@ std::vector<YR::Libruntime::DataObject> JNIDataObject::FromJavaList(JNIEnv *env,
 
 YR::Libruntime::DataObject JNIDataObject::FromJava(JNIEnv *env, jobject o)
 {
-    return YR::Libruntime::DataObject{
-        .id = GetId(env, o),
-    };
+    return YR::Libruntime::DataObject(GetId(env, o));
 }
 
 std::string JNIDataObject::GetId(JNIEnv *env, jobject o)
@@ -1553,9 +1548,6 @@ jobject JNIErrorCode::FromCc(JNIEnv *env, const YR::Libruntime::ErrorCode &error
         {YR::Libruntime::ErrorCode::ERR_DATASYSTEM_FAILED, 4299},
         {YR::Libruntime::ErrorCode::ERR_FINALIZED, 9000},
         {YR::Libruntime::ErrorCode::ERR_CREATE_RETURN_BUFFER, 9001},
-        {YR::Libruntime::ErrorCode::ERR_SESSION_TIMEOUT, 5001},
-        {YR::Libruntime::ErrorCode::ERR_SESSION_INTERRUPTED, 5002},
-        {YR::Libruntime::ErrorCode::ERR_SESSION_NOT_WAITING, 5003},
     };
 
     if (auto it = fieldMap.find(errorCode); it == fieldMap.end()) {
@@ -1672,7 +1664,7 @@ std::shared_ptr<YR::Libruntime::LabelOperator> JNILabelOperator::FromJava(JNIEnv
             break;
         default:
             YRLOG_ERROR("invalid operator type:{} ", operateType);
-            YR::jni::JNILibruntimeException::ThrowNew(env, "invalid label operator type " + operateType);
+            YR::jni::JNILibruntimeException::ThrowNew(env, "invalid label operator type " + std::to_string(operateType));
             break;
     }
     labelOpt->SetKey(key);
@@ -1725,7 +1717,7 @@ std::shared_ptr<YR::Libruntime::Affinity> JNIAffinity::FromJava(JNIEnv *env, job
             break;
         default:
             YRLOG_ERROR("invalid affinity type:{} ", affinityValue);
-            YR::jni::JNILibruntimeException::ThrowNew(env, "invalid affinity type " + affinityValue);
+            YR::jni::JNILibruntimeException::ThrowNew(env, "invalid affinity type " + std::to_string(affinityValue));
             break;
     }
     if (affinity != nullptr) {

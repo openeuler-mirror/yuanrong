@@ -74,9 +74,3 @@ func initStsSdkLog() {
 	defer file.Close()
 	return
 }
-
-// DecryptSystemAuthConfig -
-func DecryptSystemAuthConfig(auth raw.Auth) raw.Auth {
-	systemAuth := raw.Auth{}
-	return systemAuth
-}

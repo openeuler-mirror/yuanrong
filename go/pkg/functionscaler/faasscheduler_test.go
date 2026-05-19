@@ -198,6 +198,20 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
+func TestGenerateInstanceResponsePopulatesRouteFields(t *testing.T) {
+	instance := &types.Instance{
+		InstanceID:      "test-inst-001",
+		FunctionProxyID: "proxy-abc",
+		RouteAddress:    "10.0.0.1:7788",
+	}
+	insAlloc := &types.InstanceAllocation{Instance: instance}
+
+	resp := generateInstanceResponse(insAlloc, nil, time.Now())
+
+	assert.Equal(t, "proxy-abc", resp.InstanceAllocationInfo.ProxyID)
+	assert.Equal(t, "10.0.0.1:7788", resp.InstanceAllocationInfo.RouteAddress)
+}
+
 func TestProcessSubscription(t *testing.T) {
 	stopCh := make(chan struct{})
 	defer close(stopCh)
@@ -1358,105 +1372,15 @@ func TestFaaSScheduler_parseExtraData(t *testing.T) {
 			_, err := parseExtraData(dataBytes)
 			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
 		})
-		convey.Convey("session full concurrency", func() {
+		convey.Convey("invalid session concurrency", func() {
 			data := map[string][]byte{
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-1}`),
 			}
 			dataBytes, _ := json.Marshal(data)
 			dataInfo, err := parseExtraData(dataBytes)
 			convey.So(err, convey.ShouldBeNil)
-			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, -1)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
 		})
-		convey.Convey("invalid session concurrency zero", func() {
-			data := map[string][]byte{
-				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":0}`),
-			}
-			dataBytes, _ := json.Marshal(data)
-			_, err := parseExtraData(dataBytes)
-			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
-		})
-		convey.Convey("invalid session concurrency less than -1", func() {
-			data := map[string][]byte{
-				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-2}`),
-			}
-			dataBytes, _ := json.Marshal(data)
-			_, err := parseExtraData(dataBytes)
-			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
-		})
-	})
-}
-
-func TestFaaSScheduler_handleQuerySession(t *testing.T) {
-	convey.Convey("test handleQuerySession", t, func() {
-		fs := &FaaSScheduler{
-			PoolManager: instancepool.NewPoolManager(make(chan struct{})),
-		}
-		funcKey := "test-func"
-		sessionID := "session-1"
-
-		extraData := map[string][]byte{
-			"instanceSessionConfig": []byte(`{"sessionID":"session-1","sessionTTL":0,"concurrency":1}`),
-		}
-		extraDataBytes, _ := json.Marshal(extraData)
-
-		patches := NewPatches()
-		defer patches.Reset()
-
-		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
-			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
-			return &types.FunctionSpecification{
-				FuncKey:            funcKey,
-				FuncMetaSignature:  "sig-1",
-				ExtendedMetaData:   commonTypes.ExtendedMetaData{EnableAgentSession: true},
-			}
-		})
-		patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "QuerySession",
-			func(_ *instancepool.PoolManager, _ string, _ string) (string, error) {
-				return "instance-123", nil
-			})
-
-		resp := fs.handleQuerySession(funcKey, extraDataBytes, "trace-1")
-		convey.So(resp, convey.ShouldNotBeNil)
-		convey.So(resp.ErrorCode, convey.ShouldEqual, constant.InsReqSuccessCode)
-		convey.So(resp.ErrorMessage, convey.ShouldEqual, constant.InsReqSuccessMessage)
-		convey.So(resp.InstanceID, convey.ShouldEqual, "instance-123")
-		convey.So(resp.FuncKey, convey.ShouldEqual, funcKey)
-		convey.So(resp.FuncSig, convey.ShouldEqual, "sig-1")
-
-		patches.Reset()
-		patches = NewPatches()
-		defer patches.Reset()
-		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
-			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
-			return &types.FunctionSpecification{
-				FuncKey:          funcKey,
-				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: false},
-			}
-		})
-
-		resp = fs.handleQuerySession(funcKey, extraDataBytes, "trace-2")
-		convey.So(resp, convey.ShouldNotBeNil)
-		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.AgentSessionNotEnabledErrCode)
-
-		patches.Reset()
-		patches = NewPatches()
-		defer patches.Reset()
-		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
-			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
-			return &types.FunctionSpecification{
-				FuncKey:          funcKey,
-				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: true},
-			}
-		})
-		patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "QuerySession",
-			func(_ *instancepool.PoolManager, _ string, gotSessionID string) (string, error) {
-				convey.So(gotSessionID, convey.ShouldEqual, sessionID)
-				return "", fmt.Errorf("session %s not found", gotSessionID)
-			})
-
-		resp = fs.handleQuerySession(funcKey, extraDataBytes, "trace-3")
-		convey.So(resp, convey.ShouldNotBeNil)
-		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.SessionNotFoundErrCode)
 	})
 }
 
@@ -1885,58 +1809,17 @@ func TestAcquireNonOwnerSchedulerErrorCode(t *testing.T) {
 		resp := faasScheduler.handleInstanceAcquire(targetName, bytes, "traceId-123")
 		convey.So(resp.ErrorCode, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
 		convey.So(resp.ErrorMessage, convey.ShouldEqual, expectSchedulerInstanceId)
+		resp1 := faasScheduler.handleInstanceBatchRetain(targetName, bytes, "traceId-123")
+		convey.So(resp1.InstanceAllocFailed, convey.ShouldContainKey, targetName)
+		convey.So(resp1.InstanceAllocFailed[targetName].ErrorCode, convey.ShouldEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
 
 		expectOk = true
 		resp = faasScheduler.handleInstanceAcquire(targetName, bytes, "traceId-123")
 		convey.So(resp.ErrorCode, convey.ShouldNotEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
+		resp1 = faasScheduler.handleInstanceBatchRetain(targetName, bytes, "traceId-123")
+		_, ok := resp1.InstanceAllocFailed[targetName]
+		if ok {
+			convey.So(resp1.InstanceAllocFailed[targetName].ErrorCode, convey.ShouldNotEqual, statuscode.AcquireNonOwnerSchedulerErrorCode)
+		}
 	})
-}
-
-func TestHandleInstanceBatchRetainUsesAllocRecordFuncKeyForOwnerCheck(t *testing.T) {
-	faasScheduler := &FaaSScheduler{
-		allocRecord: sync.Map{},
-		PoolManager: &instancepool.PoolManager{},
-	}
-	faasScheduler.allocRecord.Store("lease-1", &types.InstanceAllocation{
-		AllocationID: "lease-1",
-		Instance: &types.Instance{
-			FuncKey: "func-from-alloc",
-			ResKey:  resspeckey.ResSpecKey{},
-			InstanceStatus: commonTypes.InstanceStatus{
-				Code: int32(constant.KernelInstanceStatusRunning),
-			},
-		},
-		Lease: &fakeLease{},
-	})
-
-	var checkedFuncKey string
-	defer ApplyMethodFunc(selfregister.GlobalSchedulerProxy, "CheckFuncOwner", func(funcKey string) (string, bool) {
-		checkedFuncKey = funcKey
-		return "", true
-	}).Reset()
-
-	metricsData, err := json.Marshal(map[string]*types.InstanceThreadMetrics{
-		"lease-1": {
-			ProcReqNum:  1,
-			AvgProcTime: 10,
-			MaxProcTime: 20,
-		},
-	})
-	assert.NoError(t, err)
-
-	resp := faasScheduler.handleInstanceBatchRetain("lease-1", metricsData, "traceId-123")
-	assert.Equal(t, "func-from-alloc", checkedFuncKey)
-	assert.Contains(t, resp.InstanceAllocSucceed, "lease-1")
-	assert.NotContains(t, resp.InstanceAllocFailed, "lease-1")
-
-	singleMetricsData, err := json.Marshal(&types.InstanceThreadMetrics{
-		ProcReqNum:  1,
-		AvgProcTime: 10,
-		MaxProcTime: 20,
-	})
-	assert.NoError(t, err)
-
-	singleResp := faasScheduler.handleInstanceRetain("lease-1", singleMetricsData, "traceId-123")
-	assert.Equal(t, "func-from-alloc", checkedFuncKey)
-	assert.Equal(t, constant.InsReqSuccessCode, singleResp.ErrorCode)
 }

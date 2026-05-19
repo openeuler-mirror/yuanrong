@@ -62,16 +62,16 @@ type InternalHTTPSConfig struct {
 	RootCAFile              string   `json:"rootCAFile" yaml:"rootCAFile" valid:"optional"`
 	ModuleCertFile          string   `json:"moduleCertFile" yaml:"moduleCertFile" valid:"optional"`
 	ModuleKeyFile           string   `json:"moduleKeyFile" yaml:"moduleKeyFile" valid:"optional"`
-	PwdFile                 string   `json:"pwdFile" yaml:"pwdFile" valid:"optional"`
-	SecretName              string   `json:"secretName" yaml:"secretName" valid:"optional"`
-	SSLDecryptTool          string   `json:"sslDecryptTool" yaml:"sslDecryptTool" valid:"optional"`
+	PwdFile        string `json:"pwdFile" yaml:"pwdFile" valid:"optional"`
+	SecretName     string `json:"secretName" yaml:"secretName" valid:"optional"`
+	SSLDecryptTool string `json:"sslDecryptTool" yaml:"sslDecryptTool" valid:"optional"`
 	// ClientAuthType specifies the TLS client authentication mode:
 	//   - NoClientCert: One-way TLS, client cert not required (most common HTTPS scenario)
 	//   - RequestClientCert: Request but don't require client cert
 	//   - RequireAnyClientCert: Require client cert but don't verify it
 	//   - VerifyClientCertIfGiven: Verify client cert only if provided
 	//   - RequireAndVerifyClientCert: Mutual TLS (mTLS), require and verify client cert
-	ClientAuthType string     `json:"clientAuthType" yaml:"clientAuthType" valid:"optional"`
+	ClientAuthType string `json:"clientAuthType" yaml:"clientAuthType" valid:"optional"`
 }
 
 var (
@@ -183,7 +183,7 @@ func loadTLSConfig() error {
 func loadHTTPSConfig(config InternalHTTPSConfig) error {
 	// Parse client auth type
 	clientAuthType := parseClientAuthType(config.ClientAuthType)
-
+	
 	httpsConfigs = &HTTPSConfig{
 		MinVers:        tls.VersionTLS12,
 		MaxVers:        tls.VersionTLS12,
@@ -364,7 +364,7 @@ func parseClientAuthType(authType string) tls.ClientAuthType {
 	if authType == "" {
 		return tls.RequireAndVerifyClientCert
 	}
-
+	
 	// Parse ClientAuthType string
 	switch authType {
 	case "NoClientCert":

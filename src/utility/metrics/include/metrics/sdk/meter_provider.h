@@ -25,18 +25,10 @@
 namespace observability::sdk::metrics {
 class MeterContext;
 class MetricProcessor;
-class LiteBusManager;
-
-struct LiteBusParams {
-    std::string address = "";
-    int32_t threadNum = 3;
-    bool enableUDP = false;
-};
 
 class MeterProvider final : public observability::api::metrics::MeterProvider {
 public:
     MeterProvider() noexcept;
-    explicit MeterProvider(const LiteBusParams &liteBusParams) noexcept;
     ~MeterProvider() override;
 
     std::shared_ptr<observability::api::metrics::Meter> GetMeter(const std::string &meterName) noexcept override;
@@ -45,7 +37,6 @@ public:
 
 private:
     std::shared_ptr<MeterContext> context_{ nullptr };
-    std::shared_ptr<LiteBusManager> liteBusManager_{ nullptr };
 };
 }  // namespace observability::sdk::metrics
 

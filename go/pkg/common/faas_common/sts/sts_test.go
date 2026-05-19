@@ -18,8 +18,10 @@
 package sts
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/smartystreets/goconvey/convey"
 
 	"yuanrong.org/kernel/pkg/common/faas_common/sts/raw"
@@ -27,6 +29,12 @@ import (
 
 func TestDecryptSystemAuthConfig(t *testing.T) {
 	convey.Convey("Test DecryptSystemAuthConfig", t, func() {
+		defer gomonkey.ApplyFunc(stsgoapi.DecryptSensitiveConfig, func(rawConfigValue string) ([]byte, error) {
+			if rawConfigValue == "" {
+				return nil, fmt.Errorf("sensitive config is empty")
+			}
+			return []byte(rawConfigValue), nil
+		}).Reset()
 		convey.Convey("when enableIam is failed", func() {
 			auth := raw.Auth{
 				EnableIam: "aaa",
@@ -54,7 +62,7 @@ func TestDecryptSystemAuthConfig(t *testing.T) {
 				AccessKey: "ak",
 			}
 			res := DecryptSystemAuthConfig(auth)
-			convey.So(res.AccessKey, convey.ShouldBeEmpty)
+			convey.So(res.AccessKey, convey.ShouldNotBeEmpty)
 			convey.So(res.SecretKey, convey.ShouldBeEmpty)
 		})
 		convey.Convey("when dk is empty", func() {
@@ -64,8 +72,8 @@ func TestDecryptSystemAuthConfig(t *testing.T) {
 				SecretKey: "sk",
 			}
 			res := DecryptSystemAuthConfig(auth)
-			convey.So(res.AccessKey, convey.ShouldBeEmpty)
-			convey.So(res.SecretKey, convey.ShouldBeEmpty)
+			convey.So(res.AccessKey, convey.ShouldNotBeEmpty)
+			convey.So(res.SecretKey, convey.ShouldNotBeEmpty)
 			convey.So(res.DataKey, convey.ShouldBeEmpty)
 		})
 		convey.Convey("when success", func() {
@@ -76,9 +84,9 @@ func TestDecryptSystemAuthConfig(t *testing.T) {
 				DataKey:   "dk",
 			}
 			res := DecryptSystemAuthConfig(auth)
-			convey.So(res.AccessKey, convey.ShouldBeEmpty)
-			convey.So(res.SecretKey, convey.ShouldBeEmpty)
-			convey.So(res.DataKey, convey.ShouldBeEmpty)
+			convey.So(res.AccessKey, convey.ShouldNotBeEmpty)
+			convey.So(res.SecretKey, convey.ShouldNotBeEmpty)
+			convey.So(res.DataKey, convey.ShouldNotBeEmpty)
 		})
 	})
 }

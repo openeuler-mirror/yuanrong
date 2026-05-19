@@ -17,28 +17,13 @@
 #include "fs_intf.h"
 
 #include <algorithm>
-#include <chrono>
 #include <fstream>
-#include <thread>
 
 #include "src/dto/config.h"
 #include "src/utility/logger/logger.h"
 #include "src/libruntime/utils/utils.h"
-
-namespace {
-constexpr int kCheckpointRestoreDelayMs = 10000;
-}  // namespace
-
 namespace YR {
 namespace Libruntime {
-std::string GetReturnObjectId(const CallRequest &req)
-{
-    if (req.returnobjectids_size() > 0) {
-        return req.returnobjectids(0);
-    }
-    return req.returnobjectid();
-}
-
 FSIntf::FSIntf(const FSIntfHandlers &handlers) : handlers(handlers)
 {
     if (handlers.call == nullptr || handlers.checkpoint == nullptr || handlers.recover == nullptr ||
@@ -93,17 +78,17 @@ void FSIntf::ReceiveRequestLoop(void)
 void FSIntf::ReturnCallResult(const std::shared_ptr<CallResultMessageSpec> result, bool isCreate,
                               CallResultCallBack callback)
 {
+    if (isCreate) {
+        if (result->Immutable().code() == common::ERR_NONE) {
+            status.SetInitialized();
+        } else {
+            status.SetInitializingFailure(result->Immutable().code(), result->Immutable().message());
+        }
+    }
     auto reqId = result->Immutable().requestid();
-    this->CallResultAsync(result, [this, reqId, result, isCreate, callback](const CallResultAck &ack) {
+    this->CallResultAsync(result, [this, reqId, callback](const CallResultAck &ack) {
         if (!DeleteProcessingRequestId(reqId)) {
             YRLOG_ERROR("Call request has already finished, request ID: {}", reqId);
-        }
-        if (isCreate) {
-            if (result->Immutable().code() == common::ERR_NONE) {
-                status.SetInitialized();
-            } else {
-                status.SetInitializingFailure(result->Immutable().code(), result->Immutable().message());
-            }
         }
         if (callback) {
             callback(ack);
@@ -152,115 +137,46 @@ void FSIntf::HandleCallRequest(const std::shared_ptr<CallMessageSpec> &req, Call
     }
 
     YRLOG_DEBUG("Receive call request, request ID: {}", req->Immutable().requestid());
-    this->callReceiver.Handle([this, req, callback] { ProcessCallRequest(req, callback); }, "");
-}
-
-void FSIntf::ProcessCallRequest(const std::shared_ptr<CallMessageSpec> &req, CallCallBack callback)
-{
-    auto requestId = req->Immutable().requestid();
-    CallResponse resp;
-    if (req->Immutable().iscreate()) {
-        if (!status.SetInitializing()) {
-            status.WaitInitialized();
-            auto [code, msg] = status.GetErrorInfo();
-            resp.set_code(code);
-            resp.set_message(msg);
-            YRLOG_DEBUG("send init call response, request ID: {}, code {}, message {}", requestId,
-                        fmt::underlying(resp.code()), resp.message());
-            callback(resp);
-        } else {
-            callback(resp);
-            this->handlers.init(req);
-            YRLOG_DEBUG("send init call response , request ID: {}, code {}, message {}", requestId,
-                        fmt::underlying(resp.code()), resp.message());
-        }
-    } else {
-        if (auto createOptions = req->Immutable().createoptions();
-            !status.WaitInitialized() && createOptions.find("ENABLE_FORCE_INVOKE") == createOptions.end()) {
-            auto [code, msg] = status.GetErrorInfo();
-            resp.set_code(code);
-            resp.set_message(msg);
-            YRLOG_DEBUG("after wait initialized, send call response, request ID: {}, code {}, message {}", requestId,
-                        fmt::underlying(resp.code()), resp.message());
-            status.InterruptCheckpointing();
-            callback(resp);
-        } else {
-            if (createOptions.find(IS_INTERRUPTED) != createOptions.end()) {
-                HandleInterruptRequest(createOptions, req, resp);
-                callback(resp);
-                return;
+    this->callReceiver.Handle(
+        [this, req, callback]() {
+            CallResponse resp;
+            if (req->Immutable().iscreate()) {
+                if (!status.SetInitializing()) {
+                    status.WaitInitialized();
+                    auto [code, msg] = status.GetErrorInfo();
+                    resp.set_code(code);
+                    resp.set_message(msg);
+                    YRLOG_DEBUG("send init call response, request ID: {}, code {}, message {}",
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
+                    callback(resp);
+                } else {
+                    callback(resp);
+                    this->handlers.init(req);
+                    YRLOG_DEBUG("send init call response , request ID: {}, code {}, message {}",
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
+                }
+            } else {
+                if (!status.WaitInitialized() && req->Immutable().createoptions().find("ENABLE_FORCE_INVOKE") ==
+                                                     req->Immutable().createoptions().end()) {
+                    auto [code, msg] = status.GetErrorInfo();
+                    resp.set_code(code);
+                    resp.set_message(msg);
+                    YRLOG_DEBUG("after wait initialized, send call response, request ID: {}, code {}, message {}",
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
+                    status.InterruptCheckpointing();
+                    callback(resp);
+                } else {
+                    callback(resp);
+                    this->handlers.call(req);
+                    YRLOG_DEBUG("send call response , request ID: {}, code {}, message {}",
+                                req->Immutable().requestid(), fmt::underlying(resp.code()), resp.message());
+                }
             }
-            callback(resp);
-            this->handlers.call(req);
-            YRLOG_DEBUG("send call response , request ID: {}, code {}, message {}", requestId,
-                        fmt::underlying(resp.code()), resp.message());
-        }
-    }
-
-    if (resp.code() != common::ERR_NONE) {
-        DeleteProcessingRequestId(requestId);
-    }
-}
-
-void FSIntf::HandleInterruptRequest(const google::protobuf::Map<std::string, std::string> &createOptions,
-                                    const std::shared_ptr<CallMessageSpec> &req, CallResponse &resp)
-{
-    auto requestId = req->Immutable().requestid();
-
-    std::string interruptResponse = GetInterruptResponse(createOptions, requestId, resp);
-    auto result = BuildInterruptedCallResult(req, interruptResponse);
-
-    this->ReturnCallResult(result, false, [](const CallResultAck &ack) {
-        if (ack.code() != common::ERR_NONE) {
-            YRLOG_WARN("failed to send interrupted CallResult, code: {}, message: {}", fmt::underlying(ack.code()),
-                       ack.message());
-        }
-    });
-
-    YRLOG_INFO("send interrupted call response, request ID: {}, code {}, message {}", requestId,
-               fmt::underlying(resp.code()), resp.message());
-}
-
-std::string FSIntf::GetInterruptResponse(const google::protobuf::Map<std::string, std::string> &createOptions,
-                                         const std::string &requestId, CallResponse &resp)
-{
-    bool success = false;
-    auto sessionIdIter = createOptions.find(YR_AGENT_SESSION_ID);
-    if (agentSessionManager_ != nullptr && sessionIdIter != createOptions.end() && !sessionIdIter->second.empty()) {
-        auto err = agentSessionManager_->SetSessionInterrupted(sessionIdIter->second);
-        if (err.OK()) {
-            success = true;
-        } else {
-            YRLOG_ERROR("failed to set session interrupted, requestid :{}, sessionId:{}, error:{}", requestId,
-                        sessionIdIter->second, err.Msg());
-        }
-    }
-
-    InterruptResponse rsp;
-    rsp.body["message"] = success ? "Interrupted Success" : "Interrupted Failed";
-    resp.set_code(success ? common::ERR_NONE : common::ERR_INNER_COMMUNICATION);
-    resp.set_message(rsp.toJson());
-    return rsp.toJson();
-}
-
-std::shared_ptr<CallResultMessageSpec> FSIntf::BuildInterruptedCallResult(const std::shared_ptr<CallMessageSpec> &req,
-                                                                          std::string interruptResponse)
-{
-    auto requestId = req->Immutable().requestid();
-
-    auto result = std::make_shared<CallResultMessageSpec>();
-    auto &callResult = result->Mutable();
-    callResult.set_requestid(requestId);
-    callResult.set_instanceid(req->Immutable().senderid());
-    callResult.set_code(common::ERR_NONE);
-
-    auto *smallObj = callResult.add_smallobjects();
-    smallObj->set_id(GetReturnObjectId(req->Immutable()));
-    std::string payload(MetaDataLen, '\0');
-    payload.append(interruptResponse);
-    smallObj->set_value(payload.data(), payload.size());
-
-    return result;
+            if (resp.code() != common::ERR_NONE) {
+                DeleteProcessingRequestId(req->Immutable().requestid());
+            }
+        },
+        "");
 }
 
 void FSIntf::HandleNotifyRequest(const NotifyRequest &req, std::function<NotifyResponse(void)> createOrInvokeCallback,
@@ -278,8 +194,7 @@ void FSIntf::HandleCheckpointRequest(const CheckpointRequest &req, CheckpointCal
 {
     this->checkpointRecoverExecutor.Handle(
         [this, req, callback]() {
-            // 拦截 initcall 之外的其他请求
-            if (status.IsInitialized() && ExistProcessingRequestId()) {
+            if (ExistProcessingRequestId()) {
                 CheckpointResponse resp;
                 resp.set_code(common::ERR_INSTANCE_BUSY);
                 resp.set_message("Instance is busy handling requests, checkpoint cannot be performed now.");
@@ -358,28 +273,39 @@ void FSIntf::HandlePrepareSnapRequest(const PrepareSnapRequest &req, PrepareSnap
                 resp.set_message("PrepareSnap handler not registered");
                 callback(resp);
             }
-            // Read checkpoint file to verify snapshot readiness
-            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_ENV_FILE();
+            // Read seed file to verify snapshot restore barrier readiness.
+            // YR_SEED_FILE is the synchronization seed file used by runtimes to block until restore is ready.
+            std::string checkpointFile = YR::Libruntime::Config::Instance().YR_SEED_FILE();
             if (!checkpointFile.empty()) {
                 YRLOG_INFO("ready to checkpoint. {}", checkpointFile);
                 std::ifstream file(checkpointFile);
+                if (!file.is_open()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
+                    YRLOG_ERROR("failed to open checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 file.peek();  // Trigger actual read() syscall
+                if (file.fail() && !file.eof()) {
+                    // callback(resp) has already been returned above; this return only aborts local restore checks.
+                    YRLOG_ERROR("failed to read checkpoint seed file: {}", checkpointFile);
+                    return;
+                }
                 YRLOG_INFO("restore from checkpoint. {}", checkpointFile);
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(kCheckpointRestoreDelayMs));
-            // Refresh environment after snapshot restore
+
+            // After restore: do minimal operations only
+            // 1. Refresh environment variables (file IO, no network dependency)
+            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
             if (this->handlers.refreshEnv) {
                 YRLOG_INFO("calling refreshEnv callback");
                 this->handlers.refreshEnv();
             }
-            YR::LoadEnvFromFile(YR::Libruntime::Config::Instance().YR_ENV_FILE());
-            // Rebuild proxy connection with updated fsIp and fsPort from environment
-            auto info = ParseIpAddr(Config::Instance().YR_SERVER_ADDRESS());
-            YRLOG_INFO("Rebuilding proxy connection with fsIp: {}, fsPort: {}", info.ip, info.port);
-            auto reconnErr = this->ReconnectProxyClient(info.ip, info.port);
-            if (!reconnErr.OK()) {
-                YRLOG_ERROR("Failed to rebuild proxy connection: {}", reconnErr.CodeAndMsg());
-            }
+
+            // 2. Set re-init flag and stop callReceiver to exit ReceiveRequestLoop
+            needReInit_.store(true);
+            YRLOG_INFO("Set needReInit=true, shutting down callReceiver to trigger re-initialization loop");
+            // Stop callReceiver so that ReceiveRequestLoop() returns and main loop can check needReInit
+            callReceiver.Shutdown();
         },
         "");
 }

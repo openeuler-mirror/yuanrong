@@ -24,11 +24,10 @@ struct InstanceOrdering;
 class InvokeOrderManager {
 public:
     InvokeOrderManager() = default;
-    explicit InvokeOrderManager(std::shared_ptr<LibruntimeConfig> config) : libConfig(config) {}
     virtual ~InvokeOrderManager() = default;
     void CreateInstance(std::shared_ptr<InvokeSpec> spec);
     void RegisterInstance(const std::string &instanceId);
-    void RegisterInstanceAndUpdateOrder(const std::string &instanceId);
+    void RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored = false);
     void RemoveInstance(std::shared_ptr<InvokeSpec> spec);
     void Invoke(std::shared_ptr<InvokeSpec> spec);
     void UpdateUnfinishedSeq(std::shared_ptr<InvokeSpec> spec);
@@ -38,13 +37,13 @@ public:
     void RemoveGroupInstance(const std::string &instanceId);
     void CreateGroupInstance(const std::string &instanceId);
     void NotifyGroupInstance(const std::string &instanceId);
+    void Clear();
 
 private:
     std::shared_ptr<InstanceOrdering> ConstuctInstOrder();
 
     absl::Mutex mu;
-    std::unordered_map<std::string, std::shared_ptr<InstanceOrdering>> instances ABSL_GUARDED_BY(mu);
-    std::shared_ptr<LibruntimeConfig> libConfig;
+    std::unordered_map<std::string, std::shared_ptr<InstanceOrdering>> instances;
 };
 
 struct InstanceOrdering {

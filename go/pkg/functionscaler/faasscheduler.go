@@ -84,8 +84,6 @@ var (
 	insOpRelease InstanceOperation = "release"
 	// insOpRelease stands for instance release operation
 	insOpRollout InstanceOperation = "rollout"
-	// insOpQuerySession stands for query session operation
-	insOpQuerySession InstanceOperation = "querySession"
 	// insOpUnknown stands for unknown instance operation
 	insOpUnknown InstanceOperation = "unknown"
 	// stateSplitStr -
@@ -311,10 +309,20 @@ func (fs *FaaSScheduler) processRolloutConfigSubscription() {
 
 // ProcessInstanceRequestLibruntime will handle acquire, release and retain of instance based on multi libruntime
 func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceID string) ([]byte, error) {
+	return fs.processInstanceRequestLibruntime(args, traceID, "")
+}
+
+// ProcessInstanceRequestLibruntimeWithTraceParent preserves parent span context for cold-start correlation.
+func (fs *FaaSScheduler) ProcessInstanceRequestLibruntimeWithTraceParent(
+	args []api.Arg, traceID, traceParent string,
+) ([]byte, error) {
+	return fs.processInstanceRequestLibruntime(args, traceID, traceParent)
+}
+
+func (fs *FaaSScheduler) processInstanceRequestLibruntime(args []api.Arg, traceID, traceParent string) ([]byte, error) {
 	logger := log.GetLogger().With(zap.Any("traceID", traceID))
 	insOp, targetName, extraData, eventData := parseInstanceOperation(args, traceID)
 	startTime := time.Now()
-
 	defer func() {
 		logger.Infof("process of instance operation %s target %s cost %dms", insOp, targetName,
 			time.Now().Sub(startTime).Milliseconds())
@@ -326,11 +334,11 @@ func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceI
 	var response interface{}
 	switch insOp {
 	case insOpCreate:
-		response = fs.handleInstanceCreate(targetName, extraData, eventData, traceID)
+		response = fs.handleInstanceCreateWithTraceParent(targetName, extraData, eventData, traceID, traceParent)
 	case insOpDelete:
 		response = fs.handleInstanceDelete(targetName, extraData, traceID)
 	case insOpAcquire:
-		response = fs.handleInstanceAcquire(targetName, extraData, traceID)
+		response = fs.handleInstanceAcquireWithTraceParent(targetName, extraData, traceID, traceParent)
 	case insOpRelease:
 		response = fs.handleInstanceRelease(targetName, extraData, traceID)
 	case insOpRetain:
@@ -339,8 +347,6 @@ func (fs *FaaSScheduler) ProcessInstanceRequestLibruntime(args []api.Arg, traceI
 		response = fs.handleInstanceBatchRetain(targetName, extraData, traceID)
 	case insOpRollout:
 		response = fs.handleRollout(targetName, traceID)
-	case insOpQuerySession:
-		response = fs.handleQuerySession(targetName, extraData, traceID)
 	default:
 		logger.Warnf("unknown instance operation %s", insOp)
 		response = generateInstanceResponse(nil, snerror.New(constant.UnsupportedOperationErrorCode,
@@ -400,6 +406,12 @@ func (fs *FaaSScheduler) HandleRequestForward(insOp InstanceOperation, args []ap
 func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventData []byte,
 	traceID string,
 ) *commonTypes.InstanceResponse {
+	return fs.handleInstanceCreateWithTraceParent(funcKey, extraData, eventData, traceID, "")
+}
+
+func (fs *FaaSScheduler) handleInstanceCreateWithTraceParent(funcKey string, extraData, eventData []byte,
+	traceID, traceParent string,
+) *commonTypes.InstanceResponse {
 	startTime := time.Now()
 	logger := log.GetLogger().With(zap.Any("traceID", traceID), zap.Any("funcKey", funcKey))
 	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
@@ -420,6 +432,7 @@ func (fs *FaaSScheduler) handleInstanceCreate(funcKey string, extraData, eventDa
 	}
 	instance, err := fs.PoolManager.CreateInstance(&types.InstanceCreateRequest{
 		TraceID:      traceID,
+		TraceParent:  traceParent,
 		FuncSpec:     funcSpec,
 		ResSpec:      resSpec,
 		InstanceName: dataInfo.designateInstanceName,
@@ -452,6 +465,12 @@ func (fs *FaaSScheduler) handleInstanceDelete(instanceID string, extraData []byt
 
 func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []byte,
 	traceID string,
+) *commonTypes.InstanceResponse {
+	return fs.handleInstanceAcquireWithTraceParent(targetName, extraData, traceID, "")
+}
+
+func (fs *FaaSScheduler) handleInstanceAcquireWithTraceParent(targetName string, extraData []byte,
+	traceID, traceParent string,
 ) *commonTypes.InstanceResponse {
 	startTime := time.Now()
 	funcKey, stateID := parseStateOperation(targetName)
@@ -503,6 +522,7 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 		FuncSpec:            funcSpec, // etcd
 		ResSpec:             resSpec,  // args
 		TraceID:             traceID,
+		TraceParent:         traceParent,
 		StateID:             stateID,
 		PoolLabel:           poolLabel,
 		InstanceName:        dataInfo.designateInstanceName,
@@ -522,57 +542,6 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 	logger.Infof("succeed to acquire instance %s of function %s traceID %s", insAlloc.AllocationID, funcSpec.FuncKey,
 		traceID)
 	return generateInstanceResponse(insAlloc, nil, startTime)
-}
-
-func (fs *FaaSScheduler) handleQuerySession(targetName string, extraData []byte,
-	traceID string) *commonTypes.InstanceResponse {
-	startTime := time.Now()
-	logger := log.GetLogger().With(zap.Any("traceID", traceID))
-
-	dataInfo, err := parseExtraData(extraData)
-	if err != nil {
-		logger.Errorf("failed to parse extraData error :%v", err)
-		return generateInstanceResponse(nil, err, startTime)
-	}
-
-	if len(dataInfo.instanceSession.SessionID) == 0 {
-		logger.Errorf("sessionID is empty in query request")
-		return generateInstanceResponse(nil, snerror.New(statuscode.InstanceSessionInvalidErrCode,
-			"sessionID is empty"), startTime)
-	}
-
-	funcKey := targetName
-	funcSpec := registry.GlobalRegistry.GetFuncSpec(funcKey)
-	if funcSpec == nil {
-		logger.Errorf("failed to get instance, function %s doesn't exist", funcKey)
-		return generateInstanceResponse(nil, snerror.New(statuscode.FuncMetaNotFoundErrCode,
-			statuscode.FuncMetaNotFoundErrMsg), startTime)
-	}
-
-	if !funcSpec.ExtendedMetaData.EnableAgentSession {
-		logger.Errorf("AI Agent session is not enabled for function %s", funcKey)
-		return generateInstanceResponse(nil, snerror.New(statuscode.AgentSessionNotEnabledErrCode,
-			"AI Agent session not enabled"), startTime)
-	}
-
-	instanceID, queryErr := fs.PoolManager.QuerySession(funcKey, dataInfo.instanceSession.SessionID)
-	if queryErr != nil {
-		logger.Errorf("failed to query session %s for function %s: %v",
-			dataInfo.instanceSession.SessionID, funcKey, queryErr)
-		return generateInstanceResponse(nil, snerror.New(statuscode.SessionNotFoundErrCode,
-			queryErr.Error()), startTime)
-	}
-
-	return &commonTypes.InstanceResponse{
-		InstanceAllocationInfo: commonTypes.InstanceAllocationInfo{
-			FuncKey:    funcSpec.FuncKey,
-			FuncSig:    funcSpec.FuncMetaSignature,
-			InstanceID: instanceID,
-		},
-		ErrorCode:     constant.InsReqSuccessCode,
-		ErrorMessage:  constant.InsReqSuccessMessage,
-		SchedulerTime: time.Now().Sub(startTime).Seconds(),
-	}
 }
 
 func unmarshalExtraData(extraData []byte) (map[string][]byte, error) {
@@ -628,13 +597,12 @@ func parseExtraData(extraData []byte) (*extraDataInfo, snerror.SNError) {
 		if err != nil {
 			return nil, snerror.NewWithError(statuscode.StatusInternalServerError, err)
 		}
-		if insSessConfig.Concurrency == 0 || insSessConfig.Concurrency < -1 {
-			return nil, snerror.New(statuscode.InstanceSessionInvalidErrCode,
-				fmt.Sprintf("invalid session concurrency %d, only -1 or positive integer is allowed",
-					insSessConfig.Concurrency))
-		}
 		if !utils.CheckInstanceSessionValid(insSessConfig) {
 			return nil, snerror.New(statuscode.InstanceSessionInvalidErrCode, "session config invalid")
+		}
+		if insSessConfig.Concurrency <= 0 {
+			log.GetLogger().Warnf("user session concurrency is invalid: %d, will set to default 1", insSessConfig.Concurrency)
+			insSessConfig.Concurrency = 1
 		}
 		dataInfo.instanceSession = insSessConfig
 	}
@@ -791,6 +759,14 @@ func (fs *FaaSScheduler) handleInstanceBatchRetain(target string, metricsData []
 		if _, ok := insThdMetrics[name]; !ok {
 			continue
 		}
+		if ownerSchedulerInstanceId, ok := selfregister.GlobalSchedulerProxy.CheckFuncOwner(
+			insThdMetrics[name].FunctionKey); !ok {
+			batchInstanceResp.InstanceAllocFailed[name] = commonTypes.InstanceAllocationFailedInfo{
+				ErrorCode:    statuscode.AcquireNonOwnerSchedulerErrorCode,
+				ErrorMessage: ownerSchedulerInstanceId,
+			}
+			continue
+		}
 		insAlloc, err := fs.retainInstance(name, traceID, insThdMetrics[name], logger)
 		if err != nil {
 			batchInstanceResp.InstanceAllocFailed[name] = commonTypes.InstanceAllocationFailedInfo{
@@ -846,11 +822,6 @@ func (fs *FaaSScheduler) retainInstance(targetName, traceID string, insThdMetric
 		logger.Errorf("instance thread allocation type error")
 		return nil, snerror.New(statuscode.StatusInternalServerError,
 			statuscode.InternalErrorMessage)
-	}
-	if ownerSchedulerInstanceId, ok := selfregister.GlobalSchedulerProxy.CheckFuncOwner(
-		insAlloc.Instance.FuncKey); !ok {
-		logger.Errorf("non-owner faasscheduler, return owner faasscheduelr: %s", ownerSchedulerInstanceId)
-		return nil, snerror.New(statuscode.AcquireNonOwnerSchedulerErrorCode, ownerSchedulerInstanceId)
 	}
 	if strings.Contains(insAlloc.AllocationID, "stateThread") { // %s-stateThread%d
 		return fs.retainStateInstance(targetName, insAlloc, logger)
@@ -1194,18 +1165,21 @@ func generateInstanceResponse(insAlloc *types.InstanceAllocation, snErr snerror.
 	}
 	return &commonTypes.InstanceResponse{
 		InstanceAllocationInfo: commonTypes.InstanceAllocationInfo{
-			FuncKey:       insAlloc.Instance.FuncKey,
-			FuncSig:       insAlloc.Instance.FuncSig,
-			InstanceID:    insAlloc.Instance.InstanceID,
-			InstanceIP:    insAlloc.Instance.InstanceIP,
-			InstancePort:  insAlloc.Instance.InstancePort,
-			NodeIP:        insAlloc.Instance.NodeIP,
-			NodePort:      insAlloc.Instance.NodePort,
-			ThreadID:      insAlloc.AllocationID,
-			LeaseInterval: leaseInterval.Milliseconds(),
-			CPU:           insAlloc.Instance.ResKey.CPU,
-			Memory:        insAlloc.Instance.ResKey.Memory,
-			ForceInvoke:   forceInvoke,
+			FuncKey:         insAlloc.Instance.FuncKey,
+			FuncSig:         insAlloc.Instance.FuncSig,
+			InstanceID:      insAlloc.Instance.InstanceID,
+			InstanceIP:      insAlloc.Instance.InstanceIP,
+			InstancePort:    insAlloc.Instance.InstancePort,
+			NodeIP:          insAlloc.Instance.NodeIP,
+			NodePort:        insAlloc.Instance.NodePort,
+			FunctionProxyID: insAlloc.Instance.FunctionProxyID,
+			RouteAddress:    insAlloc.Instance.RouteAddress,
+			ProxyID:         insAlloc.Instance.FunctionProxyID,
+			ThreadID:        insAlloc.AllocationID,
+			LeaseInterval:   leaseInterval.Milliseconds(),
+			CPU:             insAlloc.Instance.ResKey.CPU,
+			Memory:          insAlloc.Instance.ResKey.Memory,
+			ForceInvoke:     forceInvoke,
 		},
 		ErrorCode:     constant.InsReqSuccessCode,
 		ErrorMessage:  constant.InsReqSuccessMessage,

@@ -44,7 +44,7 @@ ds_spill_enable:,ds_spill_directory:,ds_spill_size_limit:,\
 ds_rpc_thread_num:,ds_node_timeout_s:,ds_node_dead_timeout_s:,ds_node_role:,\
 ds_heartbeat_interval_ms:,ds_client_dead_timeout_s:,ds_max_client_num:,ds_memory_reclamation_time_second:,\
 ds_arena_per_tenant:,ds_enable_fallocate:,ds_enable_huge_tlb:,ds_enable_thp:,\
-enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,\
+enable_faas_frontend:,faas_frontend_http_port:,faas_frontend_grpc_port:,enable_function_scheduler:,function_scheduler_lease_port:,enable_event:,frontend_lease_bypass:,enable_function_token_auth:,quota_config_file:,\
 enable_meta_service:,meta_service_port:,\
 enable_iam_server:,iam_server_port:,iam_token_expired_time_span:,iam_credential_type:,\
 function_agent_port:,function_proxy_port:,\
@@ -67,7 +67,7 @@ etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key
 local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_store:,enable_persistence:,enable_jemalloc:,enable_inherit_env:,\
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
-max_priority:,enable_preemption:,kill_process_timeout_seconds:,\
+max_priority:,enable_preemption:,enable_direct_routing:,kill_process_timeout_seconds:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
 prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
 dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
@@ -250,6 +250,7 @@ LOCAL_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterog
 DOMAIN_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Heterogeneous\"]"
 SCHEDULE_RELAXED=-1
 ENABLE_PREEMPTION=false
+ENABLE_DIRECT_ROUTING=false
 FUNCTION_PROXY_UNREGISTER_WHILE_STOP=true
 MAX_PRIORITY=0
 # Use snlib to adapt old or new runtime params
@@ -287,6 +288,7 @@ ENABLE_FUNCTION_SCHEDULER="false"
 ENABLE_EVENT="false"
 FRONTEND_LEASE_BYPASS="false"
 ENABLE_FUNCTION_TOKEN_AUTH="false"
+QUOTA_CONFIG_FILE=""
 # Data System Configuration
 DS_MASTER_IP=""
 DS_MASTER_PORT=12123
@@ -555,11 +557,13 @@ function usage() {
   echo -e "     --enable_function_scheduler                         enable function scheduler, options:true/false (default false)"
   echo -e "     --function_scheduler_lease_port                     function scheduler lease http port (default 8889)"
   echo -e "     --enable_function_token_auth                        enable function token auth, options:true/false (default false)"
+  echo -e "     --quota_config_file                                 path to quota config JSON file; empty string disables quota enforcement (default \"\")"
   echo -e "     --schedule_relaxed                                  enable the relaxed scheduling policy. When the relaxed number of available nodes or pods is selected, the scheduling progress exits without traversing all nodes or pods.(default 1)"
   echo -e "     --enable_event                                      faas frontend enable stream event mode"
   echo -e "     --frontend_lease_bypass                             faas frontend bypass all lease processing, options:true/false (default false)"
   echo -e "     --max_priority                                      schedule max priority (default 0)"
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
+  echo -e "     --enable_direct_routing                             enable direct routing optimization to bypass proxy for same-node invocations (default false)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
   echo -e "     --runtime_home_dir                                  runtime home dir(default is Home environment variable of the OpenYuanrong component deployment user)"
   echo -e "     --enable_dposix_uds                                 enable DPOSIX UDS for runtime and function proxy communication (default false)"
@@ -733,6 +737,7 @@ function parse_opt() {
     --enable_function_scheduler) ENABLE_FUNCTION_SCHEDULER=$2 && shift 2 ;;
     --function_scheduler_lease_port) FUNCTION_SCHEDULER_LEASE_PORT=$2 && shift 2 ;;
     --enable_function_token_auth) ENABLE_FUNCTION_TOKEN_AUTH=$2 && shift 2 ;;
+    --quota_config_file) QUOTA_CONFIG_FILE=$2 && shift 2 ;;
     --enable_meta_service) ENABLE_META_SERVICE=$2 && shift 2 ;;
     --enable_iam_server) ENABLE_IAM_SERVER=$2 && shift 2 ;;
     --iam_server_port) IAM_SERVER_PORT=$2 && port_policy_table["iam_server_port"]="FIX" && shift 2 ;;
@@ -877,6 +882,7 @@ function parse_opt() {
     --oom_consecutive_detection_count) OOM_CONSECUTIVE_DETECTION_COUNT=$2 && shift 2 ;;
     --max_priority) MAX_PRIORITY=$2 && shift 2 ;;
     --enable_preemption) ENABLE_PREEMPTION=$2 && shift 2 ;;
+    --enable_direct_routing) ENABLE_DIRECT_ROUTING=$2 && shift 2 ;;
     --kill_process_timeout_seconds) KILL_PROCESS_TIMEOUT_SECONDS=$2 && shift 2 ;;
     --runtime_home_dir) RUNTIME_USER_HOME_DIR=$2 && shift 2 ;;
     --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
@@ -1243,6 +1249,10 @@ function check_input() {
        log_error "is_schedule_tolerate_abnormal can only be 'true' or 'false'"
        return 1
     fi
+  if [ "X${ENABLE_DIRECT_ROUTING}" != "Xtrue" ] && [ "X${ENABLE_DIRECT_ROUTING}" != "Xfalse" ]; then
+    log_error "enable_direct_routing can only be 'true' or 'false'"
+    return 1
+  fi
   if [ "X${ETCD_PROXY_ENABLE}" = "Xtrue" ] ; then
     ETCD_PROXY_ENABLE="TRUE"
   fi
@@ -1617,7 +1627,7 @@ function export_config() {
   export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK DS_NODE_ROLE
   export FS_HEALTH_CHECK_RETRY_TIMES FS_HEALTH_CHECK_RETRY_INTERVAL FS_HEALTH_CHECK_TIMEOUT
   export FC_AGENT_MGR_RETRY_TIMES FC_AGENT_MGR_RETRY_CYCLE
-  export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION KILL_PROCESS_TIMEOUT_SECONDS
+  export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION ENABLE_DIRECT_ROUTING KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT
   export RUNTIME_USER_HOME_DIR CACHE_STORAGE_AUTH_TYPE CACHE_STORAGE_AUTH_ENABLE
@@ -1632,7 +1642,7 @@ function export_config() {
   # meta_service
   export ENABLE_META_SERVICE META_SERVICE_PORT META_SERVICE_ADDRESS FRONTEND_CLIENT_AUTH_TYPE META_SERVICE_CLIENT_AUTH_TYPE
   # faas
-  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS
+  export ENABLE_FAAS_FRONTEND FAAS_FRONTEND_HTTP_PORT FAAS_FRONTEND_GRPC_PORT ENABLE_FUNCTION_SCHEDULER FUNCTION_SCHEDULER_LEASE_PORT ENABLE_FUNCTION_TOKEN_AUTH FRONTEND_LEASE_BYPASS QUOTA_CONFIG_FILE
   # uds
   export ENABLE_DPOSIX_UDS DPOSIX_UDS_PATH LOCAL_IP
   # log expiration

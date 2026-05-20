@@ -126,43 +126,24 @@ void MetricsAdaptor::Init(const nlohmann::json &json, bool userEnable)
     userEnable_ = userEnable;
     metricSampleAllowAll_ = false;
     metricSampleEnabledInstruments_.clear();
-    {
-        std::lock_guard<std::mutex> l(instrument_kind_mutex_);
-        instrumentKinds_.clear();
-    }
-    {
-        std::lock_guard<std::mutex> l(gauge_mutex_);
-        doubleGaugeMap_.clear();
-        doubleGaugeSamples_.clear();
-    }
-    {
-        std::lock_guard<std::mutex> l(uint64_counter_mutex_);
-        uInt64CounterMap_.clear();
-        uint64CounterSamples_.clear();
-    }
-    {
-        std::lock_guard<std::mutex> l(double_counter_mutex_);
-        doubleCounterMap_.clear();
-        doubleCounterSamples_.clear();
-    }
-    {
-        std::lock_guard<std::mutex> l(alarm_mutex_);
-        alarmMap_.clear();
-    }
+    { std::lock_guard<std::mutex> l(instrument_kind_mutex_); instrumentKinds_.clear(); }
+    { std::lock_guard<std::mutex> l(gauge_mutex_); doubleGaugeMap_.clear(); doubleGaugeSamples_.clear(); }
+    { std::lock_guard<std::mutex> l(uint64_counter_mutex_); uInt64CounterMap_.clear(); uint64CounterSamples_.clear(); }
+    { std::lock_guard<std::mutex> l(double_counter_mutex_); doubleCounterMap_.clear(); doubleCounterSamples_.clear(); }
+    { std::lock_guard<std::mutex> l(alarm_mutex_); alarmMap_.clear(); }
     YRLOG_DEBUG("start to init metrics adaptor, userEnable {}", userEnable);
     if (json.find("backends") == json.end()) {
         YRLOG_WARN("metrics backends are none");
         return;
     }
-    observability::sdk::metrics::LiteBusParams liteBusParam;
-    auto mp = std::make_shared<MetricsSdk::MeterProvider>(liteBusParam);
+    auto mp = std::make_shared<MetricsSdk::MeterProvider>(MetricsSdk::LiteBusParams{});
     auto backends = json.at("backends");
+    auto getFileName = [this](std::string backendName) { return GetMetricsFilesName(backendName); };
     for (auto &[index, backend] : backends.items()) {
         YRLOG_DEBUG("metrics add backend index({})", index);
         for (auto &[key, value] : backend.items()) {
             if (key == IMMEDIATELY_EXPORT) {
-                InitImmediatelyExport(mp, value,
-                                      [this](std::string backendName) { return GetMetricsFilesName(backendName); });
+                InitImmediatelyExport(mp, value, getFileName);
             } else {
                 YRLOG_WARN("unknown backend key: {}", key);
             }

@@ -2,8 +2,7 @@
 PROJECT_NAME           = "YuanRong-runtime"
 OUTPUT_DIRECTORY       = .doxygendocs
 INPUT                  = api/cpp \
-                         api/java \
-                         src
+                         api/java
 
 RECURSIVE              = YES
 

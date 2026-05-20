@@ -62,20 +62,23 @@ export BUILD_WITH_PACKAGE
 
 BASE_DIR=$(dirname "$(readlink -f "$0")")
 OUTPUT_DIR=${BASE_DIR}/../output
-function doc_build() {
-  pip install -r ${BASE_DIR}/../docs/requirements_dev.txt
-
-  pushd ${BASE_DIR}
+function build_zh_cn() {
+  pushd ${BASE_DIR}/source_zh_cn
   make html
   # disable configuration：SPHINXOPTS="-W --keep-going -n", enable it after all alarms are cleared.
   popd
 
   # modify sphinx(7.3.7) build-in search，open limit on numbers in search.
   # Changes in later versions need to be modified accordingly.
-  sed -i '285d' "${BASE_DIR}"/_build/html/_static/searchtools.js
-  sed -i '284s/ ||//' "${BASE_DIR}"/_build/html/_static/searchtools.js
-  rm -rf "${OUTPUT_DIR}"/docs && mkdir -p "${OUTPUT_DIR}"/docs
-  cp -rf "${BASE_DIR}"/_build/html/* "${OUTPUT_DIR}"/docs
+  sed -i '285d' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
+  sed -i '284s/ ||//' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
+  rm -rf "${OUTPUT_DIR}"/docs/zh_cn && mkdir -p "${OUTPUT_DIR}"/docs/zh_cn
+  cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh_cn
+}
+
+function doc_build() {
+  pip install -r ${BASE_DIR}/../docs/requirements_dev.txt
+  build_zh_cn
 }
 
 doc_build

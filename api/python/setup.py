@@ -288,6 +288,8 @@ class BdistWheelImpl(_bdist_wheel):
         """Build wheels with a supported platform tag."""
         tag = next(tags.sys_tags())
         platform_tag = get_wheel_platform_tag() or tag.platform
+        if setup_spec.setup_type == SetupType.OPENYUANRONG:
+            return "py3", "none", platform_tag
         return tag.interpreter, tag.abi, platform_tag
 
     def run(self):

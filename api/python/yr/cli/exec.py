@@ -17,6 +17,7 @@
 """CLI implementation for executing code in a sandboxed environment."""
 
 import asyncio
+import math
 import os
 import shlex
 import signal
@@ -26,11 +27,199 @@ import sys
 import tarfile
 import tempfile
 import termios
+import threading
 import tty
 from pathlib import Path
 from urllib.parse import quote
 
 import websockets
+
+# ── Auto cp-mode selection ────────────────────────────────────────────────────
+
+# Extensions that are already compressed or otherwise incompressible.
+_INCOMPRESSIBLE_EXTS = frozenset({
+    ".gz", ".bz2", ".xz", ".lz4", ".zst", ".zip", ".7z", ".rar",
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff",
+    ".mp4", ".mkv", ".avi", ".mov", ".webm",
+    ".mp3", ".ogg", ".flac", ".aac", ".wav",
+    ".pdf",
+})
+
+# Extensions that are typically highly compressible (text / source code).
+_COMPRESSIBLE_EXTS = frozenset({
+    ".txt", ".log", ".csv", ".tsv",
+    ".py", ".js", ".ts", ".go", ".cpp", ".c", ".h", ".hpp", ".java",
+    ".rs", ".rb", ".php", ".sh", ".bash", ".zsh",
+    ".json", ".yaml", ".yml", ".toml", ".xml", ".html", ".htm", ".css",
+    ".md", ".rst", ".tex",
+    ".conf", ".cfg", ".ini", ".env",
+    ".sql",
+})
+
+# Shannon entropy threshold (bits/byte, 0-8).  Values above this suggest the
+# content is already compressed or random, making gzip compression ineffective.
+# Calibrated from measurements: random urandom ≈ 7.997, source/log ≈ 4-5.
+_ENTROPY_INCOMPRESSIBLE = 7.2
+
+# Files below this size are dominated by connection/exec overhead (~300 ms),
+# so the compression saving is negligible regardless of file type.
+_SIZE_SMALL = 256 * 1024          # 256 KB
+
+# Upload: run_in_executor threading cost (~5-8 ms/chunk) means only extremely
+# high compression ratios (>50x) can outweigh the overhead on a fast exec-stdin
+# channel.  Lower-compression files (source code ~5x) are better served by
+# non-streaming; users on slow networks can always override with --streaming.
+_UPLOAD_RATIO_MIN = 50            # compression ratio threshold for upload streaming
+
+# Download: exec-channel stdout is the bottleneck (~3.5 MB/s regardless of
+# network speed), so ANY meaningful compression (>2x) translates directly to
+# faster transfers.
+_DOWNLOAD_RATIO_MIN = 2.0         # compression ratio threshold for download streaming
+
+
+def _sample_entropy(path: str, sample_bytes: int = 65536) -> float:
+    """Return Shannon entropy (bits/byte) of the first *sample_bytes* of *path*.
+
+    Complexity: O(sample_bytes) ≈ 1 ms for 64 KB.
+    Returns a value in [0, 8]; values close to 8 indicate incompressible data.
+    """
+    freq = [0] * 256
+    with open(path, "rb") as fh:
+        data = fh.read(sample_bytes)
+    for byte in data:
+        freq[byte] += 1
+    total = len(data)
+    if total == 0:
+        return 0.0
+    entropy = 0.0
+    for count in freq:
+        if count > 0:
+            p = count / total
+            entropy -= p * math.log2(p)
+    return entropy
+
+
+def _sample_compression_ratio(path: str, sample_bytes: int = 65536) -> float:
+    """Return the gzip compression ratio of the first *sample_bytes* of *path*.
+
+    Complexity: O(sample_bytes) ≈ 0.3-1 ms for 64 KB (gzip level 1 default).
+    Returns ratio = original / compressed.  Values close to 1.0 mean the data
+    is incompressible; values >> 1 mean high compression benefit.
+
+    Unlike Shannon entropy, this directly measures gzip effectiveness, which is
+    what matters for choosing between streaming and non-streaming transfer.
+    """
+    import gzip as _gzip
+    with open(path, "rb") as fh:
+        data = fh.read(sample_bytes)
+    if not data:
+        return 1.0
+    compressed = _gzip.compress(data, compresslevel=1)
+    return len(data) / max(len(compressed), 1)
+
+
+def _dir_stats(path: str, sample_bytes: int = 65536) -> tuple:
+    """Return (total_size, compression_ratio) for a directory.
+
+    Walks the directory tree to compute the total file size.  Then collects up
+    to *sample_bytes* of content from the largest files (largest files tend to
+    dominate transfer time) to estimate the representative compression ratio.
+
+    Complexity: O(number of directory entries) for the walk + O(sample_bytes)
+    for the gzip probe.
+    """
+    import gzip as _gzip
+
+    # Gather all regular files sorted by size descending.
+    file_sizes: list[tuple[int, str]] = []
+    for dirpath, _, filenames in os.walk(path):
+        for fname in filenames:
+            fpath = os.path.join(dirpath, fname)
+            try:
+                file_sizes.append((os.path.getsize(fpath), fpath))
+            except OSError:
+                pass
+    total_size = sum(sz for sz, _ in file_sizes)
+
+    # Sample bytes from the largest files to estimate compression ratio.
+    file_sizes.sort(reverse=True)
+    sample_data = bytearray()
+    for sz, fpath in file_sizes:
+        if len(sample_data) >= sample_bytes:
+            break
+        try:
+            with open(fpath, "rb") as fh:
+                sample_data += fh.read(sample_bytes - len(sample_data))
+        except OSError:
+            pass
+
+    if not sample_data:
+        return total_size, 1.0
+    compressed = _gzip.compress(bytes(sample_data), compresslevel=1)
+    ratio = len(sample_data) / max(len(compressed), 1)
+    return total_size, ratio
+
+
+def choose_cp_mode(local_path: str, remote_path: str, upload: bool) -> bool:
+    """Auto-select transfer mode for ``yrcli cp``.
+
+    Returns ``True`` (streaming) or ``False`` (non-streaming).
+
+    Upload decision (local file is accessible):
+      For files:
+        1. Small (<256 KB)               → non-streaming (RTT overhead dominates).
+        2. Known incompressible extension → non-streaming (skip sampling).
+        3. High entropy (>7.2 bits/byte) → non-streaming (random/binary data).
+        4. Compression ratio < 50x       → non-streaming.
+           (run_in_executor threading cost ~5-8 ms/chunk only pays off when the
+           compressed size is tiny, i.e. for extremely repetitive data like logs.)
+        5. Otherwise                     → streaming.
+      For directories:
+        - Compute total content size via os.walk.
+        - Sample up to 64 KB from the largest files as a gzip probe.
+        - Apply the same size + ratio thresholds.
+
+    Download decision (remote file cannot be sampled cheaply):
+      Use remote path extension as a proxy for compressibility.  For download
+      the exec-channel stdout is always the bottleneck (~3.5 MB/s), so any
+      compression ratio ≥ 2x translates directly to faster transfers.
+      Unknown extensions default to non-streaming (conservative).
+    """
+    if upload:
+        if os.path.isdir(local_path):
+            total_size, ratio = _dir_stats(local_path)
+            if total_size < _SIZE_SMALL:
+                return False
+            return ratio >= _UPLOAD_RATIO_MIN
+
+        # Single file path.
+        ext = os.path.splitext(local_path)[1].lower()
+        size = os.path.getsize(local_path)
+        if size < _SIZE_SMALL:
+            return False
+        if ext in _INCOMPRESSIBLE_EXTS:
+            return False
+        # Fast entropy check: skip expensive gzip probe for obviously incompressible data.
+        entropy = _sample_entropy(local_path)
+        if entropy > _ENTROPY_INCOMPRESSIBLE:
+            return False
+        # Measure actual compression ratio on a 64 KB sample (~0.5 ms overhead).
+        ratio = _sample_compression_ratio(local_path)
+        return ratio >= _UPLOAD_RATIO_MIN
+
+    # Download: extension heuristic (cannot sample remote file cheaply).
+    ext = os.path.splitext(remote_path)[1].lower()
+    if ext in _INCOMPRESSIBLE_EXTS:
+        return False
+    if ext in _COMPRESSIBLE_EXTS:
+        return True
+    # No extension (likely a directory) or unknown extension → streaming is
+    # the safer default for download: exec-channel stdout is the bottleneck
+    # and any compressible content benefits; worst case is a small penalty for
+    # truly incompressible directories.
+    if not ext:
+        return True
+    return False
 
 
 def create_ssl_context(
@@ -251,12 +440,23 @@ async def send_terminal_resize(ws, rows=None, cols=None):
 def build_exec_uri(
     host, port, instance=None, command=None, tty=None, rows=None, cols=None, user=None, token=None, use_ssl=False
 ):
-    """Build exec websocket URI."""
+    """Build exec websocket URI.
+
+    ``command`` may be a **string** (legacy, single-element argv) or a **list**
+    of strings (recommended).  When a list is given, each element is passed as
+    a separate ``command=`` query parameter so the gateway constructs a proper
+    ``[]string`` argv instead of a single-element array containing the entire
+    shell command.
+    """
     query_params = []
     if instance:
         query_params.append(f"instance={quote(instance)}")
     if command:
-        query_params.append(f"command={quote(command)}")
+        if isinstance(command, list):
+            for arg in command:
+                query_params.append(f"command={quote(arg)}")
+        else:
+            query_params.append(f"command={quote(command)}")
     if tty is not None:
         query_params.append(f"tty={str(tty).lower()}")
     if rows:
@@ -291,14 +491,23 @@ def build_exec_ssl_context(
     )
 
 
-async def _drain_websocket(ws, should_exit, quiet=False, writer=None):
-    """Read websocket messages until the process exits or the socket closes."""
+async def _drain_websocket(ws, should_exit, quiet=False, writer=None, process_exited=None):
+    """Read websocket messages until the process exits or the socket closes.
+
+    ``process_exited`` is an :class:`asyncio.Event` that is set **only** when the
+    remote process confirmed its exit via the ``[Process exited]`` text frame.
+    Callers that need a strong guarantee (e.g. upload) can check this event after
+    ``should_exit`` fires: if it is not set the WebSocket was closed before the
+    process-exit notification arrived, meaning the operation may be incomplete.
+    """
     try:
         async for message in ws:
             if should_exit.is_set():
                 break
             if isinstance(message, str):
                 if quiet and message.strip() == "[Process exited]":
+                    if process_exited is not None:
+                        process_exited.set()
                     should_exit.set()
                     break
                 if writer is not None:
@@ -369,17 +578,19 @@ async def copy_to_remote(
     verify_server=True,
     token=None,
 ):
-    """Upload a local file into an instance via the exec websocket."""
+    """Upload a local file into an instance via the exec websocket.
+
+    Requires the target instance container to have ``sh``, ``tar``,
+    ``mkdir``, and ``head`` available (standard in most Linux base images).
+    """
     source = Path(local_path)
     archive_path = _create_tar_archive(source, Path(remote_path).name)
     archive_size = Path(archive_path).stat().st_size
-    remote_arg = shlex.quote(remote_path)
-    size_arg = shlex.quote(str(archive_size))
-    command = (
-        "sh -c 'mkdir -p \"$(dirname \"$1\")\" && "
-        "head -c \"$2\" | tar -xmf - -C \"$(dirname \"$1\")\"' "
-        f"sh {remote_arg} {size_arg}"
-    )
+    command = [
+        "sh", "-c",
+        "mkdir -p \"$(dirname \"$1\")\" && head -c \"$2\" | tar -xmf - -C \"$(dirname \"$1\")\"",
+        "sh", remote_path, str(archive_size),
+    ]
     uri = build_exec_uri(
         host,
         port,
@@ -402,8 +613,9 @@ async def copy_to_remote(
     try:
         async with websockets.connect(uri, ssl=ssl_context) as ws:
             should_exit = asyncio.Event()
+            process_exited = asyncio.Event()
             tasks = [
-                asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True)),
+                asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True, process_exited=process_exited)),
                 asyncio.create_task(heartbeat_loop(ws, should_exit)),
             ]
             try:
@@ -414,6 +626,11 @@ async def copy_to_remote(
                             break
                         await ws.send(chunk)
                 await should_exit.wait()
+                if not process_exited.is_set():
+                    raise RuntimeError(
+                        "WebSocket closed before process-exit confirmation — "
+                        "upload may be incomplete"
+                    )
             finally:
                 for task in tasks:
                     if task.done():
@@ -442,10 +659,11 @@ async def copy_from_remote(
     token=None,
 ):
     """Download a file from an instance via the exec websocket."""
-    command = (
-        "sh -c 'tar -cf - -C \"$(dirname \"$1\")\" \"$(basename \"$1\")\"' "
-        f"sh {shlex.quote(remote_path)}"
-    )
+    command = [
+        "sh", "-c",
+        "tar -cf - -C \"$(dirname \"$1\")\" \"$(basename \"$1\")\"",
+        "sh", remote_path,
+    ]
     uri = build_exec_uri(
         host,
         port,
@@ -490,6 +708,263 @@ async def copy_from_remote(
         _restore_from_tar(archive_file.name, local_path)
     finally:
         Path(archive_file.name).unlink(missing_ok=True)
+
+
+async def copy_to_remote_streaming(
+    host,
+    port,
+    instance,
+    local_path,
+    remote_path,
+    user=None,
+    use_ssl=False,
+    cert_file=None,
+    key_file=None,
+    ca_file=None,
+    verify_server=True,
+    token=None,
+):
+    """Upload a local file into an instance using full-pipeline streaming (no temp file).
+
+    Generates tar.gz chunks on-the-fly via a background thread + OS pipe and sends
+    each chunk as a binary WebSocket frame immediately.  After all data is sent,
+    a ``"STDIN_EOF"`` text frame signals the remote side to close the tar stdin so
+    the tar process exits naturally — no pre-buffering or temp file required.
+
+    Requires the target instance container to have ``sh``, ``tar``, and ``mkdir``
+    available (standard in most Linux base images).
+    """
+    source = Path(local_path)
+
+    command = [
+        "sh", "-c",
+        "mkdir -p \"$(dirname \"$1\")\" && tar -xzmf - -C \"$(dirname \"$1\")\"",
+        "sh", remote_path,
+    ]
+    uri = build_exec_uri(
+        host,
+        port,
+        instance=instance,
+        command=command,
+        tty=False,
+        user=user,
+        token=token,
+        use_ssl=use_ssl,
+    )
+    ssl_context = build_exec_ssl_context(
+        use_ssl=use_ssl,
+        cert_file=cert_file,
+        key_file=key_file,
+        ca_file=ca_file,
+        verify_server=verify_server,
+        quiet=True,
+    )
+
+    # OS pipe: tar writer thread → read end → WebSocket chunks
+    r_fd, w_fd = os.pipe()
+    write_error: list = []
+    # Hoisted outside async with so they are accessible after the block for
+    # write_error suppression logic.
+    server_closed_early = False
+
+    def _tar_writer():
+        try:
+            with os.fdopen(w_fd, "wb", buffering=0) as wf:
+                with tarfile.open(fileobj=wf, mode="w|gz") as archive:
+                    archive.add(str(source), arcname=Path(remote_path).name)
+        except Exception as exc:  # noqa: BLE001
+            write_error.append(exc)
+
+    writer = threading.Thread(target=_tar_writer, daemon=True)
+    writer.start()
+
+    loop = asyncio.get_event_loop()
+    chunk_size = 64 * 1024
+
+    async with websockets.connect(uri, ssl=ssl_context) as ws:
+        should_exit = asyncio.Event()
+        process_exited = asyncio.Event()
+        tasks = [
+            asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True, process_exited=process_exited)),
+            asyncio.create_task(heartbeat_loop(ws, should_exit)),
+        ]
+        try:
+            server_closed_early = False
+            with os.fdopen(r_fd, "rb", buffering=0) as rf:
+                while True:
+                    chunk = await loop.run_in_executor(None, rf.read, chunk_size)
+                    if not chunk:
+                        break
+                    try:
+                        await ws.send(chunk)
+                    except websockets.exceptions.ConnectionClosedOK:
+                        # The remote tar process may have exited after consuming a complete
+                        # gzip end-of-stream marker before Python finished sending all chunks.
+                        # Stop sending; wait for _drain_websocket to confirm the exit.
+                        server_closed_early = True
+                        break
+            if not server_closed_early:
+                # All tar data sent — signal remote tar stdin EOF
+                try:
+                    await ws.send("STDIN_EOF")
+                except websockets.exceptions.ConnectionClosedOK:
+                    server_closed_early = True
+            await should_exit.wait()
+            if not process_exited.is_set():
+                raise RuntimeError(
+                    "WebSocket closed before process-exit confirmation — "
+                    "upload may be incomplete"
+                )
+        finally:
+            for task in tasks:
+                if task.done():
+                    continue
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    writer.join(timeout=30)
+    if write_error:
+        # When server_closed_early (tar consumed the complete gzip stream and exited
+        # naturally before Python drained the pipe), closing r_fd causes _tar_writer
+        # to get a BrokenPipeError on the next write.  This is expected: the upload
+        # was already confirmed successful (process_exited was set; otherwise
+        # RuntimeError would have been raised above).  Suppress the spurious error.
+        if server_closed_early and isinstance(write_error[0], BrokenPipeError):
+            pass
+        else:
+            raise write_error[0]
+
+
+async def copy_from_remote_streaming(
+    host,
+    port,
+    instance,
+    remote_path,
+    local_path,
+    user=None,
+    use_ssl=False,
+    cert_file=None,
+    key_file=None,
+    ca_file=None,
+    verify_server=True,
+    token=None,
+):
+    """Download a file from an instance using full-pipeline streaming (no temp file).
+
+    The remote command produces a gzip-compressed tar stream on stdout, which is
+    piped through the WebSocket directly into tarfile extraction on the client side.
+    """
+    command = [
+        "sh", "-c",
+        "tar -czf - -C \"$(dirname \"$1\")\" \"$(basename \"$1\")\"",
+        "sh", remote_path,
+    ]
+    uri = build_exec_uri(
+        host,
+        port,
+        instance=instance,
+        command=command,
+        tty=False,
+        user=user,
+        token=token,
+        use_ssl=use_ssl,
+    )
+    ssl_context = build_exec_ssl_context(
+        use_ssl=use_ssl,
+        cert_file=cert_file,
+        key_file=key_file,
+        ca_file=ca_file,
+        verify_server=verify_server,
+        quiet=True,
+    )
+
+    target = Path(local_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    r_fd, w_fd = os.pipe()
+    extract_error: list = []
+
+    def _tar_reader():
+        try:
+            with os.fdopen(r_fd, "rb", buffering=0) as r_file:
+                with tempfile.TemporaryDirectory() as unpack_dir:
+                    unpack_root = Path(unpack_dir)
+                    with tarfile.open(fileobj=r_file, mode="r|gz") as archive:
+                        archive.extractall(unpack_root)
+
+                    entries = list(unpack_root.iterdir())
+                    if len(entries) != 1:
+                        extract_error.append(RuntimeError("unexpected archive layout"))
+                        return
+                    source_root = entries[0]
+
+                    if source_root.is_dir():
+                        if target.exists() and target.is_dir():
+                            shutil.copytree(source_root, target, dirs_exist_ok=True)
+                        else:
+                            shutil.move(str(source_root), str(target))
+                    else:
+                        if target.exists() and target.is_dir():
+                            extract_error.append(
+                                RuntimeError(f"cannot overwrite directory target with file: {target}")
+                            )
+                            return
+                        if target.exists():
+                            target.unlink()
+                        shutil.move(str(source_root), str(target))
+        except Exception as exc:
+            extract_error.append(exc)
+
+    extract_thread = threading.Thread(target=_tar_reader, daemon=True)
+    extract_thread.start()
+
+    try:
+        async with websockets.connect(uri, ssl=ssl_context) as ws:
+            should_exit = asyncio.Event()
+            w_file = os.fdopen(w_fd, "wb", buffering=0)
+            w_fd = -1  # ownership transferred
+
+            async def _recv_and_pipe():
+                try:
+                    async for message in ws:
+                        if should_exit.is_set():
+                            break
+                        if isinstance(message, bytes):
+                            w_file.write(message)
+                        elif isinstance(message, str) and message.strip() == "[Process exited]":
+                            should_exit.set()
+                            break
+                except Exception:
+                    pass
+                finally:
+                    w_file.close()
+                    should_exit.set()
+
+            tasks = [
+                asyncio.create_task(_recv_and_pipe()),
+                asyncio.create_task(heartbeat_loop(ws, should_exit)),
+            ]
+            try:
+                await should_exit.wait()
+            finally:
+                for task in tasks:
+                    if task.done():
+                        continue
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+    finally:
+        if w_fd != -1:
+            os.close(w_fd)
+
+    extract_thread.join(timeout=30)
+    if extract_error:
+        raise extract_error[0]
 
 
 async def run_client(

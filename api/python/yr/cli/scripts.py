@@ -36,7 +36,14 @@ import urllib.error
 import urllib.request
 
 import yr
-from yr.cli.exec import copy_from_remote, copy_to_remote, run_client
+from yr.cli.exec import (
+    choose_cp_mode,
+    copy_from_remote,
+    copy_from_remote_streaming,
+    copy_to_remote,
+    copy_to_remote_streaming,
+    run_client,
+)
 
 QUERY_INSTANCES_MAX_PAGE = 10000
 QUERY_INSTANCES_MAX_PAGE_SIZE = 1000
@@ -1983,8 +1990,28 @@ def exec(stdin, tty, verify_server, instance, command):
 @cli.command("cp")
 @click.argument("src")
 @click.argument("dst")
-def cp(src, dst):
-    """Copy a file to or from an instance via the exec websocket channel."""
+@click.option(
+    "--streaming/--no-streaming",
+    "-s/-S",
+    default=None,
+    help=(
+        "Force streaming (gzip-compressed, full-pipeline) or non-streaming mode. "
+        "When neither flag is given, the mode is chosen automatically based on "
+        "file size and compressibility (Shannon entropy of the first 64 KB)."
+    ),
+)
+def cp(src, dst, streaming):
+    """Copy a file to or from an instance via the exec websocket channel.
+
+    Transfer mode is selected automatically by default:
+
+    \b
+      * Small files (<256 KB)          → non-streaming (overhead dominates)
+      * Incompressible data            → non-streaming (gzip provides no benefit)
+      * Large compressible files       → streaming     (gzip reduces channel load)
+
+    Use --streaming / --no-streaming to override the automatic selection.
+    """
     if not __server_address:
         click.echo("Error: --server-address is required", err=True)
         sys.exit(1)
@@ -2013,8 +2040,14 @@ def cp(src, dst):
     }
 
     if target["upload"]:
+        use_streaming = (
+            streaming
+            if streaming is not None
+            else choose_cp_mode(target["local_path"], target["remote_path"], upload=True)
+        )
+        fn = copy_to_remote_streaming if use_streaming else copy_to_remote
         asyncio.run(
-            copy_to_remote(
+            fn(
                 host,
                 port,
                 local_path=target["local_path"],
@@ -2024,8 +2057,14 @@ def cp(src, dst):
         )
         return
 
+    use_streaming = (
+        streaming
+        if streaming is not None
+        else choose_cp_mode(target["local_path"], target["remote_path"], upload=False)
+    )
+    fn = copy_from_remote_streaming if use_streaming else copy_from_remote
     asyncio.run(
-        copy_from_remote(
+        fn(
             host,
             port,
             remote_path=target["remote_path"],

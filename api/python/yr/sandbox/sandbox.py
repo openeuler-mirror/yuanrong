@@ -28,6 +28,7 @@ import yr
 from yr.config import InvokeOptions, PortForwarding
 from yr.runtime_holder import global_runtime
 from yr.config_manager import ConfigManager
+from yr.sandbox.filesystem import CpDirection, SandboxFilesystem, _get_gateway_host
 
 logger = logging.getLogger(__name__)
 
@@ -49,17 +50,6 @@ def _sanitize_instance_id(instance_id: str) -> str:
     if len(result) > 200:
         result = result[:200]
     return result
-
-
-def _get_gateway_host() -> str:
-    """Get Gateway host from YR_GATEWAY_ADDRESS or YR_SERVER_ADDRESS."""
-    host = os.environ.get("YR_GATEWAY_ADDRESS", "").strip()
-    if host:
-        return host
-    addr = os.environ.get("YR_SERVER_ADDRESS", "").strip()
-    if addr:
-        return addr
-    return ConfigManager().server_address.strip()
 
 
 def _build_gateway_url(instance_id: str, sandbox_port: int, gateway_host: str, path: str = "") -> str:
@@ -489,6 +479,7 @@ class Sandbox:
         self._forwarded_ports = set()
         self._tunnel_client = None
         self._proxy_port = proxy_port
+        self._filesystem: Optional["SandboxFilesystem"] = None
 
         if checkpoint_id is None:
             self.create_new_instance(
@@ -864,6 +855,70 @@ class Sandbox:
             raise RuntimeError(
                 f"Failed to restore sandbox from checkpoint {checkpoint_id}: {e}"
             ) from e
+
+    @property
+    def filesystem(self) -> "SandboxFilesystem":
+        """Namespace for sandbox filesystem copy operations.
+
+        Example::
+
+            sb.filesystem.copy_from_local("/local/data.csv", "/sandbox/data.csv")
+            sb.filesystem.copy_to_local("/sandbox/output.txt", "/local/output.txt")
+        """
+        if self._filesystem is None:
+            self._filesystem = SandboxFilesystem(self)
+        return self._filesystem
+
+    def cp(
+        self,
+        src: str,
+        dst: str,
+        direction: CpDirection = CpDirection.UPLOAD,
+        streaming: Optional[bool] = None,
+    ) -> None:
+        """Copy a file or directory to or from the sandbox.
+
+        The *direction* parameter controls which side is local and which is the
+        sandbox:
+
+        * ``CpDirection.UPLOAD`` *(default)* – ``src`` is a **local** path,
+          ``dst`` is the destination path **inside the sandbox**.
+        * ``CpDirection.DOWNLOAD`` – ``src`` is a path **inside the sandbox**,
+          ``dst`` is the **local** destination path.
+
+        Prefer :attr:`filesystem` for explicit, self-documenting code::
+
+            # Equivalent to sb.cp("/local/file", "/remote/file")
+            sb.filesystem.copy_from_local("/local/file", "/remote/file")
+
+            # Equivalent to sb.cp("/remote/file", "/local/file", direction=CpDirection.DOWNLOAD)
+            sb.filesystem.copy_to_local("/remote/file", "/local/file")
+
+        Args:
+            src: Source path (local when uploading, sandbox path when downloading).
+            dst: Destination path (sandbox path when uploading, local when downloading).
+            direction: Transfer direction. Defaults to :attr:`CpDirection.UPLOAD`.
+            streaming: Transfer mode override.
+
+                * ``True``  – always use gzip streaming (best for large compressible data).
+                * ``False`` – always use non-streaming (best for small or binary data).
+                * ``None``  – auto-select based on file size and compressibility (default).
+
+        Raises:
+            FileNotFoundError: *src* does not exist on the local machine (upload only).
+            RuntimeError: Server address is not configured.
+
+        Examples:
+            >>> sb = yr.sandbox.create()
+            >>> # Upload a local file to the sandbox (default direction)
+            >>> sb.cp("/local/data.csv", "/sandbox/data.csv")
+            >>> # Download a file from the sandbox
+            >>> from yr.sandbox.filesystem import CpDirection
+            >>> sb.cp("/sandbox/output.txt", "/local/output.txt", direction=CpDirection.DOWNLOAD)
+            >>> # Upload a directory
+            >>> sb.cp("/local/project/", "/sandbox/project/")
+        """
+        self.filesystem._cp(src, dst, direction=direction, streaming=streaming)
 
 
 def main():

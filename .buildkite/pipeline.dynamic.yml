@@ -16,7 +16,6 @@ FUNCTIONSYSTEM_REPO="${FUNCTIONSYSTEM_REPO:-https://gitcode.com/openeuler/yuanro
 FUNCTIONSYSTEM_BRANCH="${FUNCTIONSYSTEM_BRANCH:-master}"
 BUILD_ALL_IMAGE="${BUILDER_IMAGE}"
 ENABLE_SANDBOX_MANIFEST="${ENABLE_SANDBOX_MANIFEST:-${ENABLE_LINUX_ARM}}"
-ENABLE_TEST_PYPI_PUBLISH="${ENABLE_TEST_PYPI_PUBLISH:-${PUBLISH_TEST_PYPI:-true}}"
 SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12}"
 SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"
 
@@ -26,6 +25,17 @@ is_enabled() {
     *) return 1 ;;
   esac
 }
+
+# Generate the publish step when either PUBLISH_PYPI or PUBLISH_TEST_PYPI is explicitly
+# enabled, or when neither is set (default: true).  Do NOT suppress the step just because
+# PUBLISH_TEST_PYPI=0 – that only means "don't upload to TestPyPI", not "skip all uploads".
+if [ -z "${ENABLE_TEST_PYPI_PUBLISH:-}" ]; then
+  if is_enabled "${PUBLISH_PYPI:-}"; then
+    ENABLE_TEST_PYPI_PUBLISH=true
+  else
+    ENABLE_TEST_PYPI_PUBLISH="${PUBLISH_TEST_PYPI:-true}"
+  fi
+fi
 
 validate_ci_value() {
   local name="$1"

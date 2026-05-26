@@ -95,19 +95,17 @@ ErrorInfo DSCacheStateStore::Init(const DsConnectOptions &options)
 {
     ErrorInfo err;
     YRLOG_DEBUG("Datasystem State store init, ip = {}, port = {}", options.host, options.port);
-    ConnectOptions connectOptsInput{options.host,
-                               options.port,
-                               options.connectTimeoutMs,
-                               options.connectTimeoutMs,
-                               options.token,
-                               options.clientPublicKey,
-                               options.clientPrivateKey,
-                               options.serverPublicKey,
-                               options.accessKey,
-                               options.secretKey,
-                               options.tenantId,
-                               options.enableCrossNodeConnection};
-    this->connectOpts = connectOptsInput;
+    this->connectOpts.host = options.host;
+    this->connectOpts.port = options.port;
+    this->connectOpts.connectTimeoutMs = options.connectTimeoutMs;
+    this->connectOpts.token = options.token;
+    this->connectOpts.clientPublicKey = options.clientPublicKey;
+    this->connectOpts.clientPrivateKey = options.clientPrivateKey;
+    this->connectOpts.serverPublicKey = options.serverPublicKey;
+    this->connectOpts.accessKey = options.accessKey;
+    this->connectOpts.secretKey = options.secretKey;
+    this->connectOpts.tenantId = options.tenantId;
+    this->connectOpts.enableCrossNodeConnection = options.enableCrossNodeConnection;
     InitOnce();
     return this->initErr;
 }

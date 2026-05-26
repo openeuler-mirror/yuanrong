@@ -528,6 +528,7 @@ NODE_IP="{{ values.frontend.ip }}"
 DATASYSTEM_ADDR="{{ values.ds_worker.ip }}:{{ values.ds_worker.port }}"
 INSTANCE_ID="driver-frontend-${NODE_ID}"
 FAAS_LOG_PATH="{{ values.fs.log.path }}"
+LOG_CONFIG = '''{{ fs_log_config | tojson }}'''
 
 [frontend.health_check]
 enable = true

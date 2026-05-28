@@ -14,7 +14,7 @@ openYuanrong 提供了分布式多级缓存 (HBM/DRAM/SSD) 和高性能 D2D(devi
 
 本案例基于 vLLM 推理框架部署一个 PD 分离的 Qwen 推理服务，通过以下步骤向您介绍如何使用 openYuanrong 异构分布式多级缓存能力：
 
-- 在基于 openEuler 的 [vLLM Ascend](https://vllm-ascend.readthedocs.io/zh-cn/latest/){target="_blank"} 容器镜像环境中部署 openYuanrong。
+- 在基于 openEuler 的 [vLLM Ascend](https://docs.vllm.ai/projects/ascend/zh-cn/latest/index.html){target="_blank"} 容器镜像环境中部署 openYuanrong。
 - 为 vLLM Ascend 打补丁适配 openYuanrong 分布式多机缓存能力。
 - 跨主机在容器中部署 PD 分离的 Qwen 推理服务，测试长序列推理效果。
 
@@ -32,7 +32,7 @@ openYuanrong 提供了分布式多级缓存 (HBM/DRAM/SSD) 和高性能 D2D(devi
 
 ## 在容器中部署 openYuanrong
 
-在两台主机上分别使用如下命令运行容器，启动参数的配置介绍详见 [vLLM Ascend 文档](https://vllm-ascend.readthedocs.io/zh-cn/latest/tutorials/index.html#){target="_blank"}：
+在两台主机上分别使用如下命令运行容器，启动参数的配置介绍详见 [vLLM Ascend 文档](https://docs.vllm.ai/projects/ascend/zh-cn/latest/index.html){target="_blank"}：
 
 ```bash
 # 请自定义 docker_name，并根据实际主机 NPU 卡的情况配置 device

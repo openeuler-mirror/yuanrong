@@ -52,11 +52,11 @@ ClientInfo Init(int argc, char **argv);
   It ensures that no resources are leaked, which could lead to issues in a
   production environment.
 
-  @note - In a cluster deployment scenario, if worker processes exit and restart,
+  @note
+  - In a cluster deployment scenario, if worker processes exit and restart,
   it might lead to process residuals. In such cases, it is recommended to
   redeploy the cluster. Deployment scenarios like Donau or SGE can rely on
   the resource scheduling platform's capability to recycle processes.
-
   - This function should be called after the system has been initialized
   with the appropriate Init function. Calling Finalize before Init will result
   in an exception.

@@ -42,6 +42,8 @@ struct InvokeOptions {
     InstanceRange instanceRange;
 
     int recoverRetryTimes = 0;
+
+    RuntimeEnv runtimeEnv;
 };
 ```
 
@@ -70,6 +72,7 @@ Function invocation options, used to specify calling resources and related confi
 | groupName                | string                                    | Group instance scheduler name(empty by default).                                                                                                             | ``""``                |
 | instanceRange            | InstanceRange                            | Function instance count range configuration, See [struct-InstanceRange](./struct-InstanceRange.md).                                                          | -                   |
 | recoverRetryTimes        | int                                       | Maximum instance recovery attempts:<br>• Default ``0`` means no auto-recovery.<br>• May stop early for unrecoverable errors.                                          | ``0``                 |
+| runtimeEnv               | RuntimeEnv                                | Configure runtime environment for cross-language invocation of Python functions, See [RuntimeEnv](RuntimeEnv.md).                                                     | -                   |
 
 ### About retryTimes and retryChecker
 

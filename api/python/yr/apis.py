@@ -1474,11 +1474,11 @@ def create_resource_group(bundles: List[Dict[str, float]], name: Optional[str] =
 
             - ``'PACK'``: Pack multiple bundles into the same node as much as possible.
 
-            - ``'SPREAD`'': Distribute multiple bundles across different nodes as much as possible.
+            - ``'SPREAD'``: Distribute multiple bundles across different nodes as much as possible.
 
-            - ''`STRICT_PACK`'': All bundles must be placed on the same node, otherwise creation fails.
+            - ``'STRICT_PACK'``: All bundles must be placed on the same node, otherwise creation fails.
 
-            - ''`STRICT_SPREAD`'': All bundles must be placed on different nodes, otherwise creation fails.
+            - ``'STRICT_SPREAD'``: All bundles must be placed on different nodes, otherwise creation fails.
 
     Returns:
         A ResourceGroup handle.

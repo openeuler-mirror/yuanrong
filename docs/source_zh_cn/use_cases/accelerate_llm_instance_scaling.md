@@ -8,7 +8,7 @@
 
 本案例基于 vLLM 推理框架在昇腾环境上部署并扩容一个 Qwen 推理实例，通过以下步骤向您介绍如何使用 openYuanrong 异构数据对象 API：
 
-- 在基于 openEuler 的 [vLLM Ascend](https://vllm-ascend.readthedocs.io/zh-cn/latest/){target="_blank"} 容器镜像环境中部署 openYuanrong。
+- 在基于 openEuler 的 [vLLM Ascend](https://docs.vllm.ai/projects/ascend/zh-cn/latest/index.html){target="_blank"} 容器镜像环境中部署 openYuanrong。
 - 提供 vLLM 补丁适配 openYuanrong 异构数据对象 API。
 - 使用 openYuanrong 基于 vLLM 部署并扩容一个 Qwen 推理实例，测试加速效果。
 
@@ -201,7 +201,7 @@
 
 ## 在容器中部署 openYuanrong
 
-参考如下命令运行容器，启动参数的配置介绍详见 [vLLM Ascend 文档](https://vllm-ascend.readthedocs.io/zh-cn/latest/tutorials/index.html#){target="_blank"}：
+参考如下命令运行容器，启动参数的配置介绍详见 [vLLM Ascend 文档](https://docs.vllm.ai/projects/ascend/zh-cn/latest/index.html){target="_blank"}：
 
 ```bash
 # 请自定义 docker_name，并根据实际主机 NPU 卡的情况配置 device

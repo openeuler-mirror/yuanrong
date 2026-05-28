@@ -40,6 +40,7 @@ C++
    SaveState
    LoadState
    struct-InvokeOptions
+   RuntimeEnv
 
 .. toctree::
    :glob:
@@ -106,13 +107,6 @@ C++
    :maxdepth: 1
 
    ParallelFor
-   
-.. toctree::
-   :glob:
-   :hidden:
-   :maxdepth: 1
-
-   struct-RuntimeEnv
 
 .. toctree::
    :glob:
@@ -194,6 +188,8 @@ C++
      - 导入有状态函数实例的状态。
    * - :doc:`struct-InvokeOptions`
      - 用于设置调用选项。
+   * - :doc:`RuntimeEnv`
+     - 配置跨语言调用 Python 函数时的运行时环境。
 
 
 数据对象 API
@@ -316,14 +312,3 @@ KV 缓存 API
 
    * - :doc:`Affinity`
      - 亲和调度的配置参数。
-
-     
-设置跨语言 python 的 runtime env API
---------------------------------------
-
-.. list-table::
-   :header-rows: 0
-   :widths: 30 70
-
-   * - :doc:`struct-RuntimeEnv`
-     - 设置跨语言 python 的 runtime env API。

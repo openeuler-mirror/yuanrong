@@ -40,6 +40,7 @@ C++
    SaveState
    LoadState
    struct-InvokeOptions
+   RuntimeEnv
 
 .. toctree::
    :glob:
@@ -186,6 +187,8 @@ Stateful & Stateless Function API
      - Loads the saved instance state.
    * - :doc:`struct-InvokeOptions`
      - Use to set the invoke options.
+   * - :doc:`RuntimeEnv`
+     - Configure runtime environment for cross-language invocation of Python functions.
 
 
 Data Object API

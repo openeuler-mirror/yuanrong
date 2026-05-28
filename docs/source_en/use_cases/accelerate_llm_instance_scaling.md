@@ -8,7 +8,7 @@ The elastic speed of inference instances is affected by many factors, such as ta
 
 This case deploys and scales a Qwen inference instance on the Ascend environment based on the vLLM inference framework. The following steps introduce how to use the openYuanrong heterogeneous data object API:
 
-- Deploy openYuanrong in the [vLLM Ascend](https://vllm-ascend.readthedocs.io/zh-cn/latest/){target="_blank"} container mirror environment based on openEuler.
+- Deploy openYuanrong in the [vLLM Ascend](https://docs.vllm.ai/projects/ascend/en/latest/index.html){target="_blank"} container mirror environment based on openEuler.
 - Provide vLLM patches to adapt the openYuanrong heterogeneous data object API.
 - Use openYuanrong to deploy and scale a Qwen inference instance based on vLLM, testing acceleration effects.
 
@@ -201,7 +201,7 @@ Prepare an Ascend host (with at least two available NPU cards) and create the di
 
 ## Deploy openYuanrong in Container
 
-Refer to the following commands to run the container. For details on startup parameter configuration, see the [vLLM Ascend documentation](https://vllm-ascend.readthedocs.io/zh-cn/latest/tutorials/index.html#){target="_blank"}:
+Refer to the following commands to run the container. For details on startup parameter configuration, see the [vLLM Ascend documentation](https://docs.vllm.ai/projects/ascend/en/latest/index.html){target="_blank"}:
 
 ```bash
 # Please customize docker_name, and configure device according to the actual host NPU card situation

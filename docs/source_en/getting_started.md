@@ -10,7 +10,7 @@ openYuanrong consists of multi-language function runtime, function system, and d
 - **Function System**: Provides large-scale distributed dynamic scheduling, supports rapid elastic scaling and cross-node migration of function instances, achieving efficient utilization of cluster resources.
 - **Data System**: Provides heterogeneous distributed multi-level caching, supports Object and Stream semantics, achieving high-performance data sharing and transmission between function instances.
 
-**Function** is the core concept abstraction of openYuanrong and is the basic unit of distributed scheduling and execution. Compared with traditional Serverless function concepts, openYuanrong functions are more general, supporting dynamic creation during execution, long-running, asynchronous calls between each other, stateful, etc., and can express running instances of arbitrary distributed applications, playing a role similar to processes in single-machine OS. [Learn more about openYuanrong's conceptual abstractions](multi_language_function_programming_interface/key_concept_en.md).
+**Function** is the core concept abstraction of openYuanrong and is the basic unit of distributed scheduling and execution. Compared with traditional Serverless function concepts, openYuanrong functions are more general, supporting dynamic creation during execution, long-running, asynchronous calls between each other, stateful, etc., and can express running instances of arbitrary distributed applications, playing a role similar to processes in single-machine OS. [Learn more about openYuanrong's conceptual abstractions](multi_language_function_programming_interface/key_concept.md).
 
 ## Choose Your Getting Started Guide
 
@@ -535,16 +535,16 @@ Refer to [Function Service Example Project](example-project-function-service) to
 :::::
 ::::::
 
-Learn more about [Multi-language Function Programming Interface](multi_language_function_programming_interface/index_en.md).
+Learn more about [Multi-language Function Programming Interface](multi_language_function_programming_interface/index.md).
 
 (quickstart-deployment)=
 
 ## Installation and Deployment Quick Start
 
-- openYuanrong supports deployment and execution on a single host for learning and development, and can be seamlessly extended to large clusters in production: [Learn More](deploy/index_en.md).
+- openYuanrong supports deployment and execution on a single host for learning and development, and can be seamlessly extended to large clusters in production: [Learn More](deploy/index.md).
 
 (quickstart-observability)=
 
 ## Observability Quick Start
 
-- openYuanrong provides observability tools to monitor clusters and debug applications. These tools can help you understand application performance and identify bottlenecks: [Learn More](observability/index_en.md).
+- openYuanrong provides observability tools to monitor clusters and debug applications. These tools can help you understand application performance and identify bottlenecks: [Learn More](observability/index.md).

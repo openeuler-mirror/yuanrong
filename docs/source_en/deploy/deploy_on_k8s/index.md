@@ -32,7 +32,7 @@ Worker node pod is used to run distributed tasks. Deployed openYuanrong componen
 
 - **function master**
 
-  Responsible for topology management, global function scheduling, function instance lifecycle management, and scaling of function agent component. Deployment form is [Deployment](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/deployment/){target="_blank"}, one master with multiple backups.
+  Responsible for topology management, global function scheduling, function instance lifecycle management, and scaling of function agent component. Deployment form is [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/){target="_blank"}, one master with multiple backups.
 - **function manager**
 
   Responsible for lease application and recycling, cleaning up expired connection information. It is an openYuanrong system function.
@@ -44,10 +44,10 @@ Worker node pod is used to run distributed tasks. Deployed openYuanrong componen
   Provides REST API for calling services, subscribing to stream services and other data processing. It is an openYuanrong system function.
 - **meta service**
 
-  Provides REST API for management operations such as function creation, resource pool creation, etc. Deployment form is [Deployment](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/deployment/){target="_blank"}.
+  Provides REST API for management operations such as function creation, resource pool creation, etc. Deployment form is [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/){target="_blank"}.
 - **IAM adaptor**
 
-  Responsible for multi-tenant authentication and authorization. Deployment form is [Deployment](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/deployment/){target="_blank"}, one master with multiple backups. If there are no related requirements or there is already an authentication platform, deployment is not required.
+  Responsible for multi-tenant authentication and authorization. Deployment form is [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/){target="_blank"}, one master with multiple backups. If there are no related requirements or there is already an authentication platform, deployment is not required.
 - **etcd**
 
   Third-party open source component used to store cluster component registration information, function metadata, and instance status information.
@@ -56,16 +56,16 @@ Worker node pod is used to run distributed tasks. Deployed openYuanrong componen
   Third-party open source component used to store function code packages uploaded by users, deployment is optional.
 - **function proxy**
 
-  Responsible for message forwarding, local function scheduling, and instance lifecycle management. Deployment form is [DaemonSet](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/daemonset/){target="_blank"}.
+  Responsible for message forwarding, local function scheduling, and instance lifecycle management. Deployment form is [DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/){target="_blank"}.
 - **function agent**
 
-  Minimum resource unit, responsible for function code package download and decompression, network security isolation configuration, etc. Deployment form is [Deployment](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/deployment/){target="_blank"}, it is in the same pod with runtime manager.
+  Minimum resource unit, responsible for function code package download and decompression, network security isolation configuration, etc. Deployment form is [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/){target="_blank"}, it is in the same pod with runtime manager.
 - **runtime manager**
 
-  Responsible for cpu, memory and other resource collection and reporting, function process lifecycle management, etc. Deployment form is [Deployment](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/deployment/){target="_blank"}, it is in the same pod with function agent.
+  Responsible for cpu, memory and other resource collection and reporting, function process lifecycle management, etc. Deployment form is [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/){target="_blank"}, it is in the same pod with function agent.
 - **data worker**
 
-  Provides data object storage and other capabilities. Deployment form is [DaemonSet](https://kubernetes.io/zh-cn/docs/concepts/workloads/controllers/daemonset/){target="_blank"}.
+  Provides data object storage and other capabilities. Deployment form is [DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/){target="_blank"}.
 
 ### Pod Resource Pool
 

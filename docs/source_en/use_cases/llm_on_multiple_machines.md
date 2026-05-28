@@ -14,7 +14,7 @@ openYuanrong provides distributed multi-level caching (HBM/DRAM/SSD) and high-pe
 
 This case deploys a PD-separated Qwen inference service based on the vLLM inference framework. The following steps introduce how to use openYuanrong's heterogeneous distributed multi-level caching capabilities:
 
-- Deploy openYuanrong in the [vLLM Ascend](https://vllm-ascend.readthedocs.io/zh-cn/latest/){target="_blank"} container mirror environment based on openEuler.
+- Deploy openYuanrong in the [vLLM Ascend](https://docs.vllm.ai/projects/ascend/en/latest/index.html){target="_blank"} container mirror environment based on openEuler.
 - Patch vLLM Ascend to adapt openYuanrong's distributed multi-machine caching capabilities.
 - Deploy PD-separated Qwen inference service in containers across hosts, testing long sequence inference effects.
 
@@ -32,7 +32,7 @@ Prepare two Ascend hosts (each with at least one available NPU card) and create 
 
 ## Deploy openYuanrong in Container
 
-Use the following commands on both hosts to run containers respectively. For details on startup parameter configuration, see the [vLLM Ascend documentation](https://vllm-ascend.readthedocs.io/zh-cn/latest/tutorials/index.html#){target="_blank"}:
+Use the following commands on both hosts to run containers respectively. For details on startup parameter configuration, see the [vLLM Ascend documentation](https://docs.vllm.ai/projects/ascend/en/latest/index.html){target="_blank"}:
 
 ```bash
 # Please customize docker_name, and configure device according to the actual host NPU card situation

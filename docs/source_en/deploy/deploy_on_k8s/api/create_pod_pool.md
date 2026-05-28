@@ -6,12 +6,12 @@ Create pod resource pool for running functions when deploying openYuanrong clust
 
 ## Interface Constraints
 
-Pool affinity is implemented based on K8s scheduling capabilities, see [Assigning Pods to Nodes](https://kubernetes.io/zh-cn/docs/concepts/scheduling-eviction/assign-pod-node/){target="_blank"} for details. Usage constraints are as follows.
+Pool affinity is implemented based on K8s scheduling capabilities, see [Assigning Pods to Nodes](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/){target="_blank"} for details. Usage constraints are as follows.
 
 - Multiple pools are deployed with anti-affinity by default. If you need to modify this, you can configure it through the `affinities` parameter in [PoolInfo structure](api-data-struct-poolinfo).
 - When configuring pool affinity attributes, both `node_selector` and `affinities` parameters in [PoolInfo structure](api-data-struct-poolinfo) will take effect simultaneously. When configuration conflicts, it may cause the pool to be in `pending` state and unable to start. It is recommended to configure only one of them.
 
-Pool automatic scaling is controlled by `size` and `max_size` parameters in [PoolInfo structure](api-data-struct-poolinfo). For principles, see [Horizontal Pod Autoscaling](https://kubernetes.io/zh-cn/docs/tasks/run-application/horizontal-pod-autoscale/){target="_blank"}. Usage constraints are as follows.
+Pool automatic scaling is controlled by `size` and `max_size` parameters in [PoolInfo structure](api-data-struct-poolinfo). For principles, see [Horizontal Pod Autoscaling](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/){target="_blank"}. Usage constraints are as follows.
 
 - When automatic scaling is enabled: Each instance creation request triggers Pod scaling at most once, but the scaled Pods are not bound to that instance. There may be cases where scaled Pods are occupied by other instances. In this case, instances that cannot obtain available Pods will return creation failure after 2 minutes timeout.
 - When fixing resource pool size: You can configure Pod recycling time by adding key-value pair `{"yr-idle-to-recycle":5}` to the `labels` parameter in [PoolInfo structure](api-data-struct-poolinfo), with value unit in seconds. If never recycling, configure as `{"yr-idle-to-recycle":"unlimited"}`.

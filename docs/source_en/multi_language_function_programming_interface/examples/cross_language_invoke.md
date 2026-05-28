@@ -22,7 +22,7 @@ Ensure the `--enable_meta_service=true` parameter is configured during deploymen
 
 ## Calling C++ Stateless and Stateful Functions from Python Programs
 
-We compile C++ stateless and stateful functions into dynamic libraries, and use [yr.cpp_function](../api/distributed_programming/Python/generated/yr.cpp_function.rst) and [yr.cpp_instance_class](../api/distributed_programming/Python/generated/yr.cpp_instance_class.rst) APIs in the Python main program for invocation.
+We compile C++ stateless and stateful functions into dynamic libraries, and use [yr.cpp_function](../api/distributed_programming/Python/yr.cpp_function.rst) and [yr.cpp_instance_class](../api/distributed_programming/Python/yr.cpp_instance_class.rst) APIs in the Python main program for invocation.
 
 1. Prepare the example project
 
@@ -174,7 +174,7 @@ We compile C++ stateless and stateful functions into dynamic libraries, and use 
 
 ## Calling Java Stateless and Stateful Functions from Python Programs
 
-We use [yr.cpp_function](../api/distributed_programming/Python/generated/yr.cpp_function.rst) and [yr.cpp_instance_class](../api/distributed_programming/Python/generated/yr.cpp_instance_class.rst) APIs in the Python main program to call Java stateless and stateful functions.
+We use [yr.cpp_function](../api/distributed_programming/Python/yr.cpp_function.rst) and [yr.cpp_instance_class](../api/distributed_programming/Python/yr.cpp_instance_class.rst) APIs in the Python main program to call Java stateless and stateful functions.
 
 1. Prepare the example project
 

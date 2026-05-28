@@ -14,7 +14,7 @@ openYuanrong documentation mainly includes the following categories:
 - [Development Guide](../multi_language_function_programming_interface/development_guide/index.md)
 - [Examples](../multi_language_function_programming_interface/examples/monte-carlo-pi.md)
 - [FAQ](../FAQ/multi_language_functional_programming.md)
-- [API Reference](../multi_language_function_programming_interface/api/distributed_programming/zh_cn/Python/index.rst)
+- [API Reference](../multi_language_function_programming_interface/api/distributed_programming/Python/index.rst)
 
 The openYuanrong documentation source code is stored in the `docs` directory of the [yuanrong](https://atomgit.com/openeuler/yuanrong/tree/master){target="_blank"} repository. You can refer to existing documentation content to supplement chapters in the corresponding documentation directories. The correspondence between first-level directories and code paths is as follows:
 

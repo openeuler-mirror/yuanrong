@@ -32,17 +32,18 @@ class ManagedSessionObj:
     """
     Managed Session Object.
 
-    Session Data Structure:
+    Session Data Structure::
+
         {
             "sessionID": "s-123",
             "histories": ["user: hello", "assistant: hi"]
         }
 
-    Semantic Constraints:
-    - Internally holds sessionId and the latest sessionData JSON string
-    - get_histories() returns a copy to prevent users from directly modifying internal list and bypassing sync
-    - set_histories() immediately calls bridge to sync to libruntime, runtime auto-persists at request end
-    - Multiple load_session() calls with same sessionId return the same managed object
+    Note:
+        - Internally holds sessionId and the latest sessionData JSON string
+        - get_histories() returns a copy to prevent users from directly modifying internal list and bypassing sync
+        - set_histories() immediately calls bridge to sync to libruntime, runtime auto-persists at request end
+        - Multiple load_session() calls with same sessionId return the same managed object
     """
 
     def __init__(self, session_id: str, session_json: str):
@@ -195,11 +196,11 @@ class SessionService:
         - libruntime reads currently active AgentSessionContext from activeSessionMap[sessionId]
         - Returns language wrapper of in-memory Session object
 
-        Semantics:
-        - Returns None when current request does not carry sessionId
-        - Returns None when use_agent_session=false
-        - When use_agent_session=true and session is not created, runtime automatically creates
-          empty SessionObj and writes to DataSystem, load_session() still returns object (with empty content)
+        Note:
+            - Returns None when current request does not carry sessionId
+            - Returns None when use_agent_session=false
+            - When use_agent_session=true and session is not created, runtime automatically creates
+              empty SessionObj and writes to DataSystem, load_session() still returns object (with empty content)
 
         Returns:
             ManagedSessionObj, or None when sessionId is empty

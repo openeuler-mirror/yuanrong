@@ -99,7 +99,7 @@ data:
     enable_meta_store="false"
     meta_store_mode="local"
     etcd_address={{ quote .Values.global.etcdManagement.detcd }}
-
+    k8s_api_version={{ quote .Values.global.common.k8sAPIVersion }}
 
 
     [function_proxy]

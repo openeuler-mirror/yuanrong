@@ -112,6 +112,9 @@ html_favicon = "../_static/favicon.ico"
 html_css_files = [
     "custom.css",
 ]
+html_js_files = [
+    "language-switcher.js",
+]
 #   确保末尾加上斜杠
 html_baseurl = "https://docs.openyuanrong.org/zh-cn/latest/"
 html_theme_options = {
@@ -133,10 +136,11 @@ html_theme_options = {
         "navbar-nav",
          ],
     "navbar_end": [
+        "language-switcher",
         "version-switcher",
         ],
     "switcher": {
-        "json_url": "https://docs.openyuanrong.org/versions.json",
+        "json_url": "https://docs.openyuanrong.org/en/versions.json",
         "version_match": os.getenv("BUILD_VERSION", "latest"),
     },
     "logo": {
@@ -188,9 +192,10 @@ breathe_default_project = "openYuanrong"
 html_context = {
     **ICONS,
     "blog_data": BLOG_DATA,
+    "language": "en",
     "metatags": """
             <meta name="author" content="openYuanrong Team">
-            <meta name="keywords" content="openYuanrong, 分布式计算引擎, AI推理, Serverless">
-            <meta name="description" content="openYuanrong 是业界领先的 Serverless 分布式计算引擎，致力于以一套统一 Serverless 架构支持 AI、大数据、微服务等各类分布式应用。">
+            <meta name="keywords" content="openYuanrong, distributed computing engine, AI inference, Serverless">
+            <meta name="description" content="openYuanrong is a leading Serverless distributed computing engine, dedicated to supporting AI, big data, microservices and other distributed applications with a unified Serverless architecture.">
         """
 }

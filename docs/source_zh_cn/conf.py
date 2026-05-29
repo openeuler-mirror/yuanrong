@@ -109,6 +109,9 @@ html_favicon = "../_static/favicon.ico"
 html_css_files = [
     "custom.css",
 ]
+html_js_files = [
+    "language-switcher.js",
+]
 #   确保末尾加上斜杠
 html_baseurl = "https://docs.openyuanrong.org/zh-cn/latest/"
 html_theme_options = {
@@ -130,6 +133,7 @@ html_theme_options = {
         "navbar-nav",
          ],
     "navbar_end": [
+        "language-switcher",
         "version-switcher",
         ],
     "switcher": {
@@ -185,6 +189,7 @@ breathe_default_project = "openYuanrong"
 html_context = {
     **ICONS,
     "blog_data": BLOG_DATA,
+    "language": "zh-cn",
     "metatags": """
             <meta name="author" content="openYuanrong Team">
             <meta name="keywords" content="openYuanrong, 分布式计算引擎, AI推理, Serverless">

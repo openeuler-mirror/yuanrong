@@ -72,8 +72,8 @@ function build_zh_cn() {
   # Changes in later versions need to be modified accordingly.
   sed -i '285d' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
   sed -i '284s/ ||//' "${BASE_DIR}"/source_zh_cn/_build/html/_static/searchtools.js
-  rm -rf "${OUTPUT_DIR}"/docs/zh_cn && mkdir -p "${OUTPUT_DIR}"/docs/zh_cn
-  cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh_cn
+  rm -rf "${OUTPUT_DIR}"/docs/zh-cn && mkdir -p "${OUTPUT_DIR}"/docs/zh-cn
+  cp -rf "${BASE_DIR}"/source_zh_cn/_build/html/* "${OUTPUT_DIR}"/docs/zh-cn
 }
 
 function build_en() {

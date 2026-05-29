@@ -45,7 +45,6 @@ import (
 	"yuanrong.org/kernel/pkg/functionscaler/config"
 	"yuanrong.org/kernel/pkg/functionscaler/selfregister"
 	"yuanrong.org/kernel/pkg/functionscaler/signalmanager"
-	"yuanrong.org/kernel/pkg/functionscaler/sts"
 	"yuanrong.org/kernel/pkg/functionscaler/tenantquota"
 	"yuanrong.org/kernel/pkg/functionscaler/types"
 	"yuanrong.org/kernel/pkg/functionscaler/utils"
@@ -53,12 +52,11 @@ import (
 
 // 1 + 2 + 4 + 8 + 16 + 32 + 64 + 128 + 256 + 300 + 300... = 3811秒
 const (
-	retryDuration       = 1 * time.Second // 初始等待时间
-	retryFactor         = 2               // 倍数因子（每次翻4倍）
-	retryJitter         = 0.1             // 随机抖动系数
-	retryTime           = 20
-	retryCap            = 300 * time.Second // 最大等待时间上限
-	enableMetricsEnvKey = "ENABLE_METRICS"
+	retryDuration = 1 * time.Second // 初始等待时间
+	retryFactor   = 2               // 倍数因子（每次翻4倍）
+	retryJitter   = 0.1             // 随机抖动系数
+	retryTime     = 20
+	retryCap      = 300 * time.Second // 最大等待时间上限
 )
 
 var (
@@ -70,7 +68,19 @@ var (
 		Steps:    retryTime,
 		Cap:      retryCap,
 	}
-	disableSWR = strings.TrimSpace(os.Getenv("DISABLE_SWR_ADDON")) == "true"
+	disableSWR   = strings.TrimSpace(os.Getenv("DISABLE_SWR_ADDON")) == "true"
+	killInstance = killInstanceAndIgnoreNotFoundError
+
+	prepareCreateParamsDataFunc = prepareCreateParamsData
+	prepareSchedulerArgFunc     = signalmanager.PrepareSchedulerArg
+	prepareCustomUserArgFunc    = prepareCustomUserArg
+	sdkInvokeByInstanceIDFunc   = func(funcMeta api.FunctionMeta, instanceID string, args []api.Arg,
+		invokeOpts api.InvokeOptions) (string, error) {
+		return globalSdkClient.InvokeByInstanceId(funcMeta, instanceID, args, invokeOpts)
+	}
+	sdkGetAsyncFunc = func(objectID string, cb api.GetAsyncCallback) {
+		globalSdkClient.GetAsync(objectID, cb)
+	}
 )
 
 // SetGlobalSdkClient -
@@ -79,7 +89,7 @@ func SetGlobalSdkClient(sdkClient api.LibruntimeAPI) {
 }
 
 func killInstanceAndIgnoreNotFoundError(instanceId string) error {
-	err := globalSdkClient.Kill(instanceId, killSignalVal, []byte{})
+	err := globalSdkClient.Kill(instanceId, killSignalVal, []byte{}, api.InvokeOptions{})
 	if err != nil {
 		if strings.Contains(err.Error(), "instance not found") {
 			return nil
@@ -127,7 +137,8 @@ func createInstanceForKernel(request createInstanceRequest) (instance *types.Ins
 		FuncID: getExecutorFuncKey(request.funcSpec),
 		Api:    commonUtils.GetAPIType(request.funcSpec.FuncMetaData.BusinessType),
 	}
-	invokeOpts := createInvokeOptions(request.funcSpec, schedulingOptions, createOpt, request.poolLabel)
+	invokeOpts := createInvokeOptions(
+		request.funcSpec, schedulingOptions, createOpt, request.poolLabel, request.traceID, request.traceParent)
 	logger.Debugf("invoke opts cpu is %v, mem is %v\n", invokeOpts.Cpu, invokeOpts.Memory)
 	delete(invokeOpts.CustomResources, resourcesCPU)
 	delete(invokeOpts.CustomResources, resourcesMemory)
@@ -144,11 +155,12 @@ func createInstanceForKernel(request createInstanceRequest) (instance *types.Ins
 }
 
 func deleteInstanceForKernel(funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-	instance *types.Instance) error {
+	instance *types.Instance,
+) error {
 	log.GetLogger().Debugf("start to delete instance %s for function %s", instance.InstanceID, funcSpec.FuncKey)
 	// maybe we should wait for delete response
 	var err error
-	err = killInstanceAndIgnoreNotFoundError(instance.InstanceID)
+	err = killInstance(instance.InstanceID)
 	if err != nil {
 		log.GetLogger().Warnf("failed to delete instance %s for function %s first, err: %s, start retry",
 			instance.InstanceID, funcSpec.FuncKey, err.Error())
@@ -167,7 +179,7 @@ func deleteInstanceForKernelRetry(instanceID string) {
 	var err error
 	backoffErr := wait.ExponentialBackoff(
 		coldStartBackoff, func() (bool, error) {
-			err = killInstanceAndIgnoreNotFoundError(instanceID)
+			err = killInstance(instanceID)
 			if err != nil {
 				log.GetLogger().Errorf("failed to delete instance %s, retry", instanceID)
 				return false, nil
@@ -185,7 +197,7 @@ func deleteInstanceForKernelRetry(instanceID string) {
 func deleteInstanceByIDForKernel(instanceID, funcKey string) error {
 	log.GetLogger().Debugf("start to delete instance %s for function %s",
 		instanceID, funcKey)
-	if err := killInstanceAndIgnoreNotFoundError(instanceID); err != nil {
+	if err := killInstance(instanceID); err != nil {
 		log.GetLogger().Errorf("failed to delete instance %s, err: %v, retry", instanceID, err)
 		go deleteInstanceForKernelRetry(instanceID)
 	}
@@ -229,7 +241,8 @@ func getExecutorFuncKey(funcSpec *types.FunctionSpecification) string {
 }
 
 func generateOptionAndArgsForCreate(request createInstanceRequest, resSpec *resspeckey.ResourceSpecification) (
-	map[string]string, []api.Arg, error) {
+	map[string]string, []api.Arg, error,
+) {
 	createOpt, err := prepareCreateOptions(request, resSpec)
 	if err != nil || createOpt == nil {
 		return nil, nil, err
@@ -243,7 +256,8 @@ func generateOptionAndArgsForCreate(request createInstanceRequest, resSpec *ress
 }
 
 func prepareSchedulingOptions(funcSpec *types.FunctionSpecification,
-	resSpec *resspeckey.ResourceSpecification) *types.SchedulingOptions {
+	resSpec *resspeckey.ResourceSpecification,
+) *types.SchedulingOptions {
 	schedulingOptions := &types.SchedulingOptions{}
 	schedulingOptions.Resources = generateResources(resSpec)
 	if config.GlobalConfig.DeployMode == constant.DeployModeProcesses {
@@ -275,9 +289,10 @@ func prepareSchedulingOptions(funcSpec *types.FunctionSpecification,
 }
 
 func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOptions *types.SchedulingOptions,
-	createOpt map[string]string, poolLabel string) api.InvokeOptions {
+	createOpt map[string]string, poolLabel, traceID, traceParent string,
+) api.InvokeOptions {
 	if !isEmptyRootfsSpec(funcSpec.RootfsSpecMeta) {
-		rootfsData, err := json.Marshal(funcSpec.RootfsSpecMeta)
+		rootfsData, err := jsonMarshal(funcSpec.RootfsSpecMeta)
 		if err != nil {
 			log.GetLogger().Warnf("failed to marshal rootfs spec for function %s: %s", funcSpec.FuncKey, err.Error())
 		} else {
@@ -287,15 +302,26 @@ func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOption
 			createOpt["rootfs"] = string(rootfsData)
 		}
 	}
+
 	codeEntrys := []string{funcSpec.ExtendedMetaData.Initializer.Handler, funcSpec.FuncMetaData.Handler}
 	if funcSpec.ExtendedMetaData.PreStop.Handler != "" {
 		codeEntrys = append(codeEntrys, funcSpec.ExtendedMetaData.PreStop.Handler)
+	}
+	customExtensions := make(map[string]string, len(schedulingOptions.Extension)+1)
+	for key, value := range schedulingOptions.Extension {
+		customExtensions[key] = value
+	}
+	if traceParent != "" {
+		customExtensions["traceparent"] = traceParent
+	}
+	if traceID == "" {
+		traceID = utils.GenerateTraceID()
 	}
 	invokeOpts := api.InvokeOptions{
 		Cpu:                int(schedulingOptions.Resources[resourcesCPU]),
 		Memory:             int(schedulingOptions.Resources[resourcesMemory]),
 		CustomResources:    schedulingOptions.Resources,
-		CustomExtensions:   schedulingOptions.Extension,
+		CustomExtensions:   customExtensions,
 		CreateOpt:          createOpt,
 		Priority:           int(schedulingOptions.Priority),
 		ScheduleAffinities: generateScheduleAffinity(schedulingOptions.Affinity, poolLabel),
@@ -303,6 +329,7 @@ func createInvokeOptions(funcSpec *types.FunctionSpecification, schedulingOption
 		CodePaths:          codeEntrys,
 		Timeout:            int(utils.GetCreateTimeout(funcSpec).Seconds()),
 		ScheduleTimeoutMs:  constant.KernelScheduleTimeout * time.Second.Milliseconds(),
+		TraceID:            traceID,
 	}
 	return invokeOpts
 }
@@ -347,7 +374,8 @@ func generateScheduleAffinity(scheduleAffinity []api.Affinity, label string) []a
 }
 
 func createPATService(traceID string, funcSpec *types.FunctionSpecification, faasManagerInfo faasManagerInfo,
-	extMetaData commonTypes.ExtendedMetaData, vpcConfig *commonTypes.VpcConfig) ([]commonTypes.NATConfigure, error) {
+	extMetaData commonTypes.ExtendedMetaData, vpcConfig *commonTypes.VpcConfig,
+) ([]commonTypes.NATConfigure, error) {
 	createErr := errors.New("failed to create pat service")
 	faasManagerFuncKey := faasManagerInfo.funcKey
 	faasManagerInstanceID := faasManagerInfo.instanceID
@@ -363,13 +391,13 @@ func createPATService(traceID string, funcSpec *types.FunctionSpecification, faa
 	var responseData []byte
 	funcMeta := api.FunctionMeta{FuncID: faasManagerFuncKey, Api: api.FaaSApi}
 	invokeOpts := api.InvokeOptions{TraceID: traceID}
-	objID, invokeErr := globalSdkClient.InvokeByInstanceId(funcMeta, faasManagerInstanceID, args, invokeOpts)
+	objID, invokeErr := sdkInvokeByInstanceIDFunc(funcMeta, faasManagerInstanceID, args, invokeOpts)
 	if invokeErr != nil {
 		log.GetLogger().Errorf("failed to send create pat service request for vpcID %s, "+
 			"traceID: %s, function: %s, error: %s", vpcConfig.VpcID, traceID, funcSpec.FuncKey, invokeErr.Error())
 		return nil, createErr
 	}
-	globalSdkClient.GetAsync(objID, func(result []byte, err error) {
+	sdkGetAsyncFunc(objID, func(result []byte, err error) {
 		responseData = result
 		createCh <- err
 	})
@@ -456,13 +484,13 @@ func setCreateOptionForInvokeTimeout(funcSpec *types.FunctionSpecification, crea
 
 // CreateOption contains params for runtime not for user code
 func prepareCreateOptions(request createInstanceRequest, resSpec *resspeckey.ResourceSpecification) (map[string]string,
-	error) {
+	error,
+) {
 	createOpt := make(map[string]string, constant.DefaultMapSize)
 	setCreateOptionForFuncSpec(request.funcSpec, createOpt)
 	setFunctions := []func(*types.FunctionSpecification, map[string]string) error{
 		setCreateOptionForDownloadData,
-		setCreateOptionForDelegateMount, setCreateOptionForUserAgencyAndEnv,
-		setCreateOptionForDelegateContainer,
+		setCreateOptionForDelegateMount, setCreateOptionForUserAgencyAndEnv, setCreateOptionForDelegateContainer,
 		setCreateOptionForFileBeat, setCreateOptionForHostAliases, setCreateOptionForRASP, setCreateOptionForOtel,
 		setCustomPodSeccompProfile,
 		setFunctionAgentInitContainer, setCreateOptionForInitContainerEnv, setCreateOptionForLifeCycleDetached,
@@ -501,7 +529,8 @@ func setCreateOptionForImagePullSecrets(funcSpec *types.FunctionSpecification, c
 }
 
 func setCreateOptionForPostStartExec(funcSpec *types.FunctionSpecification,
-	createOpt map[string]string) error {
+	createOpt map[string]string,
+) error {
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
@@ -530,7 +559,7 @@ func setCreateOptionForDownloadData(funcSpec *types.FunctionSpecification, creat
 					Applications[constant.ApplicationIndex].RuntimeEnv.WorkingDir,
 			},
 		}
-		delegateDownloadData, err := json.Marshal(codeMetaData)
+		delegateDownloadData, err := jsonMarshal(codeMetaData)
 		if err != nil {
 			log.GetLogger().Errorf("failed to marshal delegate download data error %s", err.Error())
 			return err
@@ -545,7 +574,7 @@ func setCreateOptionForDownloadData(funcSpec *types.FunctionSpecification, creat
 		funcSpec.CodeMetaData.Sha512 = funcSpec.FuncMetaData.CodeSha512
 	}
 	if funcSpec.FuncMetaData.Runtime != constant.CustomContainerRuntimeType {
-		delegateDownloadData, err := json.Marshal(funcSpec.CodeMetaData)
+		delegateDownloadData, err := jsonMarshal(funcSpec.CodeMetaData)
 		if err != nil {
 			log.GetLogger().Errorf("failed to marshal delegate download data error %s", err.Error())
 			return err
@@ -553,7 +582,7 @@ func setCreateOptionForDownloadData(funcSpec *types.FunctionSpecification, creat
 		createOpt[constant.DelegateDownloadKey] = string(delegateDownloadData)
 	}
 	if len(funcSpec.FuncMetaData.Layers) != 0 {
-		delegateLayerDownloadData, err := json.Marshal(funcSpec.FuncMetaData.Layers)
+		delegateLayerDownloadData, err := jsonMarshal(funcSpec.FuncMetaData.Layers)
 		if err != nil {
 			log.GetLogger().Errorf("failed to marshal delegate layer download data error %s", err.Error())
 			return err
@@ -587,7 +616,7 @@ func setCreateOptionForDelegateMount(funcSpec *types.FunctionSpecification, crea
 	}
 	if funcSpec.ExtendedMetaData.FuncMountConfig != nil &&
 		len(funcSpec.ExtendedMetaData.FuncMountConfig.FuncMounts) != 0 {
-		bytesData, err := json.Marshal(funcSpec.ExtendedMetaData.FuncMountConfig)
+		bytesData, err := jsonMarshal(funcSpec.ExtendedMetaData.FuncMountConfig)
 		if err != nil {
 			log.GetLogger().Errorf("failed to marshal func mount config error: %s", err.Error())
 			return err
@@ -606,7 +635,7 @@ func setCreateOptionForUserAgencyAndEnv(funcSpec *types.FunctionSpecification, c
 		len(funcSpec.ExtendedMetaData.ServeDeploySchema.Applications) != 0 &&
 		len(funcSpec.ExtendedMetaData.ServeDeploySchema.Applications[constant.ApplicationIndex].
 			RuntimeEnv.EnvVars) != 0 {
-		envVar, err := json.Marshal(funcSpec.ExtendedMetaData.ServeDeploySchema.
+		envVar, err := jsonMarshal(funcSpec.ExtendedMetaData.ServeDeploySchema.
 			Applications[constant.ApplicationIndex].RuntimeEnv.EnvVars)
 		if err != nil {
 			log.GetLogger().Errorf("failed to marshal env var for %s", funcSpec.FuncKey)
@@ -626,51 +655,13 @@ func setCreateOptionForUserAgencyAndEnv(funcSpec *types.FunctionSpecification, c
 		"envKey":              funcSpec.EnvMetaData.EnvKey,
 		"cryptoAlgorithm":     funcSpec.EnvMetaData.CryptoAlgorithm,
 	}
-	encryptData, err := json.Marshal(encryptMap)
+	encryptData, err := jsonMarshal(encryptMap)
 	if err != nil {
 		log.GetLogger().Errorf("encryptData json marshal failed, err:%s", err.Error())
 		return err
 	}
 	createOpt[constant.DelegateEncryptKey] = string(encryptData)
 	log.GetLogger().Infof("generate delegate encrypt config %s for function %s", string(encryptData), funcSpec.FuncKey)
-
-	if funcSpec.ExtendedMetaData.EnableAgentSession {
-		if err := mergeDelegateEnvVar(createOpt, map[string]string{
-			"ENABLE_AGENT_SESSION": strconv.FormatBool(funcSpec.ExtendedMetaData.EnableAgentSession),
-		}); err != nil {
-			log.GetLogger().Errorf("failed to merge enable_agent_session env for %s", funcSpec.FuncKey)
-			return err
-		}
-		log.GetLogger().Infof("generate delegate env var config %s for function %s",
-			createOpt[constant.DelegateEnvVar], funcSpec.FuncKey)
-	}
-	if err := mergeDelegateEnvVar(createOpt, map[string]string{
-		enableMetricsEnvKey: strconv.FormatBool(funcSpec.ExtendedMetaData.EnableMetrics),
-	}); err != nil {
-		log.GetLogger().Errorf("failed to merge enable_metrics env for %s", funcSpec.FuncKey)
-		return err
-	}
-	return nil
-}
-
-func mergeDelegateEnvVar(createOpt map[string]string, newEnvs map[string]string) error {
-	if createOpt == nil {
-		return errors.New("createOpt is nil")
-	}
-	mergedEnv := make(map[string]string, len(newEnvs))
-	if current, ok := createOpt[constant.DelegateEnvVar]; ok && current != "" {
-		if err := json.Unmarshal([]byte(current), &mergedEnv); err != nil {
-			return err
-		}
-	}
-	for key, value := range newEnvs {
-		mergedEnv[key] = value
-	}
-	envBytes, err := json.Marshal(mergedEnv)
-	if err != nil {
-		return err
-	}
-	createOpt[constant.DelegateEnvVar] = string(envBytes)
 	return nil
 }
 
@@ -716,7 +707,7 @@ func setCreateOptionForDelegateContainer(funcSpec *types.FunctionSpecification, 
 	setEnvForDelegateContainer(funcSpec, ve)
 	delegateContainerConfig.VolumeMounts = vb.mounts[containerDelegate]
 	delegateContainerConfig.Env = append(delegateContainerConfig.Env, ve.envs[containerDelegate]...)
-	delegateRuntimeManager, err := json.Marshal(map[string]interface{}{
+	delegateRuntimeManager, err := jsonMarshal(map[string]interface{}{
 		"env": ve.envs[containerDelegate],
 	})
 	if err != nil {
@@ -724,7 +715,7 @@ func setCreateOptionForDelegateContainer(funcSpec *types.FunctionSpecification, 
 		return err
 	}
 	createOpt[constant.DelegateRuntimeManagerTag] = string(delegateRuntimeManager)
-	configData, err := json.Marshal(delegateContainerConfig)
+	configData, err := jsonMarshal(delegateContainerConfig)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal delegate container config, error %s", err.Error())
 		return err
@@ -738,19 +729,19 @@ func setCreateOptionForDelegateContainer(funcSpec *types.FunctionSpecification, 
 
 	log.GetLogger().Infof("generate delegate container config %s for function %s", string(configData), funcSpec.FuncKey)
 	setVolumeForAgentAndRuntime(funcSpec, vb)
-	volumeMountData, err := json.Marshal(vb.mounts[containerRuntimeManager])
+	volumeMountData, err := jsonMarshal(vb.mounts[containerRuntimeManager])
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal runtime manager volume mount, error:%s", err.Error())
 		return err
 	}
 	createOpt[constant.DelegateVolumeMountKey] = string(volumeMountData)
-	agentVolumeMountData, err := json.Marshal(vb.mounts[containerFunctionAgent])
+	agentVolumeMountData, err := jsonMarshal(vb.mounts[containerFunctionAgent])
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal function agent volume mount, error:%s", err.Error())
 		return err
 	}
 	createOpt[constant.DelegateAgentVolumeMountKey] = string(agentVolumeMountData)
-	volumesData, err := json.Marshal(vb.volumes)
+	volumesData, err := jsonMarshal(vb.volumes)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal runtime manager volume, error:%s", err.Error())
 		return err
@@ -788,7 +779,7 @@ func setCreateOptionForHostAliases(funcSpec *types.FunctionSpecification, create
 		return nil
 	}
 	hostAliases := generateCustomHostAliases(config.GlobalConfig.HostAliases)
-	hostAliasesData, err := json.Marshal(hostAliases)
+	hostAliasesData, err := jsonMarshal(hostAliases)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal host aliases data, error:%s", err.Error())
 		return err
@@ -806,7 +797,7 @@ func setCreateOptionForRASP(funcSpec *types.FunctionSpecification, createOpt map
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
-	add, createErr := initContainerAdd(funcSpec)
+	add, createErr := initContainerAddFunc(funcSpec)
 	if createErr != nil {
 		log.GetLogger().Errorf(fmt.Sprintf("create init container error, %s", createErr.Error()))
 	}
@@ -821,7 +812,7 @@ func setCreateOptionForOtel(funcSpec *types.FunctionSpecification, createOpt map
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
-	add, createErr := initContainerAdd(funcSpec)
+	add, createErr := initContainerAddFunc(funcSpec)
 	if createErr != nil {
 		log.GetLogger().Errorf(fmt.Sprintf("create init container error, %s", createErr.Error()))
 		return createErr
@@ -837,7 +828,7 @@ func setCreateOptionForFileBeat(funcSpec *types.FunctionSpecification, createOpt
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
-	add, createErr := sideCarAdd(funcSpec)
+	add, createErr := sideCarAddFunc(funcSpec)
 	if createErr != nil {
 		log.GetLogger().Errorf(fmt.Sprintf("create sideCar error, %s", createErr.Error()))
 		return createErr
@@ -857,7 +848,7 @@ func setCustomPodSeccompProfile(funcSpec *types.FunctionSpecification, createOpt
 		return nil
 	}
 	seccompProfile := &v1.SeccompProfile{Type: v1.SeccompProfileTypeRuntimeDefault}
-	seccompProfileData, err := json.Marshal(seccompProfile)
+	seccompProfileData, err := jsonMarshal(seccompProfile)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal seccompProfile data, error:%s", err.Error())
 		return err
@@ -884,7 +875,7 @@ func setFunctionAgentInitContainer(funcSpec *types.FunctionSpecification, create
 		MountPath:   biLogVolumeMountPath,
 		SubPathExpr: biLogVolumeMountSubPathExpr,
 	})
-	volumeMountData, err := json.Marshal(vb.mounts[containerFunctionAgentInit])
+	volumeMountData, err := jsonMarshal(vb.mounts[containerFunctionAgentInit])
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal function agent init volumeMount data, error:%s", err.Error())
 		return err
@@ -913,7 +904,7 @@ func setCreateOptionForInitContainerEnv(funcSpec *types.FunctionSpecification, c
 		}
 		initContainerEnvs = append(initContainerEnvs, otelEnvs...)
 	}
-	initContainerEnvsRaw, err := json.Marshal(initContainerEnvs)
+	initContainerEnvsRaw, err := jsonMarshal(initContainerEnvs)
 	if err != nil {
 		logger.Errorf("failed to marshal function agent init envs data, error:%s", err.Error())
 		return err
@@ -926,7 +917,8 @@ func setCreateOptionForInitContainerEnv(funcSpec *types.FunctionSpecification, c
 }
 
 func setCreateOptionForLabel(instanceType types.InstanceType, funcSpec *types.FunctionSpecification,
-	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string) error {
+	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string,
+) error {
 	if createOpt == nil {
 		return errors.New("createOpt is nil")
 	}
@@ -943,7 +935,7 @@ func setCreateOptionForLabel(instanceType types.InstanceType, funcSpec *types.Fu
 	podInitLabels := map[string]string{
 		podLabelSecurityGroup: strings.Split(funcSpec.FuncKey, "/")[0],
 	}
-	initLabels, err := json.Marshal(podInitLabels)
+	initLabels, err := jsonMarshal(podInitLabels)
 	if err != nil {
 		log.GetLogger().Errorf("pod init labels json marshal failed, err:%s", err.Error())
 		return err
@@ -953,7 +945,8 @@ func setCreateOptionForLabel(instanceType types.InstanceType, funcSpec *types.Fu
 }
 
 func getPodLabel(funcSpec *types.FunctionSpecification, resSpec *resspeckey.ResourceSpecification,
-	instanceType types.InstanceType) ([]byte, error) {
+	instanceType types.InstanceType,
+) ([]byte, error) {
 	version := funcSpec.FuncMetaData.Version
 	// $ is an illegal character in k8s label
 	if strings.HasPrefix(version, "$") {
@@ -974,7 +967,7 @@ func getPodLabel(funcSpec *types.FunctionSpecification, resSpec *resspeckey.Reso
 	if resSpec != nil && resSpec.InvokeLabel != "" {
 		podLabels[types.HeaderInstanceLabel] = resSpec.InvokeLabel
 	}
-	labels, err := json.Marshal(podLabels)
+	labels, err := jsonMarshal(podLabels)
 	if err != nil {
 		return nil, err
 	}
@@ -982,11 +975,12 @@ func getPodLabel(funcSpec *types.FunctionSpecification, resSpec *resspeckey.Reso
 }
 
 func setCreateOptionForNote(instanceType types.InstanceType, funcSpec *types.FunctionSpecification,
-	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string) error {
+	resSpec *resspeckey.ResourceSpecification, createOpt map[string]string,
+) error {
 	if createOpt == nil {
 		return nil
 	}
-	resSpecData, err := json.Marshal(resSpec)
+	resSpecData, err := jsonMarshal(resSpec)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal resourceSpecification error %s", err.Error())
 		return err
@@ -1023,7 +1017,8 @@ func buildDelegateNodeAffinity(xpuNodeLabel types.XpuNodeLabel) *v1.NodeAffinity
 }
 
 func setCreateOptionForAscendNPU(funcSpec *types.FunctionSpecification, resSpec *resspeckey.ResourceSpecification,
-	createOpt map[string]string) error {
+	createOpt map[string]string,
+) error {
 	if createOpt == nil || resSpec == nil {
 		return nil
 	}
@@ -1039,7 +1034,7 @@ func setCreateOptionForAscendNPU(funcSpec *types.FunctionSpecification, resSpec 
 	for _, v := range config.GlobalConfig.XpuNodeLabels {
 		if v.XpuType == npuType && v.InstanceType == npuInstanceType {
 			nodeAffinity := buildDelegateNodeAffinity(v)
-			jsonBytes, err := json.Marshal(nodeAffinity)
+			jsonBytes, err := jsonMarshal(nodeAffinity)
 			if err != nil {
 				return err
 			}
@@ -1062,7 +1057,7 @@ func setCreateOptionForAscendNPU(funcSpec *types.FunctionSpecification, resSpec 
 	for i := 0; i < npuCores; i++ {
 		npuMask += 1 << i
 	}
-	data, err := json.Marshal(map[string]string{cceAscendAnnotation: fmt.Sprintf("%s=0x%x", npuType, npuMask)})
+	data, err := jsonMarshal(map[string]string{cceAscendAnnotation: fmt.Sprintf("%s=0x%x", npuType, npuMask)})
 	if err != nil {
 		logger.Errorf("failed to marshal ascend pod annotation, error %s", err.Error())
 		return err
@@ -1089,7 +1084,7 @@ func setCreateOptionForName(instanceName, callerPodName string, createOpt map[st
 			}
 		}
 		(*data)["callerPodName"] = callerPodName
-		labels, err := json.Marshal(data)
+		labels, err := jsonMarshal(data)
 		if err != nil {
 			log.GetLogger().Errorf("pod labels json marshal failed, err:%s", err.Error())
 			return err
@@ -1106,20 +1101,24 @@ func prepareCreateArguments(request createInstanceRequest) []api.Arg {
 	commonUtils.DeepCopyObj(request.funcSpec, funcSpecCopy)
 	funcSpecCopy.ResourceMetaData.CPU = request.resKey.CPU
 	funcSpecCopy.ResourceMetaData.Memory = request.resKey.Memory
-	funcSpecData, err := json.Marshal(funcSpecCopy)
+	funcSpecData, err := jsonMarshal(funcSpecCopy)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal create params error %s", err.Error())
 		return nil
 	}
-	createParamsData, err := prepareCreateParamsData(funcSpecCopy, request.resKey)
+	createParamsData, err := prepareCreateParamsDataFunc(funcSpecCopy, request.resKey)
 	if err != nil {
 		log.GetLogger().Errorf("failed to prepare creatParamsData error %s", err.Error())
 		return nil
 	}
-	schedulerData, err := signalmanager.PrepareSchedulerArg()
+	schedulerData, err := prepareSchedulerArgFunc()
 	if err != nil {
 		log.GetLogger().Errorf("failed to prepare scheduler params error %s", err.Error())
 		return nil
+	}
+	createEvent := request.createEvent
+	if len(createEvent) == 0 {
+		createEvent = []byte("{}")
 	}
 	args := []api.Arg{
 		{
@@ -1136,11 +1135,11 @@ func prepareCreateArguments(request createInstanceRequest) []api.Arg {
 		},
 		{
 			Type: api.Value,
-			Data: request.createEvent,
+			Data: createEvent,
 		},
 	}
 	if request.funcSpec.FuncMetaData.Runtime == types.CustomContainerRuntimeType {
-		customUserData, err := prepareCustomUserArg(funcSpecCopy)
+		customUserData, err := prepareCustomUserArgFunc(funcSpecCopy)
 		if err != nil {
 			log.GetLogger().Errorf("failed to prepare custom user data error %s", err.Error())
 			return nil
@@ -1165,7 +1164,7 @@ func prepareCreateParamsData(funcSpec *types.FunctionSpecification, resKey ressp
 				CallRoute: types.HTTPCallRoute,
 			},
 		}
-		createParamsData, err = json.Marshal(createParams)
+		createParamsData, err = jsonMarshal(createParams)
 	} else {
 		userInitEntry := funcSpec.ExtendedMetaData.Initializer.Handler
 		userCallEntry := funcSpec.FuncMetaData.Handler
@@ -1179,7 +1178,7 @@ func prepareCreateParamsData(funcSpec *types.FunctionSpecification, resKey ressp
 				UserCallEntry: userCallEntry,
 			},
 		}
-		createParamsData, err = json.Marshal(createParams)
+		createParamsData, err = jsonMarshal(createParams)
 	}
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal create params error %s", err.Error())
@@ -1189,7 +1188,6 @@ func prepareCreateParamsData(funcSpec *types.FunctionSpecification, resKey ressp
 }
 
 func prepareCustomUserArg(funcSpec *types.FunctionSpecification) ([]byte, error) {
-	faasExecutorStsServerConfig := sts.GetStsServerConfig(funcSpec)
 	localAuth := localauth.AuthConfig{
 		AKey:     config.GlobalConfig.LocalAuth.AKey,
 		SKey:     config.GlobalConfig.LocalAuth.SKey,
@@ -1200,9 +1198,8 @@ func prepareCustomUserArg(funcSpec *types.FunctionSpecification) ([]byte, error)
 		ClusterName:       config.GlobalConfig.ClusterName,
 		DiskMonitorEnable: config.GlobalConfig.DiskMonitorEnable,
 		LocalAuth:         localAuth,
-		StsServerConfig:   faasExecutorStsServerConfig,
 	}
-	customUserArgData, err := json.Marshal(customUserArgInfo)
+	customUserArgData, err := jsonMarshal(customUserArgInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -1379,14 +1376,14 @@ func setCreateOptionForVPC(createOption map[string]string, natConfigs []commonTy
 		delegateNetworkConfig.PatInstances = append(delegateNetworkConfig.PatInstances, patInstance)
 	}
 
-	networkConfigData, err := json.Marshal(networkConfigs)
+	networkConfigData, err := jsonMarshal(networkConfigs)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal network config for pat service %v", natConfigs)
 		return
 	}
 	createOption[types.NetworkConfigKey] = string(networkConfigData)
 
-	delegateNetworkConfigData, err := json.Marshal(delegateNetworkConfig)
+	delegateNetworkConfigData, err := jsonMarshal(delegateNetworkConfig)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal delegate network config for pat service %v", natConfigs)
 		return
@@ -1429,7 +1426,8 @@ func generateNetworkConfig(natConfig commonTypes.NATConfigure) types.NetworkConf
 }
 
 func setCreateOptionForNuwaRuntimeInfo(nuwaRuntimeInfo *wisecloudTypes.NuwaRuntimeInfo,
-	createOpt map[string]string) error {
+	createOpt map[string]string,
+) error {
 	if config.GlobalConfig.Scenario != types.ScenarioWiseCloud {
 		return nil
 	}
@@ -1439,7 +1437,7 @@ func setCreateOptionForNuwaRuntimeInfo(nuwaRuntimeInfo *wisecloudTypes.NuwaRunti
 	if nuwaRuntimeInfo == nil {
 		return errors.New("nuwa runtimeinfo is nil")
 	}
-	nuwaRuntimeInfoData, err := json.Marshal(nuwaRuntimeInfo)
+	nuwaRuntimeInfoData, err := jsonMarshal(nuwaRuntimeInfo)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal nuwa runtime info for %v", nuwaRuntimeInfo)
 		return err
@@ -1449,7 +1447,8 @@ func setCreateOptionForNuwaRuntimeInfo(nuwaRuntimeInfo *wisecloudTypes.NuwaRunti
 }
 
 func prepareCreatePATServiceArguments(traceID string, namespace string,
-	extMetaData commonTypes.ExtendedMetaData, vpcConfig *commonTypes.VpcConfig) []api.Arg {
+	extMetaData commonTypes.ExtendedMetaData, vpcConfig *commonTypes.VpcConfig,
+) []api.Arg {
 	patSvcReq := commonTypes.PATServiceRequest{
 		ID:             vpcConfig.ID,
 		Namespace:      namespace,
@@ -1463,7 +1462,7 @@ func prepareCreatePATServiceArguments(traceID string, namespace string,
 		SecurityGroups: vpcConfig.SecurityGroups,
 		Xrole:          extMetaData.Role.XRole,
 	}
-	patSvcReqData, err := json.Marshal(patSvcReq)
+	patSvcReqData, err := jsonMarshal(patSvcReq)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal vpc config, error %s", err.Error())
 	}
@@ -1559,10 +1558,10 @@ func handlePullTriggerCreate(faasMgrInfo faasManagerInfo, funcSpec *types.Functi
 	var invokeErr error
 	funcMeta := api.FunctionMeta{FuncID: faasMgrInfo.funcKey, Api: api.PosixApi}
 	invokeOpts := api.InvokeOptions{TraceID: traceID}
-	objID, errorInfo := globalSdkClient.InvokeByInstanceId(funcMeta, faasMgrInfo.instanceID, args, invokeOpts)
+	objID, errorInfo := sdkInvokeByInstanceIDFunc(funcMeta, faasMgrInfo.instanceID, args, invokeOpts)
 	invokeErr = errorInfo
 	if invokeErr == nil {
-		globalSdkClient.GetAsync(objID, func(result []byte, err error) {
+		sdkGetAsyncFunc(objID, func(result []byte, err error) {
 			createCh <- err
 		})
 	}
@@ -1602,10 +1601,10 @@ func handlePullTriggerDelete(faasMgrInfo faasManagerInfo, funcSpec *types.Functi
 	var deleteErr error
 	funcMeta := api.FunctionMeta{FuncID: faasMgrInfo.funcKey, Api: api.PosixApi}
 	invokeOpts := api.InvokeOptions{TraceID: traceID}
-	objID, errorInfo := globalSdkClient.InvokeByInstanceId(funcMeta, faasMgrInfo.instanceID, args, invokeOpts)
+	objID, errorInfo := sdkInvokeByInstanceIDFunc(funcMeta, faasMgrInfo.instanceID, args, invokeOpts)
 	deleteErr = errorInfo
 	if deleteErr == nil {
-		globalSdkClient.GetAsync(objID, func(result []byte, err error) {
+		sdkGetAsyncFunc(objID, func(result []byte, err error) {
 			deleteCh <- err
 		})
 	}
@@ -1654,7 +1653,7 @@ func prepareCreatePullTriggerArguments(funcSpec *types.FunctionSpecification) []
 		Xrole:      funcSpec.ExtendedMetaData.Role.XRole,
 		AppXrole:   funcSpec.ExtendedMetaData.Role.AppXRole,
 	}
-	pullTriggerReqData, err := json.Marshal(pullTriggerReq)
+	pullTriggerReqData, err := jsonMarshal(pullTriggerReq)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal pullTrigger config, error %s", err.Error())
 		return nil
@@ -1675,7 +1674,7 @@ func prepareDeletePullTriggerArguments(funcKey string) []api.Arg {
 	deleteInfo := types.PullTriggerDeleteInfo{
 		PodName: funcKey,
 	}
-	deleteData, err := json.Marshal(deleteInfo)
+	deleteData, err := jsonMarshal(deleteInfo)
 	if err != nil {
 		log.GetLogger().Errorf("failed to marshal delete info for funcKey %s, error %s", funcKey, err.Error())
 	}

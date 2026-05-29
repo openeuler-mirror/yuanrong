@@ -19,7 +19,6 @@
 #include <condition_variable>
 #include <functional>
 #include <future>
-#include <mutex>
 #include <unordered_set>
 
 #include "agent_session_manager.h"
@@ -44,8 +43,8 @@
 #include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/invokeadaptor/task_submitter.h"
 #include "src/libruntime/libruntime_config.h"
-#include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
+#include "src/libruntime/metricsadaptor/invoke_collector.h"
 #include "src/libruntime/objectstore/memory_store.h"
 #include "src/libruntime/objectstore/object_store.h"
 #include "src/libruntime/rgroupmanager/resource_group_create_spec.h"
@@ -87,6 +86,8 @@ public:
 
     virtual void ReceiveRequestLoop(void);
 
+    bool NeedReInit() const;
+
     void CreateInstance(std::shared_ptr<InvokeSpec> spec);
 
     void RetryCreateInstance(std::shared_ptr<InvokeSpec> spec, bool isConsumeRetryTime);
@@ -99,9 +100,15 @@ public:
 
     bool IsIdValid(const std::string &id);
 
+    void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
+
     void CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
+    void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
+
     void InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
+
+    void KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb);
 
     void KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb);
 
@@ -117,14 +124,18 @@ public:
 
     virtual void Finalize(bool isDriver = true);
 
+    virtual void ReInit(void);
+
     virtual ErrorInfo Kill(const std::string &instanceId, const std::string &payload, int signal);
+    virtual ErrorInfo KillWithRouting(const std::string &instanceId, const std::string &payload, int signal,
+                                      const std::string &routeAddress, const std::string &proxyID);
 
     virtual std::pair<ErrorInfo, KillResponse> KillWithResponse(const std::string &instanceId,
                                                                  const std::string &payload, int signal);
 
     virtual void KillAsync(const std::string &instanceId, const std::string &payload, int signal);
     virtual void KillAsyncCB(const std::string &instanceId, const std::string &payload, int signal,
-                             std::function<void(const ErrorInfo &err)> cb, int timeoutSec = -1);
+                             std::function<void(const ErrorInfo &err)> cb);
 
     CallResponse CallReqProcess(const CallRequest &req);
 
@@ -168,10 +179,6 @@ public:
     RecoverResponse RecoverHandler(const RecoverRequest &req);
     PrepareSnapResponse PrepareSnapHandler(const PrepareSnapRequest &req);
     SnapStartedResponse SnapStartedHandler(const SnapStartedRequest &req);
-    SignalResponse SignalHandler(const SignalRequest &req);
-    ShutdownResponse ShutdownHandler(const ShutdownRequest &req);
-    HeartbeatResponse HeartbeatHandler(const HeartbeatRequest &req);
-    void EventHandler(const std::shared_ptr<EventMessageSpec> &req);
 
     void CreateResourceGroup(std::shared_ptr<ResourceGroupCreateSpec> spec);
     virtual std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> GetInstance(const std::string &name,
@@ -195,6 +202,9 @@ public:
     virtual std::pair<ErrorInfo, std::vector<ResourceUnit>> GetResources(void);
     virtual std::pair<ErrorInfo, ResourceGroupUnit> GetResourceGroupTable(const std::string &resourceGroupId);
     virtual std::pair<ErrorInfo, QueryNamedInsResponse> QueryNamedInstances();
+    virtual std::pair<ErrorInfo, std::string> DeleteCheckpoint(const std::string &checkpointId);
+    virtual std::pair<ErrorInfo, std::vector<std::string>> ListCheckpoints(
+        const std::string &tenantID, const std::string &functionType, const std::string &ns);
     ErrorInfo StreamWriteEvent(const std::string &streamMessage, const std::string &requestId,
                                const std::string &instanceId);
     std::string GetActiveMasterAddr();
@@ -203,12 +213,20 @@ public:
     virtual bool IsSessionInterrupted(const std::string &sessionId);
     virtual std::pair<ErrorInfo, std::shared_ptr<Buffer>> SessionWait(const std::string &sessionId, int64_t timeoutMs);
     virtual ErrorInfo SessionNotify(const std::string &sessionId, std::shared_ptr<Buffer> data);
+    void RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored = false);
+
+    virtual ~InvokeAdaptor() = default;
+
 private:
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
     void CreateNotifyHandler(const NotifyRequest &req);
     ErrorInfo WriteDataToState(const std::string &instanceId, const std::shared_ptr<Buffer> data, std::string *state);
     ErrorInfo ReadDataFromState(const std::string &instanceId, const std::string &state, std::shared_ptr<Buffer> &data);
+    SignalResponse SignalHandler(const SignalRequest &req);
     SignalResponse ExecSignalCallback(const SignalRequest &req);
+    ShutdownResponse ShutdownHandler(const ShutdownRequest &req);
+    HeartbeatResponse HeartbeatHandler(const HeartbeatRequest &req);
+    void EventHandler(const std::shared_ptr<EventMessageSpec> &req);
     void ExecUserShutdownCallback(uint64_t gracePeriodSec,
                                   const std::shared_ptr<utility::NotificationUtility> &notification);
     ErrorInfo ParseAliasInfo(const SignalRequest &req, std::vector<AliasElement> &aliasInfo);
@@ -231,8 +249,6 @@ private:
     // load user function libraries
     CallResult InitCall(const CallRequest &req, const libruntime::MetaData &metaData);
 
-    bool IsMetricsEnabled() const;
-    bool IsMetricsEnabled(const libruntime::MetaData &metaData) const;
     void InitMetricsAdaptor(bool userEnable);
     void ReportMetrics(const std::string &requestId, const std::string &traceId, int value);
 
@@ -279,9 +295,6 @@ private:
     std::atomic<bool> accelerateRunFlag_{false};
     std::unordered_map<std::string, std::shared_ptr<YR::utility::Timer>> callTimeoutTimerMap_;
     mutable absl::Mutex callTimerMtx_;
-    /// Buffer from last successful RecoverHandler (for GetInstance response payload).
-    std::mutex recoveredBufMtx_;
-    std::string recoveredBuf_;
 };
 
 const static std::unordered_map<common::ErrorCode, std::string> ErrMsgMap = {

@@ -55,7 +55,8 @@ const (
 
 	randomThreadIDLength = 8
 
-	recordTriggerChanLen = 10
+	recordTriggerChanLen   = 10
+	maxColdStartTraceQueue = 1024
 )
 
 var (
@@ -515,7 +516,13 @@ type basicConcurrencyScheduler struct {
 	leaseInterval        time.Duration
 	*sync.RWMutex
 	*sync.Cond
-	grayAllocator GrayInstanceAllocator
+	grayAllocator       GrayInstanceAllocator
+	coldStartTraceQueue []*coldStartTraceContext
+}
+
+type coldStartTraceContext struct {
+	traceContext *types.TraceContext
+	createdAt    time.Time
 }
 
 func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey resspeckey.ResSpecKey,
@@ -535,13 +542,14 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 		otherSubHealthRecord: make(map[string]*instanceElement, utils.DefaultMapSize),
 		sessionManager: makeSessionManager(makeSessionCacheKey(funcSpec.FuncMetaData.Name, funcKeyWitRes),
 			os.Getenv("HOST_IP"), instanceType),
-		observers:     make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
-		concurrentNum: utils.GetConcurrentNum(funcSpec.InstanceMetaData.ConcurrentNum),
-		leaseInterval: leaseInterval,
-		RWMutex:       mutex,
-		Cond:          sync.NewCond(mutex),
-		grayAllocator: NewHashBasedInstanceAllocator(0),
-		isFuncOwner:   selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
+		observers:           make(map[scheduler.InstanceTopic][]*instanceObserver, utils.DefaultMapSize),
+		concurrentNum:       utils.GetConcurrentNum(funcSpec.InstanceMetaData.ConcurrentNum),
+		leaseInterval:       leaseInterval,
+		RWMutex:             mutex,
+		Cond:                sync.NewCond(mutex),
+		grayAllocator:       NewHashBasedInstanceAllocator(0),
+		isFuncOwner:         selfregister.GlobalSchedulerProxy.IsFuncOwner(funcSpec.FuncKey),
+		coldStartTraceQueue: make([]*coldStartTraceContext, 0, utils.DefaultSliceSize),
 	}
 	bcs.sessionManager.setFuncOwner(bcs.isFuncOwner)
 	bcs.grayAllocator.UpdateRolloutRatio(rollout.GetGlobalRolloutHandler().GetCurrentRatio())
@@ -551,6 +559,54 @@ func newBasicConcurrencyScheduler(funcSpec *types.FunctionSpecification, resKey 
 		go bcs.sessionManager.saveOrDeleteSessionRecordLoop()
 	}
 	return bcs
+}
+
+func (bcs *basicConcurrencyScheduler) recordColdStartTrace(traceID, traceParent string) {
+	if traceID == "" && traceParent == "" {
+		return
+	}
+	bcs.Lock()
+	if len(bcs.coldStartTraceQueue) >= maxColdStartTraceQueue {
+		bcs.popColdStartTraceLocked()
+	}
+	bcs.coldStartTraceQueue = append(bcs.coldStartTraceQueue, &coldStartTraceContext{
+		traceContext: &types.TraceContext{
+			TraceID:     traceID,
+			TraceParent: traceParent,
+		},
+		createdAt: time.Now(),
+	})
+	bcs.Unlock()
+}
+
+func (bcs *basicConcurrencyScheduler) popColdStartTraceLocked() *coldStartTraceContext {
+	if len(bcs.coldStartTraceQueue) == 0 {
+		return nil
+	}
+	traceCtx := bcs.coldStartTraceQueue[0]
+	last := len(bcs.coldStartTraceQueue) - 1
+	copy(bcs.coldStartTraceQueue, bcs.coldStartTraceQueue[1:])
+	bcs.coldStartTraceQueue[last] = nil
+	bcs.coldStartTraceQueue = bcs.coldStartTraceQueue[:last]
+	return traceCtx
+}
+
+// PopColdStartTrace returns the oldest non-expired request trace for the next cold start.
+func (bcs *basicConcurrencyScheduler) PopColdStartTrace() *types.TraceContext {
+	bcs.Lock()
+	defer bcs.Unlock()
+	expireBefore := time.Now().Add(-bcs.leaseInterval)
+	for len(bcs.coldStartTraceQueue) > 0 {
+		traceCtx := bcs.popColdStartTraceLocked()
+		if traceCtx == nil || traceCtx.traceContext == nil {
+			continue
+		}
+		if traceCtx.createdAt.Before(expireBefore) {
+			continue
+		}
+		return traceCtx.traceContext
+	}
+	return nil
 }
 func (bcs *basicConcurrencyScheduler) RecoverSessionRecordFromDataSystem(fn utils.RecoverSessionCallback) {
 	if !config.GlobalConfig.EnableSessionRecover {
@@ -812,14 +868,6 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 	insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
 	log.GetLogger().Infof("acquire session instance for function %s session %+v traceID %s",
 		bcs.funcKeyWithRes, insAcqReq.InstanceSession, insAcqReq.TraceID)
-
-	if bcs.isAgentSession(insAcqReq) {
-		insAcqReq.InstanceSession.SessionTTL = 0
-		insAcqReq.InstanceSession.Concurrency = 1
-		log.GetLogger().Infof("AI Agent session processing for function %s, session %s, TTL=0, Concurrency=1",
-			bcs.funcKeyWithRes, insAcqReq.InstanceSession.SessionID)
-	}
-
 	if insAcqReq.InstanceSession.Concurrency > bcs.concurrentNum {
 		return nil, scheduler.ErrInvalidSession
 	}
@@ -835,11 +883,6 @@ func (bcs *basicConcurrencyScheduler) acquireSessionInstance(instanceQueue queue
 			}
 			if insElem.instance.InstanceStatus.Code != int32(constant.KernelInstanceStatusRunning) {
 				return true
-			}
-			if insAcqReq.InstanceSession.Concurrency == -1 {
-				// Full-concurrency session must monopolize the whole instance, so only fully idle instances
-				// are eligible for binding.
-				return len(insElem.threadMap) != insElem.instance.ConcurrentNum
 			}
 			if len(insElem.threadMap) >= insAcqReq.InstanceSession.Concurrency {
 				return false
@@ -933,14 +976,6 @@ func (bcs *basicConcurrencyScheduler) acquireDesignateInstance(instanceQueue que
 
 func (bcs *basicConcurrencyScheduler) acquireInstanceWithOverAcqSession(instanceQueue queue.Queue,
 	record *sessionRecord, insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
-	if bcs.isAgentSession(insAcqReq) {
-		if len(record.overAcqThdMap) >= 1 {
-			log.GetLogger().Warnf("AI Agent session %s over-acquire limit exceeded (max 1), function %s",
-				insAcqReq.InstanceSession.SessionID, bcs.funcKeyWithRes)
-			return nil, scheduler.ErrOverAcqLimitExceeded
-		}
-		return bcs.createOverAcqThread(record, insAcqReq)
-	}
 	insAlloc, acqErr := acquireInstanceThread(insAcqReq.DesignateThreadID, instanceQueue, record.insElem)
 	if acqErr == nil {
 		record.overAcqThdMap[insAlloc.AllocationID] = struct{}{}
@@ -948,8 +983,6 @@ func (bcs *basicConcurrencyScheduler) acquireInstanceWithOverAcqSession(instance
 			SessionID:  insAcqReq.InstanceSession.SessionID,
 			SessionCtx: record.ctx,
 		}
-		log.GetLogger().Infof("Session %s over-acquired thread %s from pool, function %s",
-			insAcqReq.InstanceSession.SessionID, insAlloc.AllocationID, bcs.funcKeyWithRes)
 	}
 	return insAlloc, acqErr
 }
@@ -981,16 +1014,6 @@ func acquireInstanceThread(designateThreadID string, insQue queue.Queue,
 
 func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, insElem *instanceElement,
 	session commonTypes.InstanceSessionConfig) (*sessionRecord, error) {
-	requestedConcurrency := session.Concurrency
-	if session.Concurrency == -1 {
-		// Reject binding when the instance is not fully idle.
-		if len(insElem.threadMap) != insElem.instance.ConcurrentNum {
-			return nil, scheduler.ErrNoInsAvailable
-		}
-		session.Concurrency = insElem.instance.ConcurrentNum
-		log.GetLogger().Debugf("session %s uses full concurrency mode, binding %d threads for function %s",
-			session.SessionID, session.Concurrency, bcs.funcKeyWithRes)
-	}
 	if len(insElem.threadMap) < session.Concurrency {
 		return nil, scheduler.ErrNoInsAvailable
 	}
@@ -1028,10 +1051,8 @@ func (bcs *basicConcurrencyScheduler) bindThdWithSession(insQue queue.Queue, ins
 		}
 		metrics.OnAcquireLease(insAlloc)
 	}
-	log.GetLogger().Infof("bind session %s with instance %s for function %s, " +
-	    "requestedConcurrency=%d boundConcurrency=%d, instanceConcurrency=%d availableAfterBind=%d", record.sessionID,
-		insElem.instance.InstanceID, bcs.funcKeyWithRes, requestedConcurrency, record.concurrency,
-		insElem.instance.ConcurrentNum, len(insElem.threadMap))
+	log.GetLogger().Infof("bind session %s with instance %s for function %s", record.sessionID,
+		insElem.instance.InstanceID, bcs.funcKeyWithRes)
 	return record, nil
 }
 
@@ -1141,16 +1162,10 @@ func (bcs *basicConcurrencyScheduler) releaseInstanceThreadWithSession(insQue qu
 	if _, ok := record.overAcqThdMap[insAlloc.AllocationID]; ok {
 		log.GetLogger().Debugf("%s is over acquire thd for session %s, function %s", insAlloc.AllocationID,
 			insAlloc.SessionInfo.SessionID, bcs.funcKeyWithRes)
-
 		delete(record.overAcqThdMap, insAlloc.AllocationID)
 		bcs.startUnbindInstanceSession(insQue, record)
-		// overAcq的租约不属于这个session，因此需要返回ErrInsThdNotExist，但是如果是Agent Session，
-		// 则需要返回nil，因为Agent Session的overAcq租约是属于session的
-		if !bcs.funcSpec.ExtendedMetaData.EnableAgentSession {
-			return ErrInsThdNotExist
-		} else {
-			return nil
-		}
+		// overAcq的租约不属于这个session，因此需要返回ErrInsThdNotExist
+		return ErrInsThdNotExist
 	}
 	err := record.PutThreadToAvailThdMap(insAlloc.AllocationID)
 	if err != nil {
@@ -1692,37 +1707,4 @@ func getSubHealthInstanceFromRecord(subHealthRecord map[string]*instanceElement)
 		}
 	}
 	return ins
-}
-
-func (bcs *basicConcurrencyScheduler) isAgentSession(insAcqReq *types.InstanceAcquireRequest) bool {
-	if !bcs.funcSpec.ExtendedMetaData.EnableAgentSession {
-		return false
-	}
-
-	if insAcqReq.InstanceSession.SessionID == "" {
-		return false
-	}
-
-	return true
-}
-
-func (bcs *basicConcurrencyScheduler) createOverAcqThread(record *sessionRecord,
-	insAcqReq *types.InstanceAcquireRequest) (*types.InstanceAllocation, error) {
-	threadID := fmt.Sprintf("overacq-%s-%d", record.sessionID, time.Now().UnixNano())
-
-	record.overAcqThdMap[threadID] = struct{}{}
-
-	insAlloc := &types.InstanceAllocation{
-		Instance:     record.insElem.instance,
-		AllocationID: threadID,
-		SessionInfo: types.SessionInfo{
-			SessionID:  insAcqReq.InstanceSession.SessionID,
-			SessionCtx: record.ctx,
-		},
-	}
-
-	log.GetLogger().Infof("Created over-acquired thread %s for AI Agent session %s, function %s",
-		threadID, record.sessionID, bcs.funcKeyWithRes)
-
-	return insAlloc, nil
 }

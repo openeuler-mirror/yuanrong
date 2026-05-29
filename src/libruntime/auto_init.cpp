@@ -53,8 +53,6 @@ void ClusterAccessInfo::AutoParse()
 
 void ClusterAccessInfo::ParseFromMasterInfo()
 {
-    masterAddrList.clear();
-    isMasterCluster = false;
     std::string masterInfo;
     if (!Config::Instance().YR_MASTER_INFO().empty()) {
         masterInfo = Config::Instance().YR_MASTER_INFO();
@@ -100,6 +98,12 @@ void ClusterAccessInfo::ParseFromMasterInfo()
     if (auto agentIPIt = kvMap.find("local_ip"); agentIPIt != kvMap.end()) {
         agentIP = agentIPIt->second;
     }
+
+    std::string hostIP;
+    if (auto hostIPIt = kvMap.find("host_ip"); hostIPIt != kvMap.end()) {
+        hostIP = hostIPIt->second;
+    }
+
     std::string etcdIP;
     if (auto etcdIPIt = kvMap.find("etcd_ip"); etcdIPIt != kvMap.end()) {
         etcdIP = etcdIPIt->second;
@@ -121,7 +125,7 @@ void ClusterAccessInfo::ParseFromMasterInfo()
     }
 
     serverAddr = agentIP + ":" + busPort;
-    dsAddr = agentIP + ":" + dsPort;
+    dsAddr = hostIP + ":" + dsPort;
     inCluster = true;
 
     std::string globalSchedPort;
@@ -234,7 +238,9 @@ void CommandRunner::RunCommandUntil(std::vector<std::string> &args)
             perror("freopen failed");
             return;
         }
+#ifdef __linux__
         prctl(PR_SET_PDEATHSIG, SIGTERM);  // Send SIGTERM to child if parent dies
+#endif
 
         std::vector<std::string> argv = {"yr", "start", "--master", "--block", "true"};
         argv.reserve(argv.size() + args.size());

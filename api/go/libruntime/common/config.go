@@ -21,7 +21,6 @@ import (
 	"flag"
 	"os"
 	"sync"
-
 	"yuanrong.org/kernel/runtime/libruntime/common/logger/config"
 )
 
@@ -41,34 +40,34 @@ var (
 
 // Configuration to save config
 type Configuration struct {
-	RuntimeID                    string
-	InstanceID                   string
-	FunctionName                 string
-	LogLevel                     string
-	GrpcAddress                  string
-	FSAddress                    string
-	IamAddress                   string
-	LogPath                      string
-	JobID                        string
-	DriverMode                   bool
-	EnableMTLS                   bool
-	PrivateKeyPath               string
-	CertificateFilePath          string
-	VerifyFilePath               string
-	PrivateKeyPaaswd             string
-	SystemAuthAccessKey          string
-	SystemAuthSecretKey          string
-	SystemAuthDataKey            string
-	EncryptPrivateKeyPasswd      string
-	PrimaryKeyStoreFile          string
-	StandbyKeyStoreFile          string
-	EnableDsEncrypt              bool
-	RuntimePublicKeyContextPath  string
-	RuntimePrivateKeyContextPath string
-	DsPublicKeyContextPath       string
-	MaxConcurrencyCreateNum      int
-	EnableSigaction              bool
-	EnableEvent                  bool
+	RuntimeID                       string
+	InstanceID                      string
+	FunctionName                    string
+	LogLevel                        string
+	GrpcAddress                     string
+	FSAddress                       string
+	IamAddress                      string
+	LogPath                         string
+	JobID                           string
+	DriverMode                      bool
+	EnableMTLS                      bool
+	PrivateKeyPath                  string
+	CertificateFilePath             string
+	VerifyFilePath                  string
+	PrivateKeyPaaswd                string
+	SystemAuthAccessKey             string
+	SystemAuthSecretKey             string
+	SystemAuthDataKey               string
+	EncryptPrivateKeyPasswd         string
+	PrimaryKeyStoreFile             string
+	StandbyKeyStoreFile             string
+	EnableDsEncrypt                 bool
+	RuntimePublicKeyContextPath     string
+	RuntimePrivateKeyContextPath    string
+	DsPublicKeyContextPath          string
+	MaxConcurrencyCreateNum         int
+	EnableSigaction                 bool
+	EnableEvent                     bool
 }
 
 func initConfig() {
@@ -105,7 +104,6 @@ func initConfig() {
 			setConfigSingletonCfg(&configSingleton.cfg.GrpcAddress, "POSIX_LISTEN_ADDR")
 			setConfigSingletonCfg(&configSingleton.cfg.LogPath, "GLOG_log_dir")
 			setConfigSingletonCfg(&configSingleton.cfg.JobID, "YR_JOB_ID")
-			loadStsConfig(configSingleton.path)
 			configSingleton.cfg.EnableSigaction = true
 		},
 	)

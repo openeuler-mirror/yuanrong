@@ -381,6 +381,36 @@ TEST_F(FSIntfImplTest, DirectlyCallResultWithRetry)
     EXPECT_NE(wr, nullptr);
 }
 
+TEST_F(FSIntfImplTest, KillAsyncShouldFillMissingRoutingInfoFromHandlers)
+{
+    FSIntfHandlers handlers;
+    handlers.getInstanceRoute = [](const std::string &instanceId) { return instanceId == "instance-1" ? "route-1" : ""; };
+    handlers.getInstanceProxyID = [](const std::string &instanceId) {
+        return instanceId == "instance-1" ? "proxy-1" : "";
+    };
+    auto mockFsIntfMgr = std::make_shared<MockFSIntfManager>();
+    fsIntfImpl_ = std::make_shared<FSIntfImpl>(Config::Instance().HOST_IP(), 0, handlers, true, nullptr,
+                                               std::make_shared<ClientsManager>(), false);
+    fsIntfImpl_->fsInrfMgr = mockFsIntfMgr;
+    auto mockFsIntfRW = std::make_shared<MockFSIntfReaderWriter>();
+    mockFsIntfMgr->systemIntf = mockFsIntfRW;
+
+    EXPECT_CALL(*mockFsIntfRW, Write)
+        .WillOnce(Invoke([](const std::shared_ptr<StreamingMessage> &msg,
+                            std::function<void(bool, ErrorInfo)> callback, std::function<void(bool)> preWrite) {
+            ASSERT_TRUE(msg->has_killreq());
+            EXPECT_EQ(msg->killreq().routeaddress(), "route-1");
+            EXPECT_EQ(msg->killreq().proxyid(), "proxy-1");
+            callback(false, ErrorInfo());
+        }));
+
+    KillRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    req.set_instanceid("instance-1");
+    req.set_signal(libruntime::Signal::KillInstance);
+    fsIntfImpl_->KillAsync(req, [](const KillResponse &, const ErrorInfo &) {});
+}
+
 TEST_F(FSIntfImplTest, TestIsHealth)
 {
     EXPECT_NE(fsIntfImpl_->IsHealth(), true);

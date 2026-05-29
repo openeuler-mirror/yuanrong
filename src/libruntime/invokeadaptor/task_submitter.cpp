@@ -24,7 +24,6 @@
 #include "src/dto/config.h"
 #include "src/dto/constant.h"
 #include "src/libruntime/fsclient/protobuf/core_service.grpc.pb.h"
-#include "src/libruntime/invoke_spec.h"
 #include "src/libruntime/invokeadaptor/faas_instance_manager.h"
 #include "src/libruntime/invokeadaptor/normal_instance_manager.h"
 #include "src/libruntime/utils/constants.h"
@@ -40,12 +39,12 @@ namespace Libruntime {
 const std::string INSTANCE_REQUIREMENT_RESOURKEY = "resourcesData";
 const std::string INSTANCE_REQUIREMENT_INSKEY = "designateInstanceID";
 const std::string INSTANCE_REQUIREMENT_POOLLABELKEY = "poolLabel";
-const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
-const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
-const int64_t IDLE_TIMER_INTERNAL = 10;
+[[maybe_unused]] const int64_t BEFOR_RETAIN_TIME = 30;           // millisecond
+[[maybe_unused]] const int SECONDS_TO_MILLISECONDS_UNIT = 1000;  // millisecond
+[[maybe_unused]] const int64_t IDLE_TIMER_INTERNAL = 10;
 const int DEFALUT_CANCEL_DELAY_TIME = 5;  // second
 const int ERASE_DELAY_TIME = 30;
-const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
+[[maybe_unused]] const static int EVENT_INFO_TIMEOUT = 30000;  // millisecond
 using namespace YR::utility;
 using json = nlohmann::json;
 
@@ -91,7 +90,7 @@ void TaskSubmitter::Init()
     insManagers[libruntime::ApiType::Serve] = faasInsManager;
     insManagers[libruntime::ApiType::Function] = normalInsManager;
     this->UpdateConfig();
-    if (MetricsEnabled()) {
+    if (Config::Instance().ENABLE_METRICS()) {
         this->metricsEnable_ = true;
     }
     faasInsManager->StartBatchRenewTimer();
@@ -171,7 +170,8 @@ void TaskSubmitter::HandleInvokeNotify(const NotifyRequest &req, const ErrorInfo
     }
 }
 
-void TaskSubmitter::DowngradeCallback(const std::string &requestId, ErrorCode code, const std::string &result)
+void TaskSubmitter::DowngradeCallback(const std::string &requestId, Libruntime::ErrorCode code,
+                                      const std::string &result)
 {
     auto spec = requestManager->GetRequest(requestId);
     if (spec == nullptr) {
@@ -606,7 +606,7 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
         atomicLock.unlock();
         auto weakPtr = weak_from_this();
         downgrade_->Downgrade(
-            invokeSpec, [weakPtr](const std::string &requestId, ErrorCode code, const std::string &result) {
+            invokeSpec, [weakPtr](const std::string &requestId, Libruntime::ErrorCode code, const std::string &result) {
                 if (auto thisPtr = weakPtr.lock(); thisPtr) {
                     thisPtr->DowngradeCallback(requestId, code, result);
                 }
@@ -632,18 +632,69 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
         customTag->insert({"ENABLE_FORCE_INVOKE", ""});
     }
     invokeSpec->instanceRoute = memoryStore->GetInstanceRoute(invokeSpec->returnIds[0].id);
-    // If event stream is enabled, pass event server info in invoke options.
+    // 如果开启eventstream功能，调用kill signal 把grpc server的ip和端口写入payload
     if (libRuntimeConfig->enableEvent) {
         auto it = resource.opts.invokeLabels.find(INSTANCE_REQUIREMENT_ACCEPT);
+        // 如果forceinvoke的是一个sse调用，由于signal无法通知到一个正在优雅退出的实例,这里会卡住，当前没有这个场景
         if (it != resource.opts.invokeLabels.end() && it->second == INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM) {
-            auto invokeOptions = invokeSpec->requestInvoke->Mutable().mutable_invokeoptions();
-            auto customTag = invokeOptions->mutable_customtag();
-            (*customTag)[YR_EVENT_SERVER_IP] = fsClient->GetEventServerIP();
-            (*customTag)[YR_EVENT_SERVER_PORT] = std::to_string(fsClient->GetEventServerPort());
+            if (summary.forceInvoke) {
+                memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
+                NotifyRequest fake;
+                fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
+                fake.set_message("sse request fails when instance is gracefully shutting down.");
+                fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
+                HandleInvokeNotify(fake, ErrorInfo());
+                return false;
+            }
+            YRLOG_DEBUG("start to send eventInfo signal, instanceId is {}", requestId);
+            SendEventInfoSignalAndInvoke(libRuntimeConfig->instanceId, summary.instanceId, resource, invokeSpec);
+            return false;
         }
     }
     SendInvokeReq(resource, invokeSpec);
     return false;
+}
+
+void TaskSubmitter::SendEventInfoSignalAndInvoke(const std::string &srcInstanceId, const std::string &instanceId,
+                                                 const RequestResource &resource,
+                                                 const std::shared_ptr<InvokeSpec> &invokeSpec)
+{
+    EventPayload eventPayload;
+    eventPayload.set_serverip(fsClient->GetEventServerIP());
+    eventPayload.set_serverport(fsClient->GetEventServerPort());
+    eventPayload.set_serverinstanceid(srcInstanceId);
+    std::string payload;
+    eventPayload.SerializeToString(&payload);
+
+    KillRequest killReq;
+    killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    killReq.set_instanceid(instanceId);
+    killReq.set_payload(std::move(payload));
+    killReq.set_signal(libruntime::Signal::UpdateEventInfo);
+
+    // 回调中执行invoke，保证signal时序先于invoke
+    auto weakThis = weak_from_this();
+    this->fsClient->KillAsync(
+        killReq, [weakThis, resource, invokeSpec, instanceId](KillResponse killRsp, const ErrorInfo &err) -> void {
+            if (killRsp.code() != common::ERR_NONE) {
+                YRLOG_ERROR("Failed to receive eventInfo signal response, instance id is {}, err is: {}", instanceId,
+                            killRsp.message());
+            } else {
+                YRLOG_DEBUG("Success to receive eventInfo signal response.");
+            }
+            if (auto thisPtr = weakThis.lock(); thisPtr) {
+                if (err.IsTimeout()) {
+                    thisPtr->memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
+                    NotifyRequest fake;
+                    fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
+                    fake.set_message("sse request signal timeout, requestId: " + invokeSpec->requestId);
+                    fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
+                    thisPtr->HandleInvokeNotify(fake, err);
+                    return;
+                }
+                thisPtr->SendInvokeReq(resource, invokeSpec);
+            }
+        }, EVENT_SIGNAL_TIMEOUT_SECOND);
 }
 
 bool TaskSubmitter::CancelAndScheOtherRes(const RequestResource &resource)
@@ -957,7 +1008,7 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
             YRLOG_DEBUG("there is no invoke data of req: {}, no need update", reqId);
             return;
         }
-        if (!this->metricsAdaptor_ || !MetricsEnabled() || this->metricsAdaptor_->IsInited()) {
+        if (!this->metricsAdaptor_ || !Config::Instance().ENABLE_METRICS() || this->metricsAdaptor_->IsInited()) {
             return;
         }
         it->second->endTime = GetCurrentTimestampNs();
@@ -982,11 +1033,6 @@ void TaskSubmitter::UpdateFaasInvokeLog(const std::string &reqId, const ErrorInf
         YRLOG_WARN("failed to report metrics, req id is {}, trace id is {}, err code is {}, msg is {}", reqId,
                    data->traceId, fmt::underlying(reportErr.Code()), reportErr.Msg());
     }
-}
-
-bool TaskSubmitter::MetricsEnabled() const
-{
-    return Config::Instance().ENABLE_METRICS() || (libRuntimeConfig != nullptr && libRuntimeConfig->enableMetrics);
 }
 }  // namespace Libruntime
 }  // namespace YR

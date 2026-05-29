@@ -429,13 +429,26 @@ ErrorInfo MemoryStore::ReleaseGRefs(const std::string &remoteId)
 
 void MemoryStore::Clear()
 {
+    auto objectStore = dsObjectStore;
+    if (objectStore == nullptr) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(mu);
+    std::vector<std::string> objectIds;
     for (auto &it : storeMap) {
-        if (it.second->increInDataSystemEnum == IncreInDataSystemEnum::INCREASE_IN_DS) {
-            dsObjectStore->DecreGlobalReference({it.first});
+        if (it.second != nullptr && it.second->increInDataSystemEnum == IncreInDataSystemEnum::INCREASE_IN_DS) {
+            objectIds.emplace_back(it.first);
         }
     }
-    dsObjectStore->Clear();
+    if (!objectIds.empty()) {
+        auto [err, failedObjectIds] = objectStore->DecreGlobalReference(objectIds, "");
+        if (!err.OK() || !failedObjectIds.empty()) {
+            YRLOG_WARN("Failed to decrease global reference for {} objects during clear, failed object count {}, "
+                       "err: {}", objectIds.size(), failedObjectIds.size(), err.Msg());
+        }
+    }
+    objectStore->Clear();
     storeMap.clear();
 }
 
@@ -550,7 +563,14 @@ ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
     }
     lock.unlock();
     if (!objectIdsNeedIncre.empty()) {
-        ErrorInfo dsErr = dsObjectStore->IncreGlobalReference(objectIdsNeedIncre);
+        auto objectStore = dsObjectStore;
+        ErrorInfo dsErr;
+        if (!objectStore) {
+            dsErr = ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                              "IncreaseObjRef dsObjectStore is nullptr!");
+        } else {
+            dsErr = objectStore->IncreGlobalReference(objectIdsNeedIncre);
+        }
         for (auto objectDetail : increseObjectDetails) {
             std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
             if (dsErr.Code() != ErrorCode::ERR_OK) {
@@ -902,7 +922,6 @@ bool MemoryStore::AddReadyCallback(const std::string &id, ObjectReadyCallback ca
     if (it == storeMap.end()) {
         lock.unlock();
         callback(ErrorInfo());
-        YRLOG_WARN("id {} does not exist in storeMap, exec callback directly.", id);
         return false;
     }
     std::shared_ptr<ObjectDetail> objDetail = it->second;
@@ -1169,6 +1188,66 @@ std::string MemoryStore::GetInstanceRoute(const std::string &objId, int timeoutS
         }
         return retInstanceRoute;
     }
+    return f.get();
+}
+
+bool MemoryStore::SetInstanceProxyID(const std::string &id, const std::string &instanceProxyID)
+{
+    std::shared_ptr<ObjectDetail> objDetail;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        auto it = storeMap.find(id);
+        if (it == storeMap.end()) {
+            return false;
+        }
+        objDetail = it->second;
+    }
+
+    // Lock objectDetail outside of mu to avoid nested lock
+    std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+    try {
+        objDetail->instanceProxyID.set_value(instanceProxyID);
+        return true;
+    } catch (const std::future_error &e) {
+        YRLOG_WARN("Failed to set instanceProxyID for objid {}: {}", id, e.what());
+        return false;
+    }
+}
+
+std::string MemoryStore::GetInstanceProxyID(const std::string &objId, int timeoutSec)
+{
+    std::shared_future<std::string> f;
+    {
+        std::unique_lock<std::mutex> lock(mu);
+        auto it = storeMap.find(objId);
+        if (it == storeMap.end()) {
+            std::string msg = "objId " + objId + " does not exist in storeMap.";
+            YRLOG_INFO("{} Return empty string as instanceProxyID.", msg);
+            return "";
+        }
+        std::shared_ptr<ObjectDetail> objDetail = it->second;
+        std::unique_lock<std::mutex> objectDetailLock(objDetail->_mu);
+        f = objDetail->instanceProxyIDFuture;
+    }
+
+    // Handle NO_TIMEOUT case - wait indefinitely
+    if (timeoutSec == NO_TIMEOUT) {
+        try {
+            return f.get();
+        } catch (const std::future_error &e) {
+            YRLOG_WARN("Failed to get instanceProxyID for objId {}: {}", objId, e.what());
+            return "";
+        }
+    }
+
+    // Handle timeout case
+    if (f.wait_for(std::chrono::seconds(timeoutSec)) != std::future_status::ready) {
+        if (timeoutSec != ZERO_TIMEOUT) {
+            YRLOG_WARN("get instance proxyID timeout, return empty string as instanceProxyID. objectID is: {}.", objId);
+        }
+        return "";
+    }
+
     return f.get();
 }
 

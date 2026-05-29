@@ -91,6 +91,17 @@ std::string InvokeSpec::ConstructRequestID()
     return YR::utility::IDGenerator::GenRequestId(this->requestId, this->seq);
 }
 
+std::string InvokeSpec::GetNamedInstanceId()
+{
+    if (!functionMeta.name.empty()) {
+        if (!functionMeta.ns.empty()) {
+            return functionMeta.ns + "-" + functionMeta.name;
+        }
+        return DEFAULT_YR_NAMESPACE + "-" + functionMeta.name;
+    }
+    return "";
+}
+
 std::string InvokeSpec::GetNamedInstanceId(std::shared_ptr<LibruntimeConfig> config)
 {
     if (!functionMeta.name.empty()) {
@@ -195,6 +206,14 @@ void InvokeSpec::BuildRequestPbScheduleOptions(InvokeOptions &opts, const Librun
     auto *extensionMap = schedulingOps->mutable_extension();
     for (auto &extention : opts.customExtensions) {
         extensionMap->insert({extention.first, extention.second});
+    }
+    // Pass resource limits through extension map (not resources, to avoid affecting scheduling)
+    // 0 = not set (omit), >0 = explicit limit
+    if (opts.cpuLimit != 0) {
+        extensionMap->insert({"CPU_LIMIT", std::to_string(opts.cpuLimit)});
+    }
+    if (opts.memoryLimit != 0) {
+        extensionMap->insert({"Memory_LIMIT", std::to_string(opts.memoryLimit)});
     }
     if (ResourceGroupEnabled(opts.resourceGroupOpts)) {
         schedulingOps->set_rgroupname(opts.resourceGroupOpts.resourceGroupName);
@@ -359,6 +378,7 @@ void InvokeSpec::BuildInstanceInvokeRequest(const LibruntimeConfig &config)
     if (!instanceRoute.empty()) {
         customTag->insert({YR_ROUTE, instanceRoute});
     }
+    invokeOptions->set_bypass_datasystem(opts.bypassDatasystem);
 }
 
 std::string InvokeSpec::BuildCreateMetaData(const LibruntimeConfig &config, std::string &funcMetaStr)
@@ -531,7 +551,8 @@ bool RequestResource::operator==(const RequestResource &r) const
            (functionMeta.functionId == r.functionMeta.functionId) && (opts.cpu == r.opts.cpu) &&
            (opts.memory == r.opts.memory) && (concurrency == r.concurrency) &&
            (opts.resourceGroupOpts.resourceGroupName == r.opts.resourceGroupOpts.resourceGroupName) &&
-           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) && (affinityHash == 0);
+           (opts.resourceGroupOpts.bundleIndex == r.opts.resourceGroupOpts.bundleIndex) &&
+           (opts.debug.enable == r.opts.debug.enable) && (affinityHash == 0);
 }
 
 std::size_t FaasInfoForBatchRenewFn::operator()(const FaasInfoForBatchRenew &i) const

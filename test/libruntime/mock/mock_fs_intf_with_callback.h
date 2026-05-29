@@ -22,6 +22,7 @@
 #include "src/libruntime/fsclient/fs_intf.h"
 #include "src/utility/logger/logger.h"
 #include "gmock/gmock.h"
+#include <google/protobuf/util/json_util.h>
 
 using namespace YR::Libruntime;
 namespace YR {
@@ -160,8 +161,11 @@ public:
             resp.set_code(::common::ErrorCode::ERR_SCHEDULE_PLUGIN_CONFIG);
         }
         if (isGetInstance) {
-            // Must match libruntime.FunctionMeta JSON (field className); JsonStringToMessage in GetInstance rejects binary.
-            resp.set_message(R"({"className":"classname"})");
+            std::string serializedMeta;
+            libruntime::FunctionMeta meta;
+            meta.set_classname("classname");
+            google::protobuf::util::MessageToJsonString(meta, &serializedMeta);
+            resp.set_message(serializedMeta);
         } else {
             AccelerateMsgQueueHandle handler{.name = "name"};
             resp.set_message(handler.ToJson());

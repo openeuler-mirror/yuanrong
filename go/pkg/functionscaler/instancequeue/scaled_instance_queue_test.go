@@ -399,7 +399,8 @@ func TestHandleAliasUpdate(t *testing.T) {
 	}
 	q.SetInstanceScheduler(instanceScheduler)
 
-	defer ApplyMethod(reflect.TypeOf(&selfregister.SchedulerProxy{}), "CheckFuncOwner", func(sp *selfregister.SchedulerProxy, funcKey string) (string, bool) {
+	defer ApplyMethod(reflect.TypeOf(&selfregister.SchedulerProxy{}), "CheckFuncOwner", func(
+		*selfregister.SchedulerProxy, string) (string, bool) {
 		return "", true
 	}).Reset()
 
@@ -547,7 +548,8 @@ func TestStartScaleUpWorker(t *testing.T) {
 }
 
 func TestScaleUpProcess(t *testing.T) {
-	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte) (*types.Instance, error) {
+	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+		*types.Instance, error) {
 		return &types.Instance{}, nil
 	}
 	var delIns *types.Instance
@@ -584,7 +586,8 @@ func TestScaleUpProcess(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, 3, callCount)
 	// instance nil & error not nil
-	patchCreateFunc := ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte) (*types.Instance, error) {
+	patchCreateFunc := ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+		*types.Instance, error) {
 		return nil, snerror.New(4001, "user error")
 	})
 	q.ScaleUpHandler(1, callback)
@@ -592,7 +595,8 @@ func TestScaleUpProcess(t *testing.T) {
 	assert.Equal(t, 4, callCount)
 	patchCreateFunc.Reset()
 	// instance not nil & error not nil
-	patchCreateFunc = ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte) (*types.Instance, error) {
+	patchCreateFunc = ApplyFunc(createFunc, func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
+		*types.Instance, error) {
 		return &types.Instance{InstanceID: "instance1"}, snerror.New(4001, "user error")
 	})
 	q.ScaleUpHandler(1, callback)
@@ -608,7 +612,7 @@ func TestScaleDownProcess(t *testing.T) {
 		delIns = ins
 		return nil
 	}
-	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte) (
+	createFunc := func(string, string, types.InstanceType, resspeckey.ResSpecKey, []byte, string) (
 		*types.Instance, error) {
 		return nil, nil
 	}
@@ -681,9 +685,9 @@ func TestHandleFuncOwnerChange(t *testing.T) {
 	q := NewScaledInstanceQueue(basicInsQueConfig, metricsCollector)
 	q.instanceScheduler = &concurrencyscheduler.ScaledConcurrencyScheduler{}
 	q.instanceScaler = &scaler.AutoScaler{}
-	q.HandleFuncOwnerChange(func(sessionInfo *types.SessionInfo, instance *types.Instance) {})
+	q.HandleFuncOwnerChange(nil)
 	setFuncOwner = true
-	q.HandleFuncOwnerChange(func(sessionInfo *types.SessionInfo, instance *types.Instance) {})
+	q.HandleFuncOwnerChange(nil)
 	assert.Equal(t, true, q.isFuncOwner)
 }
 func TestHandleRatioUpdate(t *testing.T) {

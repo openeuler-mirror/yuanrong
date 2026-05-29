@@ -19,6 +19,9 @@
 
 namespace YR {
 namespace Libruntime {
+const int HTTP_INFORMATIONAL_STATUS_MIN = 100;
+const int HTTP_INFORMATIONAL_STATUS_MAX = 200;
+
 AsyncHttpsClient::AsyncHttpsClient(const std::shared_ptr<asio::io_context> &ioc,
                                    const std::shared_ptr<asio::ssl::context> &ctx, std::string serverName)
     : ioc_(ioc), ctx_(ctx), serverName_(std::move(serverName)), resolver_(asio::make_strand(*ioc))
@@ -44,6 +47,7 @@ void AsyncHttpsClient::SubmitInvokeRequest(const http::verb &method, const std::
         req_.set(iter.first, iter.second);
     }
     req_.set("HOST", connParam_.ip + ":" + connParam_.port);
+    req_.set(http::field::connection, "keep-alive");
     req_.body() = body;
     req_.prepare_payload();
     resParser_ = std::make_shared<http::response_parser<http::string_body>>();
@@ -137,8 +141,23 @@ void AsyncHttpsClient::OnRead(const std::shared_ptr<std::string> requestId, cons
         YRLOG_ERROR("requestId {} failed to read response , err message: {}, this client disconnect", *requestId,
                     ec.message().c_str());
         SetConnInActive();
+        if (callback_) {
+            callback_(resParser_->get().body(), ec, resParser_->get().result_int());
+        }
+        CheckResponseHeaderAndReset();
+        return;
     }
-
+    // Skip 1xx informational responses (e.g., 102 Processing heartbeat from VIP keepalive)
+    // and continue reading the final response.
+    auto statusCode = resParser_->get().result_int();
+    if (statusCode >= HTTP_INFORMATIONAL_STATUS_MIN && statusCode < HTTP_INFORMATIONAL_STATUS_MAX) {
+        YRLOG_DEBUG("requestId {} received 1xx informational response ({}), continue reading", *requestId, statusCode);
+        resParser_ = std::make_shared<http::response_parser<http::string_body>>();
+        resParser_->body_limit(std::numeric_limits<std::uint64_t>::max());
+        http::async_read(*stream_, this->buf_, *resParser_,
+                         beast::bind_front_handler(&AsyncHttpsClient::OnRead, shared_from_this(), requestId));
+        return;
+    }
     if (callback_) {
         callback_(resParser_->get().body(), ec, resParser_->get().result_int());
     }
@@ -153,7 +172,6 @@ void AsyncHttpsClient::GracefulExit() noexcept
         YRLOG_DEBUG("start shutdown ssl stream.");
         stream_->shutdown(ec);
         if (ec) {
-            YRLOG_WARN("SSL shutdown failed: {}", ec.message().c_str());
             return;
         }
         auto &sock = stream_->next_layer().socket();

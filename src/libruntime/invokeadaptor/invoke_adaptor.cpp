@@ -23,14 +23,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+
 #include "absl/synchronization/notification.h"
 #include "agent_session_manager.h"
 #include "general_execution_manager.h"
 #include "ordered_execution_manager.h"
 #include "src/libruntime/fsclient/protobuf/common.pb.h"
+#include "src/libruntime/fsclient/protobuf/message.pb.h"
 #include "src/libruntime/fsclient/protobuf/runtime_service.pb.h"
 #include "src/libruntime/groupmanager/function_group.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
+#include "src/libruntime/utils/constants.h"
 #include "src/proto/libruntime.pb.h"
 #include "src/utility/logger/logger.h"
 #include "src/utility/string_utility.h"
@@ -106,9 +109,6 @@ libruntime::FunctionMeta convertFuncMetaToProto(std::shared_ptr<InvokeSpec> spec
     meta.set_needorder(spec->opts.needOrder);
     meta.set_name(spec->functionMeta.name);
     meta.set_ns(spec->functionMeta.ns);
-    if (!spec->functionMeta.recoveredData.empty()) {
-        meta.set_payload(spec->functionMeta.recoveredData);
-    }
     return meta;
 }
 
@@ -129,7 +129,6 @@ YR::Libruntime::FunctionMeta convertProtoToFuncMeta(const libruntime::FunctionMe
     auto code = funcMetaProto.code();
     funcMeta.code.assign(code.begin(), code.end());
     funcMeta.needOrder = funcMetaProto.needorder();
-    funcMeta.recoveredData = funcMetaProto.payload();
     return funcMeta;
 }
 
@@ -280,10 +279,10 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
         this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE,
                                                        YR::Libruntime::Config::Instance().YR_ASYNCIO_MAX_CONCURRENCY());
     }
-    YRLOG_DEBUG("enable metrics is {}, api type is {}", IsMetricsEnabled(metaData),
+    YRLOG_DEBUG("enable metrics is {}, api type is {}", Config::Instance().ENABLE_METRICS(),
                 fmt::underlying(this->librtConfig->selfApiType));
-    if (IsMetricsEnabled(metaData) && !isPosix) {
-        InitMetricsAdaptor(true);
+    if (Config::Instance().ENABLE_METRICS() && !isPosix) {
+        InitMetricsAdaptor(metaData.config().enablemetrics());
     }
     if (this->librtConfig->selfApiType != libruntime::ApiType::Posix) {
         auto res = InitCall(req->Immutable(), metaData);
@@ -371,24 +370,6 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         metaData.invocationmeta(),
         [this, req, metaData]() {
             std::function<void()> handler = [this, req, metaData]() {
-                // For event stream: event server info can be carried in createoptions (forwarded from invokeOptions).
-                const auto &opts = req->Immutable().createoptions();
-                auto ipIt = opts.find(YR_EVENT_SERVER_IP);
-                auto portIt = opts.find(YR_EVENT_SERVER_PORT);
-                if (ipIt != opts.end() && portIt != opts.end() && !ipIt->second.empty()) {
-                    try {
-                        int port = std::stoi(portIt->second);
-                        if (port >= 0) {
-                            fsClient->UpdateEventServerInfo(ipIt->second, port, req->Immutable().senderid());
-                        } else {
-                            YRLOG_WARN("invalid event server port {}, requestId {}", portIt->second,
-                                       req->Immutable().requestid());
-                        }
-                    } catch (const std::exception &e) {
-                        YRLOG_WARN("failed to parse event server port {}, requestId {}, err {}", portIt->second,
-                                   req->Immutable().requestid(), e.what());
-                    }
-                }
                 threadLocalTraceId = req->Immutable().traceid();
                 threadLocalRequestId = req->Immutable().requestid();
                 threadLocalInstanceId = req->Immutable().senderid();
@@ -463,47 +444,6 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         req->Immutable().requestid());
 }
 
-std::pair<std::string, ErrorInfo> InvokeAdaptor::LoadCurrentSession(const std::string &sessionId)
-{
-    if (agentSessionManager_ == nullptr) {
-        return {"", ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr")};
-    }
-    return agentSessionManager_->LoadCurrentSession(sessionId);
-}
-
-ErrorInfo InvokeAdaptor::UpdateCurrentSession(const std::string &sessionId, const std::string &sessionData)
-{
-    if (agentSessionManager_ == nullptr) {
-        return ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr");
-    }
-    return agentSessionManager_->UpdateCurrentSession(sessionId, sessionData);
-}
-
-bool InvokeAdaptor::IsSessionInterrupted(const std::string &sessionId)
-{
-    if (agentSessionManager_ == nullptr) {
-        return false;
-    }
-    return agentSessionManager_->IsSessionInterrupted(sessionId);
-}
-
-std::pair<ErrorInfo, std::shared_ptr<Buffer>> InvokeAdaptor::SessionWait(const std::string &sessionId,
-                                                                         int64_t timeoutMs)
-{
-    if (agentSessionManager_ == nullptr) {
-        return {ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr"), nullptr};
-    }
-    return agentSessionManager_->Wait(sessionId, timeoutMs);
-}
-
-ErrorInfo InvokeAdaptor::SessionNotify(const std::string &sessionId, std::shared_ptr<Buffer> data)
-{
-    if (agentSessionManager_ == nullptr) {
-        return ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr");
-    }
-    return agentSessionManager_->Notify(sessionId, data);
-}
-
 CheckpointResponse InvokeAdaptor::CheckpointHandler(const CheckpointRequest &req)
 {
     CheckpointResponse resp;
@@ -553,13 +493,8 @@ RecoverResponse InvokeAdaptor::RecoverHandler(const RecoverRequest &req)
         resp.set_message(outErrMsg);
         return resp;
     }
-    if (buf != nullptr && buf->GetSize() > 0) {
-        YRLOG_DEBUG("start assign recover buf of instance: {}", instanceId);
-        std::lock_guard<std::mutex> lk(recoveredBufMtx_);
-        recoveredBuf_.assign(reinterpret_cast<const char *>(buf->ImmutableData()), buf->GetSize());
-    }
-    if (IsMetricsEnabled()) {
-        InitMetricsAdaptor(true);
+    if (Config::Instance().ENABLE_METRICS()) {
+        InitMetricsAdaptor(librtConfig->enableMetrics);
     }
     common::FunctionGroupRunningInfo runningInfo;
     bool isPosix = this->librtConfig->selfApiType == libruntime::ApiType::Posix;
@@ -602,58 +537,31 @@ RecoverResponse InvokeAdaptor::RecoverHandler(const RecoverRequest &req)
     return resp;
 }
 
-namespace {
-
-FSIntfHandlers MakeFsIntfHandlers(InvokeAdaptor *self, const std::shared_ptr<LibruntimeConfig> &cfg)
-{
-    FSIntfHandlers handlers;
-    handlers.init = std::bind(&InvokeAdaptor::InitHandler, self, _1);
-    handlers.call = std::bind(&InvokeAdaptor::CallHandler, self, _1);
-    handlers.checkpoint = std::bind(&InvokeAdaptor::CheckpointHandler, self, _1);
-    handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, self, _1);
-    handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, self, _1);
-    handlers.prepareSnap = std::bind(&InvokeAdaptor::PrepareSnapHandler, self, _1);
-    handlers.snapStarted = std::bind(&InvokeAdaptor::SnapStartedHandler, self, _1);
-    if (cfg->libruntimeOptions.refreshEnvCallback) {
-        handlers.refreshEnv = cfg->libruntimeOptions.refreshEnvCallback;
-    }
-    handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, self, _1);
-    handlers.event = std::bind(&InvokeAdaptor::EventHandler, self, _1);
-    if (cfg->libruntimeOptions.healthCheckCallback) {
-        handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, self, _1);
-    }
-    return handlers;
-}
-
-void CompleteGetInstanceKillResponse(const std::string &insId,
-                                     std::promise<std::pair<libruntime::FunctionMeta, ErrorInfo>> &promise,
-                                     const KillResponse &response, const ErrorInfo &err)
-{
-    if (response.code() != common::ERR_NONE) {
-        YRLOG_ERROR("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
-                    fmt::underlying(response.code()), response.message());
-        YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(response.code()), ModuleCode::RUNTIME,
-                                          response.message());
-        errInfo.SetIsTimeout(err.IsTimeout());
-        promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
-        return;
-    }
-    libruntime::FunctionMeta funcMeta;
-    if (auto status = google::protobuf::util::JsonStringToMessage(response.message(), &funcMeta); !status.ok()) {
-        YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
-    }
-    if (!response.payload().empty()) {
-        funcMeta.set_payload(response.payload());
-    }
-    promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
-}
-
-}  // namespace
-
 std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeContext,
                                                       std::shared_ptr<Security> security)
 {
-    FSIntfHandlers handlers = MakeFsIntfHandlers(this, librtConfig);
+    FSIntfHandlers handlers;
+    handlers.init = std::bind(&InvokeAdaptor::InitHandler, this, _1);
+    handlers.call = std::bind(&InvokeAdaptor::CallHandler, this, _1);
+    handlers.checkpoint = std::bind(&InvokeAdaptor::CheckpointHandler, this, _1);
+    handlers.recover = std::bind(&InvokeAdaptor::RecoverHandler, this, _1);
+    handlers.shutdown = std::bind(&InvokeAdaptor::ShutdownHandler, this, _1);
+    handlers.prepareSnap = std::bind(&InvokeAdaptor::PrepareSnapHandler, this, _1);
+    handlers.snapStarted = std::bind(&InvokeAdaptor::SnapStartedHandler, this, _1);
+    if (librtConfig->libruntimeOptions.refreshEnvCallback) {
+        handlers.refreshEnv = librtConfig->libruntimeOptions.refreshEnvCallback;
+    }
+    handlers.signal = std::bind(&InvokeAdaptor::SignalHandler, this, _1);
+    handlers.event = std::bind(&InvokeAdaptor::EventHandler, this, _1);
+    handlers.getInstanceRoute = [this](const std::string &instanceId) -> std::string {
+        return this->memStore == nullptr ? "" : this->memStore->GetInstanceRoute(instanceId, ZERO_TIMEOUT);
+    };
+    handlers.getInstanceProxyID = [this](const std::string &instanceId) -> std::string {
+        return this->memStore == nullptr ? "" : this->memStore->GetInstanceProxyID(instanceId, ZERO_TIMEOUT);
+    };
+    if (librtConfig->libruntimeOptions.healthCheckCallback) {
+        handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
+    }
     if (Config::Instance().ENABLE_SERVER_MODE()) {
         this->librtConfig->enableServerMode = Config::Instance().ENABLE_SERVER_MODE();
     }
@@ -796,8 +704,10 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     functionMeta.tensorTransportTarget = metaData.functionmeta().tensortransporttarget();
     std::string proto_bytes = metaData.functionmeta().code();
     functionMeta.code.assign(proto_bytes.begin(), proto_bytes.end());
-    if (functionMeta.apiType != libruntime::ApiType::Function) {
-        returnObjects[0]->alwaysNative = true;
+    if (functionMeta.apiType != libruntime::ApiType::Function || req.bypass_datasystem()) {
+        for (auto &obj : returnObjects) {
+            obj->alwaysNative = true;
+        }
     }
 
     if (functionMeta.IsServiceApiType() && rawArgs.size() > SCHEDULER_DATA_INDEX && req.iscreate()) {
@@ -828,10 +738,22 @@ CallResult InvokeAdaptor::Call(const CallRequest &req, const libruntime::MetaDat
     for (size_t i = 0; i < returnObjects.size(); i++) {
         if (returnObjects[i]->buffer != nullptr && returnObjects[i]->buffer->IsNative() &&
             returnObjects[i]->putDone == false) {
-            auto smallObject = callResult.add_smallobjects();
-            smallObject->set_id(returnObjects[i]->id);
-            smallObject->set_value(returnObjects[i]->buffer->ImmutableData(), returnObjects[i]->buffer->GetSize());
-        } else {
+            auto bufSize = returnObjects[i]->buffer->GetSize();
+            if (req.bypass_datasystem() && bufSize > BYPASS_DS_TRUNCATION_THRESHOLD) {
+                auto msg = fmt::format(
+                    "bypass_datasystem: return value size ({} bytes) exceeds the {} bytes limit. "
+                    "Use invoke() instead of invoke_direct() for large return values.",
+                    bufSize, BYPASS_DS_TRUNCATION_THRESHOLD);
+                YRLOG_WARN(msg);
+                callResult.set_code(common::ERR_PARAM_INVALID);
+                callResult.set_message(msg);
+                return callResult;
+            } else {
+                auto smallObject = callResult.add_smallobjects();
+                smallObject->set_id(returnObjects[i]->id);
+                smallObject->set_value(returnObjects[i]->buffer->ImmutableData(), bufSize);
+            }
+        } else if (!req.bypass_datasystem()) {
             objectsInDs.emplace_back(returnObjects[i]->id);
         }
     }
@@ -920,7 +842,7 @@ std::pair<common::ErrorCode, std::string> InvokeAdaptor::PrepareCallExecutor(con
         this->execMgr = std::make_shared<OrderedExecutionManager>(concurrency, librtConfig->funcExecSubmitHook);
     } else {
         if (agentSessionEnabled_) {
-            concurrency =  concurrency * CONCURRENCY_RATE;
+            concurrency = concurrency * CONCURRENCY_RATE;
         }
         this->execMgr = std::make_shared<GeneralExecutionManager>(concurrency, librtConfig->funcExecSubmitHook);
     }
@@ -1040,7 +962,7 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
             std::string serializedMeta;
             google::protobuf::util::JsonPrintOptions options;
             auto status = google::protobuf::util::MessageToJsonString(this->librtConfig->funcMeta,
-                                                                     &serializedMeta, options);
+                &serializedMeta, options);
             if (!status.ok()) {
                 YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
                 resp.set_code(::common::ErrorCode::ERR_INNER_SYSTEM_ERROR);
@@ -1048,15 +970,6 @@ SignalResponse InvokeAdaptor::SignalHandler(const SignalRequest &req)
             } else {
                 resp.set_code(::common::ErrorCode::ERR_NONE);
                 resp.set_message(serializedMeta);
-                std::string payloadCopy;
-                {
-                    std::lock_guard<std::mutex> lk(recoveredBufMtx_);
-                    payloadCopy = recoveredBuf_;
-                }
-                if (!payloadCopy.empty()) {
-                    YRLOG_DEBUG("recover buf is not empty, return it directly");
-                    resp.set_payload(std::move(payloadCopy));
-                }
             }
             break;
         }
@@ -1330,16 +1243,6 @@ void InvokeAdaptor::InvokeInstanceFunction(std::shared_ptr<InvokeSpec> spec)
             return;
         }
     }
-    if (librtConfig->enableEvent) {
-        auto it = spec->opts.invokeLabels.find(INSTANCE_REQUIREMENT_ACCEPT);
-        if (it != spec->opts.invokeLabels.end() && it->second == INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM) {
-            YRLOG_DEBUG("start to add eventInfo, instanceId is {}", spec->requestId);
-            auto invokeOptions = spec->requestInvoke->Mutable().mutable_invokeoptions();
-            auto customTag = invokeOptions->mutable_customtag();
-            (*customTag)[YR_EVENT_SERVER_IP] = fsClient->GetEventServerIP();
-            (*customTag)[YR_EVENT_SERVER_PORT] = std::to_string(fsClient->GetEventServerPort());
-        }
-    }
     fsClient->InvokeAsync(spec->requestInvoke, std::bind(&InvokeAdaptor::InvokeNotifyHandler, this, _1, _2),
                           spec->opts.timeout == 0 ? FLAG_OF_REQUEST_NO_TIMEOUT : spec->opts.timeout);
 }
@@ -1378,8 +1281,17 @@ bool InvokeAdaptor::IsIdValid(const std::string &id)
 
 void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    CreateInstanceRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
     CreateRequest req;
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
+    if (!traceParent.empty()) {
+        (*req.mutable_createoptions())["traceparent"] = traceParent;
+        (*req.mutable_schedulingops()->mutable_extension())["traceparent"] = traceParent;
+    }
     YRLOG_DEBUG("start create instance raw request, req id is {}", req.requestid());
     if (!IsIdValid(req.requestid())) {
         YRLOG_ERROR("create raw req id: {} is invalid", req.requestid());
@@ -1427,8 +1339,17 @@ void InvokeAdaptor::CreateInstanceRaw(std::shared_ptr<Buffer> reqRaw, RawCallbac
 
 void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    InvokeByInstanceIdRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent,
+                                          RawCallback cb)
+{
     InvokeRequest req;
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
+    if (!traceParent.empty()) {
+        (*req.mutable_invokeoptions()->mutable_customtag())["traceparent"] = traceParent;
+    }
     if (!IsIdValid(req.requestid())) {
         YRLOG_ERROR("invoke raw req id: {} is invalid", req.requestid());
         cb(ErrorInfo(ErrorCode::ERR_PARAM_INVALID, ModuleCode::RUNTIME, "invalid req param"),
@@ -1436,7 +1357,7 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
         return;
     }
     auto messageSpec = std::make_shared<InvokeMessageSpec>(std::move(req));
-    this->fsClient->InvokeAsync(messageSpec, [this, cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
+    this->fsClient->InvokeAsync(messageSpec, [cb](const NotifyRequest &req, const ErrorInfo &err) -> void {
         YRLOG_DEBUG("recieve invoke raw notify, code is {}, req id is {}, msg is {}", fmt::underlying(req.code()),
                     req.requestid(), req.message());
         size_t size = req.ByteSizeLong();
@@ -1448,11 +1369,17 @@ void InvokeAdaptor::InvokeByInstanceIdRaw(std::shared_ptr<Buffer> reqRaw, RawCal
 
 void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, RawCallback cb)
 {
+    KillRaw(reqRaw, "", cb);
+}
+
+void InvokeAdaptor::KillRaw(std::shared_ptr<Buffer> reqRaw, const std::string &traceParent, RawCallback cb)
+{
+    (void)traceParent;
     KillRequest req;
     req.set_requestid(YR::utility::IDGenerator::GenRequestId());
     req.ParseFromString(std::string(static_cast<char *>(reqRaw->MutableData()), reqRaw->GetSize()));
     EraseFsIntf(req.instanceid());
-    this->fsClient->KillAsync(req, [this, cb](const KillResponse &resp, const ErrorInfo &err) -> void {
+    this->fsClient->KillAsync(req, [cb](const KillResponse &resp, const ErrorInfo &err) -> void {
         YRLOG_DEBUG("recieve kill raw response, code is {}", fmt::underlying(resp.code()));
         size_t size = resp.ByteSizeLong();
         auto respRaw = std::make_shared<NativeBuffer>(size);
@@ -1534,12 +1461,17 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
     } else {
         YRLOG_DEBUG("Succeed to create instance, request ID: {}, instance ID: {}", req.requestid(), spec->instanceId);
         invokeOrderMgr->NotifyInvokeSuccess(spec);
-        if (req.has_runtimeinfo() && !req.runtimeinfo().route().empty()) {
-            memStore->SetInstanceRoute(spec->returnIds[0].id, req.runtimeinfo().route());
+        if (req.has_runtimeinfo()) {
+            if (!req.runtimeinfo().route().empty()) {
+                memStore->SetInstanceRoute(spec->returnIds[0].id, req.runtimeinfo().route());
+            }
+            if (!req.runtimeinfo().proxyid().empty()) {
+                memStore->SetInstanceProxyID(spec->returnIds[0].id, req.runtimeinfo().proxyid());
+            }
         }
         memStore->SetReady(spec->returnIds[0].id);
         if (spec->functionMeta.apiType != libruntime::ApiType::Posix) {
-            if (auto insId = spec->GetNamedInstanceId(this->librtConfig); !insId.empty()) {
+            if (auto insId = spec->GetNamedInstanceId(); !insId.empty()) {
                 auto meta = convertFuncMetaToProto(spec);
                 this->UpdateAndSubcribeInsStatus(insId, meta);
             }
@@ -1860,6 +1792,35 @@ void InvokeAdaptor::Finalize(bool isDriver)
     }
 }
 
+void InvokeAdaptor::ReInit()
+{
+    // Reinitialize fsClient (gRPC connections)
+    if (fsClient) {
+        fsClient->ReInit();
+    }
+
+    // Reinitialize generator components
+    if (generatorReceiver_) {
+        generatorReceiver_->Initialize();
+    }
+
+    // Clear execution manager state (ordered execution queue)
+    if (execMgr) {
+        execMgr->Clear();
+    }
+
+    // Note: Do NOT clear invokeOrderMgr here!
+    // InvokeOrderManager is used on the Driver side (caller) to assign sequence numbers.
+    // If this instance is restored, the callers (drivers) need to clear their own
+    // InvokeOrderManager on their side. Clearing it here would only help if this
+    // instance is making calls to itself, which is not the typical case.
+    // The correct solution is for the Driver side to handle sequence number reset
+    // when it detects that the callee has been restored.
+
+    // Reset running state
+    isRunning = true;
+}
+
 void InvokeAdaptor::EraseFsIntf(const std::string &id)
 {
     fsClient->EraseIntf(id);
@@ -1872,6 +1833,12 @@ void InvokeAdaptor::PushInvokeSpec(std::shared_ptr<InvokeSpec> spec)
 
 ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &payload, int signal)
 {
+    return KillWithRouting(instanceId, payload, signal, "", "");
+}
+
+ErrorInfo InvokeAdaptor::KillWithRouting(const std::string &instanceId, const std::string &payload, int signal,
+                                         const std::string &routeAddress, const std::string &proxyID)
+{
     invokeOrderMgr->ClearInsOrderMsg(instanceId, signal);
     if (instanceId.empty()) {
         return ErrorInfo(YR::Libruntime::ERR_INSTANCE_ID_EMPTY, YR::Libruntime::ModuleCode::RUNTIME,
@@ -1883,6 +1850,8 @@ ErrorInfo InvokeAdaptor::Kill(const std::string &instanceId, const std::string &
     killReq.set_instanceid(instanceId);
     killReq.set_payload(payload);
     killReq.set_signal(signal);
+    killReq.set_routeaddress(routeAddress);
+    killReq.set_proxyid(proxyID);
 
     auto killPromise = std::make_shared<std::promise<KillResponse>>();
     std::shared_future<KillResponse> killFuture = killPromise->get_future().share();
@@ -1941,14 +1910,16 @@ std::pair<ErrorInfo, KillResponse> InvokeAdaptor::KillWithResponse(const std::st
 void InvokeAdaptor::KillAsync(const std::string &instanceId, const std::string &payload, int signal)
 {
     this->KillAsyncCB(instanceId, payload, signal, [instanceId, signal](const ErrorInfo &err) -> void {
-        if (!err.OK()) {
-            YRLOG_WARN("kill request failed, ins id is {}, signal is {}, err: ", instanceId, signal, err.CodeAndMsg());
+        if (!err.OK() && err.Code() != ErrorCode::ERR_INSTANCE_NOT_FOUND &&
+            err.Code() != ErrorCode::ERR_INSTANCE_EXITED) {
+            YRLOG_WARN("kill request failed, ins id is {}, signal is {}, err: {}",
+                       instanceId, signal, err.CodeAndMsg());
         }
     });
 }
 
 void InvokeAdaptor::KillAsyncCB(const std::string &instanceId, const std::string &payload, int signal,
-                                std::function<void(const ErrorInfo &err)> cb, int timeoutSec)
+                                std::function<void(const ErrorInfo &err)> cb)
 {
     YRLOG_DEBUG("start kill instance async, instance id is {}, signal is {}, payload is {}", instanceId, signal,
                 payload);
@@ -1967,12 +1938,17 @@ void InvokeAdaptor::KillAsyncCB(const std::string &instanceId, const std::string
             return;
         }
         cb({});
-    }, timeoutSec);
+    });
 }
 
 void InvokeAdaptor::ReceiveRequestLoop(void)
 {
     fsClient->ReceiveRequestLoop();
+}
+
+bool InvokeAdaptor::NeedReInit() const
+{
+    return fsClient ? fsClient->NeedReInit() : false;
 }
 
 ErrorInfo InvokeAdaptor::GroupCreate(const std::string &groupName, GroupOpts &opts)
@@ -2167,7 +2143,7 @@ ErrorInfo InvokeAdaptor::WaitAndCheckResp(std::shared_future<ResponseType> &futu
 
 void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::string &traceId, int value)
 {
-    if (!IsMetricsEnabled() || !MetricsAdaptor::GetInstance()->IsInited()) {
+    if (!Config::Instance().ENABLE_METRICS() || !MetricsAdaptor::GetInstance()->IsInited()) {
         return;
     }
     YR::Libruntime::GaugeData data;
@@ -2180,17 +2156,6 @@ void InvokeAdaptor::ReportMetrics(const std::string &requestId, const std::strin
     if (!err.OK()) {
         YRLOG_WARN("failed to report metrics, requestid: {}, traceid: {}, value: {}", requestId, traceId, value);
     }
-}
-
-bool InvokeAdaptor::IsMetricsEnabled() const
-{
-    return Config::Instance().ENABLE_METRICS() || librtConfig->enableMetrics;
-}
-
-bool InvokeAdaptor::IsMetricsEnabled(const libruntime::MetaData &metaData) const
-{
-    // Invoke requests may omit enableMetrics in proto3, so preserve the instance-level value after create/recover.
-    return Config::Instance().ENABLE_METRICS() || metaData.config().enablemetrics() || librtConfig->enableMetrics;
 }
 
 std::shared_ptr<InvokeSpec> InvokeAdaptor::BuildCreateSpec(std::shared_ptr<InvokeSpec> spec)
@@ -2329,7 +2294,21 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
     this->fsClient->KillAsync(
         killReq,
         [insId, &promise](const KillResponse &response, const ErrorInfo &err) -> void {
-            CompleteGetInstanceKillResponse(insId, promise, response, err);
+            if (response.code() != common::ERR_NONE) {
+                YRLOG_ERROR("get instance failed, instance id is {}, errcode is {}, err msg is {}", insId,
+                            fmt::underlying(response.code()), response.message());
+                YR::Libruntime::ErrorInfo errInfo(static_cast<ErrorCode>(response.code()), ModuleCode::RUNTIME,
+                                                  response.message());
+                errInfo.SetIsTimeout(err.IsTimeout());
+                promise.set_value(std::make_pair(libruntime::FunctionMeta{}, errInfo));
+            } else {
+                libruntime::FunctionMeta funcMeta;
+                if (auto status = google::protobuf::util::JsonStringToMessage(response.message(), &funcMeta);
+                    !status.ok()) {
+                    YRLOG_WARN("Failed to serialize function meta to json string, error message: {}", status.message());
+                }
+                promise.set_value(std::make_pair(funcMeta, YR::Libruntime::ErrorInfo()));
+            }
         },
         timeoutSec);
     auto [funcMeta, errorInfo] = future.get();
@@ -2446,6 +2425,101 @@ std::pair<ErrorInfo, QueryNamedInsResponse> InvokeAdaptor::QueryNamedInstances()
     return ret;
 }
 
+std::pair<ErrorInfo, std::string> InvokeAdaptor::DeleteCheckpoint(const std::string &checkpointId)
+{
+    auto targetInstanceId = librtConfig->instanceId;
+    if (targetInstanceId.empty()) {
+        targetInstanceId = Config::Instance().INSTANCE_ID();
+    }
+    if (targetInstanceId.empty()) {
+        targetInstanceId = librtConfig->GetInstanceId();
+    }
+    messages::DeleteSnapshotRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    req.set_checkpointid(checkpointId);
+    std::string payload;
+    if (!req.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to serialize DeleteSnapshotRequest"), ""};
+    }
+    auto [err, killRsp] = KillWithResponse(targetInstanceId, payload, libruntime::Signal::DeleteCheckpoint);
+    if (!err.OK()) {
+        return {err, ""};
+    }
+    messages::DeleteSnapshotResponse rsp;
+    if (!rsp.ParseFromString(killRsp.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to parse DeleteSnapshotResponse"), ""};
+    }
+    if (rsp.code() != common::ERR_NONE) {
+        return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), ""};
+    }
+    return {ErrorInfo(), ""};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> InvokeAdaptor::ListCheckpoints(
+    const std::string &tenantID, const std::string &functionType, const std::string &ns)
+{
+    auto targetInstanceId = librtConfig->instanceId;
+    if (targetInstanceId.empty()) {
+        targetInstanceId = Config::Instance().INSTANCE_ID();
+    }
+    if (targetInstanceId.empty()) {
+        targetInstanceId = librtConfig->GetInstanceId();
+    }
+    std::string payload;
+    std::vector<std::string> checkpointIds;
+    if (functionType.empty()) {
+        messages::ListSnapshotsByTenantRequest req;
+        req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+        req.set_tenantid(tenantID);
+        if (!req.SerializeToString(&payload)) {
+            return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                              "failed to serialize ListSnapshotsByTenantRequest"), {}};
+        }
+        auto [err, killRsp] =
+            KillWithResponse(targetInstanceId, payload, libruntime::Signal::ListCheckpointsByTenant);
+        if (!err.OK()) {
+            return {err, {}};
+        }
+        messages::ListSnapshotsByTenantResponse rsp;
+        if (!rsp.ParseFromString(killRsp.payload())) {
+            return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                              "failed to parse ListSnapshotsByTenantResponse"), {}};
+        }
+        if (rsp.code() != common::ERR_NONE) {
+            return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), {}};
+        }
+        checkpointIds.assign(rsp.checkpointids().begin(), rsp.checkpointids().end());
+        return {ErrorInfo(), checkpointIds};
+    }
+    messages::ListSnapshotsByFunctionKeyRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    auto *functionKey = req.mutable_functionkey();
+    functionKey->set_tenantid(tenantID);
+    functionKey->set_functiontype(functionType);
+    functionKey->set_namespace_(ns);
+    if (!req.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to serialize ListSnapshotsByFunctionKeyRequest"), {}};
+    }
+    auto [err, killRsp] =
+        KillWithResponse(targetInstanceId, payload, libruntime::Signal::ListCheckpointsByFunctionKey);
+    if (!err.OK()) {
+        return {err, {}};
+    }
+    messages::ListSnapshotsByFunctionKeyResponse rsp;
+    if (!rsp.ParseFromString(killRsp.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to parse ListSnapshotsByFunctionKeyResponse"), {}};
+    }
+    if (rsp.code() != common::ERR_NONE) {
+        return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), {}};
+    }
+    checkpointIds.assign(rsp.checkpointids().begin(), rsp.checkpointids().end());
+    return {ErrorInfo(), checkpointIds};
+}
+
 void InvokeAdaptor::SubscribeActiveMaster()
 {
     auto insId = Config::Instance().INSTANCE_ID();
@@ -2550,6 +2624,52 @@ ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, cons
 std::string InvokeAdaptor::GetActiveMasterAddr()
 {
     return functionMasterClient_->GetActiveMasterAddr();
+}
+
+std::pair<std::string, ErrorInfo> InvokeAdaptor::LoadCurrentSession(const std::string &sessionId)
+{
+    if (agentSessionManager_ == nullptr) {
+        return {"", ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr")};
+    }
+    return agentSessionManager_->LoadCurrentSession(sessionId);
+}
+
+ErrorInfo InvokeAdaptor::UpdateCurrentSession(const std::string &sessionId, const std::string &sessionData)
+{
+    if (agentSessionManager_ == nullptr) {
+        return ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr");
+    }
+    return agentSessionManager_->UpdateCurrentSession(sessionId, sessionData);
+}
+
+bool InvokeAdaptor::IsSessionInterrupted(const std::string &sessionId)
+{
+    if (agentSessionManager_ == nullptr) {
+        return false;
+    }
+    return agentSessionManager_->IsSessionInterrupted(sessionId);
+}
+
+std::pair<ErrorInfo, std::shared_ptr<Buffer>> InvokeAdaptor::SessionWait(const std::string &sessionId,
+                                                                         int64_t timeoutMs)
+{
+    if (agentSessionManager_ == nullptr) {
+        return {ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr"), nullptr};
+    }
+    return agentSessionManager_->Wait(sessionId, timeoutMs);
+}
+
+ErrorInfo InvokeAdaptor::SessionNotify(const std::string &sessionId, std::shared_ptr<Buffer> data)
+{
+    if (agentSessionManager_ == nullptr) {
+        return ErrorInfo(ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME, "agent session manager is nullptr");
+    }
+    return agentSessionManager_->Notify(sessionId, data);
+}
+
+void InvokeAdaptor::RegisterInstanceAndUpdateOrder(const std::string &instanceId, bool restored)
+{
+    invokeOrderMgr->RegisterInstanceAndUpdateOrder(instanceId, restored);  // restored=true for snapstart
 }
 
 }  // namespace Libruntime

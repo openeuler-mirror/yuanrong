@@ -19,8 +19,6 @@ package org.yuanrong.services.runtime.action;
 import org.yuanrong.services.logger.UserFunctionLogger;
 import org.yuanrong.services.runtime.Context;
 import org.yuanrong.services.runtime.RuntimeLogger;
-import org.yuanrong.services.session.SessionService;
-import org.yuanrong.services.session.SessionServiceImpl;
 
 import com.google.gson.annotations.Expose;
 
@@ -85,19 +83,6 @@ public class ContextImpl implements Context {
      * Stream event handler.
      */
     private Stream stream = new Stream();
-
-    /**
-     * Agent session ID from the request header (YR_AGENT_SESSION_ID).
-     * Empty string means no agent session for this invocation.
-     */
-    @Expose(serialize = false, deserialize = false)
-    private String sessionId = "";
-
-    /**
-     * Session service for this invocation. Null when sessionId is empty.
-     */
-    @Expose(serialize = false, deserialize = false)
-    private SessionService sessionService;
 
     public ContextImpl() {}
 
@@ -318,25 +303,5 @@ public class ContextImpl implements Context {
         stream.setRequestId(this.getInvokeID());
         stream.setInstanceId(this.getInstanceID());
         return this.stream;
-    }
-
-    @Override
-    public String getSessionId() {
-        return this.sessionId;
-    }
-
-    /**
-     * Set the session ID and initialize the corresponding SessionService.
-     *
-     * @param sessionId agent session ID (null treated as empty string)
-     */
-    public void setSessionId(String sessionId) {
-        this.sessionId = sessionId == null ? "" : sessionId;
-        this.sessionService = this.sessionId.isEmpty() ? null : new SessionServiceImpl(this.sessionId);
-    }
-
-    @Override
-    public SessionService getSessionService() {
-        return this.sessionService;
     }
 }

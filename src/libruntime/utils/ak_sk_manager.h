@@ -56,7 +56,7 @@ public:
               std::shared_ptr<Security> security,
               std::shared_ptr<LibruntimeConfig> librtConfig);
 
-    ~IamClient() = default;
+    virtual ~IamClient() = default;
 
     virtual YR::Libruntime::ErrorInfo Init();
 

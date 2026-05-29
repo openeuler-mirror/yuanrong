@@ -109,7 +109,7 @@ class TestDecorator(TestCase):
         ins1.terminate()
         self.assertFalse(ins1.is_activate())
 
-        with self.assertRaises(TypeError):
+        with self.assertRaises(RuntimeError):
             instance_proxy.InstanceCreator().create_from_user_class(CppClass, InvokeOptions(name="instance1")).get_instance("instance1")
 
         mock_runtime.get_instance_by_name.return_value = FunctionMeta()
@@ -121,6 +121,41 @@ class TestDecorator(TestCase):
         with self.assertRaises(RuntimeError):
             decorator = instance_proxy.make_decorator()
             decorator("test")
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_named_instance_create_does_not_probe_existing_instance_by_name(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.return_value = "ns-named"
+        get_runtime.return_value = mock_runtime
+
+        class NamedActor:
+            pass
+
+        opt = InvokeOptions(name="named", namespace="ns", skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(NamedActor, opt)
+        instance = creator.invoke()
+
+        self.assertEqual(instance.instance_id, "ns-named")
+        mock_runtime.create_instance.assert_called_once()
+        mock_runtime.get_instance_by_name.assert_not_called()
+
+    @patch("yr.runtime_holder.global_runtime.get_runtime")
+    def test_named_instance_create_propagates_existing_instance_failure(self, get_runtime):
+        mock_runtime = Mock()
+        mock_runtime.create_instance.side_effect = RuntimeError("instance already exists")
+        get_runtime.return_value = mock_runtime
+
+        class NamedActor:
+            pass
+
+        opt = InvokeOptions(name="named", namespace="ns", skip_serialize=True)
+        creator = instance_proxy.InstanceCreator.create_from_user_class(NamedActor, opt)
+
+        with self.assertRaisesRegex(RuntimeError, "instance already exists"):
+            creator.invoke()
+
+        mock_runtime.create_instance.assert_called_once()
+        mock_runtime.get_instance_by_name.assert_not_called()
 
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.log.get_logger")

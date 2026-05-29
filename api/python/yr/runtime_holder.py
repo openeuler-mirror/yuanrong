@@ -18,10 +18,10 @@
 runtime holder
 """
 
-from yr.base_runtime import BaseRuntime
 from yr.config_manager import ConfigManager
 from yr.cluster_mode_runtime import ClusterModeRuntime
 from yr.local_mode.local_mode_runtime import LocalModeRuntime
+from yr.base_runtime import Runtime
 
 
 class RuntimeHolder:
@@ -32,11 +32,11 @@ class RuntimeHolder:
     def __init__(self):
         self.yr_runtime = None
 
-    def init(self, runtime: BaseRuntime):
+    def init(self, runtime: Runtime):
         """init"""
         self.yr_runtime = runtime
 
-    def get_runtime(self) -> BaseRuntime:
+    def get_runtime(self) -> Runtime:
         """get runtime"""
         runtime = self.yr_runtime
         if runtime is None:

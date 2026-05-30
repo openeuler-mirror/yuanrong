@@ -18,13 +18,15 @@
 
 Drives the real ``HTTPClient`` (real ``requests``) against a local HTTP server
 that emulates the frontend-exposed instance kill interface, and verifies the
-delete request actually goes through ``POST /frontend/v1/instance/kill`` with a
-correctly serialized, route-less KillRequest. This is the e2e contract check
-required by the task: "ensure delete goes through the frontend-exposed interface".
+delete request actually goes through ``POST /frontend/v1/instance/kill`` as a
+JSON body (no client-side protobuf), carrying a route-less kill request. This is
+the e2e contract check required by the task: "ensure delete goes through the
+frontend-exposed interface".
 """
 
 import importlib.util
 import io
+import json
 import sys
 import threading
 import types
@@ -36,47 +38,6 @@ from unittest import mock
 
 
 KILL_PATH = "/frontend/v1/instance/kill"
-
-
-def _read_varint(buf, pos):
-    result = 0
-    shift = 0
-    while pos < len(buf):
-        byte = buf[pos]
-        pos += 1
-        result |= (byte & 0x7F) << shift
-        if not byte & 0x80:
-            return result, pos
-        shift += 7
-    raise ValueError("truncated varint")
-
-
-def _decode_kill_request(raw):
-    """Decode KillRequest -> dict with instance_id/signal/route_address/proxy_id."""
-    out = {"instance_id": "", "signal": 0, "route_address": "", "proxy_id": ""}
-    pos = 0
-    while pos < len(raw):
-        tag = raw[pos]
-        pos += 1
-        field = tag >> 3
-        wire = tag & 0x7
-        if wire == 0:
-            value, pos = _read_varint(raw, pos)
-            if field == 2:
-                out["signal"] = value
-        elif wire == 2:
-            length, pos = _read_varint(raw, pos)
-            chunk = raw[pos:pos + length]
-            pos += length
-            if field == 1:
-                out["instance_id"] = chunk.decode("utf-8")
-            elif field == 5:
-                out["route_address"] = chunk.decode("utf-8")
-            elif field == 6:
-                out["proxy_id"] = chunk.decode("utf-8")
-        else:
-            break
-    return out
 
 
 class _FastHTTPServer(ThreadingHTTPServer):
@@ -100,6 +61,7 @@ class _Recorder:
         self.path = None
         self.body = b""
         self.headers = {}
+        self.content_type = None
 
 
 def _make_handler(recorder):
@@ -109,13 +71,17 @@ def _make_handler(recorder):
             recorder.path = self.path
             recorder.body = self.rfile.read(length)
             recorder.headers = {k: v for k, v in self.headers.items()}
-            # Respond with a serialized KillResponse{code=0} (empty == success).
+            recorder.content_type = self.headers.get("Content-Type")
+            # The frontend transcodes JSON to protobuf internally and replies with a
+            # JSON KillResponse. Emulate a success ({"code": 0}).
+            payload = json.dumps({"code": 0, "message": ""}).encode("utf-8")
             self.close_connection = True
             self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", "0")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
             self.send_header("Connection", "close")
             self.end_headers()
+            self.wfile.write(payload)
 
         def log_message(self, *args, **kwargs):
             pass
@@ -202,12 +168,14 @@ class TestCliDeleteEndToEnd(unittest.TestCase):
         self.assertEqual(self.recorder.path, KILL_PATH)
         # JWT propagated.
         self.assertEqual(self.recorder.headers.get("X-Auth"), "e2e-token")
-        # The body is a real serialized KillRequest with no routing info.
-        decoded = _decode_kill_request(self.recorder.body)
-        self.assertEqual(decoded["instance_id"], "instance-e2e-001")
-        self.assertEqual(decoded["signal"], 1)
-        self.assertEqual(decoded["route_address"], "")
-        self.assertEqual(decoded["proxy_id"], "")
+        # The body is plain JSON (no client-side protobuf).
+        self.assertIn("application/json", self.recorder.content_type or "")
+        body = json.loads(self.recorder.body.decode("utf-8"))
+        # Route-less kill request: only instanceID + signal, no routing fields.
+        self.assertEqual(body["instanceID"], "instance-e2e-001")
+        self.assertEqual(body["signal"], 1)
+        self.assertNotIn("routeAddress", body)
+        self.assertNotIn("proxyID", body)
         self.assertIn("succeed to delete sandbox: instance-e2e-001", output.getvalue())
 
 

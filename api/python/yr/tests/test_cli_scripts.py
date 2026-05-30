@@ -762,11 +762,15 @@ class TestCliScripts(unittest.TestCase):
             def __init__(self, **kwargs):
                 self.__class__.kwargs = kwargs
 
-            def request_raw(self, url, body, method="POST", headers=None):
+            def request(self, url, data, headers=None, method="POST"):
                 captured["url"] = url
-                captured["body"] = body
+                captured["data"] = data
                 captured["method"] = method
-                return {"success": True, "status_code": 200, "content": b""}
+                return {
+                    "success": True,
+                    "status_code": 200,
+                    "data": {"code": 0, "message": ""},
+                }
 
         with (
             mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
@@ -777,11 +781,12 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(captured["url"], "http://frontend.example/frontend/v1/instance/kill")
         self.assertEqual(captured["method"], "POST")
-        # body is a serialized KillRequest carrying the instance id and kill signal,
-        # and intentionally carries no routing info (no proxyID/routeAddress fields).
-        self.assertEqual(captured["body"], scripts.encode_kill_request("sandbox-id", 1))
-        self.assertNotIn(b"\x32", captured["body"])  # field 6 (proxyID) absent
-        self.assertNotIn(b"\x2a", captured["body"])  # field 5 (routeAddress) absent
+        # The body is a plain JSON object carrying the instance id and kill signal,
+        # and intentionally carries no routing info (no proxyID/routeAddress), so the
+        # function_proxy resolves the owner locally or forwards to function_master.
+        self.assertEqual(captured["data"], {"instanceID": "sandbox-id", "signal": 1})
+        self.assertNotIn("proxyID", captured["data"])
+        self.assertNotIn("routeAddress", captured["data"])
         self.assertIn("succeed to delete sandbox: sandbox-id", output.getvalue())
 
     def test_sandbox_delete_passes_tls_and_jwt_options(self):
@@ -794,8 +799,12 @@ class TestCliScripts(unittest.TestCase):
             def __init__(self, **kwargs):
                 self.__class__.kwargs = kwargs
 
-            def request_raw(self, url, body, method="POST", headers=None):
-                return {"success": True, "status_code": 200, "content": b""}
+            def request(self, url, data, headers=None, method="POST"):
+                return {
+                    "success": True,
+                    "status_code": 200,
+                    "data": {"code": 0, "message": ""},
+                }
 
         with (
             mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
@@ -815,11 +824,13 @@ class TestCliScripts(unittest.TestCase):
             def __init__(self, **kwargs):
                 pass
 
-            def request_raw(self, url, body, method="POST", headers=None):
+            def request(self, url, data, headers=None, method="POST"):
                 # KillResponse{ code = 14, message = "instance not found" }
-                msg = b"instance not found"
-                content = bytes([0x08, 14]) + bytes([0x12, len(msg)]) + msg
-                return {"success": True, "status_code": 200, "content": content}
+                return {
+                    "success": True,
+                    "status_code": 200,
+                    "data": {"code": 14, "message": "instance not found"},
+                }
 
         with (
             mock.patch.object(scripts, "HTTPClient", FakeHTTPClient),
@@ -832,15 +843,45 @@ class TestCliScripts(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 1)
         self.assertIn("failed to delete sandbox sandbox-id", output.getvalue())
 
-    def test_kill_request_roundtrip_encoding(self):
+    def test_kill_instance_via_frontend_builds_json_and_parses_code(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
-        body = scripts.encode_kill_request("abc-123", 1)
-        # field 1 (instanceID) tag 0x0a, len 7; field 2 (signal) tag 0x10 value 1
-        self.assertEqual(body, b"\x0a\x07abc-123\x10\x01")
-        code, message = scripts.decode_kill_response(b"")
-        self.assertEqual((code, message), (0, ""))
-        code, message = scripts.decode_kill_response(b"\x08\x0e\x12\x03err")
-        self.assertEqual((code, message), (14, "err"))
+        setattr(scripts, "__server_address", "frontend.example")
+
+        captured = {}
+
+        class FakeHTTPClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def request(self, url, data, headers=None, method="POST"):
+                captured["data"] = data
+                return {
+                    "success": True,
+                    "status_code": 200,
+                    "data": {"code": 0, "message": ""},
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FakeHTTPClient):
+            ok = scripts.kill_instance_via_frontend("abc-123")
+        # route-less JSON kill request: only instanceID + signal, no routing fields
+        self.assertEqual(captured["data"], {"instanceID": "abc-123", "signal": 1})
+        self.assertTrue(ok["success"])
+        self.assertEqual(ok["code"], 0)
+
+        # a non-zero KillResponse.code (e.g. ERR_INSTANCE_NOT_FOUND) is a failure
+        class FailingHTTPClient(FakeHTTPClient):
+            def request(self, url, data, headers=None, method="POST"):
+                return {
+                    "success": True,
+                    "status_code": 200,
+                    "data": {"code": 14, "message": "not found"},
+                }
+
+        with mock.patch.object(scripts, "HTTPClient", FailingHTTPClient):
+            failed = scripts.kill_instance_via_frontend("missing")
+        self.assertFalse(failed["success"])
+        self.assertEqual(failed["code"], 14)
+        self.assertEqual(failed["message"], "not found")
 
     def test_wait_until_sandbox_deleted_polls_until_missing(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()

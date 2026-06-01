@@ -58,22 +58,14 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
 {
     // A new stream_ must be generated for the reconnection. Otherwise, an error is reported:
     // protocol is shutdown(SSL routines, ssl write internal)
-    stream_ = std::make_shared<beast::ssl_stream<beast::tcp_stream>>(asio::make_strand(*ioc_), *ctx_);
-    // Set SNI Hostname (hosts need this to handshake successfully)
     YRLOG_INFO("Https init, serverAddr = {}:{}", param.ip, param.port);
     connParam_ = param;
     idleTime_ = connParam_.idleTime;
     std::string msg;
-    const auto &tlsServerName = serverName_.empty() ? param.ip : serverName_;
-    if (!tlsServerName.empty()) {
-        if (!SSL_set_tlsext_host_name(stream_->native_handle(), tlsServerName.c_str())) {
-            YRLOG_ERROR("failed to set servername: {}", tlsServerName);
-            msg = "failed to set servername during initing invoke client, serverName:" + tlsServerName;
-            return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
-        }
-    }
+
+    beast::tcp_stream tcpStream(asio::make_strand(*ioc_));
     try {
-        ConnectWithOptionalProxy(beast::get_lowest_layer(*stream_), resolver_, param, true);
+        ConnectWithOptionalProxy(tcpStream, resolver_, param, true);
         YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
                     param.timeoutSec);
     } catch (const std::exception &e) {
@@ -82,6 +74,17 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
         ss << ", exception: " << e.what();
         YRLOG_DEBUG(ss.str());
         return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, ss.str());
+    }
+
+    stream_ = std::make_shared<beast::ssl_stream<beast::tcp_stream>>(std::move(tcpStream), *ctx_);
+    // Set SNI Hostname (hosts need this to handshake successfully)
+    const auto &tlsServerName = serverName_.empty() ? param.ip : serverName_;
+    if (!tlsServerName.empty()) {
+        if (!SSL_set_tlsext_host_name(stream_->native_handle(), tlsServerName.c_str())) {
+            YRLOG_ERROR("failed to set servername: {}", tlsServerName);
+            msg = "failed to set servername during initing invoke client, serverName:" + tlsServerName;
+            return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
+        }
     }
 
     boost::system::error_code ec;

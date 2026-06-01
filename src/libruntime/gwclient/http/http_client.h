@@ -59,7 +59,6 @@ inline std::string GetProxyUrlFromEnv(bool forHttps)
     if (!Config::Instance().YR_ENABLE_HTTP_PROXY()) {
         return "";
     }
-    // Match curl: scheme-specific proxy first, then fallback to the other.
     if (forHttps) {
         for (const char *key : {"https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"}) {
             const std::string val = YR::GetEnvValue(key);
@@ -78,61 +77,65 @@ inline std::string GetProxyUrlFromEnv(bool forHttps)
     return "";
 }
 
+struct ProxyEndpoint {
+    std::string host;
+    std::string port = "80";
+    std::string auth;
+};
+
+inline ProxyEndpoint ParseProxyUrl(std::string url)
+{
+    if (const auto pos = url.find("://"); pos != std::string::npos) {
+        url = url.substr(pos + 3);
+    }
+    ProxyEndpoint proxy;
+    if (const auto pos = url.rfind('@'); pos != std::string::npos) {
+        proxy.auth = "Basic " + YR::utility::EncodedToString(url.substr(0, pos));
+        url = url.substr(pos + 1);
+    }
+    proxy.host = url;
+    if (const auto pos = url.rfind(':'); pos != std::string::npos) {
+        proxy.host = url.substr(0, pos);
+        proxy.port = url.substr(pos + 1);
+    }
+    if (const auto pos = proxy.port.find('/'); pos != std::string::npos) {
+        proxy.port = proxy.port.substr(0, pos);
+    }
+    return proxy;
+}
+
 inline void ConnectWithOptionalProxy(beast::tcp_stream &stream, asio::ip::tcp::resolver &resolver,
                                      const ConnectionParam &param, bool forHttps)
 {
     const std::string proxyUrl = GetProxyUrlFromEnv(forHttps);
-
     if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
         stream.expires_after(std::chrono::seconds(param.timeoutSec));
     }
 
-    if (!proxyUrl.empty()) {
-        std::string url = proxyUrl;
-        const std::string schemeDelimiter = "://";
-        const auto schemePos = url.find(schemeDelimiter);
-        if (schemePos != std::string::npos) {
-            url = url.substr(schemePos + schemeDelimiter.size());
-        }
+    const std::string target = param.ip + ":" + param.port;
+    if (proxyUrl.empty()) {
+        stream.connect(resolver.resolve(param.ip, param.port));
+    } else {
+        const auto proxy = ParseProxyUrl(proxyUrl);
+        YRLOG_INFO("HTTP CONNECT {} via proxy {}:{}", target, proxy.host, proxy.port);
+        stream.connect(resolver.resolve(proxy.host, proxy.port));
 
-        std::string proxyAuthorization;
-        const auto authPos = url.rfind('@');
-        if (authPos != std::string::npos) {
-            proxyAuthorization = "Basic " + YR::utility::EncodedToString(url.substr(0, authPos));
-            url = url.substr(authPos + 1);
-        }
-
-        std::string proxyHost;
-        std::string proxyPort = "80";
-        const auto portPos = url.rfind(':');
-        if (portPos != std::string::npos) {
-            proxyHost = url.substr(0, portPos);
-            proxyPort = url.substr(portPos + 1);
-        } else {
-            proxyHost = url;
-        }
-
-        YRLOG_INFO("connecting to {}:{} via proxy {}:{}", param.ip, param.port, proxyHost, proxyPort);
-        stream.connect(resolver.resolve(proxyHost, proxyPort));
-
-        const std::string connectTarget = param.ip + ":" + param.port;
-        http::request<http::empty_body> req{http::verb::connect, connectTarget, 11};
-        req.set(http::field::host, connectTarget);
-        if (!proxyAuthorization.empty()) {
-            req.set(http::field::proxy_authorization, proxyAuthorization);
+        http::request<http::empty_body> req{http::verb::connect, target, 11};
+        req.set(http::field::host, target);
+        req.set(http::field::proxy_connection, "keep-alive");
+        if (!proxy.auth.empty()) {
+            req.set(http::field::proxy_authorization, proxy.auth);
         }
         http::write(stream, req);
 
         beast::flat_buffer buffer;
         http::response_parser<http::empty_body> parser;
         parser.body_limit(0);
-        http::read(stream, buffer, parser);
+        http::read_header(stream, buffer, parser);
         if (parser.get().result() != http::status::ok) {
-            throw std::runtime_error("HTTP CONNECT via proxy failed, status " +
+            throw std::runtime_error("HTTP CONNECT rejected, status " +
                                      std::to_string(parser.get().result_int()));
         }
-    } else {
-        stream.connect(resolver.resolve(param.ip, param.port));
     }
 
     if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {

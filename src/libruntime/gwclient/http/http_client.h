@@ -83,14 +83,53 @@ struct ProxyEndpoint {
     std::string auth;
 };
 
+const size_t URL_PERCENT_HEX_LEN = 2;
+const int URL_HEX_NIBBLE_BITS = 4;
+
+inline std::string UrlDecodePercent(const std::string &in)
+{
+    auto hexVal = [](char c) -> int {
+        if (c >= '0' && c <= '9') {
+            return c - '0';
+        }
+        if (c >= 'a' && c <= 'f') {
+            return c - 'a' + 10;
+        }
+        if (c >= 'A' && c <= 'F') {
+            return c - 'A' + 10;
+        }
+        return -1;
+    };
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size(); ++i) {
+        if (in[i] == '%' && i + URL_PERCENT_HEX_LEN < in.size()) {
+            const int hi = hexVal(in[i + 1]);
+            const int lo = hexVal(in[i + URL_PERCENT_HEX_LEN]);
+            if (hi >= 0 && lo >= 0) {
+                out.push_back(static_cast<char>((hi << URL_HEX_NIBBLE_BITS) | lo));
+                i += URL_PERCENT_HEX_LEN;
+                continue;
+            }
+        }
+        out.push_back(in[i]);
+    }
+    return out;
+}
+
 inline ProxyEndpoint ParseProxyUrl(std::string url)
 {
     if (const auto pos = url.find("://"); pos != std::string::npos) {
         url = url.substr(pos + 3);
     }
     ProxyEndpoint proxy;
-    if (const auto pos = url.rfind('@'); pos != std::string::npos) {
-        proxy.auth = "Basic " + YR::utility::EncodedToString(url.substr(0, pos));
+    if (const auto pos = url.rfind('@'); pos != std::string::npos && pos > 0) {
+        const std::string userinfo = UrlDecodePercent(url.substr(0, pos));
+        std::string encoded = YR::utility::EncodedToString(userinfo);
+        while (!encoded.empty() && encoded.back() == '\0') {
+            encoded.pop_back();
+        }
+        proxy.auth = "Basic " + encoded;
         url = url.substr(pos + 1);
     }
     proxy.host = url;
@@ -105,7 +144,8 @@ inline ProxyEndpoint ParseProxyUrl(std::string url)
 }
 
 inline void ConnectWithOptionalProxy(beast::tcp_stream &stream, asio::ip::tcp::resolver &resolver,
-                                     const ConnectionParam &param, bool forHttps)
+                                     const ConnectionParam &param, bool forHttps,
+                                     beast::flat_buffer *connectPrefix = nullptr)
 {
     const std::string proxyUrl = GetProxyUrlFromEnv(forHttps);
     if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
@@ -122,6 +162,7 @@ inline void ConnectWithOptionalProxy(beast::tcp_stream &stream, asio::ip::tcp::r
 
         http::request<http::empty_body> req{http::verb::connect, target, 11};
         req.set(http::field::host, target);
+        req.set(http::field::connection, "keep-alive");
         req.set(http::field::proxy_connection, "keep-alive");
         if (!proxy.auth.empty()) {
             req.set(http::field::proxy_authorization, proxy.auth);
@@ -130,11 +171,14 @@ inline void ConnectWithOptionalProxy(beast::tcp_stream &stream, asio::ip::tcp::r
 
         beast::flat_buffer buffer;
         http::response_parser<http::empty_body> parser;
-        parser.body_limit(0);
         http::read_header(stream, buffer, parser);
         if (parser.get().result() != http::status::ok) {
             throw std::runtime_error("HTTP CONNECT rejected, status " +
                                      std::to_string(parser.get().result_int()));
+        }
+        // Header 之后的字节（含 TLS 首包）留在 buffer 中，勿当作 HTTP body 消费掉。
+        if (connectPrefix != nullptr) {
+            *connectPrefix = std::move(buffer);
         }
     }
 

@@ -63,9 +63,11 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
     idleTime_ = connParam_.idleTime;
     std::string msg;
 
-    beast::tcp_stream tcpStream(asio::make_strand(*ioc_));
+    beast::flat_buffer connectPrefix;
+    PrefixedTcpStream tcpStream(asio::make_strand(*ioc_));
     try {
-        ConnectWithOptionalProxy(tcpStream, resolver_, param, true);
+        ConnectWithOptionalProxy(tcpStream.stream(), resolver_, param, true, &connectPrefix);
+        YRLOG_DEBUG("CONNECT tunnel prefix bytes: {}", connectPrefix.size());
         YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
                     param.timeoutSec);
     } catch (const std::exception &e) {
@@ -76,7 +78,8 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
         return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, ss.str());
     }
 
-    stream_ = std::make_shared<beast::ssl_stream<beast::tcp_stream>>(std::move(tcpStream), *ctx_);
+    tcpStream.setPrefix(std::move(connectPrefix));
+    stream_ = std::make_shared<beast::ssl_stream<PrefixedTcpStream>>(std::move(tcpStream), *ctx_);
     // Set SNI Hostname (hosts need this to handshake successfully)
     const auto &tlsServerName = serverName_.empty() ? param.ip : serverName_;
     if (!tlsServerName.empty()) {

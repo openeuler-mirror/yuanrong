@@ -10,15 +10,14 @@
 
 {% block extrahead %}
     {{ super() }}
-    {% if html_baseurl %}
-    <link rel="canonical" href="{{ html_baseurl }}{{ pagename }}.html" />
-    <link rel="alternate" hreflang="zh-cn" href="https://docs.openyuanrong.org/zh-cn/latest/{{ pagename }}.html" />
-    <link rel="alternate" hreflang="en" href="https://docs.openyuanrong.org/en/latest/{{ pagename }}.html" />
-    <link rel="alternate" hreflang="x-default" href="https://docs.openyuanrong.org/zh-cn/latest/{{ pagename }}.html" />
+    {% if base_url %}
+    <link rel="alternate" hreflang="zh-cn" href="{{ base_url|replace('/en/', '/zh-cn/') }}{{ pagename }}.html" />
+    <link rel="alternate" hreflang="en" href="{{ base_url }}{{ pagename }}.html" />
+    <link rel="alternate" hreflang="x-default" href="{{ base_url|replace('/en/', '/zh-cn/') }}{{ pagename }}.html" />
     {% endif %}
     <meta property="og:title" content="{% if pagename == 'index' %}openYuanrong Documentation{% else %}{{ title|striptags|e }}{% endif %}" />
     <meta property="og:site_name" content="openYuanrong" />
-    <meta property="og:type" content="documentation" />
+    <meta property="og:type" content="{% if pagename == 'index' %}website{% else %}article{% endif %}" />
     <meta property="og:locale" content="en" />
     <meta property="og:locale:alternate" content="zh_CN" />
 <script>

@@ -191,6 +191,7 @@ html_context = {
     **ICONS,
     "blog_data": BLOG_DATA,
     "doc_language": "zh-cn",
+    "base_url": html_baseurl,  # requires html_baseurl to be set above
     "metatags": """
             <meta name="author" content="openYuanrong Team">
             <meta name="keywords" content="openYuanrong, 分布式计算引擎, AI推理, Serverless">

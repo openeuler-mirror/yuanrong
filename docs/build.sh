@@ -109,8 +109,11 @@ EOF
   # Generate robots.txt at root level
   cat > "${OUTPUT_DIR}"/docs/robots.txt << 'EOF'
 User-agent: *
-Allow: /
-Disallow: */search.html*
+Allow: /zh-cn/latest/
+Allow: /en/latest/
+Disallow: /zh-cn/
+Disallow: /en/
+Disallow: */search.html
 
 Sitemap: https://docs.openyuanrong.org/sitemap.xml
 EOF

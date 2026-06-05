@@ -2,6 +2,16 @@
 
 {% block extrahead %}
 <meta charset="UTF-8">
+{% if base_url %}
+<link rel="alternate" hreflang="zh-cn" href="{{ base_url|replace('/en/', '/zh-cn/') }}index.html" />
+<link rel="alternate" hreflang="en" href="{{ base_url }}index.html" />
+<link rel="alternate" hreflang="x-default" href="{{ base_url|replace('/en/', '/zh-cn/') }}index.html" />
+{% endif %}
+<meta property="og:title" content="openYuanrong Documentation" />
+<meta property="og:site_name" content="openYuanrong" />
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="en" />
+<meta property="og:locale:alternate" content="zh_CN" />
 <script type="application/ld+json">
     {
         "@context": "https://schema.org",
@@ -386,8 +396,6 @@
                         <h3 class="text-lg mb-0.5 font-bold text-slate-800 dark:!text-blue-500 flex items-center gap-3">Ecosystem & Tools</h3>
                         <p class="text-sm mb-1 leading-relaxed text-slate-500 dark:!text-slate-400 max-w-md">
                             Spring adaptor/ray adaptor and other ecosystem compatibility.
-<!--                            placeholder character-->
-                            <span class="invisible">*******************************</span>
                         </p>
                         <div>
                             <a href="https://gitcode.com/openeuler/spring-adapter" target="_blank" rel="noopener noreferrer"

@@ -403,7 +403,10 @@ class InvokeOptions:
     memory: int = 500
     #: Instance concurrency. Value Range is [1, 1000]. Priority is higher than
     #: the "Concurrency" configured in custom_extensions. It is recommended to use this parameter for configuration.
-    concurrency: int = 1
+    #: If not set (None), the default value will be determined by the runtime:
+    #: - For async task/actor: 1000
+    #: - For non-async task/actor: 1
+    concurrency: Optional[int] = None
     #: Custom resources currently support "GPU/XX/YY" and "NPU/XX/YY", where XX is the card model such as Ascend910B4,
     #: and YY can be count, latency, or stream.
     custom_resources: Dict[str, float] = field(default_factory=dict)

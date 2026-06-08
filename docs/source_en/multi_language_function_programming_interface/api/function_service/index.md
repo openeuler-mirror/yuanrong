@@ -6,7 +6,7 @@
    :maxdepth: 1
    :hidden:
    
-   Python/index
+   Python/python_sdk
    Cpp/cpp_sdk
    Java/java_sdk
    function_invocation

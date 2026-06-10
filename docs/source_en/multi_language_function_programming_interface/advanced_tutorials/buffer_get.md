@@ -55,7 +55,6 @@ Example code:
 ```python
 import yr
 
-@yr.invoke
 def echo(str):
     return str
 ```

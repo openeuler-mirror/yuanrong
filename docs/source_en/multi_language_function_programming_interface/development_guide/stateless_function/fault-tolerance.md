@@ -81,7 +81,8 @@ int main(int argc, char *argv[])
     opt.retryChecker = RetryForConnection;
 
     try {
-        auto ref = YR::Function(Add).Options(opt).Invoke(1);                                                                    std::cout << *YR::Get(ref) << std::endl;
+        auto ref = YR::Function(Add).Options(opt).Invoke(1);
+        std::cout << *YR::Get(ref) << std::endl;
     } catch (const YR::Exception &e) {
         std::cout << e.what() << std::endl;
     }

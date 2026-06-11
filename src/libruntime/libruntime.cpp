@@ -430,6 +430,9 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateInstance(const YR::Libruntim
 
 bool Libruntime::PutRefArgToDs(std::shared_ptr<InvokeSpec> spec)
 {
+    if (spec->opts.bypassDatasystem) {
+        return true;
+    }
     ErrorInfo errInfo;
     for (unsigned int i = 0; i < spec->invokeArgs.size(); i++) {
         auto &arg = spec->invokeArgs[i];

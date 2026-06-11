@@ -1436,7 +1436,7 @@ void InvokeAdaptor::HandleReturnedObject(const NotifyRequest &req, const std::sh
             }
         }
     }
-    if (librtConfig->inCluster) {
+    if (librtConfig->inCluster && !spec->opts.bypassDatasystem) {
         auto err = memStore->IncreDSGlobalReference(dsObjs);
         if (!err.OK()) {
             YRLOG_WARN("failed to increase obj ref [{},...] by requestid {}, Code: {}, Msg: {}", dsObjs[0],

@@ -57,6 +57,10 @@ public class InstanceFunctionHandler<R> extends Handler {
 
     private ApiType apiType;
 
+    private String name = "";
+
+    private String ns = "";
+
     /**
      * The constructor of the InstanceFunctionHandler.
      *
@@ -83,7 +87,7 @@ public class InstanceFunctionHandler<R> extends Handler {
      * @snippet{trimleft} InstanceFunctionExample.java instanceFunction invoke example
      */
     public ObjectRef invoke(Object... args) throws YRException {
-        FunctionMeta functionMeta = getFunctionMeta(this.func, this.apiType);
+        FunctionMeta functionMeta = getFunctionMeta(this.func, this.apiType, this.ns, this.name);
         Runtime runtime = YR.getRuntime();
         FunctionWrapper function = runtime.getJavaFunction(functionMeta);
         SdkUtils.checkJavaParameterTypes(function, args);
@@ -92,6 +96,24 @@ public class InstanceFunctionHandler<R> extends Handler {
         LOGGER.debug("Succeeded to invoke instance, objectRefId: {}", objId);
         Class<?> returnType = function.getReturnType().orElse(null);
         return new ObjectRef(objId, returnType);
+    }
+
+    /**
+     * set instance name.
+     *
+     * @param name instance name.
+     */
+    void setName(String name) {
+        this.name = name;
+    }
+
+    /**
+     * set instance namespace.
+     *
+     * @param ns instance namespace.
+     */
+    void setNs(String ns) {
+        this.ns = ns;
     }
 
     /**

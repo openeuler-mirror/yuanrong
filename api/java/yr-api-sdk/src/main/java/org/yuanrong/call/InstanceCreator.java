@@ -124,6 +124,8 @@ public class InstanceCreator<A> extends Handler {
         Runtime runtime = YR.getRuntime();
         String instanceId = runtime.createInstance(functionMeta, SdkUtils.packInvokeArgs(args), options);
         InstanceHandler handler = new InstanceHandler(instanceId, apiType);
+        handler.setName(this.name);
+        handler.setNs(this.nameSpace);
         handler.setNeedOrder(options.isNeedOrder());
         return handler;
     }

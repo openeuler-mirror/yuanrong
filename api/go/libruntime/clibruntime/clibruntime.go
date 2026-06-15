@@ -109,13 +109,43 @@ func CreateClient(config api.ConnectArguments) (api.KvClient, error) {
 
 func messageFree(cErr C.CErrorInfo) string {
 	msg := CSafeGoString(cErr.message)
-	CSafeFree(cErr.message)
+	freeCErrorFields(cErr)
 	return msg
 }
 
+func freeCErrorFields(cErr C.CErrorInfo) {
+	CSafeFree(cErr.message)
+	CSafeFree(cErr.routeHintInstanceID)
+	CSafeFree(cErr.routeHintRouteAddress)
+	CSafeFree(cErr.routeHintProxyID)
+	CSafeFree(cErr.routeHintReason)
+}
+
+func routeUpdateErrorFromCError(cErr C.CErrorInfo, err error) error {
+	routeAddress := CSafeGoString(cErr.routeHintRouteAddress)
+	if routeAddress == "" {
+		return nil
+	}
+	return &api.RouteUpdateError{
+		InstanceID:   CSafeGoString(cErr.routeHintInstanceID),
+		RouteAddress: routeAddress,
+		ProxyID:      CSafeGoString(cErr.routeHintProxyID),
+		Retryable:    cErr.routeHintRetryable != 0,
+		Reason:       CSafeGoString(cErr.routeHintReason),
+		ModRevision:  int64(cErr.routeHintModRevision),
+		Err:          err,
+	}
+}
+
 func codeNotZeroErr(code int, cErr C.CErrorInfo, str string) error {
-	msg := messageFree(cErr)
-	return api.ErrorInfo{Code: code, Err: fmt.Errorf(str+"%s", msg)}
+	msg := CSafeGoString(cErr.message)
+	baseErr := api.ErrorInfo{Code: code, Err: fmt.Errorf(str+"%s", msg)}
+	if routeErr := routeUpdateErrorFromCError(cErr, baseErr); routeErr != nil {
+		freeCErrorFields(cErr)
+		return routeErr
+	}
+	freeCErrorFields(cErr)
+	return baseErr
 }
 
 func codeNotZeroDsErr(code int, cErr C.CErrorInfo, str string) api.ErrorInfo {
@@ -2303,7 +2333,15 @@ func errtoCerr(e error) *C.CErrorInfo {
 		ce := (*C.CErrorInfo)(C.malloc(C.sizeof_CErrorInfo))
 		ce.code = 0
 		ce.message = nil
+		ce.stackTracesInfo = nil
 		ce.size_stackTracesInfo = 0
+		ce.dsStatusCode = 0
+		ce.routeHintInstanceID = nil
+		ce.routeHintRouteAddress = nil
+		ce.routeHintProxyID = nil
+		ce.routeHintRetryable = 0
+		ce.routeHintReason = nil
+		ce.routeHintModRevision = 0
 		return ce
 	}
 	return getCErrwithStackTrace(e)
@@ -2352,6 +2390,23 @@ func getCErrwithStackTrace(e error) *C.CErrorInfo {
 	ce := (*C.CErrorInfo)(C.malloc(C.sizeof_CErrorInfo))
 	ce.code = 2002
 	ce.message = C.CString(e.Error())
+	ce.stackTracesInfo = nil
+	ce.size_stackTracesInfo = 0
+	ce.dsStatusCode = 0
+	ce.routeHintInstanceID = nil
+	ce.routeHintRouteAddress = nil
+	ce.routeHintProxyID = nil
+	ce.routeHintRetryable = 0
+	ce.routeHintReason = nil
+	ce.routeHintModRevision = 0
+	if hint, ok := api.AsRouteUpdateError(e); ok {
+		ce.routeHintInstanceID = C.CString(hint.InstanceID)
+		ce.routeHintRouteAddress = C.CString(hint.RouteAddress)
+		ce.routeHintProxyID = C.CString(hint.ProxyID)
+		ce.routeHintRetryable = C.char(btoi(hint.Retryable))
+		ce.routeHintReason = C.CString(hint.Reason)
+		ce.routeHintModRevision = C.int64_t(hint.ModRevision)
+	}
 	errInfo := api.TurnErrInfo(e)
 	if len(errInfo.StackTracesInfo.StackTraces) == 0 {
 		ce.size_stackTracesInfo = 0

@@ -40,9 +40,9 @@ message CallRequest {
 }
 
 message CallResponse {
-  common.ErrorCode code    = 1;
-  string           message = 2;
-
+  common.ErrorCode       code            = 1;
+  string                 message         = 2;
+  common.RouteUpdateHint routeUpdateHint = 3;
 }
 
 message CheckpointRequest {

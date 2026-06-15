@@ -20,21 +20,23 @@ package libruntimesdkimpl
 import (
 	"fmt"
 	"os"
-	"sync"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
 	"yuanrong.org/kernel/runtime/libruntime/clibruntime"
 	"yuanrong.org/kernel/runtime/libruntime/common/logger/log"
 	"yuanrong.org/kernel/runtime/libruntime/common/utils"
+	"yuanrong.org/kernel/runtime/libruntime/libruntimesdkimpl/routecache"
 )
 
 type libruntimeSDKImpl struct {
-	routeCache sync.Map
+	routeCache *routecache.Cache
 }
+
+var killWithRoute = clibruntime.Kill
 
 // NewLibruntimeSDKImpl creates and returns a new libruntimeSDK instance
 func NewLibruntimeSDKImpl() api.LibruntimeAPI {
-	return &libruntimeSDKImpl{}
+	return &libruntimeSDKImpl{routeCache: routecache.New(routecache.CapacityFromEnv())}
 }
 
 func (l *libruntimeSDKImpl) CreateInstance(
@@ -57,8 +59,11 @@ func (l *libruntimeSDKImpl) InvokeByFunctionName(
 func (l *libruntimeSDKImpl) AcquireInstance(state string, funcMeta api.FunctionMeta,
 	acquireOpt api.InvokeOptions) (api.InstanceAllocation, error) {
 	allocation, err := clibruntime.AcquireInstance(state, funcMeta, acquireOpt)
-	if err == nil && allocation.InstanceID != "" {
-		l.routeCache.Store(allocation.InstanceID, [2]string{allocation.RouteAddress, allocation.ProxyID})
+	if err == nil && allocation.InstanceID != "" && allocation.RouteAddress != "" {
+		l.routeCache.Put(allocation.InstanceID, routecache.Entry{
+			RouteAddress: allocation.RouteAddress,
+			ProxyID:      allocation.ProxyID,
+		})
 	}
 	return allocation, err
 }
@@ -70,12 +75,29 @@ func (l *libruntimeSDKImpl) ReleaseInstance(allocation api.InstanceAllocation, s
 
 func (l *libruntimeSDKImpl) Kill(instanceID string, signal int, payload []byte, invokeOpt api.InvokeOptions) error {
 	_ = invokeOpt
+	return l.killWithRetry(instanceID, signal, payload, false)
+}
+
+func (l *libruntimeSDKImpl) killWithRetry(instanceID string, signal int, payload []byte, retried bool) error {
 	routeAddress, proxyID := "", ""
-	if v, ok := l.routeCache.Load(instanceID); ok {
-		pair := v.([2]string)
-		routeAddress, proxyID = pair[0], pair[1]
+	if entry, ok := l.routeCache.Get(instanceID); ok {
+		routeAddress, proxyID = entry.RouteAddress, entry.ProxyID
 	}
-	return clibruntime.Kill(instanceID, signal, payload, routeAddress, proxyID)
+	err := killWithRoute(instanceID, signal, payload, routeAddress, proxyID)
+	if hint, ok := asRouteUpdateError(err); ok {
+		hintInstanceID := hint.InstanceID
+		if hintInstanceID == "" {
+			hintInstanceID = instanceID
+		}
+		if hintInstanceID != instanceID {
+			return err
+		}
+		l.routeCache.Put(hintInstanceID, routecache.Entry{RouteAddress: hint.RouteAddress, ProxyID: hint.ProxyID})
+		if !retried {
+			return l.killWithRetry(instanceID, signal, payload, true)
+		}
+	}
+	return err
 }
 
 func (l *libruntimeSDKImpl) CreateInstanceRaw(createReqRaw []byte, option api.RawRequestOption) ([]byte, error) {
@@ -271,4 +293,8 @@ func (l *libruntimeSDKImpl) IsDsHealth() bool {
 // GetActiveMasterAddr for getting active master address
 func (l *libruntimeSDKImpl) GetActiveMasterAddr() string {
 	return clibruntime.GetActiveMasterAddr()
+}
+
+func asRouteUpdateError(err error) (*api.RouteUpdateError, bool) {
+	return api.AsRouteUpdateError(err)
 }

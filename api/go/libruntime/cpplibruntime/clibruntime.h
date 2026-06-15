@@ -54,6 +54,12 @@ typedef struct tagCErrorInfo {
     CStackTracesInfo *stackTracesInfo;
     int size_stackTracesInfo;
     int dsStatusCode;
+    char *routeHintInstanceID;
+    char *routeHintRouteAddress;
+    char *routeHintProxyID;
+    char routeHintRetryable;
+    char *routeHintReason;
+    int64_t routeHintModRevision;
 } CErrorInfo;
 
 typedef enum tagCArgType {

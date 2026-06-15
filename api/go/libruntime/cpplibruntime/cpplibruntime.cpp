@@ -47,6 +47,7 @@ using YR::Libruntime::LibruntimeManager;
 using YR::Libruntime::MSetParam;
 using YR::Libruntime::NativeBuffer;
 using YR::Libruntime::ProducerConf;
+using YR::Libruntime::RouteUpdateHint;
 using YR::Libruntime::SetParam;
 using YR::Libruntime::StackTraceElement;
 using YR::Libruntime::StackTraceInfo;
@@ -84,6 +85,8 @@ std::tuple<std::shared_ptr<YR::Libruntime::Libruntime>, ErrorInfo> getLibRuntime
     return {lrt, ErrorInfo(YR::Libruntime::ErrorCode::ERR_OK, YR::Libruntime::ModuleCode::RUNTIME, "")};
 }
 
+void FreeRouteHintFields(CErrorInfo *cerr);
+
 ErrorInfo CErrorToErrorInfo(CErrorInfo *cerr)
 {
     ErrorInfo err;
@@ -95,6 +98,23 @@ ErrorInfo CErrorToErrorInfo(CErrorInfo *cerr)
         err.SetErrorMsg(cerr->message);
         free(cerr->message);
     }
+    RouteUpdateHint routeHint;
+    if (cerr->routeHintInstanceID != nullptr) {
+        routeHint.instanceID = cerr->routeHintInstanceID;
+    }
+    if (cerr->routeHintRouteAddress != nullptr) {
+        routeHint.routeAddress = cerr->routeHintRouteAddress;
+    }
+    if (cerr->routeHintProxyID != nullptr) {
+        routeHint.proxyID = cerr->routeHintProxyID;
+    }
+    routeHint.retryable = cerr->routeHintRetryable != 0;
+    if (cerr->routeHintReason != nullptr) {
+        routeHint.reason = cerr->routeHintReason;
+    }
+    routeHint.modRevision = cerr->routeHintModRevision;
+    err.SetRouteUpdateHint(routeHint);
+    FreeRouteHintFields(cerr);
     if (cerr->size_stackTracesInfo == 0) {
         free(cerr);
         return err;
@@ -155,6 +175,21 @@ char *CString(const std::string &str)
     return cStr;
 }
 
+void FreeRouteHintFields(CErrorInfo *cerr)
+{
+    if (cerr == nullptr) {
+        return;
+    }
+    free(cerr->routeHintInstanceID);
+    free(cerr->routeHintRouteAddress);
+    free(cerr->routeHintProxyID);
+    free(cerr->routeHintReason);
+    cerr->routeHintInstanceID = nullptr;
+    cerr->routeHintRouteAddress = nullptr;
+    cerr->routeHintProxyID = nullptr;
+    cerr->routeHintReason = nullptr;
+}
+
 CErrorInfo ErrorInfoToCError(const ErrorInfo &err)
 {
     CErrorInfo cErr{};
@@ -164,6 +199,21 @@ CErrorInfo ErrorInfoToCError(const ErrorInfo &err)
     if (!err.Msg().empty()) {
         cErr.message = CString(err.Msg());
     }
+    auto routeHint = err.GetRouteUpdateHint();
+    if (!routeHint.instanceID.empty()) {
+        cErr.routeHintInstanceID = CString(routeHint.instanceID);
+    }
+    if (!routeHint.routeAddress.empty()) {
+        cErr.routeHintRouteAddress = CString(routeHint.routeAddress);
+    }
+    if (!routeHint.proxyID.empty()) {
+        cErr.routeHintProxyID = CString(routeHint.proxyID);
+    }
+    cErr.routeHintRetryable = routeHint.retryable ? 1 : 0;
+    if (!routeHint.reason.empty()) {
+        cErr.routeHintReason = CString(routeHint.reason);
+    }
+    cErr.routeHintModRevision = routeHint.modRevision;
     std::vector<StackTraceInfo> stackTracesInfo = err.GetStackTraceInfos();
     if (stackTracesInfo.size() == 0) {
         return cErr;

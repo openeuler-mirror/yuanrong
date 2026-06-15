@@ -2055,8 +2055,22 @@ ErrorInfo InvokeAdaptor::WaitAndCheckResp(std::shared_future<ResponseType> &futu
     ResponseType rsp = future.get();
     if (rsp.code() != common::ERR_NONE) {
         YRLOG_ERROR("Failed to {} instance: {}, err is: {}", operation, instanceId, rsp.message());
-        return ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::CORE,
-                         "Failed to " + operation + " instance: " + instanceId + " , err is : " + rsp.message());
+        ErrorInfo errInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::CORE,
+                          "Failed to " + operation + " instance: " + instanceId + " , err is : " + rsp.message());
+        if constexpr (std::is_same<ResponseType, KillResponse>::value) {
+            if (rsp.has_routeupdatehint()) {
+                const auto &hint = rsp.routeupdatehint();
+                RouteUpdateHint routeHint;
+                routeHint.instanceID = hint.instanceid();
+                routeHint.routeAddress = hint.routeaddress();
+                routeHint.proxyID = hint.proxyid();
+                routeHint.retryable = hint.retryable();
+                routeHint.reason = hint.reason();
+                routeHint.modRevision = hint.modrevision();
+                errInfo.SetRouteUpdateHint(routeHint);
+            }
+        }
+        return errInfo;
     }
     YRLOG_DEBUG("Succeeded to receive {} instance response, instance id is {}", operation, instanceId);
     return ErrorInfo(ErrorCode::ERR_OK, rsp.message());

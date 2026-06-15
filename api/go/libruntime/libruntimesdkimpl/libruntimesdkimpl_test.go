@@ -24,6 +24,7 @@ import (
 	"github.com/smartystreets/goconvey/convey"
 
 	"yuanrong.org/kernel/runtime/libruntime/api"
+	"yuanrong.org/kernel/runtime/libruntime/libruntimesdkimpl/routecache"
 )
 
 func TestCreateClient(t *testing.T) {
@@ -55,6 +56,155 @@ func TestCreateClient(t *testing.T) {
 			)
 		},
 	)
+}
+
+func TestKillUpdatesRouteAndRetriesOnceOnRouteHint(t *testing.T) {
+	sdk := NewLibruntimeSDKImpl().(*libruntimeSDKImpl)
+	sdk.routeCache.Put("inst", routecache.Entry{RouteAddress: "old-route", ProxyID: "old-proxy"})
+
+	calls := 0
+	old := killWithRoute
+	defer func() { killWithRoute = old }()
+	killWithRoute = func(instanceID string, signal int, payload []byte, routeAddress string, proxyID string) error {
+		calls++
+		if calls == 1 {
+			if routeAddress != "old-route" || proxyID != "old-proxy" {
+				t.Fatalf("first call route=%s proxy=%s", routeAddress, proxyID)
+			}
+			return api.NewRouteUpdateError("inst", "new-route", "new-proxy")
+		}
+		if routeAddress != "new-route" || proxyID != "new-proxy" {
+			t.Fatalf("retry route=%s proxy=%s", routeAddress, proxyID)
+		}
+		return nil
+	}
+
+	if err := sdk.Kill("inst", 9, nil, api.InvokeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d", calls)
+	}
+	if entry, ok := sdk.routeCache.Get("inst"); !ok || entry.RouteAddress != "new-route" || entry.ProxyID != "new-proxy" {
+		t.Fatalf("cached route=%+v ok=%v", entry, ok)
+	}
+}
+
+func TestKillDoesNotRetryTwiceOnRouteHint(t *testing.T) {
+	sdk := NewLibruntimeSDKImpl().(*libruntimeSDKImpl)
+
+	calls := 0
+	old := killWithRoute
+	defer func() { killWithRoute = old }()
+	killWithRoute = func(instanceID string, signal int, payload []byte, routeAddress string, proxyID string) error {
+		calls++
+		return api.NewRouteUpdateError("inst", "new-route", "new-proxy")
+	}
+
+	if err := sdk.Kill("inst", 9, nil, api.InvokeOptions{}); err == nil {
+		t.Fatal("expected final route update error")
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d", calls)
+	}
+}
+
+func TestKillDoesNotRetryRouteHintWithEmptyRoute(t *testing.T) {
+	sdk := NewLibruntimeSDKImpl().(*libruntimeSDKImpl)
+	sdk.routeCache.Put("inst", routecache.Entry{RouteAddress: "old-route", ProxyID: "old-proxy"})
+
+	calls := 0
+	old := killWithRoute
+	defer func() { killWithRoute = old }()
+	killWithRoute = func(instanceID string, signal int, payload []byte, routeAddress string, proxyID string) error {
+		calls++
+		return api.NewRouteUpdateError("inst", "", "new-proxy")
+	}
+
+	if err := sdk.Kill("inst", 9, nil, api.InvokeOptions{}); err == nil {
+		t.Fatal("expected route update error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d", calls)
+	}
+	if entry, ok := sdk.routeCache.Get("inst"); !ok || entry.RouteAddress != "old-route" || entry.ProxyID != "old-proxy" {
+		t.Fatalf("cached route=%+v ok=%v", entry, ok)
+	}
+}
+
+func TestKillDoesNotRetryNonRetryableRouteHint(t *testing.T) {
+	sdk := NewLibruntimeSDKImpl().(*libruntimeSDKImpl)
+	sdk.routeCache.Put("inst", routecache.Entry{RouteAddress: "old-route", ProxyID: "old-proxy"})
+
+	calls := 0
+	old := killWithRoute
+	defer func() { killWithRoute = old }()
+	killWithRoute = func(instanceID string, signal int, payload []byte, routeAddress string, proxyID string) error {
+		calls++
+		return &api.RouteUpdateError{InstanceID: "inst", RouteAddress: "new-route", ProxyID: "new-proxy", Retryable: false}
+	}
+
+	if err := sdk.Kill("inst", 9, nil, api.InvokeOptions{}); err == nil {
+		t.Fatal("expected non-retryable route update error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d", calls)
+	}
+	if entry, ok := sdk.routeCache.Get("inst"); !ok || entry.RouteAddress != "old-route" || entry.ProxyID != "old-proxy" {
+		t.Fatalf("cached route=%+v ok=%v", entry, ok)
+	}
+}
+
+func TestKillRetriesRouteHintWithEmptyInstanceID(t *testing.T) {
+	sdk := NewLibruntimeSDKImpl().(*libruntimeSDKImpl)
+	sdk.routeCache.Put("inst", routecache.Entry{RouteAddress: "old-route", ProxyID: "old-proxy"})
+
+	calls := 0
+	old := killWithRoute
+	defer func() { killWithRoute = old }()
+	killWithRoute = func(instanceID string, signal int, payload []byte, routeAddress string, proxyID string) error {
+		calls++
+		if calls == 1 {
+			return api.NewRouteUpdateError("", "new-route", "new-proxy")
+		}
+		if routeAddress != "new-route" || proxyID != "new-proxy" {
+			t.Fatalf("retry route=%s proxy=%s", routeAddress, proxyID)
+		}
+		return nil
+	}
+
+	if err := sdk.Kill("inst", 9, nil, api.InvokeOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d", calls)
+	}
+}
+
+func TestKillDoesNotRetryMismatchedRouteHintInstanceID(t *testing.T) {
+	sdk := NewLibruntimeSDKImpl().(*libruntimeSDKImpl)
+	sdk.routeCache.Put("inst", routecache.Entry{RouteAddress: "old-route", ProxyID: "old-proxy"})
+
+	calls := 0
+	old := killWithRoute
+	defer func() { killWithRoute = old }()
+	killWithRoute = func(instanceID string, signal int, payload []byte, routeAddress string, proxyID string) error {
+		calls++
+		return api.NewRouteUpdateError("other-inst", "new-route", "new-proxy")
+	}
+
+	if err := sdk.Kill("inst", 9, nil, api.InvokeOptions{}); err == nil {
+		t.Fatal("expected mismatched route update error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d", calls)
+	}
+	if entry, ok := sdk.routeCache.Get("inst"); !ok || entry.RouteAddress != "old-route" || entry.ProxyID != "old-proxy" {
+		t.Fatalf("cached route=%+v ok=%v", entry, ok)
+	}
+	if entry, ok := sdk.routeCache.Get("other-inst"); ok {
+		t.Fatalf("mismatched hint polluted cache: %+v", entry)
+	}
 }
 
 func TestLibruntimeSDKImpl(t *testing.T) {

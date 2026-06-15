@@ -87,6 +87,21 @@ CErrorInfo ErrorInfoToCError(const ErrorInfo &err)
     }
     cErr.code = static_cast<int>(err.Code());
     cErr.dsStatusCode = err.GetDsStatusCode();
+    auto routeHint = err.GetRouteUpdateHint();
+    if (!routeHint.instanceID.empty()) {
+        cErr.routeHintInstanceID = CString(routeHint.instanceID);
+    }
+    if (!routeHint.routeAddress.empty()) {
+        cErr.routeHintRouteAddress = CString(routeHint.routeAddress);
+    }
+    if (!routeHint.proxyID.empty()) {
+        cErr.routeHintProxyID = CString(routeHint.proxyID);
+    }
+    cErr.routeHintRetryable = routeHint.retryable ? 1 : 0;
+    if (!routeHint.reason.empty()) {
+        cErr.routeHintReason = CString(routeHint.reason);
+    }
+    cErr.routeHintModRevision = routeHint.modRevision;
     return cErr;
 }
 

@@ -67,7 +67,7 @@ etcd_peer_port:,etcd_compact_retention:,etcd_auth_type:,etcd_cert_file:,etcd_key
 local_schedule_plugins:,domain_schedule_plugins:,enable_print_perf:,enable_meta_store:,enable_persistence:,enable_jemalloc:,enable_inherit_env:,\
 etcd_proxy_enable:,etcd_proxy_nums:,etcd_proxy_port:,etcd_no_fsync:,node_id:,function_agent_alias:,function_proxy_unique_enable,function_proxy_merge_process_enable:,\
 enable_separated_redirect_runtime_std:,schedule_relaxed:,user_log_export_mode:,\
-max_priority:,enable_preemption:,enable_direct_routing:,kill_process_timeout_seconds:,\
+max_priority:,enable_preemption:,enable_direct_routing:,direct_route_cache_capacity:,kill_process_timeout_seconds:,\
 dashboard_port:,dashboard_grpc_port:,enable_dashboard:,enable_collector:,\
 prometheus_address:,prometheus_ssl_enable:,prometheus_ssl_base_path:,prometheus_ssl_root_file:,prometheus_ssl_cert_file:,prometheus_ssl_key_file:,\
 dashboard_ssl_enable:,dashboard_ssl_base_path:,dashboard_ssl_cert_file:,dashboard_ssl_key_file:,\
@@ -251,6 +251,7 @@ DOMAIN_SCHEDULE_PLUGINS="[\"Label\", \"ResourceSelector\", \"Default\", \"Hetero
 SCHEDULE_RELAXED=-1
 ENABLE_PREEMPTION=false
 ENABLE_DIRECT_ROUTING=false
+DIRECT_ROUTE_CACHE_CAPACITY=${YR_DIRECT_ROUTE_CACHE_CAPACITY:-1024}
 FUNCTION_PROXY_UNREGISTER_WHILE_STOP=true
 MAX_PRIORITY=0
 # Use snlib to adapt old or new runtime params
@@ -564,6 +565,7 @@ function usage() {
   echo -e "     --max_priority                                      schedule max priority (default 0)"
   echo -e "     --enable_preemption                                 enable schedule preemption while higher priority, only valid while max_priority > 0 (default false)"
   echo -e "     --enable_direct_routing                             enable direct routing optimization to bypass proxy for same-node invocations (default false)"
+  echo -e "     --direct_route_cache_capacity                       direct routing route/negative LRU cache capacity (default 1024)"
   echo -e "     --kill_process_timeout_seconds                      time interval send kill -9 after send kill -2, unit second(default 5)"
   echo -e "     --runtime_home_dir                                  runtime home dir(default is Home environment variable of the OpenYuanrong component deployment user)"
   echo -e "     --enable_dposix_uds                                 enable DPOSIX UDS for runtime and function proxy communication (default false)"
@@ -883,6 +885,7 @@ function parse_opt() {
     --max_priority) MAX_PRIORITY=$2 && shift 2 ;;
     --enable_preemption) ENABLE_PREEMPTION=$2 && shift 2 ;;
     --enable_direct_routing) ENABLE_DIRECT_ROUTING=$2 && shift 2 ;;
+    --direct_route_cache_capacity) DIRECT_ROUTE_CACHE_CAPACITY=$2 && shift 2 ;;
     --kill_process_timeout_seconds) KILL_PROCESS_TIMEOUT_SECONDS=$2 && shift 2 ;;
     --runtime_home_dir) RUNTIME_USER_HOME_DIR=$2 && shift 2 ;;
     --enable_dposix_uds) ENABLE_DPOSIX_UDS=$2 && shift 2 ;;
@@ -1253,6 +1256,7 @@ function check_input() {
     log_error "enable_direct_routing can only be 'true' or 'false'"
     return 1
   fi
+  check_greater_than_zero "direct_route_cache_capacity" ${DIRECT_ROUTE_CACHE_CAPACITY}
   if [ "X${ETCD_PROXY_ENABLE}" = "Xtrue" ] ; then
     ETCD_PROXY_ENABLE="TRUE"
   fi
@@ -1627,7 +1631,7 @@ function export_config() {
   export ENABLE_DISTRIBUTED_MASTER DISABLE_NC_CHECK DS_NODE_ROLE
   export FS_HEALTH_CHECK_RETRY_TIMES FS_HEALTH_CHECK_RETRY_INTERVAL FS_HEALTH_CHECK_TIMEOUT
   export FC_AGENT_MGR_RETRY_TIMES FC_AGENT_MGR_RETRY_CYCLE
-  export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION ENABLE_DIRECT_ROUTING KILL_PROCESS_TIMEOUT_SECONDS
+  export SCHEDULE_RELAXED MAX_PRIORITY ENABLE_PREEMPTION ENABLE_DIRECT_ROUTING DIRECT_ROUTE_CACHE_CAPACITY KILL_PROCESS_TIMEOUT_SECONDS
   export RUNTIME_DS_CONNECT_TIMEOUT
   export MEMORY_DETECTION_INTERVAL OOM_KILL_ENABLE OOM_KILL_CONTROL_LIMIT OOM_CONSECUTIVE_DETECTION_COUNT
   export RUNTIME_USER_HOME_DIR CACHE_STORAGE_AUTH_TYPE CACHE_STORAGE_AUTH_ENABLE

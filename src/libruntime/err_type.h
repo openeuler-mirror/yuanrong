@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -163,6 +164,15 @@ enum ModuleCode : int {
     DATASYSTEM = 30
 };
 
+struct RouteUpdateHint {
+    std::string instanceID;
+    std::string routeAddress;
+    std::string proxyID;
+    bool retryable = false;
+    std::string reason;
+    int64_t modRevision = 0;
+};
+
 class ErrorInfo {
 public:
     ErrorInfo() = default;
@@ -176,7 +186,8 @@ public:
           isTimeout(err.IsTimeout()),
           isAckTimeout(err.IsAckTimeout()),
           stackTraceInfos_(err.GetStackTraceInfos()),
-          dsStatusCode_(err.GetDsStatusCode())
+          dsStatusCode_(err.GetDsStatusCode()),
+          routeUpdateHint_(err.GetRouteUpdateHint())
     {
     }
     ErrorInfo &operator=(const ErrorInfo &err)
@@ -189,6 +200,7 @@ public:
         isAckTimeout = err.IsAckTimeout();
         stackTraceInfos_ = err.GetStackTraceInfos();
         dsStatusCode_ = err.GetDsStatusCode();
+        routeUpdateHint_ = err.GetRouteUpdateHint();
         return *this;
     }
 
@@ -262,6 +274,21 @@ public:
     void SetDsStatusCode(int dsStatusCode)
     {
         dsStatusCode_ = dsStatusCode;
+    }
+
+    RouteUpdateHint GetRouteUpdateHint() const
+    {
+        return routeUpdateHint_;
+    }
+
+    void SetRouteUpdateHint(const RouteUpdateHint &routeUpdateHint)
+    {
+        routeUpdateHint_ = routeUpdateHint;
+    }
+
+    bool HasRouteUpdateHint() const
+    {
+        return !routeUpdateHint_.routeAddress.empty();
     }
 
     std::string GetExceptionMsg(const std::vector<std::string> &failIds, int timeoutMs) const
@@ -345,6 +372,7 @@ private:
     bool isAckTimeout = false;
     std::vector<StackTraceInfo> stackTraceInfos_;
     int dsStatusCode_{0};
+    RouteUpdateHint routeUpdateHint_;
 };
 }  // namespace Libruntime
 }  // namespace YR

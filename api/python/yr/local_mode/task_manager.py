@@ -88,7 +88,7 @@ class TaskManager:
             invoke_options = InvokeOptions()
         resource = Resource(cpu=invoke_options.cpu,
                             memory=invoke_options.memory,
-                            concurrency=invoke_options.concurrency,
+                            concurrency=invoke_options.concurrency if invoke_options.concurrency is not None else 1,
                             resources=invoke_options.custom_resources)
 
         if task.invoke_type == InvokeType.InvokeFunctionStateless:

@@ -39,7 +39,8 @@ class LocalClient:
         if not self._running:
             return ""
         instance_id = task.object_ids[0]
-        concurrency = 100 if task.invoke_options is None else task.invoke_options.concurrency
+        concurrency = 100 if task.invoke_options is None else (
+            task.invoke_options.concurrency if task.invoke_options.concurrency is not None else 1)
         worker = Worker()
         worker.init(instance_id, concurrency)
         with self._lock:

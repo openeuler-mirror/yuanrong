@@ -33,10 +33,12 @@ namespace Test {
 class TokenManagerTest : public ::testing::Test {
 public:
     void SetUp() override {
+        unsetenv("ENABLE_IAM");
         httpServer_ = std::make_shared<AsyncHttpServer>();
     }
 
     void TearDown() override {
+        unsetenv("ENABLE_IAM");
         if (httpServer_) {
             httpServer_.reset();
         }
@@ -77,6 +79,7 @@ private:
 
 TEST_F(TokenManagerTest, IsInitToken_EnableIamNotSet)
 {
+    unsetenv("ENABLE_IAM");
     auto librtConfig = std::make_shared<LibruntimeConfig>();
     librtConfig->iamAddress = "https://example.com";
     librtConfig->token = "";

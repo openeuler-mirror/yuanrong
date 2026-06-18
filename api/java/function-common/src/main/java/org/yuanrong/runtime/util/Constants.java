@@ -115,6 +115,16 @@ public final class Constants {
     public static final String INSTANCE_ID = "instanceID";
 
     /**
+     * The Instance name.
+     */
+    public static final String INSTANCE_NAME = "instanceName";
+
+    /**
+     * The Instance namespace.
+     */
+    public static final String INSTANCE_NS = "instanceNs";
+
+    /**
      * The Instance route.
      */
     public static final String INSTANCE_ROUTE = "instanceRoute";

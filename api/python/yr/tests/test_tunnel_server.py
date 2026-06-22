@@ -9,7 +9,7 @@ from yr.sandbox.tunnel_protocol import (
     HttpReqFrame, HttpRespFrame, ErrorFrame,
     WsConnectFrame, WsConnectedFrame, WsMessageFrame, WsCloseFrame,
     PingFrame, PongFrame,
-    parse_frame, make_id,
+    MAX_TUNNEL_FRAME_SIZE, parse_frame, make_id,
 )
 
 
@@ -92,6 +92,57 @@ class TestTunnelServerHttp(unittest.TestCase):
                 async with aiohttp.ClientSession() as session:
                     async with session.get(f"http://127.0.0.1:{HTTP_PORT}/x") as resp:
                         self.assertEqual(resp.status, 503)
+            finally:
+                await server.stop()
+
+        asyncio.run(_run())
+
+    def test_http_request_over_aiohttp_default_limit_is_forwarded(self):
+        """Port B should use the tunnel body limit, not aiohttp's 1MB default."""
+        async def _run():
+            server = await _run_server()
+            try:
+                payload = b"x" * (1024 * 1024 + 1)
+                async with websockets.connect(
+                    f"ws://127.0.0.1:{WS_PORT}",
+                    max_size=MAX_TUNNEL_FRAME_SIZE,
+                ) as sdk_ws:
+                    async def send_http():
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                f"http://127.0.0.1:{HTTP_PORT}/large",
+                                data=payload,
+                            ) as resp:
+                                return resp.status, await resp.read()
+
+                    http_task = asyncio.create_task(send_http())
+                    recv_task = asyncio.create_task(sdk_ws.recv())
+                    done, pending = await asyncio.wait(
+                        {http_task, recv_task},
+                        timeout=5,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if recv_task not in done:
+                        recv_task.cancel()
+                    self.assertIn(recv_task, done,
+                                  "large request was rejected before tunnel forwarding")
+
+                    frame = parse_frame(recv_task.result())
+                    self.assertIsInstance(frame, HttpReqFrame)
+                    self.assertEqual(frame.method, "POST")
+                    self.assertEqual(frame.path, "/large")
+                    self.assertEqual(frame.body, payload)
+
+                    await sdk_ws.send(HttpRespFrame(
+                        id=frame.id,
+                        status=200,
+                        headers={"Content-Type": "text/plain"},
+                        body=b"ok",
+                    ).to_json())
+                    status, body = await asyncio.wait_for(http_task, timeout=5)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(body, b"ok")
             finally:
                 await server.stop()
 

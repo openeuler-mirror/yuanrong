@@ -56,7 +56,6 @@ int main(int argc, char *argv[]) {
 ```python
 import yr
 
-@yr.invoke
 def echo(str):
     return str
 ```

@@ -476,6 +476,7 @@ TEST_F(CLibruntimeTest, CInitTest)
     config.inCluster = 1;
     config.isDriver = 0;
     config.enableMTLS = 0;
+    config.serverName = GetStr("test");
     config.privateKeyPath = GetStr("privateKeyPath");
     config.certificateFilePath = GetStr("certificateFilePath");
     config.verifyFilePath = GetStr("verifyFilePath");

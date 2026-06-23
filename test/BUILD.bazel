@@ -161,6 +161,10 @@ cc_test(
 cc_test(
   name = "libruntime_test",
   srcs = [
+    "libruntime/httpserver/common_server.h",
+    "libruntime/httpserver/common_server.cpp",
+    "libruntime/httpserver/async_http_server.h",
+    "libruntime/httpserver/async_https_server.h",
     "libruntime/invoke_adaptor_test.cpp",
     "libruntime/libruntime_manager_test.cpp",
     "libruntime/libruntime_test.cpp",
@@ -180,10 +184,6 @@ cc_test(
     "libruntime/request_queue_test.cpp",
     "libruntime/http_utils_test.cpp",
   ],
-  data = [
-    ":metrics_file_exporter_so_in_test_dir",
-    ":metrics_prometheus_push_exporter_so_in_test_dir",
-  ],
   deps = [
     "@gtest//:gtest_main",
     "//src/utility:yr_utils",
@@ -200,7 +200,35 @@ cc_test(
         "//:disable_observability": [],
         "//conditions:default": ["-DENABLE_OBSERVABILITY"],
   }),
+  data = [
+    ":metrics_file_exporter_so_in_test_dir",
+    ":metrics_prometheus_push_exporter_so_in_test_dir",
+    "data/cert/ca.crt",
+    "data/cert/client.crt",
+    "data/cert/client.key",
+    "data/cert/server.crt",
+    "data/cert/server.key"
+  ],
+  linkstatic = True,
+)
 
+cc_test(
+  name = "token_manager_test",
+  srcs = [
+    "libruntime/httpserver/common_server.h",
+    "libruntime/httpserver/common_server.cpp",
+    "libruntime/httpserver/async_http_server.h",
+    "libruntime/httpserver/async_https_server.h",
+    "libruntime/token_manager_test.cpp",
+  ],
+  deps = [
+    "@gtest//:gtest_main",
+    "//src/utility:yr_utils",
+    "//:runtime_lib",
+  ],
+  copts = [
+    "-fno-access-control",
+  ],
   linkstatic = True,
 )
 

@@ -191,15 +191,20 @@ void ClientManager::StartIocThreads()
 
 ErrorInfo ClientManager::Init(const ConnectionParam &param)
 {
+    return Init(param, YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM(), RETRY_TIME);
+}
+
+ErrorInfo ClientManager::Init(const ConnectionParam &param, const uint32_t &clientsCnt, const int &retryTime)
+{
     ErrorInfo error = InitCtxAndIocThread();
     if (!error.OK()) {
         return error;
     }
     this->connParam = param;
-    connectedClientsCnt_ = YR::Libruntime::Config::Instance().YR_HTTP_CONNECTION_NUM();
+    connectedClientsCnt_ = clientsCnt;
     YRLOG_INFO("http initial connection num {}", connectedClientsCnt_);
     for (uint32_t i = 0; i < connectedClientsCnt_; i++) {
-        for (int j = 0; j < RETRY_TIME; j++) {
+        for (int j = 0; j < retryTime; j++) {
             error = clients[i]->Init(param);
             if (error.OK()) {
                 clients[i]->SetAvailable();
@@ -229,7 +234,24 @@ void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::str
         if (stopped_) {
             return;
         }
-        PendingRequest req{method, target, headers, body, requestId, receiver};
+        PendingRequest req{method, target, headers, body, requestId, receiver, HttpCallbackFunctionV2 {}, false};
+        if (!TryDispatch(req)) {
+            YRLOG_DEBUG("all connections busy, enqueueing request. requestId: {}", *requestId);
+            pendingQueue_.push(std::move(req));
+        }
+    });
+}
+
+void ClientManager::SubmitInvokeRequest(const http::verb &method, const std::string &target,
+                                        const std::unordered_map<std::string, std::string> &headers,
+                                        const std::string &body, const std::shared_ptr<std::string> requestId,
+                                        const HttpCallbackFunctionV2 &receiver)
+{
+    asio::post(*strand_, [this, method, target, headers, body, requestId, receiver]() {
+        if (stopped_) {
+            return;
+        }
+        PendingRequest req{method, target, headers, body, requestId, HttpCallbackFunction {}, receiver, true};
         if (!TryDispatch(req)) {
             YRLOG_DEBUG("all connections busy, enqueueing request. requestId: {}", *requestId);
             pendingQueue_.push(std::move(req));
@@ -255,9 +277,13 @@ bool ClientManager::TryDispatch(const PendingRequest &req)
             if (!err.OK()) {
                 YRLOG_DEBUG("httpclient {} reInit failed, requestId:{} err: {}", i, *req.requestId,
                             err.CodeAndMsg());
-                req.receiver(err.CodeAndMsg(),
-                             boost::asio::error::make_error_code(boost::asio::error::connection_reset),
-                             HTTP_CONNECTION_ERROR_CODE);
+                auto errorCode = boost::asio::error::make_error_code(boost::asio::error::connection_reset);
+                if (req.useReceiverV2) {
+                    req.receiverV2(err.CodeAndMsg(), errorCode, HTTP_CONNECTION_ERROR_CODE,
+                                   std::unordered_map<std::string, std::string> {});
+                } else {
+                    req.receiver(err.CodeAndMsg(), errorCode, HTTP_CONNECTION_ERROR_CODE);
+                }
                 clients[i]->SetAvailable();
                 return true;
             }
@@ -267,8 +293,13 @@ bool ClientManager::TryDispatch(const PendingRequest &req)
         clients[i]->SetOnRelease([this]() {
             asio::post(*strand_, [this]() { DrainQueue(); });
         });
-        clients[i]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
-                                        req.receiver);
+        if (req.useReceiverV2) {
+            clients[i]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                            req.receiverV2);
+        } else {
+            clients[i]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                            req.receiver);
+        }
         return true;
     }
     // No free connection; try to lazily open a new one up to the pool limit.
@@ -286,8 +317,13 @@ bool ClientManager::TryDispatch(const PendingRequest &req)
     clients[newIdx]->SetOnRelease([this]() {
         asio::post(*strand_, [this]() { DrainQueue(); });
     });
-    clients[newIdx]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
-                                         req.receiver);
+    if (req.useReceiverV2) {
+        clients[newIdx]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                             req.receiverV2);
+    } else {
+        clients[newIdx]->SubmitInvokeRequest(req.method, req.target, req.headers, req.body, req.requestId,
+                                             req.receiver);
+    }
     return true;
 }
 

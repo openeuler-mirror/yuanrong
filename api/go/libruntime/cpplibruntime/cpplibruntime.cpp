@@ -482,6 +482,7 @@ void FillLibruntimeConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
     librtCfg.inCluster = config->inCluster != 0;
     librtCfg.isDriver = config->isDriver != 0;
     librtCfg.enableMTLS = config->enableMTLS != 0;
+    librtCfg.serverName = config->serverName;
     librtCfg.privateKeyPath = config->privateKeyPath;
     librtCfg.certificateFilePath = config->certificateFilePath;
     librtCfg.verifyFilePath = config->verifyFilePath;

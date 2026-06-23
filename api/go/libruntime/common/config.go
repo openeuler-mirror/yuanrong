@@ -40,34 +40,35 @@ var (
 
 // Configuration to save config
 type Configuration struct {
-	RuntimeID                       string
-	InstanceID                      string
-	FunctionName                    string
-	LogLevel                        string
-	GrpcAddress                     string
-	FSAddress                       string
-	IamAddress                      string
-	LogPath                         string
-	JobID                           string
-	DriverMode                      bool
-	EnableMTLS                      bool
-	PrivateKeyPath                  string
-	CertificateFilePath             string
-	VerifyFilePath                  string
-	PrivateKeyPaaswd                string
-	SystemAuthAccessKey             string
-	SystemAuthSecretKey             string
-	SystemAuthDataKey               string
-	EncryptPrivateKeyPasswd         string
-	PrimaryKeyStoreFile             string
-	StandbyKeyStoreFile             string
-	EnableDsEncrypt                 bool
-	RuntimePublicKeyContextPath     string
-	RuntimePrivateKeyContextPath    string
-	DsPublicKeyContextPath          string
-	MaxConcurrencyCreateNum         int
-	EnableSigaction                 bool
-	EnableEvent                     bool
+	RuntimeID                    string
+	InstanceID                   string
+	FunctionName                 string
+	LogLevel                     string
+	GrpcAddress                  string
+	FSAddress                    string
+	IamAddress                   string
+	LogPath                      string
+	JobID                        string
+	DriverMode                   bool
+	EnableMTLS                   bool
+	ServerName                   string
+	PrivateKeyPath               string
+	CertificateFilePath          string
+	VerifyFilePath               string
+	PrivateKeyPaaswd             string
+	SystemAuthAccessKey          string
+	SystemAuthSecretKey          string
+	SystemAuthDataKey            string
+	EncryptPrivateKeyPasswd      string
+	PrimaryKeyStoreFile          string
+	StandbyKeyStoreFile          string
+	EnableDsEncrypt              bool
+	RuntimePublicKeyContextPath  string
+	RuntimePrivateKeyContextPath string
+	DsPublicKeyContextPath       string
+	MaxConcurrencyCreateNum      int
+	EnableSigaction              bool
+	EnableEvent                  bool
 }
 
 func initConfig() {
@@ -86,6 +87,7 @@ func initConfig() {
 			flag.StringVar(&configSingleton.cfg.JobID, "jobId", "12345678", "")
 			flag.BoolVar(&configSingleton.cfg.DriverMode, "driverMode", false, "")
 			flag.BoolVar(&configSingleton.cfg.EnableMTLS, "enableMTLS", false, "")
+			flag.StringVar(&configSingleton.cfg.ServerName, "serverName", "", "")
 			flag.StringVar(&configSingleton.cfg.PrivateKeyPath, "privateKeyPath", "", "")
 			flag.StringVar(&configSingleton.cfg.CertificateFilePath, "certificateFilePath", "", "")
 			flag.StringVar(&configSingleton.cfg.VerifyFilePath, "verifyFilePath", "", "")
@@ -104,6 +106,7 @@ func initConfig() {
 			setConfigSingletonCfg(&configSingleton.cfg.GrpcAddress, "POSIX_LISTEN_ADDR")
 			setConfigSingletonCfg(&configSingleton.cfg.LogPath, "GLOG_log_dir")
 			setConfigSingletonCfg(&configSingleton.cfg.JobID, "YR_JOB_ID")
+			loadStsConfig(configSingleton.path)
 			configSingleton.cfg.EnableSigaction = true
 		},
 	)

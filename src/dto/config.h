@@ -155,10 +155,10 @@ CONFIG_DECLARE(bool, YR_ENABLE_HTTP_PROXY, false);
 CONFIG_DECLARE_CONDITION(int, MAX_ARGS_IN_MSG_BYTES, [this]() -> int {
         return RUNTIME_DIRECT_CONNECTION_ENABLE() ? 10 * 1024 * 1024 : 100 * 1024;
     });
-CONFIG_DECLARE(std::string, YR_TENANT_ID, "");
-CONFIG_DECLARE(int64_t, DS_DELAY_FLUSH_TIME, 0);
-CONFIG_DECLARE(size_t, MEM_STORE_SIZE_THRESHOLD, 2 * 1024 * 1024);
-CONFIG_DECLARE_VALID(size_t, YR_OBJECT_ID_POOL_SIZE, 1,
+    CONFIG_DECLARE(std::string, YR_TENANT_ID, "");
+    CONFIG_DECLARE(int64_t, DS_DELAY_FLUSH_TIME, 0);
+    CONFIG_DECLARE(size_t, MEM_STORE_SIZE_THRESHOLD, 2 * 1024 * 1024);
+    CONFIG_DECLARE_VALID(size_t, YR_OBJECT_ID_POOL_SIZE, 1,
                          [](const size_t &val) -> bool { return val > 0; });
 CONFIG_DECLARE(size_t, FASS_SCHEDULE_TIMEOUT, 120);  // 120 seconds
 CONFIG_DECLARE(int, YR_ASYNCIO_MAX_CONCURRENCY, 1000); // 1k
@@ -167,10 +167,11 @@ CONFIG_DECLARE(bool, ENABLE_PRIORITY, false);
 CONFIG_DECLARE(bool, ENABLE_DS_HEALTH_CHECK, false);
 CONFIG_DECLARE(int, MAX_HTTP_RETRY_TIME, 1);
 CONFIG_DECLARE(int, MAX_HTTP_TIMEOUT_SEC, -1);
-CONFIG_DECLARE(int, INITIAL_HTTP_CONNECT_SEC, 5);
-CONFIG_DECLARE(int, YR_HTTP_IDLE_TIME, 30);
-CONFIG_DECLARE(int, YR_NOTIFY_THREAD_POOL_SIZE, 5);
-CONFIG_DECLARE_VALID(std::string, RUN_MODE, "integrated",  // integrated or standalone
+    CONFIG_DECLARE(int, INITIAL_HTTP_CONNECT_SEC, 5);
+    CONFIG_DECLARE(int, YR_HTTP_IDLE_TIME, 30);
+    CONFIG_DECLARE(int, YR_NOTIFY_THREAD_POOL_SIZE, 5);
+    CONFIG_DECLARE(std::string, YR_FAAS_DRIVER_MOD, "");
+    CONFIG_DECLARE_VALID(std::string, RUN_MODE, "integrated",  // integrated or standalone
                          [](const std::string &val) -> bool { return (val == INTEGRATED || val == STANDALONE); });
 CONFIG_DECLARE(bool, ENABLE_FUNCTION_SCHEDULER, false);  // whether start an in-memory scheduler
 CONFIG_DECLARE(int, FUNCTION_SCHEDULER_GRPC_PORT, 23770); // allow scheduler to interact with runtime

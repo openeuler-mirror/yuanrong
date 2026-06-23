@@ -22,7 +22,7 @@ In short, all operations must be performed in a security-certified network envir
 
 ## Vulnerability Management
 
-openYuanrong is open source in the openEuler community. If you discover security issues or suspected security vulnerabilities in openYuanrong, please follow the [Vulnerability Management](https://www.openeuler.org/zh/security/vulnerability-reporting/){target="_blank"} handling mechanism provided by the openEuler community to report to the Security Committee. We will respond, analyze, and resolve quickly.
+openYuanrong is open source in the openEuler community. If you discover security issues or suspected security vulnerabilities in openYuanrong, please follow the [Vulnerability Management](https://www.openeuler.org/en/security/vulnerability-reporting/){target="_blank"} handling mechanism provided by the openEuler community to report to the Security Committee. We will respond, analyze, and resolve quickly.
 
 ## Important Notes
 

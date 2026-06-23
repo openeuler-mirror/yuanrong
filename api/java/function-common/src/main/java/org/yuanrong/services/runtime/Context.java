@@ -290,4 +290,23 @@ public interface Context {
      * @return stream handler of context.
      */
     Stream getStream();
+
+    /**
+     * Get the agent session ID associated with the current invocation.
+     *
+     * <p>Returns an empty string when the request does not carry a session ID
+     * or {@code use_agent_session=false}.</p>
+     *
+     * @return session ID, never null
+     */
+    String getSessionId();
+
+    /**
+     * Get the session service for the current invocation.
+     *
+     * <p>Returns {@code null} when no session is associated with this request.</p>
+     *
+     * @return {@link org.yuanrong.services.session.SessionService}, or {@code null}
+     */
+    org.yuanrong.services.session.SessionService getSessionService();
 }

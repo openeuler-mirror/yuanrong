@@ -155,6 +155,10 @@ public class FaaSHandler implements HandlerIntf {
 
     private static final String X_TRACE_ID = "X-Trace-Id";
 
+    private static final String X_INSTANCE_SESSION = "X-Instance-Session";
+
+    private static final String SESSION_ID = "sessionID";
+
     private static final String ENV_DELEGATE_DECRYPT = "ENV_DELEGATE_DECRYPT";
 
     private static final String EVENT_HEADER = "Accept";
@@ -403,6 +407,17 @@ public class FaaSHandler implements HandlerIntf {
             if (headerObj.has(X_TRACE_ID) && !headerObj.get(X_TRACE_ID).isJsonNull()) {
                 String traceId = headerObj.get(X_TRACE_ID).getAsString();
                 callContext.setTraceID(traceId);
+            }
+            if (headerObj.has(X_INSTANCE_SESSION) && !headerObj.get(X_INSTANCE_SESSION).isJsonNull()) {
+                try {
+                    String sessionJsonStr = headerObj.get(X_INSTANCE_SESSION).getAsString();
+                    JsonObject sessionObj = GSON.fromJson(sessionJsonStr, JsonObject.class);
+                    if (sessionObj.has(SESSION_ID) && !sessionObj.get(SESSION_ID).isJsonNull()) {
+                        callContext.setSessionId(sessionObj.get(SESSION_ID).getAsString());
+                    }
+                } catch (JsonSyntaxException | IllegalStateException e) {
+                    LOG.warn("Failed to parse session JSON from header, degrade gracefully. cause: {}", e.getMessage());
+                }
             }
             if (headerObj.has(EVENT_HEADER) && !headerObj.get(EVENT_HEADER).isJsonNull()) {
                 if (EVENT_HEADER_VALUE.equals(headerObj.get(EVENT_HEADER).getAsString())) {

@@ -69,7 +69,7 @@ class TunnelServer:
             ping_timeout=None,
             max_size=MAX_TUNNEL_FRAME_SIZE,
         )
-        app = web.Application()
+        app = web.Application(client_max_size=MAX_TUNNEL_BODY_SIZE)
         app.router.add_route("*", "/{path_info:.*}", self._handle_request)
         self._http_runner = web.AppRunner(app)
         await self._http_runner.setup()

@@ -288,7 +288,7 @@ class ObjectRef:
 class ObjectRefDirect(ObjectRef):
     """ObjectRefDirect bypasses datasystem — no IncreaseRef/DecreaseRef.
 
-    Return values exceeding the truncation threshold (5MB) will be truncated.
+    Return values exceeding the truncation threshold (100MB) will be truncated.
     """
 
     def __init__(self, object_id: str, task_id=None, exception=None):

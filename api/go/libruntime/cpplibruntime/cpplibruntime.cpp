@@ -744,6 +744,9 @@ static InvokeOptions BuildInvokeOptions(CInvokeOptions *cInvokeOpts)
     if (cInvokeOpts->forceInvoke != 0) {
         invokeOpts.forceInvoke = true;
     }
+    if (cInvokeOpts->isInterrupted != 0) {
+        invokeOpts.isInterrupted = true;
+    }
     if (cInvokeOpts->bypassDatasystem != 0) {
         invokeOpts.bypassDatasystem = true;
     }

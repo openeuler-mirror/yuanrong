@@ -52,6 +52,7 @@ type RoundRobinScheduler struct {
 	instanceScaler       scaler.InstanceScaler
 	instanceQueue        []*types.Instance
 	subHealthInstance    map[string]*types.Instance
+	coldStartTraceMu     sync.Mutex
 	coldStartTraceQueue  []*types.TraceContext
 	observers            map[scheduler.InstanceTopic][]*instanceObserver
 	funcKeyWithRes       string
@@ -153,18 +154,18 @@ func (rs *RoundRobinScheduler) recordColdStartTrace(traceID, traceParent string)
 	if traceID == "" && traceParent == "" {
 		return
 	}
-	rs.Lock()
+	rs.coldStartTraceMu.Lock()
 	rs.coldStartTraceQueue = append(rs.coldStartTraceQueue, &types.TraceContext{
 		TraceID:     traceID,
 		TraceParent: traceParent,
 	})
-	rs.Unlock()
+	rs.coldStartTraceMu.Unlock()
 }
 
 // PopColdStartTrace returns the oldest request trace kept for the next cold start.
 func (rs *RoundRobinScheduler) PopColdStartTrace() *types.TraceContext {
-	rs.Lock()
-	defer rs.Unlock()
+	rs.coldStartTraceMu.Lock()
+	defer rs.coldStartTraceMu.Unlock()
 	if len(rs.coldStartTraceQueue) == 0 {
 		return nil
 	}

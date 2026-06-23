@@ -59,10 +59,22 @@ class TestFunctionSdk(TestCase):
         self.assertTrue("test_env_value" in user_data.get("TEST_ENV_KEY", ""), user_data)
         self.assertTrue("test_user_value" in user_data.get("TEST_USER_KEY", ""), user_data)
 
-        header = {"X-Request-Id": "12345"}
+        header = {
+            "X-Request-Id": "12345",
+            "X-Trace-Id": "trace-12345",
+            "X-Instance-Session": json.dumps({"sessionID": "session-1"}),
+        }
         invoke_context = context.init_context_invoke("invoke", header)
-        self.assertEqual(invoke_context.get_trace_id(), "12345")
+        self.assertEqual(invoke_context.get_trace_id(), "trace-12345")
         self.assertEqual(invoke_context.getUserData("TEST_ENV_KEY"), "test_env_value")
+        self.assertEqual(invoke_context.get_session_id(), "session-1")
+        self.assertIsNotNone(invoke_context.get_session_service())
+
+        invoke_context.invoke_id = "request-1"
+        invoke_context.set_instance_id("instance-1")
+        stream = invoke_context.get_stream()
+        self.assertEqual(stream._request_id, "request-1")
+        self.assertEqual(stream._instance_id, "instance-1")
 
     @patch("yr.log.get_logger")
     @patch("yr.runtime_holder.global_runtime.get_runtime")

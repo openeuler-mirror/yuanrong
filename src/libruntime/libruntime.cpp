@@ -339,7 +339,7 @@ ErrorInfo Libruntime::PreProcessArgs(const std::shared_ptr<InvokeSpec> &spec)
         if (tmpTotalSize < arg.dataObj->GetSize()) {
             return ErrorInfo(ErrorCode::ERR_PARAM_INVALID, "args size invalid");
         }
-        if (tmpTotalSize > uint64_t(Config::Instance().MAX_ARGS_IN_MSG_BYTES())) {
+        if (!spec->opts.bypassDatasystem && tmpTotalSize > uint64_t(Config::Instance().MAX_ARGS_IN_MSG_BYTES())) {
             auto [err, objId] = Put(arg.dataObj, arg.nestedObjects);
             if (err.Code() != ErrorCode::ERR_OK) {
                 YRLOG_ERROR("Put arg, code: {}, message: {}", fmt::underlying(err.Code()), err.Msg());
@@ -452,6 +452,9 @@ std::pair<ErrorInfo, std::string> Libruntime::CreateInstance(const YR::Libruntim
 
 bool Libruntime::PutRefArgToDs(std::shared_ptr<InvokeSpec> spec)
 {
+    if (spec->opts.bypassDatasystem) {
+        return true;
+    }
     ErrorInfo errInfo;
     for (unsigned int i = 0; i < spec->invokeArgs.size(); i++) {
         auto &arg = spec->invokeArgs[i];

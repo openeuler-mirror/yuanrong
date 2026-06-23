@@ -129,6 +129,15 @@ py_test(
   env = SAN_ENV,
 )
 py_test(
+  name = "test_functionsdk",
+  size = "small",
+  srcs = ["test_functionsdk.py"],
+  tags = ["smoke"],
+  imports = ["../../"],
+  deps = ["//api/python:yr_lib"],
+  env = SAN_ENV,
+)
+py_test(
   name = "test_metrics",
   size = "small",
   srcs = ["test_metrics.py"],

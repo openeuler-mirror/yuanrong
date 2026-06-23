@@ -259,6 +259,7 @@ type InvokeOptions struct {
 	AcquireTimeout       int
 	TrafficLimited       bool
 	ForceInvoke          bool
+	IsInterrupted        bool
 	BypassDataSystem     bool
 }
 

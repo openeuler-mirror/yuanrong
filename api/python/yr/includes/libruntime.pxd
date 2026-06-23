@@ -103,6 +103,9 @@ cdef extern from "src/libruntime/err_type.h" nogil:
         ERR_INCORRECT_CREATE_USAGE "YR::Libruntime::ErrorCode::ERR_INCORRECT_CREATE_USAGE"
         ERR_INCORRECT_INVOKE_USAGE "YR::Libruntime::ErrorCode::ERR_INCORRECT_INVOKE_USAGE"
         ERR_INCORRECT_KILL_USAGE "YR::Libruntime::ErrorCode::ERR_INCORRECT_KILL_USAGE"
+        ERR_SESSION_TIMEOUT "YR::Libruntime::ErrorCode::ERR_SESSION_TIMEOUT"
+        ERR_SESSION_INTERRUPTED "YR::Libruntime::ErrorCode::ERR_SESSION_INTERRUPTED"
+        ERR_SESSION_NOT_WAITING "YR::Libruntime::ErrorCode::ERR_SESSION_NOT_WAITING"
 
         ERR_ROCKSDB_FAILED "YR::Libruntime::ErrorCode::ERR_ROCKSDB_FAILED"
         ERR_SHARED_MEMORY_LIMITED "YR::Libruntime::ErrorCode::ERR_SHARED_MEMORY_LIMITED"
@@ -788,6 +791,11 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
 
         pair[CErrorInfo, CResourceGroupUnit] GetResourceGroupTable(const string & id);
 
+        CErrorInfo StreamWrite(const string &streamMessage, const string &requestId,
+                               const string &instanceId);
+
+        pair[string, string] GetRequestAndInstanceID();
+
         pair[CErrorInfo, string] GetNodeIpAddress();
 
         pair[CErrorInfo, string] GetNodeId();
@@ -809,6 +817,16 @@ cdef extern from "src/libruntime/libruntime.h" nogil:
         CErrorInfo GroupSuspend(const string & groupName);
 
         CErrorInfo GroupResume(const string & groupName);
+
+        pair[CErrorInfo, shared_ptr[CBuffer]] SessionWait(const string &sessionId, int64_t timeout);
+
+        CErrorInfo SessionNotify(const string &sessionId, shared_ptr[CBuffer] data);
+
+        pair[string, CErrorInfo] LoadCurrentSession(const string & sessionId);
+
+        CErrorInfo UpdateCurrentSession(const string & sessionId, const string & sessionJson);
+
+        bool IsSessionInterrupted(const string & sessionId);
 
 
 cdef extern from "src/libruntime/libruntime_manager.h" nogil:

@@ -268,6 +268,7 @@ typedef struct tagCInvokeOptions {
     CInstanceSession *instanceSession;
     int64_t scheduleTimeoutMs;
     char forceInvoke;
+    char isInterrupted;
     char bypassDatasystem;
 } CInvokeOptions;
 

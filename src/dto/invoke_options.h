@@ -178,6 +178,8 @@ struct InvokeOptions {
 
     bool bypassDatasystem = false;
 
+    bool isInterrupted = false;
+
     std::unordered_map<std::string, std::string> invokeLabels;
 
     std::unordered_map<std::string, std::string> aliasParams;

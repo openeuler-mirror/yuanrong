@@ -31,10 +31,14 @@ Run:
 import os
 import base64
 import json
+import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, urlunparse
 import pytest
 import yr
@@ -57,6 +61,10 @@ def _get_jwt_token():
 
 def _get_enable_tls():
     return os.getenv("YR_ENABLE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_protocol():
+    return "https" if _get_enable_tls() else "http"
 
 
 def _get_yrcli_command():
@@ -122,6 +130,33 @@ def _wait_any_url_contains(urls, expected, timeout=60):
     raise AssertionError(f"none of {urls} returned {expected!r}: {last_errors}")
 
 
+def _invoke_faas_short_http(namespace, function, payload, headers=None, timeout=150):
+    url = f"{_get_protocol()}://{_get_addr()}/invocations/0/{namespace}/{function}/"
+    request_headers = {
+        "Content-Type": "application/json",
+    }
+    token = _get_jwt_token()
+    if token:
+        request_headers["X-Auth"] = token
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=request_headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.getcode(), response.read().decode("utf-8")
+
+
+def _decode_json_body(body):
+    value = json.loads(body)
+    if isinstance(value, str):
+        value = json.loads(value)
+    return value
+
+
 def _remote_python_exec_command(code):
     encoded = base64.b64encode(code.encode()).decode()
     return f"python3 -c exec(__import__('base64').b64decode('{encoded}'))"
@@ -177,6 +212,146 @@ if log.exists():
 sys.exit(1)
 """
     return _remote_python_exec_command(code)
+
+
+def _remote_http_get_command(url):
+    code = (
+        "import urllib.request\n"
+        f"print(urllib.request.urlopen({url!r}, timeout=15).read().decode())\n"
+    )
+    return _remote_python_exec_command(code)
+
+
+def _free_local_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+class _UpstreamHandler(BaseHTTPRequestHandler):
+    response_body = b"yrcli-reverse-tunnel-ok"
+    request_count = 0
+
+    def do_GET(self):
+        type(self).request_count += 1
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(self.response_body)
+
+    def log_message(self, *args):
+        pass
+
+
+def _start_local_upstream():
+    _UpstreamHandler.request_count = 0
+    server = ThreadingHTTPServer(("127.0.0.1", _free_local_port()), _UpstreamHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+def _start_tunnel_create(name, upstream):
+    command = [
+        *_get_yrcli_command(),
+        "--server-address",
+        _get_addr(),
+        "sandbox",
+        "create",
+        "--namespace",
+        "offcluster",
+        "--name",
+        name,
+        "--upstream",
+        upstream,
+        "--proxy-port",
+        "8766",
+    ]
+    token = _get_jwt_token()
+    if token:
+        command[3:3] = ["--jwt-token", token]
+    env = os.environ.copy()
+    if not _get_enable_tls():
+        env.pop("YR_INSECURE", None)
+    return subprocess.Popen(
+        command,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+
+
+def _wait_for_tunnel_create(proc):
+    lines = []
+    instance_id = None
+    deadline = time.time() + YRCLI_SANDBOX_CREATE_TIMEOUT
+    while time.time() < deadline:
+        assert proc.stdout is not None
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None:
+                break
+            time.sleep(0.2)
+            continue
+        lines.append(line)
+        if "instance_id=" in line:
+            instance_id = _extract_sandbox_id(line)
+        if "tunnel connected" in line or "tunnel connecting in background" in line:
+            assert instance_id, f"tunnel started without instance_id:\n{''.join(lines)}"
+            _drain_process_output(proc)
+            return instance_id, "".join(lines)
+    remaining = proc.stdout.read() if proc.stdout else ""
+    raise AssertionError(f"tunnel create did not become ready:\n{''.join(lines)}{remaining}")
+
+
+def _drain_process_output(proc):
+    if proc.stdout is None:
+        return
+
+    def _drain():
+        for _ in proc.stdout:
+            pass
+
+    thread = threading.Thread(target=_drain, daemon=True)
+    thread.start()
+
+
+def _stop_tunnel_process(proc):
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGINT)
+        proc.wait(timeout=15)
+    except Exception:
+        proc.kill()
+        proc.wait(timeout=15)
+
+
+def _exec_until_contains(instance_id, command, expected, timeout=60):
+    deadline = time.time() + timeout
+    last_output = ""
+    last_error = None
+    while time.time() < deadline:
+        try:
+            result = _run_yrcli(
+                "exec",
+                "-t",
+                instance_id,
+                command,
+                timeout=YRCLI_SANDBOX_EXEC_TIMEOUT,
+            )
+            last_output = result.stdout
+            if expected in result.stdout:
+                return result
+        except Exception as exc:
+            last_error = exc
+        time.sleep(1)
+    raise AssertionError(
+        f"exec output did not contain {expected!r}; "
+        f"last_output={last_output!r}; last_error={last_error!r}; "
+        f"upstream_requests={_UpstreamHandler.request_count}"
+    )
 
 
 def _build_conf():
@@ -800,6 +975,33 @@ def test_yrcli_sandbox_port_forwarding(require_plain_http_for_yrcli):
 
 
 @pytest.mark.smoke
+def test_yrcli_sandbox_reverse_tunnel(require_plain_http_for_yrcli):
+    upstream = _start_local_upstream()
+    host, port = upstream.server_address
+    name = _unique_name("yrcli-tunnel")
+    instance_id = None
+    proc = None
+    try:
+        proc = _start_tunnel_create(name, f"{host}:{port}")
+        instance_id, output = _wait_for_tunnel_create(proc)
+        assert "sandbox upstream proxy: http://127.0.0.1:8766" in output
+        result = _exec_until_contains(
+            instance_id,
+            _remote_http_get_command("http://127.0.0.1:8766/"),
+            "yrcli-reverse-tunnel-ok",
+            timeout=60,
+        )
+        assert "yrcli-reverse-tunnel-ok" in result.stdout
+    finally:
+        upstream.shutdown()
+        upstream.server_close()
+        if proc is not None:
+            _stop_tunnel_process(proc)
+        if instance_id:
+            _run_yrcli("sandbox", "delete", instance_id)
+
+
+@pytest.mark.smoke
 def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
     namespace = "faaspy"
     function = _unique_name("yrcli-faas").replace("-", "")
@@ -882,5 +1084,109 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
         )
         assert '"ok": true' in invoked.stdout
         assert '"echo": "ping"' in invoked.stdout
+    finally:
+        _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package")
+
+
+@pytest.mark.smoke
+def test_faas_session_bypass_and_sse_stream(require_plain_http_for_yrcli, tmp_path):
+    namespace = "faaspy"
+    function = _unique_name("yrcli-session").replace("-", "")
+    full_name = f"0@{namespace}@{function}"
+    runtime = _get_faas_runtime()
+    session_id = _unique_name("session")
+    _ensure_faas_runtime(runtime)
+    code_dir = tmp_path / "faas-session"
+    code_dir.mkdir()
+    handler_path = code_dir / "handler.py"
+    handler_path.write_text(
+        "import json\n"
+        "\n"
+        "def handler(event, context):\n"
+        "    if isinstance(event, dict) and event.get('mode') == 'stream':\n"
+        "        context.get_stream().write(json.dumps({\n"
+        "            'chunk': event.get('text'),\n"
+        "            'session_id': context.get_session_id(),\n"
+        "        }))\n"
+        "    return {\n"
+        "        'ok': True,\n"
+        "        'echo': event,\n"
+        "        'session_id': context.get_session_id(),\n"
+        "        'has_session_service': context.get_session_service() is not None,\n"
+        "    }\n",
+        encoding="utf-8",
+    )
+    function_json = tmp_path / "function-session.json"
+    function_json.write_text(
+        json.dumps(
+            {
+                "name": full_name,
+                "runtime": runtime,
+                "description": "yrcli off-cluster session context smoke handler",
+                "handler": "handler.handler",
+                "kind": "faas",
+                "cpu": 300,
+                "memory": 128,
+                "timeout": 60,
+                "customResources": {},
+                "environment": {},
+                "extendedHandler": {},
+                "extendedTimeout": {},
+                "minInstance": "0",
+                "maxInstance": "1",
+                "concurrentNum": "1",
+                "storageType": "local",
+                "codePath": str(code_dir),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    deployed = _run_yrcli(
+        "deploy",
+        "--code-path",
+        str(code_dir),
+        "--function-json",
+        str(function_json),
+        "--update",
+        timeout=180,
+    )
+    assert "succeed to deploy function" in deployed.stdout or "succeed to update function" in deployed.stdout
+    try:
+        status, body = _invoke_faas_short_http(
+            namespace,
+            function,
+            {"text": "session-ping"},
+            headers={
+                "X-Instance-Session": json.dumps({"sessionID": session_id}),
+                "X-Bypass-Datasystem": "true",
+            },
+            timeout=150,
+        )
+        assert status == 200
+        data = _decode_json_body(body)
+        assert data["ok"] is True, body
+        assert data["session_id"] == session_id, body
+        assert data["has_session_service"] is True, body
+        assert data["echo"]["text"] == "session-ping", body
+
+        stream_session_id = _unique_name("stream-session")
+        status, body = _invoke_faas_short_http(
+            namespace,
+            function,
+            {"mode": "stream", "text": "sse-ping"},
+            headers={
+                "Accept": "text/event-stream",
+                "X-Instance-Session": json.dumps({"sessionID": stream_session_id}),
+            },
+            timeout=150,
+        )
+        assert status == 200
+        assert "data:" in body, body
+        assert "sse-ping" in body, body
+        assert stream_session_id in body, body
+        assert "[DONE]" in body, body
     finally:
         _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package")

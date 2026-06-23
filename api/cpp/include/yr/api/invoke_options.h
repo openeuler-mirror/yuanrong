@@ -208,7 +208,7 @@ struct InvokeOptions {
      * @var bool bypassDatasystem
      * @brief Whether to bypass datasystem for the return path. When True, all return values
      * are kept in native memory and no IncreaseRef/DecreaseRef is performed.
-     * Return values exceeding 5MB will be truncated.
+     * Return values exceeding 100MB will be truncated.
      */
     bool bypassDatasystem = false;
 

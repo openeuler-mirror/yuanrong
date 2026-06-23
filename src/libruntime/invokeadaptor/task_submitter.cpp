@@ -307,7 +307,7 @@ void TaskSubmitter::HandleSuccessInvokeNotify(const NotifyRequest &req, const st
             }
         }
     }
-    if (this->libRuntimeConfig->inCluster && !dsObjs.empty()) {
+    if (this->libRuntimeConfig->inCluster && !dsObjs.empty() && !spec->opts.bypassDatasystem) {
         this->memoryStore->IncreDSGlobalReference(dsObjs);
     }
     this->memoryStore->SetReady(spec->returnIds);

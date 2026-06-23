@@ -17,6 +17,7 @@
 """faas context"""
 
 from dataclasses import dataclass, field
+import json
 import logging
 import os
 import time
@@ -24,6 +25,7 @@ from typing import Any, Dict
 
 from yr import log
 from yr.common import constants
+from yr.functionsdk.stream import Stream
 from yr.functionsdk.utils import parse_json_data_to_dict, dump_data_to_json_str
 
 _RUNTIME_MAX_RESP_BODY_SIZE = 6 * 1024 * 1024
@@ -40,6 +42,10 @@ _HEADER_SECURITY_SECRET_KEY: str = "X-Security-Secret-Key"
 _HEADER_SECURITY_TOKE: str = "X-Security-Token"
 _HEADER_REQUEST_ID: str = "X-Request-Id"
 _HEADER_TRACE_ID: str = "X-Trace-Id"
+_HEADER_EVENT_STREAM: str = "Accept"
+_HEADER_EVENT_STREAM_VALUE: str = "text/event-stream"
+_HEADER_X_INSTANCE_SESSION: str = "X-Instance-Session"
+_SESSION_ID_KEY: str = "sessionID"
 
 _logger = logging.getLogger(__name__)
 
@@ -79,6 +85,23 @@ def init_context_invoke(stage: str, header: dict):
     trace_id = header.get(_HEADER_TRACE_ID) or header.get(_HEADER_REQUEST_ID, "")
     if trace_id:
         context.set_trace_id(trace_id)
+    if header.get(_HEADER_EVENT_STREAM) == _HEADER_EVENT_STREAM_VALUE:
+        try:
+            from yr.fnruntime import get_request_and_instance_id
+
+            request_id, instance_id = get_request_and_instance_id()
+            context.invoke_id = request_id
+            context.set_instance_id(instance_id)
+        except Exception:
+            pass
+    if header.get(_HEADER_X_INSTANCE_SESSION):
+        try:
+            session_obj = json.loads(header[_HEADER_X_INSTANCE_SESSION])
+            if isinstance(session_obj, dict) and _SESSION_ID_KEY in session_obj:
+                context.set_session_id(session_obj[_SESSION_ID_KEY] or "")
+        except (json.decoder.JSONDecodeError, TypeError) as e:
+            log.get_logger().warning(
+                f"Failed to parse {_HEADER_X_INSTANCE_SESSION}: {e}")
     return context
 
 
@@ -116,6 +139,7 @@ class Context:
         self.invoke_property = None
         self.future_id = options.get("future_id", "")
         self.invoke_id = options.get("invoke_id", "")
+        self.__session_id = None
 
     # Gets the request ID associated with the request.
     def getRequestID(self):
@@ -321,6 +345,32 @@ class Context:
     def get_invoke_property(self):
         """Method get_invoke_property, not exposed"""
         return self.invoke_property
+
+    def get_stream(self):
+        """
+        Get SSE stream writer.
+        Input of `Stream.write()` must be a serialized `str`.
+        """
+        if not self.invoke_id or not self.instance_id:
+            try:
+                from yr.fnruntime import get_request_and_instance_id
+
+                request_id, instance_id = get_request_and_instance_id()
+                self.invoke_id = request_id
+                self.instance_id = instance_id
+            except Exception:
+                pass
+        return Stream(request_id=self.invoke_id or "", instance_id=self.instance_id or "")
+
+    def set_session_id(self, session_id):
+        self.__session_id = session_id
+
+    def get_session_id(self) -> str:
+        return self.__session_id
+
+    def get_session_service(self) -> "SessionService":
+        from yr.session_service import SessionService
+        return SessionService(self.__session_id)
 
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)

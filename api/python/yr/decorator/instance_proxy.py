@@ -124,7 +124,8 @@ class InstanceCreator:
             name for name, method in class_methods
             if inspect.iscoroutinefunction(method) or inspect.isasyncgenfunction(method)
         ]) > 0
-        if self.__invoke_options__.concurrency == 1 and not self.__is_async__:
+        if ((self.__invoke_options__.concurrency is None or self.__invoke_options__.concurrency == 1)
+                and not self.__is_async__):
             self.__invoke_options__.need_order = True
         self.__user_class_descriptor__ = utils.ObjectDescriptor.get_from_class(user_class)
         self.__user_class_descriptor__.target_language = LanguageType.Python
@@ -500,7 +501,7 @@ class InstanceCreator:
         """
         instance_cls = self
         invoke_options.check_options_valid()
-        if invoke_options.concurrency == 1 and not self.__is_async__:
+        if (invoke_options.concurrency is None or invoke_options.concurrency == 1) and not self.__is_async__:
             invoke_options.need_order = True
         else:
             invoke_options.need_order = False

@@ -31,6 +31,7 @@
 #include "src/libruntime/fsclient/protobuf/common.pb.h"
 #include "src/libruntime/fsclient/protobuf/message.pb.h"
 #include "src/libruntime/fsclient/protobuf/runtime_service.pb.h"
+#include "src/dto/constant.h"
 #include "src/libruntime/groupmanager/function_group.h"
 #include "src/libruntime/metricsadaptor/metrics_adaptor.h"
 #include "src/libruntime/utils/constants.h"
@@ -73,6 +74,29 @@ std::string GetAgentSessionId(const CallRequest &req)
         return "";
     }
     return iter->second;
+}
+
+// Get concurrency from createOptions, return default value based on isAsync if not set
+int GetConcurrencyFromOptions(const CallRequest &req, bool isAsync)
+{
+    const int DEFAULT_ASYNC_CONCURRENCY = 1000;
+    const int DEFAULT_SYNC_CONCURRENCY = 1;
+
+    auto iter = req.createoptions().find(CONCURRENT_NUM);
+    if (iter != req.createoptions().end()) {
+        try {
+            int concurrency = static_cast<int>(std::stoi(iter->second));
+            if (concurrency >= static_cast<int>(MIN_CONCURRENCY) &&
+                concurrency <= static_cast<int>(MAX_CONCURRENCY)) {
+                return concurrency;
+            }
+            YRLOG_WARN("Invalid concurrency value: {}, using default", concurrency);
+        } catch (const std::exception &e) {
+            YRLOG_WARN("Failed to parse concurrency: {}, using default", e.what());
+        }
+    }
+    // Return default based on isAsync
+    return isAsync ? DEFAULT_ASYNC_CONCURRENCY : DEFAULT_SYNC_CONCURRENCY;
 }
 }  // namespace
 
@@ -276,8 +300,10 @@ void InvokeAdaptor::InitHandler(const std::shared_ptr<CallMessageSpec> &req)
         return;
     }
     if (metaData.functionmeta().isasync() && !fiberPool_) {
-        this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE,
-                                                       YR::Libruntime::Config::Instance().YR_ASYNCIO_MAX_CONCURRENCY());
+        int concurrency = GetConcurrencyFromOptions(req->Immutable(), metaData.functionmeta().isasync());
+        YRLOG_INFO("Create FiberPool with concurrency: {}, isAsync: {}, req id: {}",
+                   concurrency, metaData.functionmeta().isasync(), req->Immutable().requestid());
+        this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE, concurrency);
     }
     YRLOG_DEBUG("enable metrics is {}, api type is {}", Config::Instance().ENABLE_METRICS(),
                 fmt::underlying(this->librtConfig->selfApiType));
@@ -348,8 +374,10 @@ void InvokeAdaptor::CallHandler(const std::shared_ptr<CallMessageSpec> &req)
         return;
     }
     if (metaData.functionmeta().isasync() && !fiberPool_) {
-        this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE,
-                                                       YR::Libruntime::Config::Instance().YR_ASYNCIO_MAX_CONCURRENCY());
+        int concurrency = GetConcurrencyFromOptions(req->Immutable(), metaData.functionmeta().isasync());
+        YRLOG_INFO("Create FiberPool with concurrency: {}, isAsync: {}, req id: {}",
+                   concurrency, metaData.functionmeta().isasync(), req->Immutable().requestid());
+        this->fiberPool_ = std::make_shared<FiberPool>(FIBER_STACK_SIZE, concurrency);
     }
     if (metaData.invoketype() == libruntime::InvokeType::GetNamedInstanceMeta) {
         std::shared_ptr<CallResultMessageSpec> result = std::make_shared<CallResultMessageSpec>();

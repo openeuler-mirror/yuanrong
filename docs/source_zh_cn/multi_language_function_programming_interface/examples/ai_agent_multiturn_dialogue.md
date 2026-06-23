@@ -16,7 +16,7 @@ openYuanrong 的 AI Agent 会话功能提供了以下优势：
 
 ### 1. 开启函数会话功能
 
-在注册函数时，设置 `enable_agent_session` 为 ``true``。
+在注册函数时，设置 `enableAgentSession` 为 ``true``。
 
 ```bash
 # 使用 yr 命令行工具或 REST API 注册
@@ -26,7 +26,7 @@ curl -X POST http://{meta_service}/serverless/v1/functions \
     "name": "0@ai@dialogue-agent",
     "runtime": "java8",
     "handler": "org.example.DialogueAgent.handle",
-    "enable_agent_session": true,
+    "enableAgentSession": true,
     "cpu": 1000,
     "memory": 1024
 }'

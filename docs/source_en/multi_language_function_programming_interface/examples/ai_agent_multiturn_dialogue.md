@@ -16,7 +16,7 @@ openYuanrong's AI Agent Session feature provides the following advantages:
 
 ### 1. Enable Function Session Feature
 
-When registering the function, set `enable_agent_session` to `true`.
+When registering the function, set `enableAgentSession` to `true`.
 
 ```bash
 # Register using yr command line tool or REST API
@@ -26,7 +26,7 @@ curl -X POST http://{meta_service}/serverless/v1/functions \
     "name": "0@ai@dialogue-agent",
     "runtime": "java8",
     "handler": "org.example.DialogueAgent.handle",
-    "enable_agent_session": true,
+    "enableAgentSession": true,
     "cpu": 1000,
     "memory": 1024
 }'

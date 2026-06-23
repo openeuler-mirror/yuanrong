@@ -179,3 +179,20 @@ html {
     left: auto !important;
     transform: none !important;
 }
+
+/* 语言切换按钮深色模式适配 */
+.language-switcher-btn {
+    color: var(--pst-color-text-base) !important;
+    background-color: transparent !important;
+    border: 1px solid var(--pst-color-border) !important;
+}
+
+.language-switcher-btn:hover {
+    color: var(--pst-color-text-base) !important;
+    background-color: var(--pst-color-surface) !important;
+    border-color: var(--pst-color-border) !important;
+}
+
+.language-switcher-btn:focus {
+    box-shadow: 0 0 0 0.2rem var(--pst-color-primary) !important;
+}

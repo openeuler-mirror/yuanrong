@@ -498,7 +498,7 @@ def wait(obj_refs: Union[ObjectRef, List[ObjectRef]], wait_num: Optional[int] = 
 
     Args:
         object_refs (list): Data saved to the data system.
-        wait_num (int, optional): The minimum number of objects to wait for. It defaults to ``1``.
+        wait_num (int, optional): The minimum number of objects to wait for. It defaults to ``len(obj_refs)``.
             The value should not exceed the length of `obj_refs`.
         timeout (int, optional): The timeout in seconds. Note that if the default value ``None`` is used,
             it will wait indefinitely, with the actual maximum wait time limited by the wait factors in `get`.

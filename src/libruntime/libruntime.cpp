@@ -349,6 +349,7 @@ ErrorInfo Libruntime::PreProcessArgs(const std::shared_ptr<InvokeSpec> &spec)
             InvokeArg bigObjArg{};
             bigObjArg.isRef = true;
             bigObjArg.objId = objId;
+            bigObjArg.tenantId = arg.tenantId;
             bigObjIdSet.insert(objId);
             arg = std::move(bigObjArg);
         } else {

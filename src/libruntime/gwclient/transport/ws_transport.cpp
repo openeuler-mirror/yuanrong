@@ -64,6 +64,7 @@ const size_t FRAME_ID_LEN_LOW_INDEX = 3;
 const int BITS_PER_BYTE = 8;
 const int BIG_ENDIAN_BYTE_SHIFT = 24;
 const int BIG_ENDIAN_WORD_SHIFT = 16;
+const int READ_POLL_TIMEOUT_MS = 100;
 const int HTTP_STATUS_OK = 200;
 const int HTTP_STATUS_BAD_REQUEST = 400;
 
@@ -126,51 +127,14 @@ public:
 
             asio::ip::tcp::resolver resolver(*ioc_);
             auto const results = resolver.resolve(host_, std::to_string(port_));
-
-            auto sslCtx = std::make_shared<ssl::context>(ssl::context::tls_client);
-            sslCtx->set_options(ssl::context::default_workarounds);
-            SSL_CTX_set_min_proto_version(sslCtx->native_handle(), TLS1_2_VERSION);
-
-            sslCtx->set_verify_mode(ssl::verify_peer);
-            if (!caFile_.empty()) {
-                sslCtx->load_verify_file(caFile_);
-            } else {
-                sslCtx->set_default_verify_paths();
-            }
-
-            if (enableMTLS_) {
-                if (!certFile_.empty()) {
-                    sslCtx->use_certificate_chain_file(certFile_);
-                }
-                if (!keyFile_.empty()) {
-                    sslCtx->use_private_key_file(keyFile_, ssl::context::pem);
-                }
-            }
-
+            auto sslCtx = BuildSslContext();
             ws_ = std::make_shared<websocket::stream<beast::ssl_stream<beast::tcp_stream>>>(*ioc_, *sslCtx);
-
-            if (!SSL_set_tlsext_host_name(ws_->next_layer().native_handle(), host_.c_str())) {
-                return ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, ModuleCode::RUNTIME,
-                                 "Failed to set SNI hostname");
+            auto sniErr = SetSniHost();
+            if (!sniErr.OK()) {
+                return sniErr;
             }
-
-            // Set auth header in WebSocket handshake request
-            ws_->set_option(websocket::stream_base::decorator(
-                [this](websocket::request_type &req) {
-                    if (!authToken_.empty()) {
-                        req.set("X-Auth", authToken_);
-                    }
-                }));
-
-            beast::get_lowest_layer(*ws_).connect(results);
-            ws_->next_layer().handshake(ssl::stream_base::client);
-            ws_->handshake(host_, POSIX_WS_PATH);
-            ws_->binary(true);
-            ws_->control_callback(
-                [](websocket::frame_type kind, beast::string_view payload) {
-                    YRLOG_DEBUG("WsTransport control frame: kind={}, payload={} bytes",
-                                static_cast<int>(kind), payload.size());
-                });
+            ConfigureAuthHeader();
+            CompleteHandshake(results);
 
             connected_ = true;
             reconnectCv_.notify_all();
@@ -184,47 +148,119 @@ public:
         }
     }
 
+    std::shared_ptr<ssl::context> BuildSslContext()
+    {
+        auto sslCtx = std::make_shared<ssl::context>(ssl::context::tls_client);
+        sslCtx->set_options(ssl::context::default_workarounds);
+        SSL_CTX_set_min_proto_version(sslCtx->native_handle(), TLS1_2_VERSION);
+        sslCtx->set_verify_mode(ssl::verify_peer);
+        if (!caFile_.empty()) {
+            sslCtx->load_verify_file(caFile_);
+        } else {
+            sslCtx->set_default_verify_paths();
+        }
+        if (enableMTLS_) {
+            if (!certFile_.empty()) {
+                sslCtx->use_certificate_chain_file(certFile_);
+            }
+            if (!keyFile_.empty()) {
+                sslCtx->use_private_key_file(keyFile_, ssl::context::pem);
+            }
+        }
+        return sslCtx;
+    }
+
+    ErrorInfo SetSniHost()
+    {
+        if (SSL_set_tlsext_host_name(ws_->next_layer().native_handle(), host_.c_str())) {
+            return ErrorInfo();
+        }
+        return ErrorInfo(ErrorCode::ERR_INNER_COMMUNICATION, ModuleCode::RUNTIME, "Failed to set SNI hostname");
+    }
+
+    void ConfigureAuthHeader()
+    {
+        ws_->set_option(websocket::stream_base::decorator(
+            [this](websocket::request_type &req) {
+                if (!authToken_.empty()) {
+                    req.set("X-Auth", authToken_);
+                }
+            }));
+    }
+
+    void CompleteHandshake(const asio::ip::tcp::resolver::results_type &results)
+    {
+        beast::get_lowest_layer(*ws_).connect(results);
+        ws_->next_layer().handshake(ssl::stream_base::client);
+        ws_->handshake(host_, POSIX_WS_PATH);
+        ws_->binary(true);
+        ws_->control_callback(
+            [](websocket::frame_type kind, beast::string_view payload) {
+                YRLOG_DEBUG("WsTransport control frame: kind={}, payload={} bytes",
+                            static_cast<int>(kind), payload.size());
+            });
+    }
+
+    bool WaitForConnection()
+    {
+        if (connected_) {
+            return true;
+        }
+        YRLOG_DEBUG("WsTransport ReadLoop waiting for connection");
+        std::unique_lock<std::mutex> lock(reconnectMutex_);
+        reconnectCv_.wait(lock, [this]() { return connected_.load() || !running_.load(); });
+        if (!running_) {
+            return false;
+        }
+        YRLOG_DEBUG("WsTransport ReadLoop connection restored");
+        return true;
+    }
+
+    bool HasReadableData()
+    {
+        if (SSL_pending(ws_->next_layer().native_handle()) > 0) {
+            return true;
+        }
+        int fd = beast::get_lowest_layer(*ws_).socket().native_handle();
+        struct pollfd pfd {};
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        return ::poll(&pfd, 1, READ_POLL_TIMEOUT_MS) > 0;
+    }
+
+    std::string ReadWsMessage()
+    {
+        beast::flat_buffer buffer;
+        {
+            std::lock_guard<std::mutex> lock(ioMutex_);
+            ws_->read(buffer);
+        }
+        return beast::buffers_to_string(buffer.data());
+    }
+
+    void HandleReadDisconnect(const std::string &reason)
+    {
+        connected_ = false;
+        if (running_) {
+            DrainPendingCallbacks(reason);
+        }
+    }
+
     void ReadLoop()
     {
         YRLOG_DEBUG("WsTransport ReadLoop started");
         while (running_) {
-            if (!connected_) {
-                YRLOG_DEBUG("WsTransport ReadLoop waiting for connection");
-                std::unique_lock<std::mutex> lock(reconnectMutex_);
-                reconnectCv_.wait(lock, [this]() { return connected_.load() || !running_.load(); });
-                if (!running_) {
-                    break;
-                }
-                YRLOG_DEBUG("WsTransport ReadLoop connection restored");
+            if (!WaitForConnection()) {
                 continue;
             }
 
             try {
-                // Check SSL internal buffer first — poll() can't see data that
-                // OpenSSL already consumed from the FD and buffered internally.
-                bool hasPending = SSL_pending(ws_->next_layer().native_handle()) > 0;
-                if (!hasPending) {
-                    int fd = beast::get_lowest_layer(*ws_).socket().native_handle();
-                    struct pollfd pfd{};
-                    pfd.fd = fd;
-                    pfd.events = POLLIN;
-                    int pollRet = ::poll(&pfd, 1, 100);  // 100ms timeout
-                    if (pollRet <= 0) {
-                        continue;
-                    }
+                if (!HasReadableData()) {
+                    continue;
                 }
-
-                beast::flat_buffer buffer;
-                {
-                    std::lock_guard<std::mutex> lock(ioMutex_);
-                    ws_->read(buffer);
-                }
-
-                std::string message = beast::buffers_to_string(buffer.data());
+                std::string message = ReadWsMessage();
                 YRLOG_DEBUG("WsTransport received {} bytes", message.size());
 
-                // Skip JSON control messages (e.g. pong responses from server).
-                // Binary protocol frames start with a version byte, never '{'.
                 if (!message.empty() && message[0] == '{') {
                     YRLOG_DEBUG("WsTransport received pong/control message, skipping");
                     continue;
@@ -240,20 +276,14 @@ public:
                 } else {
                     YRLOG_WARN("WsTransport read error: {}", e.what());
                 }
-                connected_ = false;
-                if (running_) {
-                    DrainPendingCallbacks(std::string("WebSocket disconnected: ") + e.what());
-                }
+                HandleReadDisconnect(std::string("WebSocket disconnected: ") + e.what());
             } catch (const std::exception &e) {
                 if (!running_) {
                     YRLOG_DEBUG("WsTransport read stopped: {}", e.what());
                 } else {
                     YRLOG_WARN("WsTransport read error: {}", e.what());
                 }
-                connected_ = false;
-                if (running_) {
-                    DrainPendingCallbacks(std::string("WebSocket disconnected: ") + e.what());
-                }
+                HandleReadDisconnect(std::string("WebSocket disconnected: ") + e.what());
             }
         }
         YRLOG_DEBUG("WsTransport ReadLoop exited");
@@ -345,6 +375,48 @@ public:
         }
     }
 
+    void EnqueuePing()
+    {
+        YRLOG_DEBUG("WsTransport enqueuing ping, interval={}s", pingIntervalSec_);
+        {
+            std::lock_guard<std::mutex> lock(writeMutex_);
+            writeQueue_.push({"", "", true});
+        }
+        writeCv_.notify_one();
+    }
+
+    bool AttemptReconnect()
+    {
+        YRLOG_INFO("WsTransport attempting background reconnect to {}:{}", host_, port_);
+        auto err = Connect();
+        if (err.OK()) {
+            YRLOG_INFO("WsTransport background reconnect succeeded");
+            return true;
+        }
+        YRLOG_WARN("WsTransport background reconnect failed: {}", err.Msg());
+        return false;
+    }
+
+    void HandleConnectedTimeoutTick(int &pingCountdown, int reconnectIntervalSec, int &reconnectCountdown)
+    {
+        if (--pingCountdown <= 0) {
+            pingCountdown = pingIntervalSec_;
+            EnqueuePing();
+        }
+        reconnectCountdown = reconnectIntervalSec;
+    }
+
+    void HandleDisconnectedTimeoutTick(int &pingCountdown, int reconnectIntervalSec, int &reconnectCountdown)
+    {
+        if (--reconnectCountdown > 0) {
+            return;
+        }
+        reconnectCountdown = reconnectIntervalSec;
+        if (AttemptReconnect()) {
+            pingCountdown = pingIntervalSec_;
+        }
+    }
+
     void TimeoutCheckLoop()
     {
         int pingCountdown = pingIntervalSec_;
@@ -358,55 +430,62 @@ public:
             }
 
             if (connected_) {
-                // --- Heartbeat ping (enqueue to WriteLoop to avoid concurrent write) ---
-                if (--pingCountdown <= 0) {
-                    pingCountdown = pingIntervalSec_;
-                    YRLOG_DEBUG("WsTransport enqueuing ping, interval={}s", pingIntervalSec_);
-                    {
-                        std::lock_guard<std::mutex> lock(writeMutex_);
-                        writeQueue_.push({"", "", true});
-                    }
-                    writeCv_.notify_one();
-                }
-                reconnectCountdown = reconnectIntervalSec;  // reset while connected
+                HandleConnectedTimeoutTick(pingCountdown, reconnectIntervalSec, reconnectCountdown);
             } else {
-                // --- Background reconnect ---
-                if (--reconnectCountdown <= 0) {
-                    reconnectCountdown = reconnectIntervalSec;
-                    YRLOG_INFO("WsTransport attempting background reconnect to {}:{}", host_, port_);
-                    // Safe without a mutex: connected_ is false here, so
-                    // ReadLoop is in its wait state and WriteLoop skips writes.
-                    // No thread is accessing ws_.
-                    auto err = Connect();
-                    if (err.OK()) {
-                        YRLOG_INFO("WsTransport background reconnect succeeded");
-                        pingCountdown = pingIntervalSec_;  // reset ping timer
-                    } else {
-                        YRLOG_WARN("WsTransport background reconnect failed: {}", err.Msg());
-                    }
-                }
+                HandleDisconnectedTimeoutTick(pingCountdown, reconnectIntervalSec, reconnectCountdown);
             }
         }
     }
 
+    static uint8_t ReadByte(char ch)
+    {
+        return static_cast<uint8_t>(static_cast<unsigned char>(ch));
+    }
+
+    TransportCallback TakeCallback(const std::string &id)
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex_);
+        auto it = pendingCallbacks_.find(id);
+        if (it == pendingCallbacks_.end()) {
+            return {};
+        }
+        auto callback = it->second;
+        pendingCallbacks_.erase(it);
+        return callback;
+    }
+
+    ErrorInfo BuildFrameError(const std::string &payload)
+    {
+        int errCode = -1;
+        std::string errMsg = "unknown error";
+        if (payload.size() >= ERROR_CODE_SIZE) {
+            errCode = (static_cast<int>(ReadByte(payload[FRAME_VERSION_INDEX])) << BIG_ENDIAN_BYTE_SHIFT) |
+                      (static_cast<int>(ReadByte(payload[FRAME_STATUS_INDEX])) << BIG_ENDIAN_WORD_SHIFT) |
+                      (static_cast<int>(ReadByte(payload[FRAME_ID_LEN_HIGH_INDEX])) << BITS_PER_BYTE) |
+                      static_cast<int>(ReadByte(payload[FRAME_ID_LEN_LOW_INDEX]));
+            if (payload.size() > ERROR_CODE_SIZE) {
+                errMsg = std::string(payload.data() + ERROR_CODE_SIZE, payload.size() - ERROR_CODE_SIZE);
+            }
+        }
+        return ErrorInfo(static_cast<ErrorCode>(errCode), ModuleCode::RUNTIME, errMsg);
+    }
+
     void ProcessMessage(const std::string &message)
     {
-        // Binary response frame: [version][status][id_len_be][id][payload]
         if (message.size() < FRAME_HEADER_SIZE) {
             YRLOG_WARN("WsTransport received frame too short: {} bytes", message.size());
             return;
         }
 
-        auto readByte = [](char ch) -> uint8_t { return static_cast<uint8_t>(static_cast<unsigned char>(ch)); };
-        uint8_t version = readByte(message[FRAME_VERSION_INDEX]);
+        uint8_t version = ReadByte(message[FRAME_VERSION_INDEX]);
         if (version != FRAME_VERSION) {
             YRLOG_WARN("WsTransport unknown frame version: {}", version);
             return;
         }
 
-        uint8_t status = readByte(message[FRAME_STATUS_INDEX]);
-        uint16_t idLen = (static_cast<uint16_t>(readByte(message[FRAME_ID_LEN_HIGH_INDEX])) << BITS_PER_BYTE) |
-                         static_cast<uint16_t>(readByte(message[FRAME_ID_LEN_LOW_INDEX]));
+        uint8_t status = ReadByte(message[FRAME_STATUS_INDEX]);
+        uint16_t idLen = (static_cast<uint16_t>(ReadByte(message[FRAME_ID_LEN_HIGH_INDEX])) << BITS_PER_BYTE) |
+                         static_cast<uint16_t>(ReadByte(message[FRAME_ID_LEN_LOW_INDEX]));
         if (message.size() < FRAME_HEADER_SIZE + idLen) {
             YRLOG_WARN("WsTransport frame truncated: need {} bytes, got {}",
                        FRAME_HEADER_SIZE + idLen, message.size());
@@ -420,16 +499,7 @@ public:
         YRLOG_DEBUG("WsTransport response received, id: {}, status: {:#x}, payload: {} bytes",
                     id, status, payload.size());
 
-        TransportCallback callback;
-        {
-            std::lock_guard<std::mutex> lock(callbackMutex_);
-            auto it = pendingCallbacks_.find(id);
-            if (it != pendingCallbacks_.end()) {
-                callback = it->second;
-                pendingCallbacks_.erase(it);
-            }
-        }
-
+        TransportCallback callback = TakeCallback(id);
         if (!callback) {
             YRLOG_WARN("WsTransport no callback for id: {}", id);
             return;
@@ -439,22 +509,9 @@ public:
             YRLOG_DEBUG("WsTransport request succeeded, id: {}", id);
             callback(payload, ErrorInfo(), HTTP_STATUS_OK);
         } else {
-            // Error payload: [4B error code BE][error message]
-            int errCode = -1;
-            std::string errMsg = "unknown error";
-            if (payload.size() >= ERROR_CODE_SIZE) {
-                errCode = (static_cast<int>(readByte(payload[FRAME_VERSION_INDEX])) << BIG_ENDIAN_BYTE_SHIFT) |
-                          (static_cast<int>(readByte(payload[FRAME_STATUS_INDEX])) << BIG_ENDIAN_WORD_SHIFT) |
-                          (static_cast<int>(readByte(payload[FRAME_ID_LEN_HIGH_INDEX])) << BITS_PER_BYTE) |
-                          static_cast<int>(readByte(payload[FRAME_ID_LEN_LOW_INDEX]));
-                if (payload.size() > ERROR_CODE_SIZE) {
-                    errMsg = std::string(payload.data() + ERROR_CODE_SIZE,
-                                        payload.size() - ERROR_CODE_SIZE);
-                }
-            }
-            YRLOG_DEBUG("WsTransport request failed, id: {}, code: {}, msg: {}", id, errCode, errMsg);
-            callback("", ErrorInfo(static_cast<ErrorCode>(errCode), ModuleCode::RUNTIME, errMsg),
-                     HTTP_STATUS_BAD_REQUEST);
+            auto err = BuildFrameError(payload);
+            YRLOG_DEBUG("WsTransport request failed, id: {}, msg: {}", id, err.Msg());
+            callback("", err, HTTP_STATUS_BAD_REQUEST);
         }
     }
 };

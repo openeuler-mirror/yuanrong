@@ -501,6 +501,7 @@ cc_library(
 cc_library(
     name = "ds_flags",
     srcs = [
+        "src/datasystem/common/flags/embedded_config.cpp",
         "src/datasystem/common/flags/flag_manager.cpp",
         "src/datasystem/common/flags/flags.cpp",
     ],
@@ -692,8 +693,8 @@ cc_library(
 
 cc_library(
     name = "token",
-    srcs = ["src/datasystem/common/agc/client_access_token.cpp"],
-    hdrs = glob(["src/datasystem/common/agc/*.h"]),
+    srcs = ["src/datasystem/common/token/client_access_token.cpp"],
+    hdrs = glob(["src/datasystem/common/token/*.h"]),
     copts = DATASYSTEM_COPTS,
     includes = DATASYSTEM_INCLUDES,
     deps = [
@@ -816,7 +817,7 @@ cc_library(
 
 cc_library(
     name = "common_device",
-    srcs = [],
+    srcs = glob(["src/datasystem/common/device/*.cpp"]),
     hdrs = glob(["src/datasystem/common/device/*.h"]),
     copts = DATASYSTEM_COPTS,
     includes = DATASYSTEM_INCLUDES,

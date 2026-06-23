@@ -53,25 +53,6 @@ class TestIntegration(unittest.TestCase):
         self._server_loop.call_soon_threadsafe(self._server_loop.stop)
         self._server_thread.join(timeout=5)
 
-    # ------------------------------------------------------------------
-    # Helpers: start/stop an upstream aiohttp app inside _server_loop so
-    # it stays alive between asyncio.run() calls in the test body.
-    # ------------------------------------------------------------------
-
-    def _start_upstream(self, app: web.Application) -> web.AppRunner:
-        """Start an aiohttp app on UPSTREAM_PORT inside the shared server loop."""
-        async def _start():
-            runner = web.AppRunner(app)
-            await runner.setup()
-            await web.TCPSite(runner, "127.0.0.1", UPSTREAM_PORT).start()
-            return runner
-        return asyncio.run_coroutine_threadsafe(_start(), self._server_loop).result(timeout=5)
-
-    def _stop_upstream(self, runner: web.AppRunner) -> None:
-        asyncio.run_coroutine_threadsafe(runner.cleanup(), self._server_loop).result(timeout=5)
-
-    # ------------------------------------------------------------------
-
     def test_http_get_roundtrip_through_tunnel(self):
         """Full roundtrip: Port B HTTP GET → WS tunnel → TunnelClient → mock upstream → response."""
         import time
@@ -454,10 +435,22 @@ class TestIntegration(unittest.TestCase):
             asyncio.run(_connect_and_disconnect())
 
             # After disconnect, no lingering ws channels on client side
-            self.assertEqual(len(client._ws_channels), 0)
+            self.assertEqual(len(getattr(client, "_ws_channels")), 0)
         finally:
             client.stop()
             self._stop_upstream(upstream_runner)
+
+    def _start_upstream(self, app: web.Application) -> web.AppRunner:
+        """Start an aiohttp app on UPSTREAM_PORT inside the shared server loop."""
+        async def _start():
+            runner = web.AppRunner(app)
+            await runner.setup()
+            await web.TCPSite(runner, "127.0.0.1", UPSTREAM_PORT).start()
+            return runner
+        return asyncio.run_coroutine_threadsafe(_start(), self._server_loop).result(timeout=5)
+
+    def _stop_upstream(self, runner: web.AppRunner) -> None:
+        asyncio.run_coroutine_threadsafe(runner.cleanup(), self._server_loop).result(timeout=5)
 
 
 if __name__ == "__main__":

@@ -30,12 +30,13 @@ def ds_proto_gen(name, proto_src, proto_dir = "src/datasystem/protos", zmq = Fal
         extra_proto_deps: Additional proto source files needed for imports
     """
     outs = _proto_outs(name, zmq)
-    out_dir = "$(@D)/gen/datasystem/protos"
+    out_dir = "$(@D)/gen"
 
     # Build include path for proto compilation
     # Derive protobuf well-known types include root from descriptor.proto location
     proto_include = """
             PROTO_DIR=$$(dirname $(location {proto_src}))
+            PROTO_ROOT=$$(dirname $$(dirname $$PROTO_DIR))
             # descriptor.proto is at <root>/src/google/protobuf/descriptor.proto
             # We need <root>/src as the include path for protoc
             DESC_PATH=$$(echo $(locations @com_google_protobuf//:well_known_protos) | tr ' ' '\\n' | grep 'descriptor\\.proto$$' | head -1)
@@ -46,7 +47,7 @@ def ds_proto_gen(name, proto_src, proto_dir = "src/datasystem/protos", zmq = Fal
         cmd = proto_include + """
             mkdir -p {out_dir} && \
             $(location @com_google_protobuf//:protoc) \
-                -I$$PROTO_DIR \
+                -I$$PROTO_ROOT \
                 -I$$WKT_ROOT \
                 --cpp_out={out_dir} \
                 --zmq_out={out_dir} \
@@ -61,7 +62,7 @@ def ds_proto_gen(name, proto_src, proto_dir = "src/datasystem/protos", zmq = Fal
         cmd = proto_include + """
             mkdir -p {out_dir} && \
             $(location @com_google_protobuf//:protoc) \
-                -I$$PROTO_DIR \
+                -I$$PROTO_ROOT \
                 -I$$WKT_ROOT \
                 --cpp_out={out_dir} \
                 $(location {proto_src})

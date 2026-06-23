@@ -22,6 +22,7 @@ import inspect
 import logging
 import json
 import os
+import pickle
 import traceback
 import threading
 import traceback
@@ -51,7 +52,7 @@ from yr.base_runtime import (ExistenceOpt, WriteMode, CacheType, ConsistencyType
 from yr import runtime_env
 from yr import port_forwarding
 from yr.checkpoint import SnapstartInfo, SnapstartResponse
-from yr.exception import YRInvokeError
+from yr.exception import YRInvokeError, _cause_to_str
 from yr.stream import (Element, ProducerConfig, SubscriptionConfig,
                        SubscriptionType)
 from yr.accelerate.shm_broadcast import Handle, MessageQueue, decode, ResponseStatus
@@ -767,7 +768,19 @@ cdef CErrorInfo function_execute_callback_internal(const CFunctionMeta & functio
         result_list, error_info = Executor(func_meta, args, invoke_type, return_nums, _serialization_ctx, False).execute()
     if error_info.error_code == ErrorCode.ERR_USER_FUNCTION_EXCEPTION and result_list \
             and isinstance(result_list[0], YRInvokeError):
-        serialized_object = _serialization_ctx.serialize(result_list[0])
+        try:
+            serialized_object = _serialization_ctx.serialize(result_list[0])
+        except (pickle.PickleError, TypeError, AttributeError) as serialize_err:
+            _logger.warning("Failed to serialize YRInvokeError, falling back to string representation: %s",
+                            str(serialize_err))
+            fallback_err = YRInvokeError(result_list[0].cause, result_list[0].traceback_str)
+            fallback_err.cause = RuntimeError(_cause_to_str(result_list[0].cause))
+            try:
+                serialized_object = _serialization_ctx.serialize(fallback_err)
+            except Exception as fallback_err_inner:
+                _logger.error("Fallback serialization also failed: %s", str(fallback_err_inner))
+                return error_info_from_py(ErrorInfo(ErrorCode.ERR_USER_FUNCTION_EXCEPTION, ModuleCode.RUNTIME,
+                                                    "Failed to serialize invocation error"))
         meta_size = constants.METALEN
         data_size = len(serialized_object) - constants.METALEN
         with nogil:
@@ -981,6 +994,14 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     create_opt = runtime_env.parse_runtime_env(opt)
     if runtime_env.WORKING_DIR_KEY in create_opt:
         opts.workingDir = create_opt.pop(runtime_env.WORKING_DIR_KEY)
+    runtime_env_vars = create_opt.pop("env_vars", {})
+    merged_env_vars = {}
+    for key, value in runtime_env_vars.items():
+        merged_env_vars[key] = value
+    for key, value in opt.env_vars.items():
+        merged_env_vars[key] = value
+    for key, value in merged_env_vars.items():
+        opts.envVars.insert(pair[string, string](key, value))
     for key, value in create_opt.items():
         opts.createOptions.insert(pair[string, string](key, value))
     # port forwarding: serialize to createOptions["network"] JSON
@@ -1025,12 +1046,11 @@ cdef parse_invoke_opts(CInvokeOptions & opts, opt: yr.InvokeOptions, group_info:
     opts.recoverRetryTimes = opt.recover_retry_times
     opts.needOrder = opt.need_order
     opts.traceId = opt.trace_id
-    for key, value in opt.env_vars.items():
-        opts.envVars.insert(pair[string, string](key, value))
     opts.preemptedAllowed = opt.preempted_allowed
     opts.instancePriority = opt.instance_priority
     opts.scheduleTimeoutMs = opt.schedule_timeout_ms
     opts.isDeleteRemoteTensor = opt.is_delete_remote_tensor
+    opts.debug.enable = opt.debug.enable
     opts.bypassDatasystem = opt.bypass_datasystem
 
 cdef class Producer:

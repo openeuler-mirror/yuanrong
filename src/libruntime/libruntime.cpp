@@ -1658,12 +1658,24 @@ void Libruntime::ReInit()
     YRLOG_INFO("Libruntime::ReInit - start, old dsAddr={}:{}", config->dataSystemIpAddr, config->dataSystemPort);
 
 #ifdef ENABLE_DATASYSTEM
-    // Save old datasystem address for releasing old dsClients
     std::string oldDsIpAddr = config->dataSystemIpAddr;
     int oldDsPort = config->dataSystemPort;
 #endif  // ENABLE_DATASYSTEM
 
-    // Update config from new environment variables
+    UpdateDsAddressFromEnv();
+
+#ifdef ENABLE_DATASYSTEM
+    ReInitDsClients(oldDsIpAddr, oldDsPort);
+    ReInitStreamComponents();
+#endif  // ENABLE_DATASYSTEM
+
+    if (invokeAdaptor) {
+        invokeAdaptor->ReInit();
+    }
+}
+
+void Libruntime::UpdateDsAddressFromEnv()
+{
     std::string dsAddr = Config::Instance().DATASYSTEM_ADDR();
     if (!dsAddr.empty() && dsAddr != "0.0.0.0:0") {
         size_t colonPos = dsAddr.find(':');
@@ -1673,11 +1685,12 @@ void Libruntime::ReInit()
             YRLOG_INFO("Updated datasystem address from env: {}:{}", config->dataSystemIpAddr, config->dataSystemPort);
         }
     }
+}
 
 #ifdef ENABLE_DATASYSTEM
-    // Reinitialize dsClients
+void Libruntime::ReInitDsClients(const std::string &oldDsIpAddr, int oldDsPort)
+{
     if (config->inCluster) {
-        // First, release the old dsClients using OLD address to ensure we get fresh connections
         if (dsClients.dsObjectStore || dsClients.dsStateStore || dsClients.dsStreamStore || dsClients.dsHeteroStore) {
             auto err = clientsMgr->ReleaseDsClient(oldDsIpAddr, oldDsPort);
             if (!err.OK()) {
@@ -1700,31 +1713,26 @@ void Libruntime::ReInit()
             YRLOG_ERROR("failed to reinitialize dsClients, message({})", err.Msg());
         }
     }
+}
 
-    // Reinitialize generatorNotifier_
+void Libruntime::ReInitStreamComponents()
+{
     if (dsClients.dsStreamStore) {
         auto mapper = std::make_shared<GeneratorIdMap>();
         generatorNotifier_ = std::make_shared<StreamGeneratorNotifier>(dsClients.dsStreamStore, mapper);
     }
 
-    // Reinitialize generatorReceiver_
     if (dsClients.dsStreamStore && memStore) {
         generatorReceiver_ = std::make_shared<StreamGeneratorReceiver>(config, dsClients.dsStreamStore, memStore);
         generatorReceiver_->Initialize();
     }
 
-    // Reinitialize driverLogReceiver_
     if (config->logToDriver && dsClients.dsStreamStore) {
         driverLogReceiver_ = std::make_shared<DriverLogReceiver>();
         driverLogReceiver_->Init(dsClients.dsStreamStore, config->jobId, config->dedupLogs);
     }
-#endif  // ENABLE_DATASYSTEM
-
-    // Reinitialize invokeAdaptor
-    if (invokeAdaptor) {
-        invokeAdaptor->ReInit();
-    }
 }
+#endif  // ENABLE_DATASYSTEM
 
 void Libruntime::WaitAsync(const std::string &objectId, WaitAsyncCallback callback, void *userData)
 {

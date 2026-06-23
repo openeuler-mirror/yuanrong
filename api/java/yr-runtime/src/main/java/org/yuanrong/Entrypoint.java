@@ -103,9 +103,9 @@ public class Entrypoint {
         LibRuntime.ReceiveRequestLoop();
 
         // Checkpoint restore re-init loop
-        while (LibRuntime.NeedReInit()) {
+        while (LibRuntime.needReInit()) {
             LOG.info("Checkpoint restore detected, performing re-initialization...");
-            LibRuntime.ReInit();
+            LibRuntime.reInit();
 
             // Reload environment variables from file after checkpoint restore
             RuntimeUtils.loadEnvFromFile(System.getenv("YR_ENV_FILE"));

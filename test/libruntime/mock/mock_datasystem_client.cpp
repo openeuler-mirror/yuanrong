@@ -188,7 +188,8 @@ Status ObjectClient::Get(const std::vector<std::string> &objectIds, int32_t time
     return status;
 }
 
-Status ObjectClient::GIncreaseRef(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+Status ObjectClient::GIncreaseRef(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds,
+                                  const std::string &remoteClientId)
 {
     if (objectIds.size() == 2) {
         return Status(StatusCode::K_RPC_DEADLINE_EXCEEDED, "error");
@@ -196,7 +197,8 @@ Status ObjectClient::GIncreaseRef(const std::vector<std::string> &objectIds, std
     return Status::OK();
 }
 
-Status ObjectClient::GDecreaseRef(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds)
+Status ObjectClient::GDecreaseRef(const std::vector<std::string> &objectIds, std::vector<std::string> &failedObjectIds,
+                                  const std::string &remoteClientId)
 {
     return Status::OK();
 }
@@ -664,7 +666,7 @@ Status HeteroClient::DevSubscribe(const std::vector<std::string> &keys, const st
 {
     std::promise<Status> promise;
     auto future = promise.get_future().share();
-    std::shared_ptr<AclRtEventWrapper> event;
+    std::shared_ptr<DeviceRtEventWrapper> event;
     Future f(future, event, "obj1");
     futureVec.emplace_back(f);
     return Status::OK();
@@ -675,7 +677,7 @@ Status HeteroClient::DevPublish(const std::vector<std::string> &keys, const std:
 {
     std::promise<Status> promise;
     auto future = promise.get_future().share();
-    std::shared_ptr<AclRtEventWrapper> event;
+    std::shared_ptr<DeviceRtEventWrapper> event;
     Future f(future, event, "obj1");
     futureVec.emplace_back(f);
     return Status::OK();

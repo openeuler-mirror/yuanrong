@@ -23,50 +23,50 @@ class TestSandBoxTunnelUrl(unittest.TestCase):
         """SandBox.get_tunnel_url() returns http://127.0.0.1:{proxy_port}."""
         from yr.sandbox.sandbox import SandBox
         sb = object.__new__(SandBox)
-        sb._proxy_port = 8766
-        sb._tunnel_client = None
-        sb._instance = MagicMock()
+        setattr(sb, "_proxy_port", 8766)
+        setattr(sb, "_tunnel_client", None)
+        setattr(sb, "_instance", MagicMock())
         self.assertRaises(RuntimeError, sb.get_tunnel_url)
 
     def test_get_tunnel_url_when_tunnel_active(self):
         """SandBox.get_tunnel_url() returns correct URL when tunnel client is set."""
         from yr.sandbox.sandbox import SandBox
         sb = object.__new__(SandBox)
-        sb._proxy_port = 8766
-        sb._tunnel_client = MagicMock()  # non-None = tunnel active
-        sb._instance = MagicMock()
+        setattr(sb, "_proxy_port", 8766)
+        setattr(sb, "_tunnel_client", MagicMock())  # non-None = tunnel active
+        setattr(sb, "_instance", MagicMock())
         self.assertEqual(sb.get_tunnel_url(), "http://127.0.0.1:8766")
 
     def test_get_tunnel_url_custom_port(self):
         """SandBox.get_tunnel_url() uses custom proxy_port."""
         from yr.sandbox.sandbox import SandBox
         sb = object.__new__(SandBox)
-        sb._proxy_port = 9000
-        sb._tunnel_client = MagicMock()
-        sb._instance = MagicMock()
+        setattr(sb, "_proxy_port", 9000)
+        setattr(sb, "_tunnel_client", MagicMock())
+        setattr(sb, "_instance", MagicMock())
         self.assertEqual(sb.get_tunnel_url(), "http://127.0.0.1:9000")
 
     def test_terminate_stops_tunnel_client(self):
         """SandBox.terminate() calls tunnel_client.stop() before instance.terminate()."""
         from yr.sandbox.sandbox import SandBox
         sb = object.__new__(SandBox)
-        sb._proxy_port = 8766
+        setattr(sb, "_proxy_port", 8766)
         mock_client = MagicMock()
-        sb._tunnel_client = mock_client
-        sb._instance = MagicMock()
+        setattr(sb, "_tunnel_client", mock_client)
+        setattr(sb, "_instance", MagicMock())
         sb.terminate()
         mock_client.stop.assert_called_once()
-        sb._instance.terminate.assert_called_once()
+        getattr(sb, "_instance").terminate.assert_called_once()
 
     def test_terminate_without_tunnel_client(self):
         """SandBox.terminate() works when no tunnel client set."""
         from yr.sandbox.sandbox import SandBox
         sb = object.__new__(SandBox)
-        sb._proxy_port = 8766
-        sb._tunnel_client = None
-        sb._instance = MagicMock()
+        setattr(sb, "_proxy_port", 8766)
+        setattr(sb, "_tunnel_client", None)
+        setattr(sb, "_instance", MagicMock())
         sb.terminate()  # should not raise
-        sb._instance.terminate.assert_called_once()
+        getattr(sb, "_instance").terminate.assert_called_once()
 
 
 class TestSandBoxTunnelPortDerivation(unittest.TestCase):
@@ -115,13 +115,13 @@ class TestGatewayHostResolution(unittest.TestCase):
         import yr.sandbox.sandbox as sb_module
 
         with patch.dict("os.environ", {"YR_GATEWAY_ADDRESS": "gw.example:443", "YR_SERVER_ADDRESS": "127.0.0.1:38888"}):
-            self.assertEqual(sb_module._get_gateway_host(), "gw.example:443")
+            self.assertEqual(getattr(sb_module, "_get_gateway_host")(), "gw.example:443")
 
     @patch.dict("os.environ", {"YR_SERVER_ADDRESS": "127.0.0.1:38888"}, clear=True)
     def test_get_gateway_host_falls_back_to_env_server_address(self):
         import yr.sandbox.sandbox as sb_module
 
-        self.assertEqual(sb_module._get_gateway_host(), "127.0.0.1:38888")
+        self.assertEqual(getattr(sb_module, "_get_gateway_host")(), "127.0.0.1:38888")
 
     @patch.dict("os.environ", {}, clear=True)
     def test_get_gateway_host_falls_back_to_runtime_config_server_address(self):
@@ -130,7 +130,7 @@ class TestGatewayHostResolution(unittest.TestCase):
         fake_config_manager = MagicMock()
         fake_config_manager.server_address = "127.0.0.1:38888"
         with patch.object(sb_module, "ConfigManager", return_value=fake_config_manager):
-            self.assertEqual(sb_module._get_gateway_host(), "127.0.0.1:38888")
+            self.assertEqual(getattr(sb_module, "_get_gateway_host")(), "127.0.0.1:38888")
 
 
 class TestStartTunnelServer(unittest.TestCase):
@@ -175,12 +175,6 @@ class TestStartTunnelServer(unittest.TestCase):
 
 class TestStartTunnelServerBehavior(unittest.TestCase):
     """Behavioral tests for start_tunnel_server using mocked TunnelServer."""
-
-    def _make_instance(self):
-        """Create a minimal SandboxInstance bypassing @yr.instance wrapper."""
-        import yr.sandbox.sandbox as sb_module
-        cls = sb_module.SandboxInstance.__user_class__
-        return object.__new__(cls)
 
     @patch("yr.sandbox.tunnel_server.TunnelServer")
     def test_successful_startup(self, mock_server_cls):
@@ -229,6 +223,12 @@ class TestStartTunnelServerBehavior(unittest.TestCase):
 
         mock_logger.warning.assert_called_once()
         self.assertIn("not ready within 5s", mock_logger.warning.call_args[0][0])
+
+    def _make_instance(self):
+        """Create a minimal SandboxInstance bypassing @yr.instance wrapper."""
+        import yr.sandbox.sandbox as sb_module
+        cls = sb_module.SandboxInstance.__user_class__
+        return object.__new__(cls)
 
 
 if __name__ == "__main__":

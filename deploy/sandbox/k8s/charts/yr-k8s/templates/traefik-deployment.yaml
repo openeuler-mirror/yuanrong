@@ -15,6 +15,9 @@ spec:
       app.kubernetes.io/component: traefik
   template:
     metadata:
+      annotations:
+        checksum/traefik-config: {{ include (print $.Template.BasePath "/traefik-configmap.yaml") . | sha256sum }}
+        checksum/traefik-dynamic: {{ include (print $.Template.BasePath "/traefik-dynamic-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "yr-k8s.labels" . | nindent 8 }}
         app.kubernetes.io/component: traefik

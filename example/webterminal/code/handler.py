@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-def init(ctx):
-    return
+def init(_ctx):
+    pass
 
 
-def my_handler(event, ctx):
+def my_handler(event, _ctx):
     return event

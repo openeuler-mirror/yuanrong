@@ -23,10 +23,8 @@ global:
 
 traefik:
   service:
-    type: LoadBalancer
-    annotations:
-      kubernetes.io/elb.class: union
-      kubernetes.io/elb.autocreate: '{"type":"public","bandwidth_name":"yr-traefik-elb","bandwidth_chargemode":"traffic","bandwidth_sharetype":"PER","bandwidth_size":5,"eip_type":"5_bgp"}'
+    type: ClusterIP
+    annotations: {}
 
 frontend:
   service:

@@ -617,6 +617,9 @@ private:
     void WriteCallback(const std::string requestId, const ErrorInfo &status);
     void NewRTIntfClient(const std::string &remote, const NotifyRequest &req);
     std::shared_ptr<FSIntfReaderWriter> NewOrGetEventIntfClient(const std::string &dstInstanceID);
+    void RefreshRuntimeIdentityFromConfig();
+    void ReInitServerService();
+    void ReInitProxyClient();
 
     template <typename RespType>
     void WriteResponse(const std::string messageId, const RespType &resp);

@@ -233,18 +233,18 @@ public class LibRuntime {
     public static native void Finalize();
 
     /**
-     * Native method for NeedReInit
+     * Native method for needReInit
      * Check if re-initialization is needed after checkpoint restore.
      *
      * @return true if re-initialization is needed
      */
-    public static native boolean NeedReInit();
+    public static native boolean needReInit();
 
     /**
-     * Native method for ReInit
+     * Native method for reInit
      * Performs re-initialization after checkpoint restore.
      */
-    public static native void ReInit();
+    public static native void reInit();
 
     /**
      * Native method for Exit

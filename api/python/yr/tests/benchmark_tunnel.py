@@ -140,7 +140,9 @@ async def wait_connected(client, timeout=5):
     """Wait until client has connected (poll _main_task)."""
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout:
-        if client._loop and client._main_task and not client._main_task.done():
+        loop = getattr(client, "_loop")
+        main_task = getattr(client, "_main_task")
+        if loop and main_task and not main_task.done():
             return True
         await asyncio.sleep(0.05)
     raise TimeoutError("Client did not connect")

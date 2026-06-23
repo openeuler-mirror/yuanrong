@@ -173,6 +173,12 @@ private:
     std::pair<ErrorInfo, std::vector<std::string>> IncreaseGRefInMemoryAndDs(const std::vector<std::string> &objectIds,
                                                                              bool toDataSystem,
                                                                              const std::string &remoteId = "");
+    ErrorInfo CheckObjectsExist(const std::vector<std::string> &objectIds);
+    void MarkObjectsForIncrease(const std::vector<std::string> &objectIds, std::vector<std::string> &objectIdsNeedIncre,
+                                std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails,
+                                std::vector<std::shared_ptr<ObjectDetail>> &waitObjectDetails);
+    ErrorInfo IncreaseObjectsInDs(const std::vector<std::string> &objectIdsNeedIncre,
+                                  const std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails);
     std::vector<std::string> DecreaseGRefInMemory(const std::vector<std::string> &objectIds);
     void DoEventCallback(EventCallbackWithData callback, const std::string &reqId, const std::string &eventData);
 

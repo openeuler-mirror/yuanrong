@@ -28,6 +28,7 @@ import traceback
 import uuid
 import sys
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 import urllib.error
 import urllib.request
@@ -39,6 +40,9 @@ from requests.exceptions import RequestException
 
 import yr
 from yr.cli.exec import (
+    CopyRequest,
+    ExecConnection,
+    ExecInvocation,
     choose_cp_mode,
     copy_from_remote,
     copy_from_remote_streaming,
@@ -64,6 +68,32 @@ __insecure = False
 __user = None
 __client_auth_type = "mutual"  # "mutual" or "one-way"
 __jwt_token = None
+
+
+@dataclass
+class SandboxCreateOptions:
+    namespace: str
+    name: str
+    runtime: str
+    image: Any = None
+    ports: Any = None
+    upstream: Any = None
+    proxy_port: int = 8766
+
+    @classmethod
+    def from_call(cls, *args, **kwargs):
+        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port")
+        values = dict(zip(fields, args))
+        values.update(kwargs)
+        return cls(
+            namespace=values["namespace"],
+            name=values["name"],
+            runtime=values["runtime"],
+            image=values.get("image"),
+            ports=values.get("ports"),
+            upstream=values.get("upstream"),
+            proxy_port=values.get("proxy_port", 8766),
+        )
 
 
 def use_tls_for_server_address(server_address):
@@ -741,7 +771,14 @@ def setup_sandbox_tunnel(sandbox_instance, instance_id, upstream, proxy_port):
     }
 
 
-def create_sandbox_via_frontend(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+def create_sandbox_via_frontend(*args, **kwargs):
+    options = SandboxCreateOptions.from_call(*args, **kwargs)
+    namespace = options.namespace
+    name = options.name
+    runtime = options.runtime
+    image = options.image
+    ports = options.ports
+    upstream = options.upstream
     if upstream:
         return False, "", {"error": "frontend sandbox create fallback does not support --upstream tunnel"}
     http_client = HTTPClient(
@@ -785,7 +822,15 @@ def build_sandbox_sdk_config(runtime):
     return cfg
 
 
-def create_sandbox_via_sdk(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+def create_sandbox_via_sdk(*args, **kwargs):
+    options = SandboxCreateOptions.from_call(*args, **kwargs)
+    namespace = options.namespace
+    name = options.name
+    runtime = options.runtime
+    image = options.image
+    ports = options.ports
+    upstream = options.upstream
+    proxy_port = options.proxy_port
     cfg = build_sandbox_sdk_config(runtime)
     yr.init(cfg)
     try:
@@ -837,7 +882,15 @@ def resolve_created_sandbox_instance_id(namespace, name, instance_id, timeout=30
     return instance_id
 
 
-def create_sandbox_auto(namespace, name, runtime, image=None, ports=None, upstream=None, proxy_port=8766):
+def create_sandbox_auto(*args, **kwargs):
+    options = SandboxCreateOptions.from_call(*args, **kwargs)
+    namespace = options.namespace
+    name = options.name
+    runtime = options.runtime
+    image = options.image
+    ports = options.ports
+    upstream = options.upstream
+    proxy_port = options.proxy_port
     sdk_error = None
     try:
         instance_id, tunnel_info = create_sandbox_via_sdk(
@@ -991,21 +1044,20 @@ def wait_until_sandbox_deleted(sandbox_id, timeout=30):
 @click.option("--log-level", required=False, type=str, default="INFO")
 @click.option("--user", required=False, type=str, default="default")
 @click.version_option(package_name="openyuanrong-sdk")
-def cli(
-    server_address,
-    ds_address,
-    client_cert,
-    client_key,
-    ca_cert,
-    insecure,
-    client_auth_type,
-    jwt_token,
-    log_level,
-    user,
-):
+def cli(**kwargs):
     """
     run command
     """
+    server_address = kwargs["server_address"]
+    ds_address = kwargs["ds_address"]
+    client_cert = kwargs["client_cert"]
+    client_key = kwargs["client_key"]
+    ca_cert = kwargs["ca_cert"]
+    insecure = kwargs["insecure"]
+    client_auth_type = kwargs["client_auth_type"]
+    jwt_token = kwargs["jwt_token"]
+    log_level = kwargs["log_level"]
+    user = kwargs["user"]
     if server_address:
         global __server_address
         __server_address = server_address
@@ -1078,7 +1130,14 @@ def help_command(ctx, command_name):
     default=None,
     help="Path to requirements.txt file for installing dependencies",
 )
-def deploy(backend, code_path, package_format, function_json, skip_package, update, requirements):
+def deploy(**kwargs):
+    backend = kwargs["backend"]
+    code_path = kwargs["code_path"]
+    package_format = kwargs["package_format"]
+    function_json = kwargs["function_json"]
+    skip_package = kwargs["skip_package"]
+    update = kwargs["update"]
+    requirements = kwargs["requirements"]
     if function_json:
         with open(function_json, "r") as f:
             function_json = json.load(f)
@@ -1329,8 +1388,21 @@ def sandbox():
     show_default=True,
     help="HTTP proxy port inside sandbox when --upstream is set",
 )
-def sandbox_create(namespace, name, runtime, image=None, ports=(), upstream=None, proxy_port=8766):
+def sandbox_create(*args, **kwargs):
     """Create a detached sandbox instance."""
+    if args:
+        fields = ("namespace", "name", "runtime", "image", "ports", "upstream", "proxy_port")
+        values = dict(zip(fields, args))
+        values.update(kwargs)
+    else:
+        values = kwargs
+    namespace = values["namespace"]
+    name = values["name"]
+    runtime = values["runtime"]
+    image = values.get("image")
+    ports = values.get("ports", ())
+    upstream = values.get("upstream")
+    proxy_port = values.get("proxy_port", 8766)
     if not __server_address:
         raise click.ClickException("server address is required. Use --server-address or set YR_SERVER_ADDRESS.")
     if upstream and (proxy_port < 2 or proxy_port > 65535):
@@ -1932,22 +2004,28 @@ def exec_command(stdin, tty, verify_server, instance, command):
     )
     try:
         host, port = __server_address.split(":")
+        connection = ExecConnection(
+            host=host,
+            port=port,
+            user=__user,
+            use_ssl=use_ssl,
+            cert_file=__client_cert,
+            key_file=__client_key,
+            ca_file=__ca_cert,
+            verify_server=verify_server and not __insecure,
+            token=__jwt_token,
+            quiet=not tty,
+        )
+        invocation = ExecInvocation(
+            instance=instance,
+            command=command,
+            allocate_tty=tty,
+            stdin=stdin,
+        )
         asyncio.run(
             run_client(
-                host,
-                port,
-                instance=instance,
-                command=command,
-                allocate_tty=tty,
-                stdin=stdin,
-                user=__user,
-                use_ssl=use_ssl,
-                cert_file=__client_cert,
-                key_file=__client_key,
-                ca_file=__ca_cert,
-                verify_server=verify_server and not __insecure,
-                token=__jwt_token,
-                quiet=not tty,
+                connection,
+                invocation,
             )
         )
     except KeyboardInterrupt:
@@ -1993,16 +2071,17 @@ def cp(src, dst, streaming):
 
     use_ssl = __client_cert is not None and __client_key is not None
     host, port = __server_address.split(":")
-    common_kwargs = {
-        "instance": target["instance"],
-        "user": __user,
-        "use_ssl": use_ssl,
-        "cert_file": __client_cert,
-        "key_file": __client_key,
-        "ca_file": __ca_cert,
-        "verify_server": not __insecure,
-        "token": __jwt_token,
-    }
+    connection = ExecConnection(
+        host=host,
+        port=port,
+        user=__user,
+        use_ssl=use_ssl,
+        cert_file=__client_cert,
+        key_file=__client_key,
+        ca_file=__ca_cert,
+        verify_server=not __insecure,
+        token=__jwt_token,
+    )
 
     if target["upload"]:
         use_streaming = (
@@ -2013,11 +2092,8 @@ def cp(src, dst, streaming):
         fn = copy_to_remote_streaming if use_streaming else copy_to_remote
         asyncio.run(
             fn(
-                host,
-                port,
-                local_path=target["local_path"],
-                remote_path=target["remote_path"],
-                **common_kwargs,
+                connection,
+                CopyRequest(target["instance"], target["local_path"], target["remote_path"]),
             )
         )
         return
@@ -2030,11 +2106,8 @@ def cp(src, dst, streaming):
     fn = copy_from_remote_streaming if use_streaming else copy_from_remote
     asyncio.run(
         fn(
-            host,
-            port,
-            remote_path=target["remote_path"],
-            local_path=target["local_path"],
-            **common_kwargs,
+            connection,
+            CopyRequest(target["instance"], target["local_path"], target["remote_path"]),
         )
     )
 

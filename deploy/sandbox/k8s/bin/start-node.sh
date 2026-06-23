@@ -57,4 +57,8 @@ exec /usr/local/bin/yr start \
   -s "values.function_proxy.grpc_listen_port=${function_proxy_grpc_port}" \
   -s "values.ds_worker.port=${ds_worker_port}" \
   -s "function_proxy.args.services_path=\"${services_path}\"" \
+  -s 'function_proxy.args.enable_traefik_registry=true' \
+  -s 'function_proxy.args.traefik_etcd_prefix="traefik"' \
+  -s 'function_proxy.args.traefik_http_entrypoint="web"' \
+  -s 'function_proxy.args.traefik_enable_tls=false' \
   "$@"

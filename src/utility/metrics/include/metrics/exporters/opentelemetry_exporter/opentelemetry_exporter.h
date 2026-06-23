@@ -52,6 +52,8 @@ public:
     void RegisterOnHealthChangeCb(const std::function<void(bool)> &) noexcept override;
 
 private:
+    void UpdateHealth(bool isHealthy) noexcept;
+
     OpenTelemetryExporterOptions options_;
     std::function<void(bool)> health_callback_;
     bool is_healthy_ = false;

@@ -20,6 +20,12 @@ NAMESPACE="${YR_K8S_NAMESPACE:-yr}"
 TRAEFIK_SERVICE="${YR_K8S_TRAEFIK_SERVICE:-yr-traefik}"
 SMOKE_LOG_DIR="${ROOT_DIR}/artifacts/sandbox-smoke"
 TOOL_DIR="${ROOT_DIR}/.buildkite/tools/bin"
+TRAEFIK_PORT_FORWARD_ADDRESS="${YR_K8S_TRAEFIK_PORT_FORWARD_ADDRESS:-127.0.0.1}"
+TRAEFIK_PORT_FORWARD_PORT="${YR_K8S_TRAEFIK_PORT_FORWARD_PORT:-18888}"
+TRAEFIK_PORT_FORWARD_TARGET_PORT="${YR_K8S_TRAEFIK_PORT_FORWARD_TARGET_PORT:-18888}"
+TRAEFIK_PORT_FORWARD_EXTRA_PORTS="${YR_K8S_TRAEFIK_PORT_FORWARD_EXTRA_PORTS:-8888:8888}"
+PORT_FORWARD_PID=""
+TRAEFIK_PORT_FORWARD_SERVER_ADDRESS=""
 
 host_arch() {
     case "$(uname -m)" in
@@ -288,6 +294,190 @@ if host and port:
     exit 1
 }
 
+cleanup_port_forward() {
+    if [ -n "${PORT_FORWARD_PID}" ] && kill -0 "${PORT_FORWARD_PID}" >/dev/null 2>&1; then
+        kill "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
+        wait "${PORT_FORWARD_PID}" >/dev/null 2>&1 || true
+    fi
+}
+
+cleanup_node_docker_cache() {
+    local enabled="${YR_K8S_CLEAN_NODE_DOCKER_CACHE:-true}"
+    local pods pod
+
+    if [[ ! "${enabled}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+        printf 'Skipping yr-node Docker cache cleanup because YR_K8S_CLEAN_NODE_DOCKER_CACHE=%s.\n' \
+            "${enabled}" >&2
+        return 0
+    fi
+    if [ ! -f "${KUBECONFIG_PATH}" ]; then
+        return 0
+    fi
+
+    printf 'Cleaning yr-node private Docker cache in %s namespace.\n' "${NAMESPACE}" >&2
+    mapfile -t pods < <(
+        "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" get pods \
+            -l app.kubernetes.io/component=node \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
+    )
+    for pod in "${pods[@]}"; do
+        [ -n "${pod}" ] || continue
+        printf 'Pruning Docker cache in pod/%s.\n' "${pod}" >&2
+        "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" exec "${pod}" -c node -- sh -lc '
+            set +e
+            if command -v docker >/dev/null 2>&1; then
+                docker container prune -f
+                docker image prune -af
+                docker builder prune -af
+                docker system df
+            fi
+            find /var/lib/docker/containers -type f -name "*-json.log" \
+                -exec sh -c '"'"'for f do : > "$f" || true; done'"'"' sh {} + 2>/dev/null
+            true
+        ' || true
+    done
+}
+
+cleanup_k8s_node_image_cache() {
+    local enabled="${YR_K8S_CLEAN_K8S_NODE_IMAGE_CACHE:-true}"
+    local image="${YR_K8S_NODE_CACHE_CLEANUP_IMAGE:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev/busybox:1.36}"
+    local nodes node pod
+
+    if [[ ! "${enabled}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+        printf 'Skipping K8S node image cache cleanup because YR_K8S_CLEAN_K8S_NODE_IMAGE_CACHE=%s.\n' \
+            "${enabled}" >&2
+        return 0
+    fi
+    if [ ! -f "${KUBECONFIG_PATH}" ]; then
+        return 0
+    fi
+
+    mapfile -t nodes < <(
+        "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get nodes \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true
+    )
+    for node in "${nodes[@]}"; do
+        [ -n "${node}" ] || continue
+        pod="yr-node-cache-cleanup-${node//./-}"
+        printf 'Pruning unused containerd images on node/%s.\n' "${node}" >&2
+        "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" delete pod "${pod}" \
+            --ignore-not-found >/dev/null 2>&1 || true
+        cat <<EOF | "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" apply -f - >/dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${pod}
+spec:
+  nodeName: ${node}
+  hostPID: true
+  restartPolicy: Never
+  containers:
+  - name: cleanup
+    image: ${image}
+    command: ["sh", "-lc", "sleep 1800"]
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - name: host-root
+      mountPath: /host
+  volumes:
+  - name: host-root
+    hostPath:
+      path: /
+      type: Directory
+EOF
+        if "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" wait \
+            --for=condition=Ready "pod/${pod}" --timeout="${YR_K8S_NODE_CACHE_CLEANUP_READY_TIMEOUT:-120s}"; then
+            "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" exec "${pod}" -- sh -lc '
+                chroot /host sh -lc '"'"'
+                    set +e
+                    df -h /var/lib/containerd /var/lib/kubelet 2>/dev/null || df -h /
+                    if command -v crictl >/dev/null 2>&1; then
+                        crictl --runtime-endpoint unix:///run/containerd/containerd.sock \
+                            --image-endpoint unix:///run/containerd/containerd.sock rmi --prune
+                    elif command -v ctr >/dev/null 2>&1; then
+                        ctr -n k8s.io images prune --all
+                    fi
+                    df -h /var/lib/containerd /var/lib/kubelet 2>/dev/null || df -h /
+                    true
+                '"'"'
+            ' || true
+        else
+            "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" describe "pod/${pod}" >&2 || true
+        fi
+        "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" delete pod "${pod}" \
+            --ignore-not-found >/dev/null 2>&1 || true
+    done
+}
+
+cleanup() {
+    local status="$?"
+    cleanup_port_forward
+    cleanup_node_docker_cache
+    cleanup_k8s_node_image_cache
+    return "${status}"
+}
+
+wait_for_local_port() {
+    local host="$1"
+    local port="$2"
+    local timeout="${3:-60}"
+    python3 - "${host}" "${port}" "${timeout}" <<'PY'
+import socket
+import sys
+import time
+
+host = sys.argv[1]
+port = int(sys.argv[2])
+deadline = time.time() + int(sys.argv[3])
+last_error = None
+while time.time() <= deadline:
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            sys.exit(0)
+    except OSError as exc:
+        last_error = exc
+        time.sleep(1)
+print(f"Timed out waiting for {host}:{port}: {last_error}", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
+start_traefik_port_forward() {
+    local log_file="${SMOKE_LOG_DIR}/traefik-port-forward.log"
+    local -a port_mappings
+    local -a extra_port_mappings
+    local mapping
+    local local_port
+    mkdir -p "${SMOKE_LOG_DIR}"
+
+    port_mappings=("${TRAEFIK_PORT_FORWARD_PORT}:${TRAEFIK_PORT_FORWARD_TARGET_PORT}")
+    if [ -n "${TRAEFIK_PORT_FORWARD_EXTRA_PORTS}" ]; then
+        read -r -a extra_port_mappings <<<"${TRAEFIK_PORT_FORWARD_EXTRA_PORTS}"
+        port_mappings+=("${extra_port_mappings[@]}")
+    fi
+
+    printf 'Starting port-forward %s/%s --address %s %s\n' \
+        "${NAMESPACE}" "${TRAEFIK_SERVICE}" \
+        "${TRAEFIK_PORT_FORWARD_ADDRESS}" "${port_mappings[*]}" >&2
+    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" -n "${NAMESPACE}" port-forward \
+        --address "${TRAEFIK_PORT_FORWARD_ADDRESS}" \
+        "svc/${TRAEFIK_SERVICE}" \
+        "${port_mappings[@]}" \
+        >"${log_file}" 2>&1 &
+    PORT_FORWARD_PID="$!"
+
+    for mapping in "${port_mappings[@]}"; do
+        local_port="${mapping%%:*}"
+        if ! wait_for_local_port "${TRAEFIK_PORT_FORWARD_ADDRESS}" "${local_port}" \
+            "${YR_K8S_PORT_FORWARD_TIMEOUT:-60}"; then
+            tail -n 120 "${log_file}" >&2 || true
+            return 1
+        fi
+    done
+    TRAEFIK_PORT_FORWARD_SERVER_ADDRESS="${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_PORT_FORWARD_PORT}"
+}
+
 wait_for_smoke_ready() {
     local server_address="$1"
     local timeout="${YR_K8S_SMOKE_READY_TIMEOUT:-600}"
@@ -343,6 +533,7 @@ main() {
     ensure_kubectl
     ensure_helm
     export PATH="${TOOL_DIR}:${PATH}"
+    trap cleanup EXIT
 
     require_bin "${KUBECTL_BIN}"
     require_bin "${HELM_BIN}"
@@ -367,7 +558,12 @@ main() {
     bash deploy/sandbox/k8s/deploy.sh
 
     if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-        run_smoke "${YR_K8S_SMOKE_SERVER_ADDRESS:-$(wait_for_traefik_address)}"
+        if [ -n "${YR_K8S_SMOKE_SERVER_ADDRESS:-}" ]; then
+            run_smoke "${YR_K8S_SMOKE_SERVER_ADDRESS}"
+        else
+            start_traefik_port_forward
+            run_smoke "${TRAEFIK_PORT_FORWARD_SERVER_ADDRESS}"
+        fi
     fi
 
     if command -v buildkite-agent >/dev/null 2>&1; then

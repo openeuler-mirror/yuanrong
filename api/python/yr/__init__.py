@@ -17,6 +17,7 @@
 """
 yr api
 """
+# pylint: disable=huawei-wrong-import-position
 import os
 import ctypes
 from yr.session_service import ManagedSessionObj, SessionService  # noqa: E402

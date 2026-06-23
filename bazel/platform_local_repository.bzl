@@ -26,6 +26,8 @@ def _impl(repository_ctx):
         "--delete",
         "--delete-excluded",
         "--exclude=/BUILD/",
+        "--exclude=BUILD",
+        "--exclude=BUILD.bazel",
         "--exclude=/build/",
         "--exclude=/output/",
         "--exclude=/.git/",
@@ -35,10 +37,16 @@ def _impl(repository_ctx):
     if result.return_code != 0:
         fail("Failed to copy %s: %s %s" % (path, result.stderr, result.stdout))
 
-    build_path = str(repository_ctx.path("BUILD"))
-    result = repository_ctx.execute(["rm", "-rf", build_path])
-    if result.return_code != 0:
-        fail("Failed to remove existing BUILD entry %s: %s %s" % (build_path, result.stderr, result.stdout))
+    for build_file in ["BUILD", "BUILD.bazel"]:
+        build_path = str(repository_ctx.path(build_file))
+        result = repository_ctx.execute(["rm", "-rf", build_path])
+        if result.return_code != 0:
+            fail("Failed to remove existing %s entry %s: %s %s" % (
+                build_file,
+                build_path,
+                result.stderr,
+                result.stdout,
+            ))
 
     repository_ctx.symlink(repository_ctx.attr.build_file, repository_ctx.path("BUILD"))
 

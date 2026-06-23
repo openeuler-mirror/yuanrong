@@ -218,8 +218,14 @@ public:
     virtual ~InvokeAdaptor() = default;
 
 private:
+    void InitFSIntfHandlers(FSIntfHandlers &handlers);
+    void ResolveFSClientOptions(std::string &ipAddr, int &port, FSClient::ClientType &clientType,
+                                std::string &instanceId, std::string &functionName);
     void CreateResponseHandler(std::shared_ptr<InvokeSpec> spec, const CreateResponse &resp);
     void CreateNotifyHandler(const NotifyRequest &req);
+    bool HandleCreateNotifyError(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> &spec);
+    void HandleCreateNotifySuccess(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> &spec);
+    void CleanupCreateNotifyRequest(const std::string &rawRequestId, const NotifyRequest &req);
     ErrorInfo WriteDataToState(const std::string &instanceId, const std::shared_ptr<Buffer> data, std::string *state);
     ErrorInfo ReadDataFromState(const std::string &instanceId, const std::string &state, std::shared_ptr<Buffer> &data);
     SignalResponse SignalHandler(const SignalRequest &req);
@@ -261,6 +267,16 @@ private:
     void UpdateAndSubcribeInsStatus(const std::string &insId, libruntime::FunctionMeta &funcMeta);
     void RemoveInsMetaInfo(const std::string &insId);
     std::pair<libruntime::FunctionMeta, bool> GetCachedInsMeta(const std::string &insId);
+    std::string BuildInstanceLookupId(const std::string &name, const std::string &nameSpace) const;
+    std::pair<libruntime::FunctionMeta, ErrorInfo> QueryInstanceMeta(const std::string &insId, int timeoutSec);
+    void UpdateGetInstanceResult(const std::string &insId, libruntime::FunctionMeta &funcMeta,
+                                 const ErrorInfo &errorInfo);
+    std::string ResolveCheckpointTargetInstanceId() const;
+    std::pair<ErrorInfo, std::vector<std::string>> ListCheckpointsByTenant(const std::string &tenantID,
+                                                                           const std::string &targetInstanceId);
+    std::pair<ErrorInfo, std::vector<std::string>> ListCheckpointsByFunctionKey(
+        const std::string &tenantID, const std::string &functionType, const std::string &ns,
+        const std::string &targetInstanceId);
 
     std::shared_ptr<FSClient> fsClient;
     std::shared_ptr<DependencyResolver> dependencyResolver;

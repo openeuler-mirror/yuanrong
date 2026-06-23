@@ -57,8 +57,8 @@ class InstanceCreator:
         self.__user_class_methods__ = {}
         self.__base_cls__ = None
         self.__target_function_key__ = None
-        self._code_ref = None
-        self._code = None
+        self.__dict__["_code_ref"] = None
+        self.__dict__["_code"] = None
         self._lock = threading.Lock()
         self.__invoke_options__ = InvokeOptions()
         self.__is_async__ = False
@@ -130,8 +130,8 @@ class InstanceCreator:
         self.__target_function_key__ = ""
         self.__user_class_methods__ = dict(class_methods)
         self.__base_cls__ = inspect.getmro(user_class)
-        self._code_ref = None
-        self._code = None
+        setattr(self, "_code_ref", None)
+        setattr(self, "_code", None)
         self._lock = threading.Lock()
         self.function_group_size = 0
         # Register local/nested classes so metadata-only loads can resolve <locals> qualnames.
@@ -254,6 +254,97 @@ class InstanceCreator:
             raise RuntimeError(f"failed to get instance: {name} by name")
         return get_instance_by_name(name, self.__invoke_options__.namespace, timeout)
 
+    def list_checkpoints(self, namespace: str = "") -> list:
+        """
+        List all checkpoints created from instances of this class.
+
+        Args:
+            namespace (str): Namespace filter. Default is empty string.
+
+        Returns:
+            list: List of checkpoint ID strings.
+
+        Example:
+            >>> @yr.instance
+            ... class Counter:
+            ...     def __init__(self): self.count = 0
+            ...
+            >>> checkpoints = Counter.list_checkpoints()
+        """
+        function_type = f"{utils.get_module_name(self.__user_class__)}.{self.__user_class__.__qualname__}"
+        return global_runtime.get_runtime().list_checkpoints(function_type, namespace)
+
+    def snapstart(self, checkpoint_id: str) -> "InstanceProxy":
+        """
+        Start a new instance from a checkpoint snapshot.
+
+        This class method creates a new instance by restoring from a previously created snapshot.
+        The new instance will have the same state as when the snapshot was taken.
+
+        Args:
+            checkpoint_id (str): The checkpoint ID returned by a previous snapshot() call.
+                Format: {instanceID}-{functionID}-{uuid}
+
+        Returns:
+            InstanceProxy: A new instance proxy for the restored instance.
+
+        Raises:
+            RuntimeError: If the checkpoint does not exist or restore operation fails.
+
+        Example:
+            >>> import yr
+            >>> yr.init()
+            >>>
+            >>> @yr.instance
+            ... class Counter:
+            ...     def __init__(self):
+            ...         self.value = 0
+            ...
+            ...     def increment(self):
+            ...         self.value += 1
+            ...         return self.value
+            ...
+            ...     def __yr_after_snapstart__(self):
+            ...         print(f\"Restored with value={self.value}\")
+            ...
+            >>> # Create instance and snapshot
+            >>> ins = Counter.invoke()
+            >>> yr.get(ins.increment.invoke())  # value = 1
+            >>> checkpoint_id = ins.snapshot(leave_running=False)
+            >>>
+            >>> # Restore from snapshot using the class
+            >>> restored_ins = Counter.snapstart(checkpoint_id)
+            >>> result = yr.get(restored_ins.increment.invoke())  # value = 2
+            >>> print(f\"Value after restore: {result}\")
+            >>>
+            >>> yr.finalize()
+        """
+        _logger.info("Starting instance from snapshot: %s", checkpoint_id)
+
+        snapstart_response = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
+        new_instance_id = snapstart_response.instance_id
+
+        # Create a new InstanceProxy for the restored instance
+        restored_proxy = InstanceProxy(
+            instance_id=new_instance_id,
+            class_descriptor=self.__user_class_descriptor__,
+            class_methods=self.__user_class_methods__,
+            base_cls=self.__base_cls__,
+            function_id="",
+            need_order=self.__invoke_options__.need_order,
+            group_name="",
+            is_async=self.__is_async__,
+            instance_name=self.__invoke_options__.name,
+            namespace=self.__invoke_options__.namespace,
+            code_ref=self._code_ref
+        )
+        setattr(restored_proxy, "_checkpoint_id", checkpoint_id)
+        setattr(restored_proxy, "_snapstart_info", replace(snapstart_response.snapstart_info))
+
+        _logger.info("Instance restored from snapshot %s: %s",
+                     checkpoint_id, new_instance_id)
+        return restored_proxy
+
     def _register_python_class_lookup_keys(self, invoke_options):
         if (self.__user_class_descriptor__.target_language != LanguageType.Python
                 or not self.__user_class__):
@@ -313,7 +404,7 @@ class InstanceCreator:
             if should_serialize_code:
                 serialized_object = Serialization().serialize(self.__user_class__)
                 if len(serialized_object) <= 102400:
-                    self._code = serialized_object.to_bytes()
+                    self.__dict__["_code"] = serialized_object.to_bytes()
                     _logger.debug(
                         "[Reference Counting] pass code by request, functionName = %s",
                         self.__user_class__.__qualname__,
@@ -322,7 +413,7 @@ class InstanceCreator:
                 code_id = runtime.put_serialized(serialized_object)
                 if not isinstance(code_id, str):
                     code_id = runtime.put(serialized_object)
-                self._code_ref = ObjectRef(code_id, need_incre=False)
+                self.__dict__["_code_ref"] = ObjectRef(code_id, need_incre=False)
                 _logger.info("[Reference Counting] put code with id = %s, className = %s",
                          self._code_ref.id, self.__user_class_descriptor__.class_name)
             elif getattr(invoke_options, "skip_serialize", False):
@@ -432,97 +523,6 @@ class InstanceCreator:
 
         return InstanceOptionWrapper()
 
-    def snapstart(self, checkpoint_id: str) -> "InstanceProxy":
-        """
-        Start a new instance from a checkpoint snapshot.
-
-        This class method creates a new instance by restoring from a previously created snapshot.
-        The new instance will have the same state as when the snapshot was taken.
-
-        Args:
-            checkpoint_id (str): The checkpoint ID returned by a previous snapshot() call.
-                Format: {instanceID}-{functionID}-{uuid}
-
-        Returns:
-            InstanceProxy: A new instance proxy for the restored instance.
-
-        Raises:
-            RuntimeError: If the checkpoint does not exist or restore operation fails.
-
-        Example:
-            >>> import yr
-            >>> yr.init()
-            >>>
-            >>> @yr.instance
-            ... class Counter:
-            ...     def __init__(self):
-            ...         self.value = 0
-            ...
-            ...     def increment(self):
-            ...         self.value += 1
-            ...         return self.value
-            ...
-            ...     def __yr_after_snapstart__(self):
-            ...         print(f\"Restored with value={self.value}\")
-            ...
-            >>> # Create instance and snapshot
-            >>> ins = Counter.invoke()
-            >>> yr.get(ins.increment.invoke())  # value = 1
-            >>> checkpoint_id = ins.snapshot(leave_running=False)
-            >>>
-            >>> # Restore from snapshot using the class
-            >>> restored_ins = Counter.snapstart(checkpoint_id)
-            >>> result = yr.get(restored_ins.increment.invoke())  # value = 2
-            >>> print(f\"Value after restore: {result}\")
-            >>>
-            >>> yr.finalize()
-        """
-        _logger.info("Starting instance from snapshot: %s", checkpoint_id)
-
-        snapstart_response = global_runtime.get_runtime().snapstart_instance(checkpoint_id)
-        new_instance_id = snapstart_response.instance_id
-
-        # Create a new InstanceProxy for the restored instance
-        restored_proxy = InstanceProxy(
-            instance_id=new_instance_id,
-            class_descriptor=self.__user_class_descriptor__,
-            class_methods=self.__user_class_methods__,
-            base_cls=self.__base_cls__,
-            function_id="",
-            need_order=self.__invoke_options__.need_order,
-            group_name="",
-            is_async=self.__is_async__,
-            instance_name=self.__invoke_options__.name,
-            namespace=self.__invoke_options__.namespace,
-            code_ref=self._code_ref
-        )
-        restored_proxy._checkpoint_id = checkpoint_id
-        restored_proxy._snapstart_info = replace(snapstart_response.snapstart_info)
-
-        _logger.info("Instance restored from snapshot %s: %s",
-                     checkpoint_id, new_instance_id)
-        return restored_proxy
-
-    def list_checkpoints(self, namespace: str = "") -> list:
-        """
-        List all checkpoints created from instances of this class.
-
-        Args:
-            namespace (str): Namespace filter. Default is empty string.
-
-        Returns:
-            list: List of checkpoint ID strings.
-
-        Example:
-            >>> @yr.instance
-            ... class Counter:
-            ...     def __init__(self): self.count = 0
-            ...
-            >>> checkpoints = Counter.list_checkpoints()
-        """
-        function_type = f"{utils.get_module_name(self.__user_class__)}.{self.__user_class__.__qualname__}"
-        return global_runtime.get_runtime().list_checkpoints(function_type, namespace)
-
 
 class InstanceProxy:
     """
@@ -610,6 +610,46 @@ class InstanceProxy:
         state = self.serialization_(False)
         return InstanceProxy.deserialization_, (state,)
 
+    @property
+    def checkpoint_id(self) -> Optional[str]:
+        """The checkpoint_id associated with this instance.
+
+        Returns the checkpoint_id from the last snapshot() call,
+        or the template checkpoint_id if this instance was created via snapstart().
+
+        Returns:
+            Optional[str]: The checkpoint ID, or None if no checkpoint is associated.
+        """
+        return self._checkpoint_id
+
+    @property
+    def snapstart_info(self):
+        """The restore metadata returned when this instance was created via snapstart()."""
+        return self._snapstart_info
+
+    @property
+    def real_id(self) -> str:
+        """
+        The real instance ID assigned by the runtime.
+
+        ``instance_id`` is a logical key used internally. This property blocks
+        until the runtime finishes scheduling the actor (default timeout: 30
+        seconds), then resolves it to the physical instance ID.
+
+        Raises:
+            TimeoutError: If the actor is not ready within 30 seconds.
+
+        Returns:
+            The real instance ID. Data type is str.
+
+        Examples:
+            >>> ins = MyActor.invoke()
+            >>> print(ins.real_id)
+        """
+        runtime = global_runtime.get_runtime()
+        runtime.wait([self.instance_id], 1, 30)
+        return runtime.get_real_instance_id(self.instance_id)
+
     @classmethod
     def deserialization_(cls, state):
         """
@@ -696,29 +736,6 @@ class InstanceProxy:
         """
         return self.__instance_activate__
 
-    @property
-    def real_id(self) -> str:
-        """
-        The real instance ID assigned by the runtime.
-
-        ``instance_id`` is a logical key used internally. This property blocks
-        until the runtime finishes scheduling the actor (default timeout: 30
-        seconds), then resolves it to the physical instance ID.
-
-        Raises:
-            TimeoutError: If the actor is not ready within 30 seconds.
-
-        Returns:
-            The real instance ID. Data type is str.
-
-        Examples:
-            >>> ins = MyActor.invoke()
-            >>> print(ins.real_id)
-        """
-        runtime = global_runtime.get_runtime()
-        runtime.wait([self.instance_id], 1, 30)
-        return runtime.get_real_instance_id(self.instance_id)
-
     def get_function_group_handler(self) -> "FunctionGroupHandler":
         """
         Get the FunctionGroupHandler.
@@ -737,14 +754,6 @@ class InstanceProxy:
                                        self.need_order, self.group_name, self._is_async,
                                        self._instance_name, self._ns)
         return handler
-
-    def __get_method_generator(self, method_name):
-        """
-        get method generator feature
-        """
-        if method_name in self._method_descriptor:
-            return self._method_descriptor[method_name].is_generator
-        return False
 
     def snapshot(self, ttl: int = -1, leave_running: bool = False) -> str:
         """
@@ -875,29 +884,12 @@ class InstanceProxy:
             namespace=self._ns,
             code_ref=self._code_ref
         )
-        restored_proxy._checkpoint_id = checkpoint_id
-        restored_proxy._snapstart_info = replace(snapstart_response.snapstart_info)
+        setattr(restored_proxy, "_checkpoint_id", checkpoint_id)
+        setattr(restored_proxy, "_snapstart_info", replace(snapstart_response.snapstart_info))
 
         _logger.info("Instance restored from snapshot %s: %s",
                      checkpoint_id, new_instance_id)
         return restored_proxy
-
-    @property
-    def checkpoint_id(self) -> Optional[str]:
-        """The checkpoint_id associated with this instance.
-
-        Returns the checkpoint_id from the last snapshot() call,
-        or the template checkpoint_id if this instance was created via snapstart().
-
-        Returns:
-            Optional[str]: The checkpoint ID, or None if no checkpoint is associated.
-        """
-        return self._checkpoint_id
-
-    @property
-    def snapstart_info(self):
-        """The restore metadata returned when this instance was created via snapstart()."""
-        return self._snapstart_info
 
     def delete_checkpoint(self, checkpoint_id: Optional[str] = None) -> None:
         """Delete a checkpoint.
@@ -937,6 +929,14 @@ class InstanceProxy:
             f"{self._class_descriptor.module_name}.{self._class_descriptor.class_name}"
         )
         return global_runtime.get_runtime().list_checkpoints(function_type, namespace)
+
+    def __get_method_generator(self, method_name):
+        """
+        get method generator feature
+        """
+        if method_name in self._method_descriptor:
+            return self._method_descriptor[method_name].is_generator
+        return False
 
 
 @register_pack_hook
@@ -1058,6 +1058,11 @@ class MethodProxy:
 
         return FuncWrapper()
 
+    def invoke_direct(self, *args, **kwargs):
+        """Invoke bypassing datasystem. Returns ObjectRefDirect (no ref counting)."""
+        opts = replace(InvokeOptions(), bypass_datasystem=True)
+        return self._invoke(args, kwargs, invoke_options=opts, ref_cls=ObjectRefDirect)
+
     def _invoke(self, args, kwargs, invoke_options=InvokeOptions(), ref_cls=None):
         if not self._instance_ref().is_activate():
             raise RuntimeError("this instance is terminated")
@@ -1099,11 +1104,6 @@ class MethodProxy:
         if self._method_descriptor.is_generator:
             return ObjectRefGenerator(objref_list[0])
         return objref_list[0] if self._return_nums == 1 else objref_list
-
-    def invoke_direct(self, *args, **kwargs):
-        """Invoke bypassing datasystem. Returns ObjectRefDirect (no ref counting)."""
-        opts = replace(InvokeOptions(), bypass_datasystem=True)
-        return self._invoke(args, kwargs, invoke_options=opts, ref_cls=ObjectRefDirect)
 
 
 def make_decorator(invoke_options=None):

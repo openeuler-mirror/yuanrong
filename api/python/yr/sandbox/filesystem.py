@@ -98,6 +98,45 @@ class SandboxFilesystem:
             return False
         return default
 
+    def copy_from_local(
+        self,
+        local_path: str,
+        remote_path: str,
+        streaming: Optional[bool] = None,
+    ) -> None:
+        """Copy a local file or directory **into** the sandbox.
+
+        Args:
+            local_path:  Absolute or relative path on the **local** machine.
+            remote_path: Absolute path inside the **sandbox**.
+            streaming:   ``None`` = auto, ``True`` = gzip streaming,
+                         ``False`` = non-streaming tar.
+
+        Raises:
+            FileNotFoundError: *local_path* does not exist.
+            RuntimeError: Server address is not configured.
+        """
+        self._cp(local_path, remote_path, CpDirection.UPLOAD, streaming)
+
+    def copy_to_local(
+        self,
+        remote_path: str,
+        local_path: str,
+        streaming: Optional[bool] = None,
+    ) -> None:
+        """Copy a file or directory **from** the sandbox to the local machine.
+
+        Args:
+            remote_path: Absolute path inside the **sandbox**.
+            local_path:  Absolute or relative path on the **local** machine.
+            streaming:   ``None`` = auto, ``True`` = gzip streaming,
+                         ``False`` = non-streaming tar.
+
+        Raises:
+            RuntimeError: Server address is not configured.
+        """
+        self._cp(remote_path, local_path, CpDirection.DOWNLOAD, streaming)
+
     def _resolve_transport_kwargs(self, host: str, port: str) -> dict:
         """Auto-resolve transport kwargs (ssl/token/cert/verify) from yr config.
 
@@ -177,7 +216,8 @@ class SandboxFilesystem:
                 "Set YR_SERVER_ADDRESS (faasfrontend address) or call yr.init()."
             )
         host, port = gateway_addr.rsplit(":", 1)
-        instance_id = yr.get(self._sandbox._instance.get_name.invoke())
+        instance = getattr(self._sandbox, "_instance")
+        instance_id = yr.get(instance.get_name.invoke())
         transport_kwargs = self._resolve_transport_kwargs(host, port)
         return host, port, instance_id, transport_kwargs
 
@@ -246,42 +286,3 @@ class SandboxFilesystem:
                     **transport_kwargs,
                 )
             )
-
-    def copy_from_local(
-        self,
-        local_path: str,
-        remote_path: str,
-        streaming: Optional[bool] = None,
-    ) -> None:
-        """Copy a local file or directory **into** the sandbox.
-
-        Args:
-            local_path:  Absolute or relative path on the **local** machine.
-            remote_path: Absolute path inside the **sandbox**.
-            streaming:   ``None`` = auto, ``True`` = gzip streaming,
-                         ``False`` = non-streaming tar.
-
-        Raises:
-            FileNotFoundError: *local_path* does not exist.
-            RuntimeError: Server address is not configured.
-        """
-        self._cp(local_path, remote_path, CpDirection.UPLOAD, streaming)
-
-    def copy_to_local(
-        self,
-        remote_path: str,
-        local_path: str,
-        streaming: Optional[bool] = None,
-    ) -> None:
-        """Copy a file or directory **from** the sandbox to the local machine.
-
-        Args:
-            remote_path: Absolute path inside the **sandbox**.
-            local_path:  Absolute or relative path on the **local** machine.
-            streaming:   ``None`` = auto, ``True`` = gzip streaming,
-                         ``False`` = non-streaming tar.
-
-        Raises:
-            RuntimeError: Server address is not configured.
-        """
-        self._cp(remote_path, local_path, CpDirection.DOWNLOAD, streaming)

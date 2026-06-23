@@ -97,29 +97,38 @@ public class LoadUtil {
                 String libraryName = soFileName.get();
                 String soFileHash = properties.getProperty(libraryName);
                 String soFilePath = Paths.get(libPath, libraryName).toString();
-                File localSoFile = Paths.get(DEFAULT_JNI_FOLDER, libraryName).toFile();
-                boolean isSoFileExist = localSoFile.exists();
-                boolean isCheckSumMatch = checkSHA256(localSoFile, soFileHash);
-
-                if (isSoFileExist && isCheckSumMatch && isReadableFile(localSoFile)) {
-                    System.load(localSoFile.getCanonicalPath());
-                    continue;
-                }
-
-                if (!prepareLocalSoFile(localSoFile)) {
-                    copyAndLoadTempSoFile(libraryName, soFilePath);
-                    continue;
-                }
-
-                if (!copyAndLoadSoFile(soFilePath, localSoFile)) {
-                    copyAndLoadTempSoFile(libraryName, soFilePath);
-                }
+                loadPackagedLibrary(libraryName, soFilePath, soFileHash);
             }
             if (!findPackagedLibrary(properties, LOADING_SEQUENCE[LOADING_SEQUENCE.length - 1]).isPresent()) {
                 throw new InvalidPropertiesFormatException("runtime JNI library is missing from SDK jar");
             }
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    private static void loadPackagedLibrary(String libraryName, String soFilePath, String soFileHash)
+            throws IOException {
+        File localSoFile = Paths.get(DEFAULT_JNI_FOLDER, libraryName).toFile();
+        File lockFile = Paths.get(DEFAULT_JNI_FOLDER, libraryName + ".lock").toFile();
+        try (FileChannel lockChannel = FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE); FileLock ignored = lockChannel.lock()) {
+            boolean isSoFileExist = localSoFile.exists();
+            boolean isCheckSumMatch = isSoFileExist && checkSHA256(localSoFile, soFileHash);
+
+            if (isSoFileExist && isCheckSumMatch && isReadableFile(localSoFile)) {
+                System.load(localSoFile.getCanonicalPath());
+                return;
+            }
+
+            if (!prepareLocalSoFile(localSoFile)) {
+                copyAndLoadTempSoFile(libraryName, soFilePath);
+                return;
+            }
+
+            if (!copyAndLoadSoFile(soFilePath, localSoFile)) {
+                copyAndLoadTempSoFile(libraryName, soFilePath);
+            }
         }
     }
 

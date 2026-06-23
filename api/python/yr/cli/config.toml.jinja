@@ -305,6 +305,7 @@ timeout = 60
 endpoint = "{{ 'https' if values.fs.tls.enable else 'http' }}://{{ values.function_proxy.ip }}:{{ values.function_proxy.port }}/local-scheduler/healthy"
 
 [function_proxy.env]
+PATH = "{{ values.yr_package_path }}/runtime/service/java/bin:/opt/buildtools/jdk8/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.yr_package_path }}/datasystem/lib" # datasystem lib is needed for libds_router_client.so which needs v1.1 libssl and libcrypto
 LD_PRELOAD = "" # for jemalloc use
 {% if values.runtime_launcher.enable %}
@@ -453,7 +454,8 @@ log_expiration_max_file_count = 0
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 
 [function_agent.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib"
+PATH = "{{ values.yr_package_path }}/runtime/service/java/bin:/opt/buildtools/jdk8/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.yr_package_path }}/datasystem/lib"
 RUNTIME_METRICS_CONFIG = "{{ values.fs.metrics.metrics_config }}"
 RUNTIME_METRICS_CONFIG_FILE = "{{ values.fs.metrics.metrics_config_file }}"
 INIT_LABELS = ""

@@ -262,7 +262,7 @@ traefik:
     frontendDirect:
       address: ":18888"
   etcd:
-    rootKey: /traefik
+    rootKey: traefik
   service:
     type: LoadBalancer
     port: 8888

@@ -353,8 +353,9 @@ TEST_F(TaskTest, ExceptionChain)
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
         std::string errorMsg = "SIGFPE";
+        std::string exitCodeMsg = "exit code:136";
         std::string excepMsg = e.what();
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
+        SignalErrorMsgCheck(errorCode, errorMsg, exitCodeMsg, excepMsg);
     }
 }
 
@@ -374,8 +375,9 @@ TEST_F(TaskTest, ExceptionDying)
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
         std::string errorMsg = "SIGABRT";
+        std::string exitCodeMsg = "exit code:134";
         std::string excepMsg = e.what();
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
+        SignalErrorMsgCheck(errorCode, errorMsg, exitCodeMsg, excepMsg);
     }
 }
 

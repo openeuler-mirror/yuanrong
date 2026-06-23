@@ -29,7 +29,9 @@ import tempfile
 import termios
 import threading
 import tty
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import websockets
@@ -75,6 +77,41 @@ _UPLOAD_RATIO_MIN = 50            # compression ratio threshold for upload strea
 # network speed), so ANY meaningful compression (>2x) translates directly to
 # faster transfers.
 _DOWNLOAD_RATIO_MIN = 2.0         # compression ratio threshold for download streaming
+
+
+@dataclass
+class ExecConnection:
+    host: str
+    port: str
+    user: str = None
+    use_ssl: bool = False
+    cert_file: str = None
+    key_file: str = None
+    ca_file: str = None
+    verify_server: bool = True
+    token: str = None
+    quiet: bool = False
+
+
+@dataclass
+class ExecInvocation:
+    instance: str = None
+    command: Any = None
+    allocate_tty: bool = None
+    stdin: bool = None
+    rows: int = None
+    cols: int = None
+
+
+@dataclass
+class CopyRequest:
+    instance: str
+    local_path: str
+    remote_path: str
+
+
+def _quiet_connection(connection: ExecConnection) -> ExecConnection:
+    return replace(connection, quiet=True)
 
 
 def _sample_entropy(path: str, sample_bytes: int = 65536) -> float:
@@ -430,10 +467,7 @@ async def send_terminal_resize(ws, rows=None, cols=None):
             return
 
 
-def build_exec_uri(
-    host, port, instance=None, command=None, allocate_tty=None, rows=None, cols=None, user=None, token=None,
-    use_ssl=False
-):
+def build_exec_uri(connection: ExecConnection, invocation: ExecInvocation):
     """Build exec websocket URI.
 
     ``command`` may be a **string** (legacy, single-element argv) or a **list**
@@ -443,45 +477,43 @@ def build_exec_uri(
     shell command.
     """
     query_params = []
-    if instance:
-        query_params.append(f"instance={quote(instance)}")
-    if command:
-        if isinstance(command, list):
-            for arg in command:
+    if invocation.instance:
+        query_params.append(f"instance={quote(invocation.instance)}")
+    if invocation.command:
+        if isinstance(invocation.command, list):
+            for arg in invocation.command:
                 query_params.append(f"command={quote(arg)}")
         else:
-            query_params.append(f"command={quote(command)}")
-    if allocate_tty is not None:
-        query_params.append(f"tty={str(allocate_tty).lower()}")
-    if rows:
-        query_params.append(f"rows={rows}")
-    if cols:
-        query_params.append(f"cols={cols}")
-    if user:
-        query_params.append(f"tenant_id={quote(user)}")
-    if token:
-        query_params.append(f"token={quote(token)}")
+            query_params.append(f"command={quote(invocation.command)}")
+    if invocation.allocate_tty is not None:
+        query_params.append(f"tty={str(invocation.allocate_tty).lower()}")
+    if invocation.rows:
+        query_params.append(f"rows={invocation.rows}")
+    if invocation.cols:
+        query_params.append(f"cols={invocation.cols}")
+    if connection.user:
+        query_params.append(f"tenant_id={quote(connection.user)}")
+    if connection.token:
+        query_params.append(f"token={quote(connection.token)}")
 
     query_string = "&".join(query_params)
-    protocol = "wss" if use_ssl else "ws"
-    uri = f"{protocol}://{host}:{port}/terminal/ws"
+    protocol = "wss" if connection.use_ssl else "ws"
+    uri = f"{protocol}://{connection.host}:{connection.port}/terminal/ws"
     if query_string:
         uri += f"?{query_string}"
     return uri
 
 
-def build_exec_ssl_context(
-    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, quiet=False
-):
+def build_exec_ssl_context(connection: ExecConnection):
     """Build SSL context for exec websocket when TLS is enabled."""
-    if not use_ssl:
+    if not connection.use_ssl:
         return None
     return create_ssl_context(
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        verify_server=verify_server,
-        quiet=quiet,
+        cert_file=connection.cert_file,
+        key_file=connection.key_file,
+        ca_file=connection.ca_file,
+        verify_server=connection.verify_server,
+        quiet=connection.quiet,
     )
 
 
@@ -567,51 +599,25 @@ def _restore_from_tar(archive_path: str, local_path: str) -> None:
         shutil.move(str(source_root), str(target))
 
 
-async def copy_to_remote(
-    host,
-    port,
-    instance,
-    local_path,
-    remote_path,
-    user=None,
-    use_ssl=False,
-    cert_file=None,
-    key_file=None,
-    ca_file=None,
-    verify_server=True,
-    token=None,
-):
+async def copy_to_remote(connection: ExecConnection, request: CopyRequest):
     """Upload a local file into an instance via the exec websocket.
 
     Requires the target instance container to have ``sh``, ``tar``,
     ``mkdir``, and ``head`` available (standard in most Linux base images).
     """
-    source = Path(local_path)
-    archive_path = _create_tar_archive(source, Path(remote_path).name)
+    source = Path(request.local_path)
+    archive_path = _create_tar_archive(source, Path(request.remote_path).name)
     archive_size = Path(archive_path).stat().st_size
     command = [
         "sh", "-c",
         "mkdir -p \"$(dirname \"$1\")\" && head -c \"$2\" | tar -xmf - -C \"$(dirname \"$1\")\"",
-        "sh", remote_path, str(archive_size),
+        "sh", request.remote_path, str(archive_size),
     ]
     uri = build_exec_uri(
-        host,
-        port,
-        instance=instance,
-        command=command,
-        allocate_tty=False,
-        user=user,
-        token=token,
-        use_ssl=use_ssl,
+        connection,
+        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
     )
-    ssl_context = build_exec_ssl_context(
-        use_ssl=use_ssl,
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        verify_server=verify_server,
-        quiet=True,
-    )
+    ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
     try:
         async with websockets.connect(uri, ssl=ssl_context) as ws:
@@ -647,44 +653,18 @@ async def copy_to_remote(
         Path(archive_path).unlink(missing_ok=True)
 
 
-async def copy_from_remote(
-    host,
-    port,
-    instance,
-    remote_path,
-    local_path,
-    user=None,
-    use_ssl=False,
-    cert_file=None,
-    key_file=None,
-    ca_file=None,
-    verify_server=True,
-    token=None,
-):
+async def copy_from_remote(connection: ExecConnection, request: CopyRequest):
     """Download a file from an instance via the exec websocket."""
     command = [
         "sh", "-c",
         "tar -cf - -C \"$(dirname \"$1\")\" \"$(basename \"$1\")\"",
-        "sh", remote_path,
+        "sh", request.remote_path,
     ]
     uri = build_exec_uri(
-        host,
-        port,
-        instance=instance,
-        command=command,
-        allocate_tty=False,
-        user=user,
-        token=token,
-        use_ssl=use_ssl,
+        connection,
+        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
     )
-    ssl_context = build_exec_ssl_context(
-        use_ssl=use_ssl,
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        verify_server=verify_server,
-        quiet=True,
-    )
+    ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
     archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
     archive_file.close()
@@ -708,25 +688,12 @@ async def copy_from_remote(
                         except asyncio.CancelledError:
                             pass
 
-        _restore_from_tar(archive_file.name, local_path)
+        _restore_from_tar(archive_file.name, request.local_path)
     finally:
         Path(archive_file.name).unlink(missing_ok=True)
 
 
-async def copy_to_remote_streaming(
-    host,
-    port,
-    instance,
-    local_path,
-    remote_path,
-    user=None,
-    use_ssl=False,
-    cert_file=None,
-    key_file=None,
-    ca_file=None,
-    verify_server=True,
-    token=None,
-):
+async def copy_to_remote_streaming(connection: ExecConnection, request: CopyRequest):
     """Upload a local file into an instance using full-pipeline streaming (no temp file).
 
     Generates tar.gz chunks on-the-fly via a background thread + OS pipe and sends
@@ -737,31 +704,18 @@ async def copy_to_remote_streaming(
     Requires the target instance container to have ``sh``, ``tar``, and ``mkdir``
     available (standard in most Linux base images).
     """
-    source = Path(local_path)
+    source = Path(request.local_path)
 
     command = [
         "sh", "-c",
         "mkdir -p \"$(dirname \"$1\")\" && tar -xzmf - -C \"$(dirname \"$1\")\"",
-        "sh", remote_path,
+        "sh", request.remote_path,
     ]
     uri = build_exec_uri(
-        host,
-        port,
-        instance=instance,
-        command=command,
-        allocate_tty=False,
-        user=user,
-        token=token,
-        use_ssl=use_ssl,
+        connection,
+        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
     )
-    ssl_context = build_exec_ssl_context(
-        use_ssl=use_ssl,
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        verify_server=verify_server,
-        quiet=True,
-    )
+    ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
     # OS pipe: tar writer thread → read end → WebSocket chunks
     r_fd, w_fd = os.pipe()
@@ -774,7 +728,7 @@ async def copy_to_remote_streaming(
         try:
             with os.fdopen(w_fd, "wb", buffering=0) as wf:
                 with tarfile.open(fileobj=wf, mode="w|gz") as archive:
-                    archive.add(str(source), arcname=Path(remote_path).name)
+                    archive.add(str(source), arcname=Path(request.remote_path).name)
         except Exception as exc:  # noqa: BLE001
             write_error.append(exc)
 
@@ -841,20 +795,7 @@ async def copy_to_remote_streaming(
             raise write_error[0]
 
 
-async def copy_from_remote_streaming(
-    host,
-    port,
-    instance,
-    remote_path,
-    local_path,
-    user=None,
-    use_ssl=False,
-    cert_file=None,
-    key_file=None,
-    ca_file=None,
-    verify_server=True,
-    token=None,
-):
+async def copy_from_remote_streaming(connection: ExecConnection, request: CopyRequest):
     """Download a file from an instance using full-pipeline streaming (no temp file).
 
     The remote command produces a gzip-compressed tar stream on stdout, which is
@@ -863,28 +804,15 @@ async def copy_from_remote_streaming(
     command = [
         "sh", "-c",
         "tar -czf - -C \"$(dirname \"$1\")\" \"$(basename \"$1\")\"",
-        "sh", remote_path,
+        "sh", request.remote_path,
     ]
     uri = build_exec_uri(
-        host,
-        port,
-        instance=instance,
-        command=command,
-        allocate_tty=False,
-        user=user,
-        token=token,
-        use_ssl=use_ssl,
+        connection,
+        ExecInvocation(instance=request.instance, command=command, allocate_tty=False),
     )
-    ssl_context = build_exec_ssl_context(
-        use_ssl=use_ssl,
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        verify_server=verify_server,
-        quiet=True,
-    )
+    ssl_context = build_exec_ssl_context(_quiet_connection(connection))
 
-    target = Path(local_path)
+    target = Path(request.local_path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
     r_fd, w_fd = os.pipe()
@@ -970,53 +898,32 @@ async def copy_from_remote_streaming(
         raise extract_error[0]
 
 
-async def run_client(
-    host, port, instance=None, command=None, allocate_tty=None, stdin=None, rows=None, cols=None, user=None,
-    use_ssl=False, cert_file=None, key_file=None, ca_file=None, verify_server=True, token=None, quiet=False
-):
-    tty_enabled = bool(allocate_tty)
+async def run_client(connection: ExecConnection, invocation: ExecInvocation):
+    tty_enabled = bool(invocation.allocate_tty)
 
     # 获取当前终端的实际尺寸作为默认值
-    if rows is None or cols is None:
+    if invocation.rows is None or invocation.cols is None:
         try:
             terminal_size = shutil.get_terminal_size()
-            if rows is None:
-                rows = terminal_size.lines
-            if cols is None:
-                cols = terminal_size.columns
+            if invocation.rows is None:
+                invocation.rows = terminal_size.lines
+            if invocation.cols is None:
+                invocation.cols = terminal_size.columns
         except Exception:
             # 如果无法获取，使用服务端默认值
             pass
 
-    uri = build_exec_uri(
-        host,
-        port,
-        instance=instance,
-        command=command,
-        allocate_tty=allocate_tty,
-        rows=rows,
-        cols=cols,
-        user=user,
-        token=token,
-        use_ssl=use_ssl,
-    )
+    uri = build_exec_uri(connection, invocation)
 
     if tty_enabled:
-        if instance:
-            print(f"Connecting to {instance}...\nPress Ctrl+] to disconnect", file=sys.stderr)
+        if invocation.instance:
+            print(f"Connecting to {invocation.instance}...\nPress Ctrl+] to disconnect", file=sys.stderr)
         else:
             print("Connecting...\nPress Ctrl+] to disconnect", file=sys.stderr)
     
     # Create SSL context if needed
-    ssl_context = build_exec_ssl_context(
-        use_ssl=use_ssl,
-        cert_file=cert_file,
-        key_file=key_file,
-        ca_file=ca_file,
-        verify_server=verify_server,
-        quiet=quiet,
-    )
-    if use_ssl:
+    ssl_context = build_exec_ssl_context(connection)
+    if connection.use_ssl:
         if ssl_context and tty_enabled:
             print("Using mutual TLS authentication", file=sys.stderr)
         elif not ssl_context and tty_enabled:
@@ -1029,7 +936,7 @@ async def run_client(
             interactive = tty_enabled and sys.stdin.isatty()
 
             if tty_enabled:
-                await send_terminal_resize(ws, rows=rows, cols=cols)
+                await send_terminal_resize(ws, rows=invocation.rows, cols=invocation.cols)
 
             if interactive:
                 raw_term = RawTerminal(sys.stdin.fileno())
@@ -1038,11 +945,11 @@ async def run_client(
             try:
                 # 同时处理输入和输出
                 tasks = [
-                    asyncio.create_task(read_websocket(ws, should_exit, quiet=quiet)),
-                    asyncio.create_task(heartbeat_loop(ws, should_exit, quiet=quiet)),
+                    asyncio.create_task(read_websocket(ws, should_exit, quiet=connection.quiet)),
+                    asyncio.create_task(heartbeat_loop(ws, should_exit, quiet=connection.quiet)),
                 ]
-                if stdin or interactive:
-                    tasks.append(asyncio.create_task(read_stdin(ws, should_exit, quiet=quiet)))
+                if invocation.stdin or interactive:
+                    tasks.append(asyncio.create_task(read_stdin(ws, should_exit, quiet=connection.quiet)))
                 if interactive:
                     tasks.append(asyncio.create_task(watch_terminal_resize(ws, should_exit)))
 
@@ -1061,8 +968,8 @@ async def run_client(
                 if interactive:
                     raw_term.__exit__(None, None, None)
     except KeyboardInterrupt:
-        if not quiet:
+        if not connection.quiet:
             print("\n[Interrupted]", file=sys.stderr)
     except Exception as e:
-        if not quiet:
+        if not connection.quiet:
             print(f"\nConnection error: {e}", file=sys.stderr)

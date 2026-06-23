@@ -574,10 +574,10 @@ JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_Finalize(JNIEnv *env, jc
 
 /*
  * Class:     org_yuanrong_jni_LibRuntime
- * Method:    NeedReInit
+ * Method:    needReInit
  * Signature: ()Z
  */
-JNIEXPORT jboolean JNICALL Java_org_yuanrong_jni_LibRuntime_NeedReInit(JNIEnv *env, jclass c)
+JNIEXPORT jboolean JNICALL Java_org_yuanrong_jni_LibRuntime_needReInit(JNIEnv *env, jclass c)
 {
     auto rtCtx = get_runtime_context_callback(env, c);
     return YR::Libruntime::LibruntimeManager::Instance().NeedReInit(rtCtx) ? JNI_TRUE : JNI_FALSE;
@@ -585,10 +585,10 @@ JNIEXPORT jboolean JNICALL Java_org_yuanrong_jni_LibRuntime_NeedReInit(JNIEnv *e
 
 /*
  * Class:     org_yuanrong_jni_LibRuntime
- * Method:    ReInit
+ * Method:    reInit
  * Signature: ()V
  */
-JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_ReInit(JNIEnv *env, jclass c)
+JNIEXPORT void JNICALL Java_org_yuanrong_jni_LibRuntime_reInit(JNIEnv *env, jclass c)
 {
     auto rtCtx = get_runtime_context_callback(env, c);
     YR::Libruntime::LibruntimeManager::Instance().ReInit(rtCtx);

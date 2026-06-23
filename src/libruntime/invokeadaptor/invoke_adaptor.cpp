@@ -537,10 +537,8 @@ RecoverResponse InvokeAdaptor::RecoverHandler(const RecoverRequest &req)
     return resp;
 }
 
-std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeContext,
-                                                      std::shared_ptr<Security> security)
+void InvokeAdaptor::InitFSIntfHandlers(FSIntfHandlers &handlers)
 {
-    FSIntfHandlers handlers;
     handlers.init = std::bind(&InvokeAdaptor::InitHandler, this, _1);
     handlers.call = std::bind(&InvokeAdaptor::CallHandler, this, _1);
     handlers.checkpoint = std::bind(&InvokeAdaptor::CheckpointHandler, this, _1);
@@ -562,6 +560,11 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     if (librtConfig->libruntimeOptions.healthCheckCallback) {
         handlers.heartbeat = std::bind(&InvokeAdaptor::HeartbeatHandler, this, _1);
     }
+}
+
+void InvokeAdaptor::ResolveFSClientOptions(std::string &ipAddr, int &port, FSClient::ClientType &clientType,
+                                           std::string &instanceId, std::string &functionName)
+{
     if (Config::Instance().ENABLE_SERVER_MODE()) {
         this->librtConfig->enableServerMode = Config::Instance().ENABLE_SERVER_MODE();
     }
@@ -570,28 +573,40 @@ std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeCon
     // If this process is pulled up by function system, server listening address is specified by runtime-manager;
     // If this process is driver, user specify function system address,
     // and driver will connect to funtion system to do discovery
-    auto ipAddr = this->librtConfig->functionSystemRtServerIpAddr;
-    int port = this->librtConfig->functionSystemRtServerPort;
+    ipAddr = this->librtConfig->functionSystemRtServerIpAddr;
+    port = this->librtConfig->functionSystemRtServerPort;
     if (this->librtConfig->isDriver) {
         ipAddr = this->librtConfig->functionSystemIpAddr;
         port = this->librtConfig->functionSystemPort;
     }
-    auto clientType = FSClient::ClientType::GRPC_SERVER;
+    clientType = FSClient::ClientType::GRPC_SERVER;
     if (!librtConfig->inCluster) {
         clientType = FSClient::ClientType::GW_CLIENT;
     } else if (this->librtConfig->enableServerMode) {
         clientType = FSClient::ClientType::GRPC_CLIENT;
     }
-    std::string instanceId;
     if (this->librtConfig->isDriver) {
         instanceId = this->librtConfig->instanceId;
     } else {
         instanceId = Config::Instance().INSTANCE_ID();
     }
-    auto functionName = this->librtConfig->functionName;
+    functionName = this->librtConfig->functionName;
     if (functionName.empty()) {
         functionName = Config::Instance().FUNCTION_NAME();
     }
+}
+
+std::pair<std::string, ErrorInfo> InvokeAdaptor::Init(RuntimeContext &runtimeContext,
+                                                      std::shared_ptr<Security> security)
+{
+    FSIntfHandlers handlers;
+    InitFSIntfHandlers(handlers);
+    std::string ipAddr;
+    int port = 0;
+    auto clientType = FSClient::ClientType::GRPC_SERVER;
+    std::string instanceId;
+    std::string functionName;
+    ResolveFSClientOptions(ipAddr, port, clientType, instanceId, functionName);
     auto err =
         this->fsClient->Start(ipAddr, port, handlers, clientType, this->librtConfig->isDriver, security, clientsMgr,
                               runtimeContext.GetJobId(), instanceId, this->librtConfig->runtimeId, functionName,
@@ -1443,40 +1458,59 @@ void InvokeAdaptor::CreateNotifyHandler(const NotifyRequest &req)
         return;
     }
     if (req.code() != common::ERR_NONE) {
-        bool isConsumeRetryTime = false;
-        if (!NeedRetry(static_cast<ErrorCode>(req.code()), spec, isConsumeRetryTime)) {
-            YRLOG_ERROR("Failed to create instance, request ID: {}, code: {}, message: {}", req.requestid(),
-                        fmt::underlying(req.code()), req.message());
-            auto isCreate = spec->invokeType == libruntime::InvokeType::CreateInstanceStateless ||
-                            spec->invokeType == libruntime::InvokeType::CreateInstance;
-            std::vector<YR::Libruntime::StackTraceInfo> stackTraceInfos = GetStackTraceInfos(req);
-            ProcessErr(spec, ErrorInfo(static_cast<ErrorCode>(req.code()), ModuleCode::CORE, req.message(), isCreate,
-                                       stackTraceInfos));
-        } else {
-            YRLOG_ERROR("Failed to create instance, need retry, request ID: {}, code: {}, message: {}", req.requestid(),
-                        fmt::underlying(req.code()), req.message());
-            RetryCreateInstance(spec, isConsumeRetryTime);
+        if (HandleCreateNotifyError(req, spec)) {
             return;
         }
     } else {
-        YRLOG_DEBUG("Succeed to create instance, request ID: {}, instance ID: {}", req.requestid(), spec->instanceId);
-        invokeOrderMgr->NotifyInvokeSuccess(spec);
-        if (req.has_runtimeinfo()) {
-            if (!req.runtimeinfo().route().empty()) {
-                memStore->SetInstanceRoute(spec->returnIds[0].id, req.runtimeinfo().route());
-            }
-            if (!req.runtimeinfo().proxyid().empty()) {
-                memStore->SetInstanceProxyID(spec->returnIds[0].id, req.runtimeinfo().proxyid());
-            }
+        HandleCreateNotifySuccess(req, spec);
+    }
+    CleanupCreateNotifyRequest(rawRequestId, req);
+}
+
+bool InvokeAdaptor::HandleCreateNotifyError(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> &spec)
+{
+    bool isConsumeRetryTime = false;
+    if (NeedRetry(static_cast<ErrorCode>(req.code()), spec, isConsumeRetryTime)) {
+        YRLOG_ERROR("Failed to create instance, need retry, request ID: {}, code: {}, message: {}", req.requestid(),
+                    fmt::underlying(req.code()), req.message());
+        RetryCreateInstance(spec, isConsumeRetryTime);
+        return true;
+    }
+
+    YRLOG_ERROR("Failed to create instance, request ID: {}, code: {}, message: {}", req.requestid(),
+                fmt::underlying(req.code()), req.message());
+    auto isCreate = spec->invokeType == libruntime::InvokeType::CreateInstanceStateless ||
+                    spec->invokeType == libruntime::InvokeType::CreateInstance;
+    std::vector<YR::Libruntime::StackTraceInfo> stackTraceInfos = GetStackTraceInfos(req);
+    ProcessErr(spec,
+               ErrorInfo(static_cast<ErrorCode>(req.code()), ModuleCode::CORE, req.message(), isCreate,
+                         stackTraceInfos));
+    return false;
+}
+
+void InvokeAdaptor::HandleCreateNotifySuccess(const NotifyRequest &req, const std::shared_ptr<InvokeSpec> &spec)
+{
+    YRLOG_DEBUG("Succeed to create instance, request ID: {}, instance ID: {}", req.requestid(), spec->instanceId);
+    invokeOrderMgr->NotifyInvokeSuccess(spec);
+    if (req.has_runtimeinfo()) {
+        if (!req.runtimeinfo().route().empty()) {
+            memStore->SetInstanceRoute(spec->returnIds[0].id, req.runtimeinfo().route());
         }
-        memStore->SetReady(spec->returnIds[0].id);
-        if (spec->functionMeta.apiType != libruntime::ApiType::Posix) {
-            if (auto insId = spec->GetNamedInstanceId(); !insId.empty()) {
-                auto meta = convertFuncMetaToProto(spec);
-                this->UpdateAndSubcribeInsStatus(insId, meta);
-            }
+        if (!req.runtimeinfo().proxyid().empty()) {
+            memStore->SetInstanceProxyID(spec->returnIds[0].id, req.runtimeinfo().proxyid());
         }
     }
+    memStore->SetReady(spec->returnIds[0].id);
+    if (spec->functionMeta.apiType != libruntime::ApiType::Posix) {
+        if (auto insId = spec->GetNamedInstanceId(); !insId.empty()) {
+            auto meta = convertFuncMetaToProto(spec);
+            this->UpdateAndSubcribeInsStatus(insId, meta);
+        }
+    }
+}
+
+void InvokeAdaptor::CleanupCreateNotifyRequest(const std::string &rawRequestId, const NotifyRequest &req)
+{
     auto ids = memStore->UnbindObjRefInReq(rawRequestId);
     auto errorInfo = memStore->DecreGlobalReference(ids);
     if (!errorInfo.OK()) {
@@ -2266,12 +2300,7 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
                                                                               const std::string &nameSpace,
                                                                               int timeoutSec)
 {
-    auto insId = name;
-    if (!nameSpace.empty()) {
-        insId = nameSpace + "-" + name;
-    } else if (!this->librtConfig->ns.empty()) {
-        insId = this->librtConfig->ns + "-" + name;
-    }
+    auto insId = BuildInstanceLookupId(name, nameSpace);
     YRLOG_DEBUG("start get instance, instance id is {}", insId);
     if (insId == this->librtConfig->GetInstanceId()) {
         return std::make_pair(
@@ -2284,6 +2313,25 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
         YRLOG_DEBUG("get cached meta info of instance: {}, return directly", insId);
         return std::make_pair(convertProtoToFuncMeta(metaCached), ErrorInfo());
     }
+    auto [funcMeta, errorInfo] = QueryInstanceMeta(insId, timeoutSec);
+    UpdateGetInstanceResult(insId, funcMeta, errorInfo);
+    return std::make_pair(convertProtoToFuncMeta(funcMeta), errorInfo);
+}
+
+std::string InvokeAdaptor::BuildInstanceLookupId(const std::string &name, const std::string &nameSpace) const
+{
+    if (!nameSpace.empty()) {
+        return nameSpace + "-" + name;
+    }
+    if (!this->librtConfig->ns.empty()) {
+        return this->librtConfig->ns + "-" + name;
+    }
+    return name;
+}
+
+std::pair<libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::QueryInstanceMeta(const std::string &insId,
+                                                                                int timeoutSec)
+{
     KillRequest killReq;
     killReq.set_requestid(YR::utility::IDGenerator::GenRequestId());
     killReq.set_instanceid(insId);
@@ -2314,6 +2362,12 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
     auto [funcMeta, errorInfo] = future.get();
     YRLOG_DEBUG("get instance finished, err code is {}, err msg is {}, function meta is {}",
                 fmt::underlying(errorInfo.Code()), errorInfo.Msg(), funcMeta.DebugString());
+    return {funcMeta, errorInfo};
+}
+
+void InvokeAdaptor::UpdateGetInstanceResult(const std::string &insId, libruntime::FunctionMeta &funcMeta,
+                                            const ErrorInfo &errorInfo)
+{
     if (errorInfo.OK()) {
         this->UpdateAndSubcribeInsStatus(insId, funcMeta);
         // for get instance req, invoke seq no is always 0 or no seq no
@@ -2321,7 +2375,6 @@ std::pair<YR::Libruntime::FunctionMeta, ErrorInfo> InvokeAdaptor::GetInstance(co
     } else {
         this->RemoveInsMetaInfo(insId);
     }
-    return std::make_pair(convertProtoToFuncMeta(funcMeta), errorInfo);
 }
 
 std::pair<libruntime::FunctionMeta, bool> InvokeAdaptor::GetCachedInsMeta(const std::string &insId)
@@ -2460,6 +2513,15 @@ std::pair<ErrorInfo, std::string> InvokeAdaptor::DeleteCheckpoint(const std::str
 std::pair<ErrorInfo, std::vector<std::string>> InvokeAdaptor::ListCheckpoints(
     const std::string &tenantID, const std::string &functionType, const std::string &ns)
 {
+    auto targetInstanceId = ResolveCheckpointTargetInstanceId();
+    if (functionType.empty()) {
+        return ListCheckpointsByTenant(tenantID, targetInstanceId);
+    }
+    return ListCheckpointsByFunctionKey(tenantID, functionType, ns, targetInstanceId);
+}
+
+std::string InvokeAdaptor::ResolveCheckpointTargetInstanceId() const
+{
     auto targetInstanceId = librtConfig->instanceId;
     if (targetInstanceId.empty()) {
         targetInstanceId = Config::Instance().INSTANCE_ID();
@@ -2467,32 +2529,43 @@ std::pair<ErrorInfo, std::vector<std::string>> InvokeAdaptor::ListCheckpoints(
     if (targetInstanceId.empty()) {
         targetInstanceId = librtConfig->GetInstanceId();
     }
+    return targetInstanceId;
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> InvokeAdaptor::ListCheckpointsByTenant(
+    const std::string &tenantID, const std::string &targetInstanceId)
+{
     std::string payload;
     std::vector<std::string> checkpointIds;
-    if (functionType.empty()) {
-        messages::ListSnapshotsByTenantRequest req;
-        req.set_requestid(YR::utility::IDGenerator::GenRequestId());
-        req.set_tenantid(tenantID);
-        if (!req.SerializeToString(&payload)) {
-            return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
-                              "failed to serialize ListSnapshotsByTenantRequest"), {}};
-        }
-        auto [err, killRsp] =
-            KillWithResponse(targetInstanceId, payload, libruntime::Signal::ListCheckpointsByTenant);
-        if (!err.OK()) {
-            return {err, {}};
-        }
-        messages::ListSnapshotsByTenantResponse rsp;
-        if (!rsp.ParseFromString(killRsp.payload())) {
-            return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
-                              "failed to parse ListSnapshotsByTenantResponse"), {}};
-        }
-        if (rsp.code() != common::ERR_NONE) {
-            return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), {}};
-        }
-        checkpointIds.assign(rsp.checkpointids().begin(), rsp.checkpointids().end());
-        return {ErrorInfo(), checkpointIds};
+    messages::ListSnapshotsByTenantRequest req;
+    req.set_requestid(YR::utility::IDGenerator::GenRequestId());
+    req.set_tenantid(tenantID);
+    if (!req.SerializeToString(&payload)) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to serialize ListSnapshotsByTenantRequest"), {}};
     }
+    auto [err, killRsp] = KillWithResponse(targetInstanceId, payload, libruntime::Signal::ListCheckpointsByTenant);
+    if (!err.OK()) {
+        return {err, {}};
+    }
+    messages::ListSnapshotsByTenantResponse rsp;
+    if (!rsp.ParseFromString(killRsp.payload())) {
+        return {ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "failed to parse ListSnapshotsByTenantResponse"), {}};
+    }
+    if (rsp.code() != common::ERR_NONE) {
+        return {ErrorInfo(static_cast<ErrorCode>(rsp.code()), ModuleCode::RUNTIME, rsp.message()), {}};
+    }
+    checkpointIds.assign(rsp.checkpointids().begin(), rsp.checkpointids().end());
+    return {ErrorInfo(), checkpointIds};
+}
+
+std::pair<ErrorInfo, std::vector<std::string>> InvokeAdaptor::ListCheckpointsByFunctionKey(
+    const std::string &tenantID, const std::string &functionType, const std::string &ns,
+    const std::string &targetInstanceId)
+{
+    std::string payload;
+    std::vector<std::string> checkpointIds;
     messages::ListSnapshotsByFunctionKeyRequest req;
     req.set_requestid(YR::utility::IDGenerator::GenRequestId());
     auto *functionKey = req.mutable_functionkey();

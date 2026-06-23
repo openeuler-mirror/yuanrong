@@ -34,6 +34,9 @@ namespace exporters {
 namespace metrics {
 
 namespace {
+namespace YrMetrics = observability::sdk::metrics;
+namespace OtelMetrics = opentelemetry::sdk::metrics;
+
 opentelemetry::exporter::otlp::OtlpHeaders ToOtlpHeaders(const std::map<std::string, std::string> &headers)
 {
     opentelemetry::exporter::otlp::OtlpHeaders result;
@@ -41,6 +44,63 @@ opentelemetry::exporter::otlp::OtlpHeaders ToOtlpHeaders(const std::map<std::str
         result.emplace(key, value);
     }
     return result;
+}
+
+OtelMetrics::AggregationTemporality ToOtelTemporality(YrMetrics::AggregationTemporality temporality)
+{
+    auto otelTemporality = static_cast<OtelMetrics::AggregationTemporality>(temporality);
+    if (otelTemporality == OtelMetrics::AggregationTemporality::kUnspecified) {
+        return OtelMetrics::AggregationTemporality::kCumulative;
+    }
+    return otelTemporality;
+}
+
+OtelMetrics::SumPointData ToOtelSumPointData(const YrMetrics::PointValue &value)
+{
+    OtelMetrics::SumPointData sumData;
+    if (std::holds_alternative<int64_t>(value)) {
+        sumData.value_ = static_cast<double>(std::get<int64_t>(value));
+    } else if (std::holds_alternative<uint64_t>(value)) {
+        sumData.value_ = static_cast<double>(std::get<uint64_t>(value));
+    } else if (std::holds_alternative<double>(value)) {
+        sumData.value_ = std::get<double>(value);
+    }
+    sumData.is_monotonic_ = false;
+    return sumData;
+}
+
+OtelMetrics::PointDataAttributes ToOtelPointData(const YrMetrics::PointData &point)
+{
+    OtelMetrics::PointDataAttributes otelPoint;
+    for (const auto &[key, value] : point.labels) {
+        otelPoint.attributes[key] = value;
+    }
+    otelPoint.point_data = ToOtelSumPointData(point.value);
+    return otelPoint;
+}
+
+OtelMetrics::MetricData ToOtelMetricData(const YrMetrics::MetricData &metric)
+{
+    OtelMetrics::MetricData otelMetric;
+    otelMetric.instrument_descriptor.name_ = metric.instrumentDescriptor.name;
+    otelMetric.instrument_descriptor.description_ = metric.instrumentDescriptor.description;
+    otelMetric.instrument_descriptor.unit_ = metric.instrumentDescriptor.unit;
+    otelMetric.instrument_descriptor.type_ = static_cast<OtelMetrics::InstrumentType>(metric.instrumentDescriptor.type);
+    otelMetric.aggregation_temporality = ToOtelTemporality(metric.aggregationTemporality);
+    otelMetric.end_ts = metric.collectionTs;
+    for (const auto &point : metric.pointData) {
+        otelMetric.point_data_attr_.push_back(ToOtelPointData(point));
+    }
+    return otelMetric;
+}
+
+std::vector<OtelMetrics::MetricData> ToOtelMetricData(const std::vector<YrMetrics::MetricData> &data)
+{
+    std::vector<OtelMetrics::MetricData> otelData;
+    for (const auto &metric : data) {
+        otelData.push_back(ToOtelMetricData(metric));
+    }
+    return otelData;
 }
 }  // namespace
 
@@ -106,61 +166,8 @@ OpenTelemetryExporter::OpenTelemetryExporter(const OpenTelemetryExporterOptions 
 ExportResult OpenTelemetryExporter::Export(
     const std::vector<observability::sdk::metrics::MetricData> &data) noexcept
 {
-    // Convert MetricData to opentelemetry::sdk::metrics::MetricData
-    std::vector<opentelemetry::sdk::metrics::MetricData> otel_data;
-    for (const auto &metric : data) {
-        opentelemetry::sdk::metrics::MetricData otel_metric;
-
-        // Set instrument descriptor
-        otel_metric.instrument_descriptor.name_ = metric.instrumentDescriptor.name;
-        otel_metric.instrument_descriptor.description_ = metric.instrumentDescriptor.description;
-        otel_metric.instrument_descriptor.unit_ = metric.instrumentDescriptor.unit;
-        otel_metric.instrument_descriptor.type_ = static_cast<opentelemetry::sdk::metrics::InstrumentType>(
-            metric.instrumentDescriptor.type);
-
-        // Set aggregation temporality.
-        // Internal default is UNSPECIFIED (0); Prometheus exporter ignores UNSPECIFIED sums,
-        // so fall back to CUMULATIVE when the source does not specify.
-        auto src_temporality = static_cast<opentelemetry::sdk::metrics::AggregationTemporality>(
-            metric.aggregationTemporality);
-        otel_metric.aggregation_temporality =
-            (src_temporality == opentelemetry::sdk::metrics::AggregationTemporality::kUnspecified)
-                ? opentelemetry::sdk::metrics::AggregationTemporality::kCumulative
-                : src_temporality;
-
-        // Set collection timestamp
-        otel_metric.end_ts = metric.collectionTs;
-
-        // Convert point data
-        std::vector<opentelemetry::sdk::metrics::PointDataAttributes> otel_points;
-        for (const auto &point : metric.pointData) {
-            opentelemetry::sdk::metrics::PointDataAttributes otel_point;
-
-            // Convert labels to OpenTelemetry OrderedAttributeMap
-            for (const auto &[key, value] : point.labels) {
-                otel_point.attributes[key] = value;
-            }
-
-            // Convert PointValue to SumPointData
-            opentelemetry::sdk::metrics::SumPointData sum_data;
-            if (std::holds_alternative<int64_t>(point.value)) {
-                sum_data.value_ = static_cast<double>(std::get<int64_t>(point.value));
-            } else if (std::holds_alternative<uint64_t>(point.value)) {
-                sum_data.value_ = static_cast<double>(std::get<uint64_t>(point.value));
-            } else if (std::holds_alternative<double>(point.value)) {
-                sum_data.value_ = std::get<double>(point.value);
-            }
-            sum_data.is_monotonic_ = false;
-
-            otel_point.point_data = std::move(sum_data);
-            otel_points.push_back(std::move(otel_point));
-        }
-
-        otel_metric.point_data_attr_ = std::move(otel_points);
-        otel_data.push_back(std::move(otel_metric));
-    }
-
-    if (otel_data.empty()) {
+    auto otelData = ToOtelMetricData(data);
+    if (otelData.empty()) {
         return ExportResult::EMPTY_DATA;
     }
 
@@ -173,7 +180,7 @@ ExportResult OpenTelemetryExporter::Export(
         "yuanrong-functionsystem-metrics", "1.0.0");
 
     opentelemetry::sdk::metrics::ScopeMetrics scope_metrics;
-    scope_metrics.metric_data_ = std::move(otel_data);
+    scope_metrics.metric_data_ = std::move(otelData);
     scope_metrics.scope_ = scope.get();
 
     std::vector<opentelemetry::sdk::metrics::ScopeMetrics> scope_metrics_vec;
@@ -194,23 +201,21 @@ ExportResult OpenTelemetryExporter::Export(
     // Export data using OpenTelemetry exporter
     auto result = otlp_exporter_->Export(resource_metrics);
     if (result == opentelemetry::sdk::common::ExportResult::kSuccess) {
-        // Only trigger callback when health status changes (false -> true)
-        if (!is_healthy_) {
-            is_healthy_ = true;
-            if (health_callback_) {
-                health_callback_(true);
-            }
-        }
+        UpdateHealth(true);
         return ExportResult::SUCCESS;
-    } else {
-        // Only trigger callback when health status changes (true -> false)
-        if (is_healthy_) {
-            is_healthy_ = false;
-            if (health_callback_) {
-                health_callback_(false);
-            }
-        }
-        return ExportResult::FAILURE;
+    }
+    UpdateHealth(false);
+    return ExportResult::FAILURE;
+}
+
+void OpenTelemetryExporter::UpdateHealth(bool isHealthy) noexcept
+{
+    if (is_healthy_ == isHealthy) {
+        return;
+    }
+    is_healthy_ = isHealthy;
+    if (health_callback_) {
+        health_callback_(isHealthy);
     }
 }
 

@@ -29,15 +29,19 @@ Run:
 """
 
 import os
+import base64
 import json
 import subprocess
 import sys
 import time
+import urllib.request
+from urllib.parse import urlparse, urlunparse
 import pytest
 import yr
 
 pytestmark = pytest.mark.off_cluster
 YRCLI_SANDBOX_CREATE_TIMEOUT = 240
+YRCLI_SANDBOX_EXEC_TIMEOUT = 90
 
 
 def _get_addr():
@@ -68,6 +72,111 @@ def _get_faas_runtime():
 
 def _unique_name(prefix):
     return f"{prefix}-{os.getpid()}-{int(time.time() * 1000)}"
+
+
+def _extract_sandbox_id(output):
+    marker = "instance_id="
+    assert marker in output
+    return output.split(marker, 1)[1].strip().split()[0]
+
+
+def _extract_port_url(output, port):
+    marker = f"port {port}:"
+    for line in output.splitlines():
+        if marker in line:
+            return line.split(marker, 1)[1].strip()
+    raise AssertionError(f"cannot find port {port} gateway URL in output:\n{output}")
+
+
+def _gateway_url_candidates(url):
+    parsed = urlparse(url)
+    candidates = [url]
+    host = parsed.hostname
+
+    gateway_addr = os.getenv("YR_GATEWAY_ADDRESS", "").strip()
+    if gateway_addr:
+        candidates.append(urlunparse(parsed._replace(netloc=gateway_addr)))
+
+    if host and parsed.port == 18888:
+        candidates.append(urlunparse(parsed._replace(netloc=f"{host}:8888")))
+    elif host and parsed.port == 8888:
+        candidates.append(urlunparse(parsed._replace(netloc=f"{host}:18888")))
+
+    return list(dict.fromkeys(candidates))
+
+
+def _wait_any_url_contains(urls, expected, timeout=60):
+    deadline = time.time() + timeout
+    last_errors = {}
+    while time.time() < deadline:
+        for url in urls:
+            try:
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    body = response.read().decode()
+                if expected in body:
+                    return url
+                last_errors[url] = f"unexpected body: {body!r}"
+            except Exception as exc:
+                last_errors[url] = repr(exc)
+        time.sleep(1)
+    raise AssertionError(f"none of {urls} returned {expected!r}: {last_errors}")
+
+
+def _remote_python_exec_command(code):
+    encoded = base64.b64encode(code.encode()).decode()
+    return f"python3 -c exec(__import__('base64').b64decode('{encoded}'))"
+
+
+def _remote_python_http_server_command(port):
+    code = f"""
+import http.server
+import pathlib
+import socketserver
+import subprocess
+import sys
+import textwrap
+import time
+
+script = pathlib.Path('/tmp/yrcli_port_forward_server.py')
+ready = pathlib.Path('/tmp/yrcli-port-forward-ready')
+log = pathlib.Path('/tmp/yrcli-port-forward.log')
+ready.unlink(missing_ok=True)
+script.write_text(textwrap.dedent('''
+    import http.server
+    import pathlib
+    import socketserver
+
+    pathlib.Path('/tmp/yrcli-port-forward-ready').write_text('ready')
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'yrcli-port-forward-ok')
+
+        def log_message(self, *args):
+            pass
+
+    with socketserver.TCPServer(('0.0.0.0', {port}), Handler) as httpd:
+        httpd.serve_forever()
+'''))
+with log.open('wb') as log_file:
+    subprocess.Popen(
+        [sys.executable, str(script)],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+for _ in range(40):
+    if ready.exists():
+        print(ready.read_text(), flush=True)
+        sys.exit(0)
+    time.sleep(0.5)
+if log.exists():
+    print(log.read_text(), end='')
+sys.exit(1)
+"""
+    return _remote_python_exec_command(code)
 
 
 def _build_conf():
@@ -223,6 +332,39 @@ def test_get_multiple_refs(init_yr):
     assert yr.get(refs) == [0, 1, 2, 3, 4]
 
 
+@pytest.mark.smoke
+def test_get_allow_partial_timeout(init_yr, require_remote_python_runtime):
+    @yr.invoke
+    def slow_value():
+        time.sleep(3)
+        return "slow"
+
+    fast_ref = yr.put("fast")
+    slow_ref = slow_value.invoke()
+    assert yr.get([fast_ref, slow_ref], timeout=1, allow_partial=True) == ["fast", None]
+    assert yr.get(slow_ref, timeout=120) == "slow"
+
+
+@pytest.mark.smoke
+def test_serialization_common_python_types(init_yr, require_remote_python_runtime):
+    @yr.invoke
+    def echo(value):
+        return value
+
+    values = [
+        True,
+        3.14,
+        "unicode-\u262f",
+        b"\x00\x01bytes",
+        (1, "two", False),
+        {"nested": [1, {"x": "y"}]},
+        {"a", "b", "c"},
+    ]
+    for value in values:
+        assert yr.get(yr.put(value)) == value
+        assert yr.get(echo.invoke(value), timeout=120) == value
+
+
 # ============================================================
 # 2. Stateless Function (yr.invoke)
 # ============================================================
@@ -342,6 +484,21 @@ def test_invoke_runtime_error(init_yr, require_remote_python_runtime):
         yr.get(raise_error.invoke())
 
 
+@pytest.mark.smoke
+def test_invoke_options_env_vars(init_yr, require_remote_python_runtime):
+    key = "YR_OFF_CLUSTER_SMOKE_ENV"
+    value = _unique_name("env")
+    opt = yr.InvokeOptions()
+    opt.env_vars = {key: value}
+
+    @yr.invoke
+    def read_env(name):
+        import os
+        return os.getenv(name)
+
+    assert yr.get(read_env.options(opt).invoke(key), timeout=120) == value
+
+
 # ============================================================
 # 3. Stateful Instance (yr.instance)
 # ============================================================
@@ -459,6 +616,39 @@ def test_kv_set_get(init_yr):
     yr.kv_del(key)
 
 
+@pytest.mark.smoke
+def test_kv_write_with_params(init_yr):
+    key = _unique_name("off-cluster-kv-param")
+    ttl_key = _unique_name("off-cluster-kv-ttl")
+    try:
+        set_param = yr.SetParam()
+        set_param.existence = yr.ExistenceOpt.NX
+        set_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
+        set_param.ttl_second = 0
+        yr.kv_write_with_param(key, b"abcdef", set_param)
+        try:
+            yr.kv_write_with_param(key, b"changed", set_param)
+        except RuntimeError:
+            pass
+        assert yr.kv_read(key) == b"abcdef"
+
+        ttl_param = yr.SetParam()
+        ttl_param.existence = yr.ExistenceOpt.NONE
+        ttl_param.write_mode = yr.WriteMode.NONE_L2_CACHE_EVICT
+        ttl_param.ttl_second = 1
+        yr.kv_write_with_param(ttl_key, b"short-lived", ttl_param)
+        assert yr.kv_read(ttl_key) == b"short-lived"
+        time.sleep(1.5)
+        with pytest.raises(RuntimeError):
+            yr.kv_read(ttl_key, 1)
+    finally:
+        for cleanup_key in (key, ttl_key):
+            try:
+                yr.kv_del(cleanup_key)
+            except RuntimeError:
+                pass
+
+
 # ============================================================
 # 5. wait / cancel
 # ============================================================
@@ -568,14 +758,43 @@ def test_yrcli_sandbox_detached_lifecycle(require_plain_http_for_yrcli):
     create = _run_yrcli(
         "sandbox", "create", "--namespace", namespace, "--name", name, timeout=YRCLI_SANDBOX_CREATE_TIMEOUT
     )
-    marker = "instance_id="
-    assert marker in create.stdout
-    sandbox_id = create.stdout.split(marker, 1)[1].strip().split()[0]
+    sandbox_id = _extract_sandbox_id(create.stdout)
     try:
         listed = _run_yrcli("sandbox", "list", "--namespace", namespace)
         assert sandbox_id in listed.stdout
         queried = _run_yrcli("sandbox", "query", sandbox_id)
         assert sandbox_id in queried.stdout
+    finally:
+        _run_yrcli("sandbox", "delete", sandbox_id)
+
+
+@pytest.mark.smoke
+def test_yrcli_sandbox_port_forwarding(require_plain_http_for_yrcli):
+    namespace = "offcluster"
+    name = _unique_name("yrcli-port")
+    port = int(os.getenv("YRCLI_VERIFY_PORT", "8080"))
+    create = _run_yrcli(
+        "sandbox",
+        "create",
+        "--namespace",
+        namespace,
+        "--name",
+        name,
+        "--port",
+        str(port),
+        timeout=YRCLI_SANDBOX_CREATE_TIMEOUT,
+    )
+    sandbox_id = _extract_sandbox_id(create.stdout)
+    gateway_url = _extract_port_url(create.stdout, port)
+    try:
+        started = _run_yrcli(
+            "exec",
+            sandbox_id,
+            _remote_python_http_server_command(port),
+            timeout=YRCLI_SANDBOX_EXEC_TIMEOUT,
+        )
+        assert "ready" in started.stdout
+        _wait_any_url_contains(_gateway_url_candidates(gateway_url), "yrcli-port-forward-ok", timeout=60)
     finally:
         _run_yrcli("sandbox", "delete", sandbox_id)
 

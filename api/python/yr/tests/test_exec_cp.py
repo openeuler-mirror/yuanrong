@@ -103,11 +103,8 @@ class TestCopyTransport(unittest.TestCase):
                     local_path = tmp.name
                 try:
                     await exec_cli.copy_to_remote(
-                        "127.0.0.1",
-                        str(port),
-                        instance="instance-a",
-                        local_path=local_path,
-                        remote_path="/tmp/remote.bin",
+                        exec_cli.ExecConnection("127.0.0.1", str(port)),
+                        exec_cli.CopyRequest("instance-a", local_path, "/tmp/remote.bin"),
                     )
                 finally:
                     Path(local_path).unlink(missing_ok=True)
@@ -158,11 +155,8 @@ class TestCopyTransport(unittest.TestCase):
                     (source_dir / "root.txt").write_text("root-data")
                     (source_dir / "nested" / "child.txt").write_text("child-data")
                     await exec_cli.copy_to_remote(
-                        "127.0.0.1",
-                        str(port),
-                        instance="instance-dir",
-                        local_path=str(source_dir),
-                        remote_path="/tmp/remote-dir",
+                        exec_cli.ExecConnection("127.0.0.1", str(port)),
+                        exec_cli.CopyRequest("instance-dir", str(source_dir), "/tmp/remote-dir"),
                     )
 
         asyncio.run(_run())
@@ -207,11 +201,8 @@ class TestCopyTransport(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     local_path = str(Path(tmpdir) / "download.bin")
                     await exec_cli.copy_from_remote(
-                        "127.0.0.1",
-                        str(port),
-                        instance="instance-b",
-                        remote_path="/var/remote.bin",
-                        local_path=local_path,
+                        exec_cli.ExecConnection("127.0.0.1", str(port)),
+                        exec_cli.CopyRequest("instance-b", local_path, "/var/remote.bin"),
                     )
                     received["file_bytes"] = Path(local_path).read_bytes()
 
@@ -257,11 +248,8 @@ class TestCopyTransport(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     local_dir = Path(tmpdir) / "local-dir"
                     await exec_cli.copy_from_remote(
-                        "127.0.0.1",
-                        str(port),
-                        instance="instance-dir",
-                        remote_path="/var/remote-dir",
-                        local_path=str(local_dir),
+                        exec_cli.ExecConnection("127.0.0.1", str(port)),
+                        exec_cli.CopyRequest("instance-dir", str(local_dir), "/var/remote-dir"),
                     )
                     received["root"] = (local_dir / "root.txt").read_text()
                     received["child"] = (local_dir / "nested" / "child.txt").read_text()
@@ -283,8 +271,8 @@ class TestCopyCLI(unittest.TestCase):
         runner = CliRunner()
         calls = []
 
-        async def fake_copy_to_remote(host, port, **kwargs):
-            calls.append((host, port, kwargs))
+        async def fake_copy_to_remote(connection, request):
+            calls.append((connection, request))
 
         with runner.isolated_filesystem():
             Path("local.txt").write_bytes(b"upload")
@@ -296,12 +284,12 @@ class TestCopyCLI(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         self.assertEqual(len(calls), 1)
-        host, port, kwargs = calls[0]
-        self.assertEqual(host, "127.0.0.1")
-        self.assertEqual(port, "30123")
-        self.assertEqual(kwargs["instance"], "inst-9")
-        self.assertEqual(kwargs["remote_path"], "/tmp/remote.txt")
-        self.assertTrue(kwargs["local_path"].endswith("local.txt"))
+        connection, request = calls[0]
+        self.assertEqual(connection.host, "127.0.0.1")
+        self.assertEqual(connection.port, "30123")
+        self.assertEqual(request.instance, "inst-9")
+        self.assertEqual(request.remote_path, "/tmp/remote.txt")
+        self.assertTrue(request.local_path.endswith("local.txt"))
 
     def test_cp_command_rejects_invalid_operands(self):
         runner = CliRunner()
@@ -370,10 +358,12 @@ class TestExecQuietMode(unittest.TestCase):
             raise StopAsyncIteration
 
     class _TtyLikeStdin:
-        def isatty(self):
+        @staticmethod
+        def isatty():
             return True
 
-        def fileno(self):
+        @staticmethod
+        def fileno():
             return 0
 
     def test_run_client_non_tty_does_not_use_local_terminal(self):
@@ -385,12 +375,8 @@ class TestExecQuietMode(unittest.TestCase):
                 redirect_stderr(stderr):
             asyncio.run(
                 exec_cli.run_client(
-                    "127.0.0.1",
-                    "30123",
-                    instance="inst-1",
-                    command="pwd",
-                    allocate_tty=False,
-                    quiet=False,
+                    exec_cli.ExecConnection("127.0.0.1", "30123", quiet=False),
+                    exec_cli.ExecInvocation(instance="inst-1", command="pwd", allocate_tty=False),
                 )
             )
 
@@ -410,12 +396,8 @@ class TestExecQuietMode(unittest.TestCase):
                 redirect_stderr(stderr):
             asyncio.run(
                 exec_cli.run_client(
-                    "127.0.0.1",
-                    "30123",
-                    instance="inst-1",
-                    command="pwd",
-                    allocate_tty=False,
-                    quiet=False,
+                    exec_cli.ExecConnection("127.0.0.1", "30123", quiet=False),
+                    exec_cli.ExecInvocation(instance="inst-1", command="pwd", allocate_tty=False),
                 )
             )
 
@@ -431,12 +413,8 @@ class TestExecQuietMode(unittest.TestCase):
                 redirect_stderr(stderr):
             asyncio.run(
                 exec_cli.run_client(
-                    "127.0.0.1",
-                    "30123",
-                    instance="inst-1",
-                    command="pwd",
-                    allocate_tty=False,
-                    quiet=True,
+                    exec_cli.ExecConnection("127.0.0.1", "30123", quiet=True),
+                    exec_cli.ExecInvocation(instance="inst-1", command="pwd", allocate_tty=False),
                 )
             )
 

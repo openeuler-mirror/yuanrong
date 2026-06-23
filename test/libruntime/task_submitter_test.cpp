@@ -562,6 +562,9 @@ TEST_F(TaskSubmitterTest, ScheduleFunction_Benchmark)
     // benchmark
     auto start = std::chrono::high_resolution_clock::now();
     size_t total = 50000;
+    if (std::getenv("CI") != nullptr) {
+        total = 5000;
+    }
     if (const char *env = std::getenv("YR_BENCHMARK_SCALE")) {
         total = std::stoi(env);
     }

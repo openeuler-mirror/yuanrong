@@ -309,7 +309,7 @@ TEST_F(ActorTest, InvokeFailedWhenRuntimeSEGV)
         YR::Get(ret2, 5);
     } catch (YR::Exception &e) {
         std::cout << e.Msg() << std::endl;
-        ASSERT_FALSE(e.Msg().find("SEGV") == std::string::npos);
+        SignalErrorMsgCheck("SEGV", "exit code:139", e.Msg());
         raise = true;
     }
     ASSERT_TRUE(raise);
@@ -534,8 +534,9 @@ TEST_F(ActorTest, ExceptionIllegalInstruction)
         printf("error: %s\n", e.what());
         std::string errorCode = "ErrCode: 2002";
         std::string errorMsg = "SIGILL";
+        std::string exitCodeMsg = "exit code:132";
         std::string excepMsg = e.what();
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
+        SignalErrorMsgCheck(errorCode, errorMsg, exitCodeMsg, excepMsg);
     }
 }
 

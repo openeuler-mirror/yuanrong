@@ -75,6 +75,16 @@ class Span:
         self._attributes = attributes or {}
         self._context_manager_depth = 0
 
+    def __enter__(self):
+        self._context_manager_depth += 1
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._context_manager_depth -= 1
+        if exc_type is not None:
+            self.record_exception(exc_val)
+        return False
+
     def set_attribute(self, key: str, value: Union[str, int, float, bool]) -> None:
         """
         Set an attribute on the span.
@@ -147,16 +157,6 @@ class Span:
         """
         self._attributes["exception.type"] = type(exception).__name__
         self._attributes["exception.message"] = str(exception)
-
-    def __enter__(self):
-        self._context_manager_depth += 1
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._context_manager_depth -= 1
-        if exc_type is not None:
-            self.record_exception(exc_val)
-        return False
 
 
 class Tracer:

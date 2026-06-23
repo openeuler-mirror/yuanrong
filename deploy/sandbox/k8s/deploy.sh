@@ -323,6 +323,87 @@ reset_etcd_state() {
   exit 1
 }
 
+target_traefik_service_type() {
+  python3 - "${VALUES_FILE}" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+section = []
+with open(path, encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        key = line.strip().split(":", 1)[0].strip()
+        value = line.strip().split(":", 1)[1].strip() if ":" in line else ""
+        while section and section[-1][0] >= indent:
+            section.pop()
+        section.append((indent, key))
+        if [item[1] for item in section] == ["traefik", "service", "type"]:
+            print(re.sub(r'^["\']|["\']$', "", value) or "ClusterIP")
+            raise SystemExit(0)
+print("LoadBalancer")
+PY
+}
+
+delete_legacy_traefik_load_balancer_service() {
+  local target_type services service current_type
+  target_type="$(target_traefik_service_type)"
+  if [ "${target_type}" = "LoadBalancer" ]; then
+    return 0
+  fi
+
+  services="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get svc \
+    --namespace "${NAMESPACE}" \
+    -l app.kubernetes.io/instance="${RELEASE_NAME}",app.kubernetes.io/component=traefik \
+    -o name 2>/dev/null || true)"
+  while IFS= read -r service; do
+    [ -n "${service}" ] || continue
+    current_type="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get "${service}" \
+      --namespace "${NAMESPACE}" \
+      -o "jsonpath={.spec.type}")"
+    if [ "${current_type}" != "LoadBalancer" ]; then
+      continue
+    fi
+    printf 'Deleting legacy Traefik LoadBalancer service %s before recreating it as %s.\n' \
+      "${service}" "${target_type}" >&2
+    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" delete "${service}" \
+      --namespace "${NAMESPACE}" \
+      --wait=true
+  done <<<"${services}"
+}
+
+seed_traefik_etcd_state() {
+  local pod pods count
+  pods="$(etcd_pods)"
+  count="$(printf '%s\n' "${pods}" | sed '/^$/d' | wc -l)"
+  if [ "${count}" -eq 0 ]; then
+    printf 'Skipping Traefik etcd seed because no managed etcd pod exists yet.\n' >&2
+    return 0
+  fi
+  if [ "${count}" -ne 1 ]; then
+    printf 'Expected exactly one managed etcd pod for release %s in namespace %s, found %s.\n' \
+      "${RELEASE_NAME}" "${NAMESPACE}" "${count}" >&2
+    exit 1
+  fi
+
+  pod="${pods}"
+  local candidate
+  for candidate in /usr/local/bin/etcdctl /usr/bin/etcdctl etcdctl; do
+    if "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" exec \
+      --namespace "${NAMESPACE}" "${pod}" -- \
+      "${candidate}" --endpoints=http://127.0.0.1:2379 put traefik/_keepalive 1 >/dev/null; then
+      printf 'Seeded Traefik etcd root key in pod/%s.\n' "${pod}" >&2
+      return 0
+    fi
+  done
+
+  printf 'Missing usable etcdctl in managed etcd pod %s.\n' "${pod}" >&2
+  exit 1
+}
+
 patch_workloads_with_pull_secret() {
   if ! has_registry_credentials; then
     printf 'Skipping workload imagePullSecrets patch because no registry credentials were provided.\n' >&2
@@ -590,10 +671,12 @@ main() {
   create_or_update_pull_secret
   delete_runtime_workloads_before_reset
   reset_etcd_state
+  delete_legacy_traefik_load_balancer_service
   helm_deploy_without_frontend
   remove_legacy_cli_patch_overrides
   refresh_master_statefulset_pods_after_template_update
   wait_for_rollout
+  seed_traefik_etcd_state
   helm_deploy_with_frontend
   wait_for_frontend_rollout
   prepull_runtime_image

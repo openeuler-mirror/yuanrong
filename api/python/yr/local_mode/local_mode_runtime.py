@@ -680,6 +680,21 @@ class LocalModeRuntime(Runtime, ABC):
         """
         raise RuntimeError("not support in local mode")
 
+    def create_group(self, group_name: str, group_opts: GroupOptions):
+        raise RuntimeError("not support in local mode")
+
+    def terminate_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def wait_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def suspend_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
+    def resume_group(self, group_name: str):
+        raise RuntimeError("not support in local mode")
+
     def _check_objs(self, objs):
         exist_exception = False
         ready_objs = []
@@ -700,18 +715,3 @@ class LocalModeRuntime(Runtime, ABC):
             else:
                 unready_map[future] = [object_id]
         return ready_objs, unready_map, exist_exception
-
-    def create_group(self, group_name: str, group_opts: GroupOptions):
-        raise RuntimeError("not support in local mode")
-
-    def terminate_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
-
-    def wait_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
-
-    def suspend_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")
-
-    def resume_group(self, group_name: str):
-        raise RuntimeError("not support in local mode")

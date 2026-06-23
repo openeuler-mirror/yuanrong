@@ -27,27 +27,6 @@ _TEST_HOST = "192.0.2.1"
 class TestGetInternalUrls(unittest.TestCase):
     """Tests for SandboxInstance.get_internal_urls() method."""
 
-    def _make_instance(self):
-        """Create a SandboxInstance without triggering @yr.instance decoration."""
-        from yr.sandbox.sandbox import SandboxInstance
-        inst = object.__new__(SandboxInstance)
-        inst._initialized = True
-        inst.working_dir = os.path.join(tempfile.gettempdir(), "test")
-        inst.env = {}
-        return inst
-
-    def _assert_tcp_url(self, url, expected_host_port):
-        """Assert URL has correct host:port and uses a non-HTTPS scheme (tcp protocol)."""
-        parsed = urllib.parse.urlparse(url)
-        self.assertEqual(parsed.netloc, expected_host_port)
-        self.assertNotEqual(parsed.scheme, _HTTPS)
-
-    def _assert_https_url(self, url, expected_host_port):
-        """Assert URL has correct host:port and uses HTTPS scheme."""
-        parsed = urllib.parse.urlparse(url)
-        self.assertEqual(parsed.netloc, expected_host_port)
-        self.assertEqual(parsed.scheme, _HTTPS)
-
     def test_single_tcp_port(self):
         """Single TCP port mapping returns correct dict."""
         inst = self._make_instance()
@@ -137,6 +116,27 @@ class TestGetInternalUrls(unittest.TestCase):
         self.assertEqual(set(result.keys()), {8080, 443})
         self._assert_tcp_url(result[8080], f"{_TEST_HOST}:40001")
         self._assert_https_url(result[443], f"{_TEST_HOST}:40002")
+
+    def _make_instance(self):
+        """Create a SandboxInstance without triggering @yr.instance decoration."""
+        from yr.sandbox.sandbox import SandboxInstance
+        inst = object.__new__(SandboxInstance)
+        setattr(inst, "_initialized", True)
+        inst.working_dir = os.path.join(tempfile.gettempdir(), "test")
+        inst.env = {}
+        return inst
+
+    def _assert_tcp_url(self, url, expected_host_port):
+        """Assert URL has correct host:port and uses a non-HTTPS scheme (tcp protocol)."""
+        parsed = urllib.parse.urlparse(url)
+        self.assertEqual(parsed.netloc, expected_host_port)
+        self.assertNotEqual(parsed.scheme, _HTTPS)
+
+    def _assert_https_url(self, url, expected_host_port):
+        """Assert URL has correct host:port and uses HTTPS scheme."""
+        parsed = urllib.parse.urlparse(url)
+        self.assertEqual(parsed.netloc, expected_host_port)
+        self.assertEqual(parsed.scheme, _HTTPS)
 
 
 if __name__ == '__main__':

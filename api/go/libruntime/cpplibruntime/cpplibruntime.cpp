@@ -467,14 +467,8 @@ void FuncExecSubmitHook(std::function<void(void)> &&f)
     GoFunctionExecutionPoolSubmit(funcPtr);
 }
 
-// C interface functions - these need C linkage for Go interop
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-CErrorInfo CInit(CLibruntimeConfig *config)
+void FillLibruntimeConfig(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
 {
-    LibruntimeConfig librtCfg{};
     YR::ParseIpAddr(config->functionSystemAddress, librtCfg.functionSystemIpAddr, librtCfg.functionSystemPort);
     YR::ParseIpAddr(config->grpcAddress, librtCfg.functionSystemRtServerIpAddr, librtCfg.functionSystemRtServerPort);
     YR::ParseIpAddr(config->dataSystemAddress, librtCfg.dataSystemIpAddr, librtCfg.dataSystemPort);
@@ -487,7 +481,6 @@ CErrorInfo CInit(CLibruntimeConfig *config)
     librtCfg.selfApiType = static_cast<libruntime::ApiType>(config->apiType);
     librtCfg.inCluster = config->inCluster != 0;
     librtCfg.isDriver = config->isDriver != 0;
-
     librtCfg.enableMTLS = config->enableMTLS != 0;
     librtCfg.privateKeyPath = config->privateKeyPath;
     librtCfg.certificateFilePath = config->certificateFilePath;
@@ -505,11 +498,10 @@ CErrorInfo CInit(CLibruntimeConfig *config)
         auto len = strnlen(config->privateKeyPaaswd, YR::Libruntime::MAX_PASSWD_LENGTH - 1) + 1;
         (void)memcpy_s(librtCfg.privateKeyPaaswd, YR::Libruntime::MAX_PASSWD_LENGTH, config->privateKeyPaaswd, len);
     }
-    auto decryptErr = librtCfg.Decrypt();
-    if (!decryptErr.OK()) {
-        return ErrorInfoToCError(decryptErr);
-    }
+}
 
+void FillLibruntimeCallbacks(CLibruntimeConfig *config, LibruntimeConfig &librtCfg)
+{
     librtCfg.functionIds[libruntime::LanguageType::Golang] = config->functionId;
     librtCfg.selfLanguage = libruntime::LanguageType::Golang;
     librtCfg.libruntimeOptions.loadFunctionCallback = LoadFunctionsWrapper;
@@ -518,11 +510,24 @@ CErrorInfo CInit(CLibruntimeConfig *config)
     librtCfg.libruntimeOptions.recoverCallback = RecoverWrapper;
     librtCfg.libruntimeOptions.shutdownCallback = ShutdownWrapper;
     librtCfg.libruntimeOptions.signalCallback = SignalWrapper;
-    if (GoHasHealthCheck() != 0) {
-        librtCfg.libruntimeOptions.healthCheckCallback = HealthCheckWrapper;
-    } else {
-        librtCfg.libruntimeOptions.healthCheckCallback = nullptr;
+    librtCfg.libruntimeOptions.healthCheckCallback = GoHasHealthCheck() != 0 ? HealthCheckWrapper : nullptr;
+}
+
+// C interface functions - these need C linkage for Go interop
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+CErrorInfo CInit(CLibruntimeConfig *config)
+{
+    LibruntimeConfig librtCfg{};
+    FillLibruntimeConfig(config, librtCfg);
+    auto decryptErr = librtCfg.Decrypt();
+    if (!decryptErr.OK()) {
+        return ErrorInfoToCError(decryptErr);
     }
+
+    FillLibruntimeCallbacks(config, librtCfg);
     librtCfg.jobId = config->jobId;
     librtCfg.funcExecSubmitHook = FuncExecSubmitHook;
     librtCfg.maxConcurrencyCreateNum = config->maxConcurrencyCreateNum;

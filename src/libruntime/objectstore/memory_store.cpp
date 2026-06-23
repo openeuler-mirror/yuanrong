@@ -536,6 +536,30 @@ ErrorInfo MemoryStore::AlsoPutToDS(const std::vector<std::string> &ids, const Cr
 ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
 {
     std::unique_lock<std::mutex> lock(mu);
+    ErrorInfo err = CheckObjectsExist(objectIds);
+    if (err.Code() != ErrorCode::ERR_OK) {
+        return err;
+    }
+
+    std::vector<std::string> objectIdsNeedIncre;
+    std::vector<std::shared_ptr<ObjectDetail>> increaseObjectDetails;
+    std::vector<std::shared_ptr<ObjectDetail>> waitObjectDetails;
+    MarkObjectsForIncrease(objectIds, objectIdsNeedIncre, increaseObjectDetails, waitObjectDetails);
+    lock.unlock();
+
+    err = IncreaseObjectsInDs(objectIdsNeedIncre, increaseObjectDetails);
+    if (err.Code() != ErrorCode::ERR_OK) {
+        return err;
+    }
+    for (auto objectDetail : waitObjectDetails) {
+        objectDetail->notification.WaitForNotificationWithTimeout(
+            absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
+    }
+    return ErrorInfo();
+}
+
+ErrorInfo MemoryStore::CheckObjectsExist(const std::vector<std::string> &objectIds)
+{
     for (auto &objectId : objectIds) {
         if (storeMap.find(objectId) == storeMap.end()) {
             YRLOG_DEBUG("id {} not exist in storeMap.", objectId);
@@ -543,9 +567,14 @@ ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
                              "id " + objectId + " not exist in storeMap");
         }
     }
-    std::vector<std::string> objectIdsNeedIncre;
-    std::vector<std::shared_ptr<ObjectDetail>> increseObjectDetails;
-    std::vector<std::shared_ptr<ObjectDetail>> waitObjectDetails;
+    return ErrorInfo();
+}
+
+void MemoryStore::MarkObjectsForIncrease(const std::vector<std::string> &objectIds,
+                                         std::vector<std::string> &objectIdsNeedIncre,
+                                         std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails,
+                                         std::vector<std::shared_ptr<ObjectDetail>> &waitObjectDetails)
+{
     for (auto &objectId : objectIds) {
         auto it = storeMap.find(objectId);
         std::shared_ptr<ObjectDetail> objDetail = it->second;
@@ -555,42 +584,44 @@ ErrorInfo MemoryStore::IncreaseObjRef(const std::vector<std::string> &objectIds)
         }
         if (objDetail->increInDataSystemEnum == IncreInDataSystemEnum::NOT_INCREASE_IN_DS) {
             objectIdsNeedIncre.push_back(objectId);
-            increseObjectDetails.push_back(objDetail);
+            increaseObjectDetails.push_back(objDetail);
             objDetail->increInDataSystemEnum = IncreInDataSystemEnum::INCREASING_IN_DS;
         }
         it->second->localRefCount++;
         objectDetailLock.unlock();
     }
-    lock.unlock();
-    if (!objectIdsNeedIncre.empty()) {
-        auto objectStore = dsObjectStore;
-        ErrorInfo dsErr;
-        if (!objectStore) {
-            dsErr = ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
-                              "IncreaseObjRef dsObjectStore is nullptr!");
-        } else {
-            dsErr = objectStore->IncreGlobalReference(objectIdsNeedIncre);
-        }
-        for (auto objectDetail : increseObjectDetails) {
-            std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
-            if (dsErr.Code() != ErrorCode::ERR_OK) {
-                objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
-            }
-            objectDetail->notification.Notify();
-            objectDetailLock.unlock();
-        }
+}
+
+ErrorInfo MemoryStore::IncreaseObjectsInDs(const std::vector<std::string> &objectIdsNeedIncre,
+                                           const std::vector<std::shared_ptr<ObjectDetail>> &increaseObjectDetails)
+{
+    if (objectIdsNeedIncre.empty()) {
+        return ErrorInfo();
+    }
+
+    auto objectStore = dsObjectStore;
+    ErrorInfo dsErr;
+    if (!objectStore) {
+        dsErr = ErrorInfo(ErrorCode::ERR_INNER_SYSTEM_ERROR, ModuleCode::RUNTIME,
+                          "IncreaseObjRef dsObjectStore is nullptr!");
+    } else {
+        dsErr = objectStore->IncreGlobalReference(objectIdsNeedIncre);
+    }
+    for (auto objectDetail : increaseObjectDetails) {
+        std::unique_lock<std::mutex> objectDetailLock(objectDetail->_mu);
         if (dsErr.Code() != ErrorCode::ERR_OK) {
-            YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
-                        objectIdsNeedIncre[0], fmt::underlying(dsErr.Code()), fmt::underlying(dsErr.MCode()),
-                        dsErr.Msg());
-            return dsErr;
+            objectDetail->increInDataSystemEnum = IncreInDataSystemEnum::NOT_INCREASE_IN_DS;
         }
+        objectDetail->notification.Notify();
+        objectDetailLock.unlock();
     }
-    for (auto objectDetail : waitObjectDetails) {
-        objectDetail->notification.WaitForNotificationWithTimeout(
-            absl::Seconds(Config::Instance().DS_CONNECT_TIMEOUT_SEC()));
+    if (dsErr.Code() == ErrorCode::ERR_OK) {
+        return ErrorInfo();
     }
-    return ErrorInfo();
+
+    YRLOG_ERROR("id [{}, ...] datasystem IncreGlobalReference failed. Code: {}, MCode: {}, Msg: {}",
+                objectIdsNeedIncre[0], fmt::underlying(dsErr.Code()), fmt::underlying(dsErr.MCode()), dsErr.Msg());
+    return dsErr;
 }
 
 void MemoryStore::BindObjRefInReq(const std::string &requestId, const std::vector<std::string> &objectIds)

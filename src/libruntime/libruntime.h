@@ -1189,6 +1189,9 @@ private:
     void FinalizeHandler();
     std::string ConstructTraceId(const YR::Libruntime::InvokeOptions &opts);
     void SetResourceGroupAffinity(std::shared_ptr<InvokeSpec> spec, const std::string &key, const std::string &value);
+    void UpdateDsAddressFromEnv();
+    void ReInitDsClients(const std::string &oldDsIpAddr, int oldDsPort);
+    void ReInitStreamComponents();
 
     std::pair<ErrorInfo, std::vector<std::shared_ptr<Buffer>>> MakeGetResult(MultipleResult &res,
                                                                              const std::vector<std::string> &ids,

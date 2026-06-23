@@ -197,7 +197,7 @@ class CodeManager:
         if code is not None and hasattr(code, "get_original_cls"):
             code = code.get_original_cls()
         elif code is not None and hasattr(code, "_InstanceCreator__user_class__"):
-            code = code._InstanceCreator__user_class__
+            code = getattr(code, "_InstanceCreator__user_class__")
         elif code is not None and hasattr(code, "__user_class__"):
             code = code.__user_class__
 

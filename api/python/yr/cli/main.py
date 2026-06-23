@@ -170,15 +170,13 @@ Common patterns:\n
     help="Keep yr start in the foreground after components become healthy.",
 )
 @click.pass_context
-def start(
-    ctx: click.Context,
-    overrides: tuple[str, ...],
-    master_mode: Optional[bool],
-    function_proxy_merge_process_enable: bool,
-    enable_runtime_launcher: bool,
-    block: bool,
-) -> None:
+def start(ctx: click.Context, **kwargs) -> None:
     """Start the YuanRong system in master or agent mode."""
+    overrides = kwargs["overrides"]
+    master_mode = kwargs["master_mode"]
+    function_proxy_merge_process_enable = kwargs["function_proxy_merge_process_enable"]
+    enable_runtime_launcher = kwargs["enable_runtime_launcher"]
+    block = kwargs["block"]
     config_path: Path = ctx.obj["config_path"]
     cli_dir: Path = ctx.obj["cli_dir"]
     mode = StartMode.MASTER if master_mode else StartMode.AGENT
@@ -435,14 +433,12 @@ def _get_checkpoint_client(
     help="List checkpoints by tenant instead of by function key",
 )
 @click.pass_context
-def checkpoint_list(
-    ctx: click.Context,
-    tenant_id: str,
-    function_type: Optional[str],
-    namespace: Optional[str],
-    by_tenant: bool,
-    session_file: Optional[str],
-) -> None:
+def checkpoint_list(ctx: click.Context, **kwargs) -> None:
+    tenant_id = kwargs["tenant_id"]
+    function_type = kwargs["function_type"]
+    namespace = kwargs["namespace"]
+    by_tenant = kwargs["by_tenant"]
+    session_file = kwargs["session_file"]
     client, err = _get_checkpoint_client(session_file)
     if err:
         print_logger.error(err)

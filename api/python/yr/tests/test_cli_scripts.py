@@ -42,8 +42,17 @@ class TestCliScripts(unittest.TestCase):
         fake_yr = types.ModuleType("yr")
         fake_yr_cli = types.ModuleType("yr.cli")
         fake_yr_cli_exec = types.ModuleType("yr.cli.exec")
+        fake_yr_cli_exec.CopyRequest = (
+            lambda instance, local_path, remote_path:
+            types.SimpleNamespace(instance=instance, local_path=local_path, remote_path=remote_path)
+        )
+        fake_yr_cli_exec.ExecConnection = types.SimpleNamespace
+        fake_yr_cli_exec.ExecInvocation = types.SimpleNamespace
+        fake_yr_cli_exec.choose_cp_mode = lambda *args, **kwargs: False
         fake_yr_cli_exec.copy_from_remote = lambda *args, **kwargs: None
+        fake_yr_cli_exec.copy_from_remote_streaming = lambda *args, **kwargs: None
         fake_yr_cli_exec.copy_to_remote = lambda *args, **kwargs: None
+        fake_yr_cli_exec.copy_to_remote_streaming = lambda *args, **kwargs: None
         fake_yr_cli_exec.run_client = lambda *args, **kwargs: None
 
         with mock.patch.dict(
@@ -860,13 +869,16 @@ class TestCliScripts(unittest.TestCase):
         with mock.patch.object(scripts, "run_client", fake_run_client):
             scripts.exec(False, False, True, "instance-id", "bash")
 
-        self.assertEqual(captured["args"][:2], ("124.70.166.142", "443"))
-        self.assertTrue(captured["kwargs"]["use_ssl"])
-        self.assertFalse(captured["kwargs"]["verify_server"])
-        self.assertIsNone(captured["kwargs"]["cert_file"])
-        self.assertIsNone(captured["kwargs"]["key_file"])
-        self.assertEqual(captured["kwargs"]["token"], "token")
-        self.assertTrue(captured["kwargs"]["quiet"])
+        connection, invocation = captured["args"]
+        self.assertEqual((connection.host, connection.port), ("124.70.166.142", "443"))
+        self.assertEqual(invocation.instance, "instance-id")
+        self.assertEqual(invocation.command, "bash")
+        self.assertTrue(connection.use_ssl)
+        self.assertFalse(connection.verify_server)
+        self.assertIsNone(connection.cert_file)
+        self.assertIsNone(connection.key_file)
+        self.assertEqual(connection.token, "token")
+        self.assertTrue(connection.quiet)
 
     def test_exec_keeps_tty_mode_verbose(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -878,12 +890,12 @@ class TestCliScripts(unittest.TestCase):
         captured = {}
 
         async def fake_run_client(*args, **kwargs):
-            captured["kwargs"] = kwargs
+            captured["connection"] = args[0]
 
         with mock.patch.object(scripts, "run_client", fake_run_client):
             scripts.exec(False, True, True, "instance-id", "bash")
 
-        self.assertFalse(captured["kwargs"]["quiet"])
+        self.assertFalse(captured["connection"].quiet)
 
     def test_exec_without_tty_suppresses_keyboard_interrupt_message(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()

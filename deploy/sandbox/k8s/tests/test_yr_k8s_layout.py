@@ -394,6 +394,10 @@ class YrK8sLayoutTests(unittest.TestCase):
                 "values.function_proxy.grpc_listen_port",
                 "values.ds_worker.port",
                 "function_proxy.args.services_path",
+                "function_proxy.args.enable_traefik_registry=true",
+                "function_proxy.args.traefik_etcd_prefix",
+                "function_proxy.args.traefik_http_entrypoint",
+                "function_proxy.args.traefik_enable_tls=false",
             ],
         }
         for relative_path, tokens in expectations.items():
@@ -428,6 +432,16 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('"name") == "yr-cli-patch"', deploy_script)
         self.assertIn("--type json", deploy_script)
         self.assertIn("remove_legacy_cli_patch_overrides", deploy_script.split("helm_deploy", 1)[1])
+
+    def test_deploy_migrates_legacy_traefik_load_balancer_service(self):
+        deploy_script = (ROOT / "deploy.sh").read_text()
+
+        self.assertIn("delete_legacy_traefik_load_balancer_service", deploy_script)
+        self.assertIn("app.kubernetes.io/component=traefik", deploy_script)
+        self.assertIn("jsonpath={.spec.type}", deploy_script)
+        self.assertIn("LoadBalancer", deploy_script)
+        self.assertIn("Deleting legacy Traefik LoadBalancer service", deploy_script)
+        self.assertIn("delete_legacy_traefik_load_balancer_service", deploy_script.split("reset_etcd_state", 1)[1])
 
     def test_current_yr_start_model_supports_frontend_driver_startup(self):
         registry_text = (ROOT.parents[2] / "api/python/yr/cli/component/registry.py").read_text()
@@ -635,6 +649,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         traefik_dynamic_cfg = find_manifest(manifests, "ConfigMap", "yr-traefik-dynamic")
         traefik_text = traefik_cfg["data"]["traefik.yaml"]
         traefik_dynamic_text = traefik_dynamic_cfg["data"]["config.yml"]
+        traefik_annotations = traefik_dep["spec"]["template"]["metadata"]["annotations"]
+        self.assertEqual(values["traefik"]["etcd"]["rootKey"], "traefik")
         self.assertIn(etcd_addr, traefik_text)
         self.assertIn(values["traefik"]["etcd"]["rootKey"], traefik_text)
         self.assertIn("/etc/traefik/dynamic", traefik_text)
@@ -642,6 +658,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("/api/sandbox", traefik_dynamic_text)
         self.assertIn("/serverless/v1/componentshealth", traefik_dynamic_text)
         self.assertIn("/invocations", traefik_dynamic_text)
+        self.assertRegex(traefik_annotations["checksum/traefik-config"], r"^[0-9a-f]{64}$")
+        self.assertRegex(traefik_annotations["checksum/traefik-dynamic"], r"^[0-9a-f]{64}$")
         self.assertEqual(find_container(traefik_dep, "traefik")["image"], expected_image(values, "traefik"))
         self.assertEqual(traefik_svc["spec"]["ports"][0]["port"], values["traefik"]["service"]["port"])
 
@@ -736,21 +754,26 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("frontend_deployment()", deploy_script_k8s)
         self.assertIn("helm_deploy_without_frontend", deploy_script_k8s)
         self.assertIn("helm_deploy_with_frontend", deploy_script_k8s)
+        self.assertIn("delete_legacy_traefik_load_balancer_service", deploy_script_k8s)
         self.assertIn('global.imagePullSecrets[0].name=${PULL_SECRET_NAME}', deploy_script_k8s)
         self.assertNotIn("restart_frontend_after_master_ready", deploy_script_k8s)
         self.assertIn("refresh_master_statefulset_pods_after_template_update", deploy_script_k8s)
         self.assertIn("delete_runtime_workloads_before_reset", deploy_script_k8s)
         self.assertIn("reset_etcd_state", deploy_script_k8s)
+        self.assertIn("seed_traefik_etcd_state", deploy_script_k8s)
         self.assertIn('RESET_ETCD_STATE="${YR_K8S_RESET_ETCD_STATE:-true}"', deploy_script_k8s)
         self.assertIn("Stopping existing runtime workloads before resetting sandbox etcd state", deploy_script_k8s)
         self.assertIn("Resetting sandbox etcd state", deploy_script_k8s)
+        self.assertIn("Seeded Traefik etcd root key", deploy_script_k8s)
         self.assertIn("Deleting stale master pod", deploy_script_k8s)
         self.assertRegex(
             deploy_script_k8s,
-            r"delete_runtime_workloads_before_reset\s+reset_etcd_state\s+helm_deploy_without_frontend\s+"
+            r"delete_runtime_workloads_before_reset\s+reset_etcd_state\s+"
+            r"delete_legacy_traefik_load_balancer_service\s+helm_deploy_without_frontend\s+"
             r"remove_legacy_cli_patch_overrides\s+"
             r"refresh_master_statefulset_pods_after_template_update\s+"
             r"wait_for_rollout\s+"
+            r"seed_traefik_etcd_state\s+"
             r"helm_deploy_with_frontend\s+wait_for_frontend_rollout\s+"
             r"prepull_runtime_image",
         )
@@ -861,6 +884,13 @@ class YrK8sLayoutTests(unittest.TestCase):
             'SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS="${SANDBOX_RUNTIME_IMAGE_PYTHON_VERSIONS:-${SDK_PYTHON_VERSIONS}}"',
             pipeline,
         )
+        self.assertIn("cleanup_node_docker_cache", smoke_script)
+        self.assertIn("YR_K8S_CLEAN_NODE_DOCKER_CACHE", smoke_script)
+        self.assertIn("docker image prune -af", smoke_script)
+        self.assertIn("cleanup_k8s_node_image_cache", smoke_script)
+        self.assertIn("YR_K8S_CLEAN_K8S_NODE_IMAGE_CACHE", smoke_script)
+        self.assertIn("crictl --runtime-endpoint unix:///run/containerd/containerd.sock", smoke_script)
+        self.assertIn("trap cleanup EXIT", smoke_script)
         self.assertIn('ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK_OVERRIDE:-${ENABLE_MACOS_SDK:-true}}"', pipeline)
         self.assertIn('ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"', pipeline)
         self.assertIn('ENABLE_RUNTIME_ARM="${ENABLE_RUNTIME_ARM:-true}"', pipeline)

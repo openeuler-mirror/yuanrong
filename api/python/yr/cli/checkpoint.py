@@ -31,20 +31,6 @@ class CheckpointClient:
         self._host = host
         self._port = port
 
-    def _post(self, path: str, body: dict) -> dict:
-        url = f"https://{self._host}:{self._port}{path}"
-        try:
-            with httpx.Client(timeout=30) as client:
-                resp = client.post(url, json=body)
-                resp.raise_for_status()
-                return resp.json()
-        except httpx.HTTPStatusError as e:
-            return {"code": 1, "message": str(e)}
-        except httpx.HTTPError as e:
-            return {"code": 1, "message": str(e)}
-        except Exception as e:
-            return {"code": 1, "message": str(e)}
-
     def list_by_function_key(
         self,
         tenant_id: str,
@@ -68,6 +54,20 @@ class CheckpointClient:
     def delete(self, checkpoint_id: str) -> dict:
         body = {"requestID": "", "checkpointID": checkpoint_id}
         return self._post("/checkpoint/delete", body)
+
+    def _post(self, path: str, body: dict) -> dict:
+        url = f"https://{self._host}:{self._port}{path}"
+        try:
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(url, json=body)
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.HTTPStatusError as e:
+            return {"code": 1, "message": str(e)}
+        except httpx.HTTPError as e:
+            return {"code": 1, "message": str(e)}
+        except Exception as e:
+            return {"code": 1, "message": str(e)}
 
 
 def get_frontend_address_from_session(session_file: Path) -> Optional[tuple[str, int]]:

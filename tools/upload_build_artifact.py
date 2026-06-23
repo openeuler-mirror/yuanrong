@@ -19,8 +19,10 @@ import os
 import sys
 import tempfile
 import traceback
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote, unquote, urlparse
 from urllib.request import urlretrieve
 
@@ -28,6 +30,16 @@ from urllib.request import urlretrieve
 DEFAULT_BUCKET = "openyuanrong"
 DEFAULT_SERVER = "obs.cn-southwest-2.myhuaweicloud.com"
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class UploadArgs:
+    kind: str
+    channel: Optional[str]
+    version: Optional[str]
+    target: Optional[str]
+    file_path: Optional[str] = None
+    source_url: Optional[str] = None
 
 
 def current_timestamp():
@@ -141,20 +153,20 @@ def derive_thirdparty_target(source_url):
     return normalize_target(parsed.netloc)
 
 
-def validate_args(kind, channel, version, target, file_path=None, source_url=None):
-    if kind == "build":
-        if not file_path:
+def validate_args(args: UploadArgs):
+    if args.kind == "build":
+        if not args.file_path:
             raise ValueError("--file is required when --kind build is used")
-        if channel == "release" and not version:
+        if args.channel == "release" and not args.version:
             raise ValueError("--version is required when --channel release is used")
         return
-    if target is None and source_url is None:
+    if args.target is None and args.source_url is None:
         raise ValueError("--target or --source-url is required when --kind thirdparty is used")
-    if file_path is None and source_url is None:
+    if args.file_path is None and args.source_url is None:
         raise ValueError("--file or --source-url is required when --kind thirdparty is used")
-    if channel not in (None, ""):
+    if args.channel not in (None, ""):
         raise ValueError("--kind thirdparty does not support --channel")
-    if version:
+    if args.version:
         raise ValueError("--kind thirdparty does not support --version")
 
 
@@ -173,24 +185,10 @@ def build_object_path(
     filename = derive_filename(file_path=file_path, source_url=source_url)
     if kind == "thirdparty":
         normalized_target = normalize_target(target) or derive_thirdparty_target(source_url)
-        validate_args(
-            kind=kind,
-            channel=None,
-            version=version,
-            target=normalized_target,
-            file_path=file_path,
-            source_url=source_url,
-        )
+        validate_args(UploadArgs(kind, None, version, normalized_target, file_path, source_url))
         return f"thirdparty/{normalized_target}/{filename}"
 
-    validate_args(
-        kind=kind,
-        channel=channel,
-        version=version,
-        target=target,
-        file_path=file_path,
-        source_url=source_url,
-    )
+    validate_args(UploadArgs(kind, channel, version, target, file_path, source_url))
     if channel == "release":
         return f"release/{version}/{platform}/{arch}/{filename}"
     resolved_timestamp = timestamp or current_timestamp()
@@ -293,14 +291,14 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = parse_args(argv)
     args.target = normalize_target(args.target)
-    validate_args(
-        kind=args.kind,
-        channel=args.channel if args.kind == "build" else None,
-        version=args.version,
-        target=args.target,
-        file_path=args.file,
-        source_url=args.source_url,
-    )
+    validate_args(UploadArgs(
+        args.kind,
+        args.channel if args.kind == "build" else None,
+        args.version,
+        args.target,
+        args.file,
+        args.source_url,
+    ))
     if args.file and not os.path.isfile(args.file):
         raise ValueError(f"--file does not exist: {args.file}")
     object_path = build_object_path(

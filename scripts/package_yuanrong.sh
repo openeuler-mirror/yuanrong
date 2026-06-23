@@ -31,6 +31,8 @@ FRONTEND_STAGE_DIR="${BASE_DIR}/../frontend/output/pattern"
 FAAS_STAGE_DIR="${BASE_DIR}/../go/output/pattern"
 DASHBOARD_STAGE_DIR="${BASE_DIR}/../go/output"
 RUNTIME_LAUNCHER_BIN="${BASE_DIR}/../functionsystem/runtime-launcher/bin/runtime/runtime-launcher"
+DATASYSTEM_SOURCE_DIR="${BASE_DIR}/../datasystem"
+LEGACY_DATASYSTEM_SOURCE_DIR="${BASE_DIR}/../../yuanrong-datasystem"
 
 function resolve_first_match() {
     local pattern=$1
@@ -165,6 +167,37 @@ function copy_datasystem_stage_or_extract_tar() {
     echo "[TIMER] ${label} tar extract: $(($(date +%s)-baseTime_s)) seconds"
 }
 
+function copy_datasystem_k8s_assets() {
+    local source_dir=""
+    local chart_dir
+    local docker_dir
+    local chart_dest="${OUTPUT_DIR}/openyuanrong/deploy/k8s/charts"
+    local docker_dest="${OUTPUT_DIR}/openyuanrong/deploy/k8s/build/datasystem"
+
+    if [ -d "${DATASYSTEM_SOURCE_DIR}/k8s/helm_chart/datasystem" ]; then
+        source_dir="${DATASYSTEM_SOURCE_DIR}"
+    elif [ -d "${LEGACY_DATASYSTEM_SOURCE_DIR}/k8s/helm_chart/datasystem" ]; then
+        source_dir="${LEGACY_DATASYSTEM_SOURCE_DIR}"
+    else
+        echo "Skip datasystem k8s assets: no datasystem helm chart found"
+        return
+    fi
+
+    chart_dir="${source_dir}/k8s/helm_chart/datasystem"
+    docker_dir="${source_dir}/k8s/docker"
+    mkdir -p "${chart_dest}"
+    cp -fr "${chart_dir}" "${chart_dest}/"
+    echo "Copied datasystem helm chart from ${chart_dir}"
+
+    if [ -d "${docker_dir}" ]; then
+        mkdir -p "${docker_dest}"
+        cp -fr "${docker_dir}/." "${docker_dest}/"
+        echo "Copied datasystem k8s docker files from ${docker_dir}"
+    else
+        echo "Skip datasystem k8s docker files: ${docker_dir} not found"
+    fi
+}
+
 function parse_args () {
     getopt_cmd=$(getopt -o v:h -l version:,python_bin_path:,help -- "$@")
     [ $? -ne 0 ] && exit 1
@@ -266,14 +299,14 @@ copy_datasystem_sdk_python_stage_or_unzip_wheel \
     "Expand datasystem sdk python payload into runtime python service"
 echo "[TIMER] Populate runtime python service datasystem sdk payload: $(($(date +%s)-baseTime_s)) seconds"
 
+mkdir -p "${OUTPUT_DIR}/openyuanrong/runtime/service/python"
+cp -f "${BASE_DIR}/../api/python/requirements.txt" \
+    "${OUTPUT_DIR}/openyuanrong/runtime/service/python/requirements.txt"
+
 cp -fr ${BASE_DIR}/../deploy ${OUTPUT_DIR}/openyuanrong
 rm -rf ${OUTPUT_DIR}/openyuanrong/deploy/data_system
 
-if [ -d "${BASE_DIR}/../../yuanrong-datasystem" ];then
-  mkdir -p ${OUTPUT_DIR}/openyuanrong/deploy/k8s/build/datasystem
-  cp -fr ${BASE_DIR}/../../yuanrong-datasystem/k8s/helm_chart/datasystem ${OUTPUT_DIR}/openyuanrong/deploy/k8s/charts/
-  cp -fr ${BASE_DIR}/../../yuanrong-datasystem/k8s/docker/* ${OUTPUT_DIR}/openyuanrong/deploy/k8s/build/datasystem/
-fi
+copy_datasystem_k8s_assets
 
 frontend_filename=$(ls *frontend*.tar.gz)
 if [ -n "${frontend_filename}" ]; then

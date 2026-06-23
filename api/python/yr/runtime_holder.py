@@ -40,7 +40,7 @@ class RuntimeHolder:
         """get runtime"""
         runtime = self.yr_runtime
         if runtime is None:
-            raise RuntimeError("yr runtime not initialized, please call yr.init() first")
+            raise RuntimeError("runtime not enable, please call yr.init() first")
         return runtime
 
 

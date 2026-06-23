@@ -29,6 +29,7 @@ from yr.decorator import function_proxy, instance_proxy
 from yr.base_runtime import AlarmInfo
 from yr.object_ref import ObjectRef
 from yr.config import InvokeOptions
+from yr.runtime_holder import RuntimeHolder
 
 
 @yr.invoke(return_nums=0)
@@ -57,6 +58,13 @@ class TestApi(unittest.TestCase):
         conf.in_cluster = False
         with self.assertRaises(ValueError):
             yr.init(conf)
+
+    def test_get_runtime_without_init_mentions_legacy_runtime_not_enable(self):
+        with pytest.raises(RuntimeError) as err:
+            RuntimeHolder().get_runtime()
+
+        assert str(err.value) == "runtime not enable, please call yr.init() first"
+        assert "runtime not enable" in str(err.value)
 
     @patch("yr.runtime_holder.global_runtime.get_runtime")
     @patch("yr.apis.is_initialized")

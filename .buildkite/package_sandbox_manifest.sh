@@ -28,6 +28,10 @@ RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}-${DEFAULT_RUNTIME_SD
 CHART_VERSION="${YR_K8S_CHART_VERSION:-0.1.0+buildkite.${BUILD_NUMBER}.${SHORT_SHA}}"
 APP_VERSION="${YR_K8S_APP_VERSION:-${SHORT_SHA}}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
+COMPONENT_IMAGE_REGISTRY_REPO="${SANDBOX_COMPONENT_IMAGE_REGISTRY_REPO:-${CI_PIPELINE_REGISTRY_REPO:-swr.cn-southwest-2.myhuaweicloud.com/yuanrong-dev}}"
+COMPONENT_IMAGE_TAG="${SANDBOX_COMPONENT_IMAGE_TAG:-daily.${CI_PIPELINE_IMAGE_TIMESTAMP:-${BUILDKITE_BUILD_NUMBER:-local}}}"
+COMPONENT_IMAGE_ARCHES="${SANDBOX_COMPONENT_IMAGE_ARCHES:-}"
+COMPONENT_IMAGE_NAMES="${SANDBOX_COMPONENT_IMAGE_NAMES:-datasystem functionsystem function-agent function-agent-init runtime-manager}"
 LINUX_AMD64_SDK_STEPS="${SANDBOX_AMD64_SDK_STEPS:-build-sdk-amd64-cp39 build-sdk-amd64-cp310 build-sdk-amd64-cp311 build-sdk-amd64-cp312 build-sdk-amd64-cp313}"
 LINUX_ARM64_SDK_STEPS="${SANDBOX_ARM64_SDK_STEPS:-build-sdk-arm64-cp39 build-sdk-arm64-cp310 build-sdk-arm64-cp311 build-sdk-arm64-cp312 build-sdk-arm64-cp313}"
 MACOS_ARM64_SDK_STEPS="${SANDBOX_MACOS_ARM64_SDK_STEPS:-build-sdk-macos-arm64-cp39 build-sdk-macos-arm64-cp310 build-sdk-macos-arm64-cp311 build-sdk-macos-arm64-cp312 build-sdk-macos-arm64-cp313}"
@@ -93,6 +97,54 @@ create_manifest() {
     "${DOCKER_BIN}" manifest push --purge "${target}"
 }
 
+component_images_enabled() {
+    [ -n "${COMPONENT_IMAGE_ARCHES}" ]
+}
+
+component_manifest_source_args() {
+    local image_name="$1"
+    local arch
+    for arch in ${COMPONENT_IMAGE_ARCHES}; do
+        printf '%s/%s:%s-%s\n' "${COMPONENT_IMAGE_REGISTRY_REPO}" "${image_name}" "${COMPONENT_IMAGE_TAG}" "${arch}"
+    done
+}
+
+create_component_manifest() {
+    local image_name="$1"
+    local target="${COMPONENT_IMAGE_REGISTRY_REPO}/${image_name}:${COMPONENT_IMAGE_TAG}"
+    local arch
+    local source
+    local sources=()
+
+    mapfile -t sources < <(component_manifest_source_args "${image_name}")
+    printf 'Creating component image manifest %s from:\n' "${target}" >&2
+    printf '  %s\n' "${sources[@]}" >&2
+
+    "${DOCKER_BIN}" manifest rm "${target}" >/dev/null 2>&1 || true
+    "${DOCKER_BIN}" manifest create "${target}" "${sources[@]}"
+    for arch in ${COMPONENT_IMAGE_ARCHES}; do
+        source="${COMPONENT_IMAGE_REGISTRY_REPO}/${image_name}:${COMPONENT_IMAGE_TAG}-${arch}"
+        "${DOCKER_BIN}" manifest annotate "${target}" "${source}" --os linux --arch "${arch}"
+    done
+    "${DOCKER_BIN}" manifest push --purge "${target}"
+}
+
+package_component_helm_if_enabled() {
+    if ! component_images_enabled; then
+        return 0
+    fi
+
+    printf 'Packaging OpenYuanRong component Helm chart with tag %s.\n' "${COMPONENT_IMAGE_TAG}" >&2
+    CI_PIPELINE_BUILD_STEP_KEY="${SANDBOX_COMPONENT_HELM_BUILD_STEP_KEY:-build-all-amd64}" \
+    CI_PIPELINE_IMAGE_TIMESTAMP="${CI_PIPELINE_IMAGE_TIMESTAMP:-${BUILDKITE_BUILD_NUMBER:-local}}" \
+    SANDBOX_COMPONENT_IMAGE_REGISTRY_REPO="${COMPONENT_IMAGE_REGISTRY_REPO}" \
+    SANDBOX_COMPONENT_IMAGE_TAG="${COMPONENT_IMAGE_TAG}" \
+    COMPONENT_HELM_PACKAGE_DIR="${HELM_DIR}" \
+    COMPONENT_HELM_MANIFEST_DIR="${MANIFEST_DIR}" \
+    COMPONENT_HELM_METADATA_DIR="${METADATA_DIR}" \
+        bash .buildkite/package_ci_component_helm.sh
+}
+
 runtime_sdk_suffixes() {
     local step_key
     local sdk_suffix
@@ -137,7 +189,8 @@ EOF
 }
 
 write_metadata() {
-    cat >"${METADATA_DIR}/sandbox-release.json" <<EOF
+    {
+    cat <<EOF
 {
   "commit": "${COMMIT_SHA}",
   "branch": "${BRANCH_NAME}",
@@ -155,9 +208,30 @@ write_metadata() {
   ],
   "static_images": [
     "${TRAEFIK_IMAGE_REGISTRY}/traefik:${TRAEFIK_IMAGE_TAG}"
+  ],
+  "component_image_registry": "${COMPONENT_IMAGE_REGISTRY_REPO}",
+  "component_image_tag": "${COMPONENT_IMAGE_TAG}",
+  "component_image_arches": "$(printf '%s' "${COMPONENT_IMAGE_ARCHES}")",
+  "component_images": [
+EOF
+    local first=1
+    local image_name
+    for image_name in ${COMPONENT_IMAGE_NAMES}; do
+        if component_images_enabled; then
+            if [ "${first}" -eq 1 ]; then
+                first=0
+            else
+                printf ',\n'
+            fi
+            printf '    "%s/%s:%s"' "${COMPONENT_IMAGE_REGISTRY_REPO}" "${image_name}" "${COMPONENT_IMAGE_TAG}"
+        fi
+    done
+    printf '\n'
+    cat <<EOF
   ]
 }
 EOF
+    } >"${METADATA_DIR}/sandbox-release.json"
 }
 
 collect_artifact_archive() {
@@ -168,7 +242,8 @@ collect_artifact_archive() {
         "${ARCHIVE_DIR}/linux-arm64" \
         "${ARCHIVE_DIR}/linux-arm64-sdk" \
         "${ARCHIVE_DIR}/macos-arm64-sdk" \
-        "${ARCHIVE_DIR}/runtime-images"
+        "${ARCHIVE_DIR}/runtime-images" \
+        "${ARCHIVE_DIR}/component-images"
 
     if ! command -v buildkite-agent >/dev/null 2>&1; then
         return 0
@@ -205,6 +280,13 @@ collect_artifact_archive() {
                 ;;
         esac
     done
+    if component_images_enabled; then
+        local image_name
+        for image_name in ${COMPONENT_IMAGE_NAMES}; do
+            printf '%s/%s:%s\n' "${COMPONENT_IMAGE_REGISTRY_REPO}" "${image_name}" "${COMPONENT_IMAGE_TAG}" \
+                >"${ARCHIVE_DIR}/component-images/${image_name}.txt"
+        done
+    fi
 }
 
 upload_manifest_artifacts_to_obs_if_configured() {
@@ -292,6 +374,15 @@ if runtime_tags:
     items = [f"<li><code>{html.escape(tag)}</code></li>" for tag in sorted(set(runtime_tags))]
     rows.append(f"<section><h2>Runtime image tags</h2><ul>{''.join(items)}</ul></section>")
 
+component_tags = []
+for tag_file in sorted((archive_dir / "component-images").glob("*.txt")):
+    for line in tag_file.read_text(errors="replace").splitlines():
+        if line.strip():
+            component_tags.append(line.strip())
+if component_tags:
+    items = [f"<li><code>{html.escape(tag)}</code></li>" for tag in sorted(set(component_tags))]
+    rows.append(f"<section><h2>Component image tags</h2><ul>{''.join(items)}</ul></section>")
+
 index_path.write_text(
     "<!doctype html>\n"
     "<html lang=\"en\">\n"
@@ -340,6 +431,14 @@ main() {
         [ -n "${sdk_suffix}" ] || continue
         create_manifest "yr-runtime" "${IMAGE_TAG}-${sdk_suffix}" "-${sdk_suffix}"
     done < <(runtime_sdk_suffixes)
+
+    if component_images_enabled; then
+        local component_image_name
+        for component_image_name in ${COMPONENT_IMAGE_NAMES}; do
+            create_component_manifest "${component_image_name}"
+        done
+        package_component_helm_if_enabled
+    fi
 
     write_values_override
     write_metadata

@@ -230,6 +230,21 @@ docker_login_if_configured() {
     printf '%s' "${SWR_PASSWORD}" | docker login "${REGISTRY_SERVER}" -u "${SWR_USERNAME}" --password-stdin
 }
 
+build_component_images_if_enabled() {
+    if ! is_enabled "${ENABLE_COMPONENT_IMAGE_BUILD:-0}"; then
+        return 0
+    fi
+    if is_enabled "${RUNTIME_ONLY}"; then
+        return 0
+    fi
+
+    printf 'Building component images from the same openyuanrong tar for %s.\n' "${IMAGE_ARCH:-default}" >&2
+    CI_PIPELINE_BUILD_STEP_KEY="${BUILD_STEP_KEY}" \
+    CI_PIPELINE_IMAGE_TIMESTAMP="${CI_PIPELINE_IMAGE_TIMESTAMP:-${BUILDKITE_BUILD_NUMBER:-local}}" \
+    DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-${YR_K8S_DOCKER_BUILDKIT:-}}" \
+        bash .buildkite/build_ci_component_images.sh
+}
+
 write_values_override() {
     cat >"${METADATA_DIR}/yr-k8s-image-values.yaml" <<EOF
 global:
@@ -323,6 +338,7 @@ main() {
     export YR_K8S_REGISTRY_REPO="${REGISTRY_REPO}"
     bash deploy/sandbox/k8s/build-images.sh
     bash deploy/sandbox/k8s/push-images-swr.sh
+    build_component_images_if_enabled
 
     if is_enabled "${RUNTIME_ONLY}"; then
         write_runtime_metadata

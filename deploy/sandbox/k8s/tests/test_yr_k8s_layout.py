@@ -14,6 +14,8 @@
 
 import pathlib
 import re
+import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -23,7 +25,7 @@ import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HELM_BIN = pathlib.Path("/home/wyc/.local/bin/helm")
+HELM_BIN = pathlib.Path(os.environ.get("HELM_BIN") or shutil.which("helm") or "/home/wyc/.local/bin/helm")
 RELEASE = "yr-k8s"
 NAMESPACE = "yr-k8s"
 
@@ -945,6 +947,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('export SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSION}"', pipeline)
         self.assertIn('SANDBOX_MANIFEST_SDK_DEPENDS', pipeline)
         self.assertIn('SANDBOX_MANIFEST_RUNTIME_DEPENDS', pipeline)
+        self.assertIn('ENABLE_COMPONENT_IMAGE_BUILD: "${ENABLE_COMPONENT_IMAGE_BUILD}"', pipeline)
+        self.assertIn('SANDBOX_COMPONENT_IMAGE_ARCHES: "${SANDBOX_COMPONENT_IMAGE_ARCHES}"', pipeline)
+        self.assertNotIn('Build Component Images ${image_arch}', pipeline)
         self.assertIn('SANDBOX_TEST_PYPI_DEPENDS', pipeline)
         self.assertIn('SANDBOX_SDK_STEPS', pipeline)
         self.assertIn('emit_sandbox_runtime_image()', pipeline)
@@ -1009,18 +1014,32 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("write_artifact_archive_html", manifest_script)
         self.assertIn('YR_K8S_IMAGE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp39-*.whl', package_script)
         self.assertIn('RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"', package_script)
+        self.assertIn('build_component_images_if_enabled', package_script)
+        self.assertIn('bash .buildkite/build_ci_component_images.sh', package_script)
         self.assertIn('write_runtime_metadata', package_script)
         self.assertIn('if ! is_enabled "${RUNTIME_ONLY}"; then', package_script)
         self.assertIn('RUNTIME_ONLY="${YR_K8S_RUNTIME_ONLY:-0}"', (ROOT / "build-images.sh").read_text())
         self.assertIn('cp312)', (ROOT / "build-images.sh").read_text())
         self.assertIn('local_images=(yr-runtime)', (ROOT / "push-images-swr.sh").read_text())
         self.assertIn('RUNTIME_IMAGE_STEPS="${SANDBOX_RUNTIME_IMAGE_STEPS:-}"', manifest_script)
+        self.assertIn('COMPONENT_IMAGE_ARCHES="${SANDBOX_COMPONENT_IMAGE_ARCHES:-}"', manifest_script)
+        self.assertIn(
+            'COMPONENT_IMAGE_NAMES="${SANDBOX_COMPONENT_IMAGE_NAMES:-'
+            'datasystem functionsystem function-agent function-agent-init runtime-manager}"',
+            manifest_script,
+        )
         self.assertIn('DEFAULT_RUNTIME_SDK_SUFFIX="${YR_K8S_DEFAULT_RUNTIME_SDK_SUFFIX:-cp310}"', manifest_script)
         self.assertIn(
             'RUNTIME_IMAGE_TAG="${YR_K8S_RUNTIME_IMAGE_TAG:-${IMAGE_TAG}-${DEFAULT_RUNTIME_SDK_SUFFIX}}"',
             manifest_script,
         )
         self.assertIn('create_manifest "yr-runtime" "${IMAGE_TAG}-${sdk_suffix}" "-${sdk_suffix}"', manifest_script)
+        self.assertIn('create_component_manifest "${component_image_name}"', manifest_script)
+        self.assertIn('package_component_helm_if_enabled', manifest_script)
+        self.assertIn('bash .buildkite/package_ci_component_helm.sh', manifest_script)
+        self.assertIn('openyuanrong-image-values.yaml', (ROOT.parents[2] / ".buildkite" / "package_ci_component_helm.sh").read_text())
+        self.assertIn('"component_images": [', manifest_script)
+        self.assertIn("Component image tags", manifest_script)
         self.assertIn("Runtime image tags", manifest_script)
         self.assertIn(
             "https://api.buildkite.com/v2/packages/organizations/openyuanrong/registries/openyuanrong/packages",

@@ -23,6 +23,7 @@ from yr.exception import YRInvokeError
 from yr.local_mode.local_mode_runtime import LocalModeRuntime
 from yr.local_mode import local_client, instance_manager
 from yr.local_mode.instance import Resource, Instance
+from yr.local_mode.scheduler import ConcurrencyScorer
 from yr.local_mode.task_spec import TaskSpec
 from yr.local_mode.worker import _load_function_code
 from yr.local_mode.local_object_store import LocalObjectStore
@@ -307,6 +308,15 @@ class TestApi(TestCase):
         ins_mgr.kill_instance(instance_id)
         get_ins = ins_mgr.get_instances(res)
         self.assertEqual(len(get_ins), 0, len(get_ins))
+
+    def test_resource_defaults_none_concurrency(self):
+        res = Resource(concurrency=None)
+        self.assertEqual(res.concurrency, 1)
+
+        future = concurrent.futures.Future()
+        future.set_result(None)
+        ins = Instance("instance1234", res, future)
+        self.assertEqual(ConcurrencyScorer.score(None, ins), 1)
 
 
 if __name__ == "__main__":

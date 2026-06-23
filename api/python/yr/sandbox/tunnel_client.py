@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 _WS_CHANNEL_QUEUE_MAX = 100
 _PENDING_RESPONSE_TTL = 120.0  # seconds
+_CONNECT_FAILURE_WARNING_THRESHOLD = 5
 
 
 def _ssl_verify_enabled() -> bool:
@@ -98,6 +99,8 @@ class TunnelClient:
         self._connected_event = threading.Event()  # Signal when connected
         self._pending_responses: dict = {}  # fid -> (resp_frame, timestamp)
         self._sent_request_ids: set = set()  # request IDs already sent to upstream
+        self._connect_failure_count = 0
+        self._last_connect_error: Optional[Exception] = None
 
     def start(self, tunnel_url: str, timeout: float = 10.0) -> bool:
         """Start the client in a background daemon thread.
@@ -189,9 +192,18 @@ class TunnelClient:
                             self._current_ws = None
             except Exception as e:
                 self._connected_event.clear()  # Clear on disconnect
+                self._connect_failure_count += 1
+                self._last_connect_error = e
                 if self._stop_event.is_set():
                     break
-                logger.warning("Tunnel disconnected (%s), reconnecting...", e)
+                if self._connect_failure_count == _CONNECT_FAILURE_WARNING_THRESHOLD:
+                    logger.warning(
+                        "Tunnel connection failed %d consecutive times: %s; reconnecting in background",
+                        self._connect_failure_count,
+                        e,
+                    )
+                else:
+                    logger.debug("Tunnel disconnected (%s), reconnecting...", e)
 
             # Increment attempt after disconnect (before backoff calculation)
             attempt += 1
@@ -239,6 +251,8 @@ class TunnelClient:
 
     async def _recv_loop(self, ws, http: httpx.AsyncClient) -> None:
         """Orchestrate recv and heartbeat tasks. First to exit triggers cancel of the other."""
+        self._connect_failure_count = 0
+        self._last_connect_error = None
         self._pong_event = asyncio.Event()
         recv_task = asyncio.create_task(self._recv_frames(ws, http))
         hb_task = asyncio.create_task(self._heartbeat_loop(ws))

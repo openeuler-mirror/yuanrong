@@ -78,7 +78,7 @@ CStreamProducer, CSubscriptionConfig,
 CSubscriptionType,
 CExistenceOpt, CSetParam, CMSetParam, CCreateParam, CStackTraceInfo, CWriteMode, CCacheType, CConsistencyType,
 CGetParam, CGetParams,
-CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapstartInfo, CSnapstartResponse, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
+CMultipleReadResult, CDevice, CMultipleDelResult, CUInt64CounterData, CDoubleCounterData, NativeBuffer, StringNativeBuffer, SharedBuffer as CSharedBuffer, CInstanceOptions, CSnapOptions, CSnapStartOptions, CSnapstartInfo, CSnapstartResponse, CSnapType, CGaugeData, CTensor, CDataType, CResourceUnit, CAlarmInfo, CAlarmSeverity, CFunctionGroupOptions, CBundleAffinity, CFunctionGroupRunningInfo, CFiberEvent,
 CClusterAccessInfo, AutoGetClusterAccessInfo, CResourceGroupSpec, CResourceGroupOptions, CAccelerateMsgQueueHandle, QueryNamedInsResponse, CResourceGroupUnit, CRgInfo, CBundleInfo, CResources, CResource, CType, CScalar)
 
 include "includes/affinity.pxi"
@@ -588,13 +588,7 @@ def load_code_from_bytes(code: bytes):
     """get code from bytes"""
     cdef const char* c_data = code
     cdef shared_ptr[CBuffer] data_buf
-    cdef shared_ptr[CLibruntime] c_libruntime = CLibruntimeManager.Instance().GetLibRuntime()
-    if c_libruntime == nullptr:
-        raise RuntimeError("already finalized")
-    data_buf = dynamic_pointer_cast[CBuffer, StringNativeBuffer](make_shared[StringNativeBuffer](len(code)))
-    c_error_info = memory_copy(data_buf, code, len(code))
-    if not c_error_info.OK():
-        return None
+    data_buf = dynamic_pointer_cast[CBuffer, CSharedBuffer](make_shared[CSharedBuffer](<void *>c_data, len(code)))
     return yr.serialization.Serialization().deserialize(Buffer.make(data_buf))
 
 def write_to_cbuffer(serialized_object: SerializedObject):

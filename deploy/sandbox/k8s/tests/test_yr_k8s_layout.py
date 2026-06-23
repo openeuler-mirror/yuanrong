@@ -283,7 +283,12 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("ARG BASE_IMAGE=yr-base", runtime_dockerfile)
         self.assertIn("FROM ${BASE_IMAGE}", runtime_dockerfile)
         self.assertIn("COPY openyuanrong_sdk*.whl", runtime_dockerfile)
-        self.assertIn("pip install --no-cache-dir /tmp/openyuanrong_sdk*.whl", runtime_dockerfile)
+        self.assertIn("pip install --no-cache-dir", runtime_dockerfile)
+        self.assertIn("https://mirrors.aliyun.com/pypi/simple", runtime_dockerfile)
+        self.assertIn("--trusted-host mirrors.aliyun.com", runtime_dockerfile)
+        self.assertIn("--retries 5", runtime_dockerfile)
+        self.assertIn("--timeout 100", runtime_dockerfile)
+        self.assertIn("/tmp/openyuanrong_sdk*.whl", runtime_dockerfile)
         self.assertNotIn("openyuanrong-*.whl", runtime_dockerfile)
         self.assertNotIn("CONTROLPLANE_IMAGE", runtime_dockerfile)
         runtime_builds = re.findall(
@@ -486,7 +491,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertTrue(values["etcd"]["enabled"])
         self.assertFalse(values["etcd"]["persistence"]["enabled"])
         self.assertEqual(sorted(values["global"]["images"].keys()), ["controlplane", "node", "runtime", "traefik"])
-        self.assertEqual(sorted(values["global"]["runtimeImages"].keys()), ["cp310", "cp311", "cp312", "cp39"])
+        self.assertEqual(sorted(values["global"]["runtimeImages"].keys()), ["cp310", "cp311", "cp312", "cp313", "cp39"])
         self.assertIn("yr-k8s.runtimeImage", values["global"]["services"]["servicesYaml"])
         self.assertIn("imageurl", values["global"]["services"]["servicesYaml"])
         self.assertEqual(
@@ -791,11 +796,15 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn('SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-', deploy_script)
         self.assertIn("SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST", deploy_script)
         self.assertIn('--pattern "${SMOKE_SDK_WHEEL_PATTERN}"', deploy_script)
+        self.assertIn('smoke_wheels+=("${sdk_wheel}")', deploy_script)
+        self.assertNotIn("YR_K8S_SMOKE_SDK_SUFFIXES", deploy_script)
+        self.assertNotIn("set_smoke_target", deploy_script)
         self.assertNotIn('artifact download "artifacts/release/*"', deploy_script)
         self.assertIn("runtime_image_tag", deploy_script)
         self.assertIn("YR_K8S_RUNTIME_IMAGE_TAG_CP39", deploy_script)
         self.assertIn("YR_K8S_SMOKE_PIP_INDEX_URL", deploy_script)
         self.assertIn("YR_OFF_CLUSTER_USE_UV_VENV=false", deploy_script)
+        self.assertNotIn("YR_K8S_SMOKE_SDK_SUFFIX=", deploy_script)
         self.assertIn("--no-uv-venv -p", deploy_script)
         self.assertIn("-m smoke", deploy_script)
         self.assertIn("wait_for_smoke_ready", deploy_script)
@@ -869,15 +878,15 @@ class YrK8sLayoutTests(unittest.TestCase):
         ).read_text()
         macos_tools = (ROOT.parents[2] / "scripts/ensure-macos-build-tools.sh").read_text()
 
-        self.assertIn('python_requires=">=3.9,<3.13"', setup_py)
-        self.assertIn("Programming Language :: Python :: 3.12", setup_py)
+        self.assertIn('python_requires=">=3.9,<3.14"', setup_py)
+        self.assertIn("Programming Language :: Python :: 3.13", setup_py)
         self.assertIn("OPENYUANRONG_ALL", setup_py)
         self.assertIn('"openyuanrong full package (all-in-one)"', setup_py)
         self.assertIn('f"{base_name}_functionsystem==" + setup_spec.version', setup_py)
         self.assertIn('f"{base_name}_datasystem==" + setup_spec.version', setup_py)
         self.assertIn("optimize_wheel_files", setup_py)
         self.assertIn(
-            'SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12}"',
+            'SDK_PYTHON_VERSIONS="${SDK_PYTHON_VERSIONS:-python3.9 python3.10 python3.11 python3.12 python3.13}"',
             pipeline,
         )
         self.assertIn(
@@ -904,7 +913,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("TAG_BUILD_VERSION#v", pipeline)
         self.assertIn("TAG_BUILD_VERSION:-0.7.0+", pipeline)
         self.assertIn("build_openyuanrong_sdk_wheels.sh output", pipeline)
-        sdk_suffixes = ("cp39", "cp310", "cp311", "cp312")
+        sdk_suffixes = ("cp39", "cp310", "cp311", "cp312", "cp313")
         sdk_platforms = ("amd64", "arm64", "macos-arm64")
         sdk_keys = [
             f"build-sdk-{platform}-{suffix}"

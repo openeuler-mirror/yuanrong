@@ -169,6 +169,9 @@ class Config:
     #: Whether to enable metric collection. ``False`` indicates disabled, and ``True`` indicates enabled.
     #: The default value is ``True``. This takes effect only when called in the cluster.
     enable_metrics: bool = True
+    #: Global override for ``InvokeOptions.bypass_datasystem``.
+    #: ``None`` keeps each invocation's option; ``True`` or ``False`` overrides it.
+    bypass_datasystem: Optional[bool] = None
     #: Used to set custom environment variables for the runtime. Currently, only `LD_LIBRARY_PATH` is supported.
     custom_envs: Dict[str, str] = field(default_factory=dict)
     #: Function master address list.
@@ -247,6 +250,14 @@ class ResourceGroupOptions:
     #: it indicates that the bundle is scheduled to the corresponding index of the ResourceGroup;
     #: if it is any other value, an error will be generated.
     bundle_index: int = -1
+
+
+@dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
+class DebugConfig:
+    """
+    debug instance configurations.
+    """
+    enable: bool = False
 
 
 @dataclass(init=True, repr=False, eq=False, order=False, unsafe_hash=False)
@@ -557,6 +568,7 @@ class InvokeOptions:
     alias_params: Dict[str, str] = field(default_factory=dict)
 
     runtime_env: Dict = field(default_factory=dict)
+    debug: DebugConfig = field(default_factory=DebugConfig)
     """
     Configure the stateful/stateless function runtime environment with `conda`, `pip`, `working_dir`, and `env_vars`.
     
@@ -626,6 +638,7 @@ class InvokeOptions:
     #: Whether to bypass datasystem for the return path. When True, all return values
     #: are kept in native memory and no IncreaseRef/DecreaseRef is performed.
     #: Return values exceeding 5MB will be truncated.
+    #: Default: ``False``.
     bypass_datasystem: bool = False
 
     #: Whether to skip serializing the instance class code.

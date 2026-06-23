@@ -126,76 +126,6 @@ function pip_flags_for_python() {
     fi
 }
 
-function find_cloudpickle_site() {
-    local python_bin
-    for python_bin in "${PYTHON3_SDK_BIN_PATH}" "${PYTHON3_BIN_PATH}"; do
-        if [ -z "${python_bin}" ]; then
-            continue
-        fi
-        "${python_bin}" - <<'PY' 2>/dev/null && return 0
-import cloudpickle
-import os
-
-print(os.path.dirname(os.path.dirname(cloudpickle.__file__)))
-PY
-    done
-    return 1
-}
-
-function get_runtime_python_bin() {
-    if [ "$MULTI_PYTHON_VERSION" == "true" ]; then
-        if command -v python3.11 >/dev/null 2>&1; then
-            command -v python3.11
-            return 0
-        fi
-        if [ -x /opt/buildtools/python3.11/bin/python3 ]; then
-            echo /opt/buildtools/python3.11/bin/python3
-            return 0
-        fi
-        log_fatal "python3.11 is required to package python runtime service"
-    fi
-
-    command -v "${PYTHON3_BIN_PATH}"
-}
-
-function install_runtime_python_dependencies_for() {
-    local runtime_python_bin=$1
-    local service_python_dir=$2
-    local pip_flag
-    local tmp_dir
-
-    pip_flag="$(pip_flags_for_python "${runtime_python_bin}")"
-    tmp_dir=$(mktemp -d)
-    "${runtime_python_bin}" -m pip install ${pip_flag:+$pip_flag} -q --upgrade --no-deps \
-        --target "${tmp_dir}" \
-        cloudpickle==3.1.2 protobuf==4.25.5 msgpack==1.0.5 numpy==2.0.2
-    cp -a "${tmp_dir}"/. "${service_python_dir}"/
-    rm -rf "${tmp_dir}"
-}
-
-function package_python_runtime_dependencies() {
-    local primary_python_bin=$1
-    local service_python_dir=$2
-    local runtime_python_bin
-
-    primary_python_bin="$(command -v "${primary_python_bin}")"
-    runtime_python_bin="$(get_runtime_python_bin)"
-
-    rm -rf "${service_python_dir}/cloudpickle" \
-           "${service_python_dir}"/cloudpickle-*.dist-info \
-           "${service_python_dir}/google" \
-           "${service_python_dir}"/protobuf-*.dist-info \
-           "${service_python_dir}"/msgpack* \
-           "${service_python_dir}"/numpy \
-           "${service_python_dir}"/numpy.libs \
-           "${service_python_dir}"/numpy-*.dist-info \
-           "${service_python_dir}"/__pycache__
-    install_runtime_python_dependencies_for "${primary_python_bin}" "${service_python_dir}"
-    if [ "${primary_python_bin}" != "${runtime_python_bin}" ]; then
-        install_runtime_python_dependencies_for "${runtime_python_bin}" "${service_python_dir}"
-    fi
-}
-
 function package_python_runtime_abi_extensions() {
     local service_python_dir=$1
     local wheel
@@ -372,7 +302,6 @@ PY
         chmod 550 "$OUTPUT_BASE/runtime/service/python/yr/fnruntime${py_ext_suffix}"
     fi
     package_python_runtime_abi_extensions "$OUTPUT_BASE/runtime/service/python"
-    package_python_runtime_dependencies "${PYTHON3_BIN_PATH}" "$OUTPUT_BASE/runtime/service/python"
     package_java_runtime_launchers
 }
 

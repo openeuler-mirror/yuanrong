@@ -60,12 +60,29 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
 {
     // A new stream_ must be generated for the reconnection. Otherwise, an error is reported:
     // protocol is shutdown(SSL routines, ssl write internal)
-    stream_ = std::make_shared<beast::ssl_stream<beast::tcp_stream>>(asio::make_strand(*ioc_), *ctx_);
-    // Set SNI Hostname (hosts need this to handshake successfully)
     YRLOG_INFO("Https init, serverAddr = {}:{}", param.ip, param.port);
     connParam_ = param;
     idleTime_ = connParam_.idleTime;
     std::string msg;
+
+    beast::flat_buffer connectPrefix;
+    PrefixedTcpStream tcpStream(asio::make_strand(*ioc_));
+    try {
+        ConnectWithOptionalProxy(tcpStream.stream(), resolver_, param, true, &connectPrefix);
+        YRLOG_DEBUG("CONNECT tunnel prefix bytes: {}", connectPrefix.size());
+        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
+                    param.timeoutSec);
+    } catch (const std::exception &e) {
+        std::stringstream ss;
+        ss << "failed to connect to cluster, target: " << param.ip << ":" << param.port;
+        ss << ", exception: " << e.what();
+        YRLOG_DEBUG(ss.str());
+        return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, ss.str());
+    }
+
+    tcpStream.setPrefix(std::move(connectPrefix));
+    stream_ = std::make_shared<beast::ssl_stream<PrefixedTcpStream>>(std::move(tcpStream), *ctx_);
+    // Set SNI Hostname (hosts need this to handshake successfully)
     const auto &tlsServerName = serverName_.empty() ? param.ip : serverName_;
     if (!tlsServerName.empty()) {
         if (!SSL_set_tlsext_host_name(stream_->native_handle(), tlsServerName.c_str())) {
@@ -73,26 +90,6 @@ ErrorInfo AsyncHttpsClient::Init(const ConnectionParam &param)
             msg = "failed to set servername during initing invoke client, serverName:" + tlsServerName;
             return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, msg);
         }
-    }
-    try {
-        // sync connect
-        auto const results = resolver_.resolve(param.ip, param.port);
-        auto &lowgest = beast::get_lowest_layer(*stream_);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            lowgest.expires_after(std::chrono::seconds(param.timeoutSec));
-        }
-        (void)lowgest.connect(results);
-        YRLOG_DEBUG("Https init successfully, serverAddr: {}:{} connectionTimeout = {}", param.ip, param.port,
-                    param.timeoutSec);
-        if (param.timeoutSec != CONNECTION_NO_TIMEOUT) {
-            lowgest.expires_never();
-        }
-    } catch (const std::exception &e) {
-        std::stringstream ss;
-        ss << "failed to connect to cluster, target: " << param.ip << ":" << param.port;
-        ss << ", exception: " << e.what();
-        YRLOG_DEBUG(ss.str());
-        return ErrorInfo(ErrorCode::ERR_INIT_CONNECTION_FAILED, ModuleCode::RUNTIME, ss.str());
     }
 
     boost::system::error_code ec;

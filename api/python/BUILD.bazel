@@ -85,6 +85,8 @@ genrule(
         "py_strip",
         "//api/python:cp_server_py",
         ":python_sources",
+        "@etcd_source//:etcd",
+        "@etcd_source//:etcdctl",
         ":libruntime_proto_py",
         ":sync_libruntime_proto_workspace",
     ],
@@ -109,6 +111,11 @@ print(sysconfig.get_config_var("EXT_SUFFIX") or ".so")
 PY
         ) &&
         cp -L $(location py_strip) $$PYTHON_CODE_DIR/yr/fnruntime$$EXT_SUFFIX &&
+        mkdir -p $$PYTHON_CODE_DIR/yr/third_party/etcd &&
+        cp -f $(location @etcd_source//:etcd) $$PYTHON_CODE_DIR/yr/third_party/etcd/ &&
+        cp -f $(location @etcd_source//:etcdctl) $$PYTHON_CODE_DIR/yr/third_party/etcd/ &&
+        chmod +x $$PYTHON_CODE_DIR/yr/third_party/etcd/etcd &&
+        chmod +x $$PYTHON_CODE_DIR/yr/third_party/etcd/etcdctl &&
         cd $$BASE_DIR
         echo "$$BASE_DIR" >> $@
     """,

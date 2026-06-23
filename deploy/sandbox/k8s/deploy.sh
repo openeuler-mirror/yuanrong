@@ -22,6 +22,7 @@ RUNTIME_IMAGE_TAG_CP39="${YR_K8S_RUNTIME_IMAGE_TAG_CP39:-${IMAGE_TAG}-cp39}"
 RUNTIME_IMAGE_TAG_CP310="${YR_K8S_RUNTIME_IMAGE_TAG_CP310:-${RUNTIME_IMAGE_TAG}}"
 RUNTIME_IMAGE_TAG_CP311="${YR_K8S_RUNTIME_IMAGE_TAG_CP311:-${IMAGE_TAG}-cp311}"
 RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${IMAGE_TAG}-cp312}"
+RUNTIME_IMAGE_TAG_CP313="${YR_K8S_RUNTIME_IMAGE_TAG_CP313:-${IMAGE_TAG}-cp313}"
 PULL_SECRET_NAME="${YR_K8S_PULL_SECRET_NAME:-yr-swr-pull}"
 RESET_ETCD_STATE="${YR_K8S_RESET_ETCD_STATE:-true}"
 
@@ -264,6 +265,7 @@ helm_deploy() {
     --set global.runtimeImages.cp310.tag="${RUNTIME_IMAGE_TAG_CP310}" \
     --set global.runtimeImages.cp311.tag="${RUNTIME_IMAGE_TAG_CP311}" \
     --set global.runtimeImages.cp312.tag="${RUNTIME_IMAGE_TAG_CP312}" \
+    --set global.runtimeImages.cp313.tag="${RUNTIME_IMAGE_TAG_CP313}" \
     --set global.images.traefik.registry="${REGISTRY_REPO}" \
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
@@ -565,6 +567,7 @@ prepull_runtime_image() {
     "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP310}"
     "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP311}"
     "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP312}"
+    "${REGISTRY_REPO}/yr-runtime:${RUNTIME_IMAGE_TAG_CP313}"
   )
   pods="$(node_pods)"
   if [ -z "${pods}" ]; then

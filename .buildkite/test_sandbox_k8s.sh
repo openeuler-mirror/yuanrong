@@ -5,10 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 BUILD_STEP_KEY="${SANDBOX_BUILD_STEP_KEY:-build-all-amd64}"
-SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp311}"
 PACKAGE_STEP_KEY="${SANDBOX_PACKAGE_STEP_KEY:-publish-sandbox-release-amd64}"
+SDK_STEP_KEY="${SANDBOX_SDK_STEP_KEY:-build-sdk-amd64-cp311}"
 SMOKE_SDK_WHEEL_PATTERN="${YR_K8S_SMOKE_SDK_WHEEL_PATTERN:-openyuanrong_sdk*-cp311-*.whl}"
-SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl}"
+DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS="openyuanrong-*.whl openyuanrong_runtime-*.whl openyuanrong_faas-*.whl openyuanrong_dashboard-*.whl openyuanrong_cpp_sdk-*.whl openyuanrong_functionsystem-*.whl openyuanrong_datasystem-*.whl"
+SMOKE_CONTROLPLANE_WHEEL_PATTERNS="${YR_K8S_SMOKE_CONTROLPLANE_WHEEL_PATTERNS:-${DEFAULT_SMOKE_CONTROLPLANE_WHEEL_PATTERNS}}"
 SANDBOX_METADATA="${ROOT_DIR}/artifacts/sandbox/metadata/sandbox-release.json"
 RELEASE_ARTIFACT_DIR="${ROOT_DIR}/artifacts/release"
 SDK_ARTIFACT_DIR="${ROOT_DIR}/artifacts/openyuanrong-sdk"
@@ -214,6 +215,7 @@ resolve_smoke_python() {
         *-cp310-*) python_minor="3.10" ;;
         *-cp311-*) python_minor="3.11" ;;
         *-cp312-*) python_minor="3.12" ;;
+        *-cp313-*) python_minor="3.13" ;;
         *) python_minor="" ;;
     esac
 
@@ -248,6 +250,7 @@ install_smoke_wheels() {
     for pattern in "${SMOKE_CONTROLPLANE_WHEEL_PATTERN_LIST[@]}"; do
         smoke_wheels+=("$(resolve_single_wheel "${pattern}")")
     done
+    smoke_wheels+=("${sdk_wheel}")
 
     SMOKE_PYTHON="$(resolve_smoke_python "${sdk_wheel}")"
     export SMOKE_PYTHON
@@ -558,12 +561,14 @@ main() {
     bash deploy/sandbox/k8s/deploy.sh
 
     if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+        local server_address
         if [ -n "${YR_K8S_SMOKE_SERVER_ADDRESS:-}" ]; then
-            run_smoke "${YR_K8S_SMOKE_SERVER_ADDRESS}"
+            server_address="${YR_K8S_SMOKE_SERVER_ADDRESS}"
         else
             start_traefik_port_forward
-            run_smoke "${TRAEFIK_PORT_FORWARD_SERVER_ADDRESS}"
+            server_address="${TRAEFIK_PORT_FORWARD_SERVER_ADDRESS}"
         fi
+        run_smoke "${server_address}"
     fi
 
     if command -v buildkite-agent >/dev/null 2>&1; then

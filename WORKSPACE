@@ -136,16 +136,6 @@ load("//bazel:preload_opentelemetry.bzl", "preload_opentelemetry")
 preload_opentelemetry()
 
 http_archive(
-    name = "rules_foreign_cc",
-    sha256 = "69023642d5781c68911beda769f91fcbc8ca48711db935a75da7f6536b65047f",
-    strip_prefix = "rules_foreign_cc-0.6.0",
-    urls = [
-        "https://openyuanrong.obs.cn-southwest-2.myhuaweicloud.com/thirdparty/github.com/bazelbuild/rules_foreign_cc/0.6.0.tar.gz",
-        "https://github.com/bazelbuild/rules_foreign_cc/archive/0.6.0.tar.gz",
-    ],
-)
-
-http_archive(
     name = "ninja_1.10.2_linux",
     sha256 = "763464859c7ef2ea3a0a10f4df40d2025d3bb9438fcb1228404640410c0ec22d",
     strip_prefix = "",

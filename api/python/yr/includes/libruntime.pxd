@@ -387,6 +387,9 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         string resourceGroupName
         int bundleIndex
 
+    cdef cppclass CDebugConfig "YR::Libruntime::DebugConfig":
+        bool enable
+
     cdef cppclass CInvokeOptions "YR::Libruntime::InvokeOptions":
         int cpu
         int memory
@@ -426,6 +429,7 @@ cdef extern from "src/dto/invoke_options.h" nogil:
         bool preemptedAllowed
         int instancePriority
         int64_t scheduleTimeoutMs
+        CDebugConfig debug
 
     cdef cppclass CMetaConfig "YR::Libruntime::MetaConfig":
         string jobID
@@ -844,4 +848,3 @@ cdef extern from "src/libruntime/fmclient/fm_client.h" namespace "YR::Libruntime
         QueryNamedInsResponse() except +
         int names_size() const
         string names(int idx) const
-

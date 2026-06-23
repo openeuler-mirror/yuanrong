@@ -1,0 +1,27 @@
+{# Language switcher dropdown #}
+<div class="version-switcher__container dropdown" id="language-switcher">
+  <button
+    id="language-switcher-button"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+  >
+    <span class="language-switcher-selected">
+      {%- if doc_language == 'zh-cn' -%}
+        中文
+      {%- else -%}
+        English
+      {%- endif -%}
+    </span>
+  </button>
+  <ul class="dropdown-menu" id="language-dropdown-menu" style="display: none;">
+    {%- if doc_language == 'zh-cn' -%}
+      <li>
+        <a href="#" id="switch-to-en" class="dropdown-item">English</a>
+      </li>
+    {%- else -%}
+      <li>
+        <a href="#" id="switch-to-zh" class="dropdown-item">中文</a>
+      </li>
+    {%- endif -%}
+  </ul>
+</div>

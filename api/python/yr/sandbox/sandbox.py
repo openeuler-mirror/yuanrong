@@ -349,6 +349,7 @@ class SandboxCreateOptions:
     ports: Optional[List[str]] = None
     upstream: Optional[str] = None
     proxy_port: int = 8766
+    sandbox_type: str = ""
     before_checkpoint_func: Optional[Callable[..., Any]] = None
     after_restore_func: Optional[Callable[..., Any]] = None
 
@@ -366,6 +367,7 @@ def create(
     ports: Optional[str] = None,
     upstream: Optional[str] = None,
     proxy_port: int = 8766,
+    sandbox_type: str = "",
     before_checkpoint_func: Optional[Callable[..., Any]] = None,
     after_restore_func: Optional[Callable[..., Any]] = None,
 ):
@@ -390,6 +392,8 @@ def create(
         >>> yr.init()
         >>>
         >>> sandbox = yr.sandbox.create()
+        >>> # Create sandbox with supervisor executor
+        >>> sandbox = yr.sandbox.create(sandbox_type="supervisor")
         >>> result = yr.get(sandbox.exec("pwd"))
         >>> print(result['stdout'])
         >>>
@@ -409,6 +413,7 @@ def create(
             ports=ports,
             upstream=upstream,
             proxy_port=proxy_port,
+            sandbox_type=sandbox_type,
             before_checkpoint_func=before_checkpoint_func,
             after_restore_func=after_restore_func,
         )
@@ -491,6 +496,7 @@ class Sandbox:
         ports: Optional[List[str]] = None,
         upstream: Optional[str] = None,
         proxy_port: int = 8766,
+        sandbox_type: str = "",
         before_checkpoint_func: Optional[Callable[..., Any]] = None,
         after_restore_func: Optional[Callable[..., Any]] = None,
     ):
@@ -532,6 +538,7 @@ class Sandbox:
                 ports=ports,
                 upstream=upstream,
                 proxy_port=proxy_port,
+                sandbox_type=sandbox_type,
                 before_checkpoint_func=before_checkpoint_func,
                 after_restore_func=after_restore_func,
             ))
@@ -580,6 +587,10 @@ class Sandbox:
             ports (Optional[str]): List of port forwarding
                 configurations. Each string specifies a port to be forwarded
                 inside the sandbox environment with format protocol:port.
+            sandbox_type (str): Type of sandbox executor.
+                Supported values:
+                - "supervisor": Uses SUPERVISOR executor
+                - "": Use default executor (RUNTIME)
         """
         # Create InvokeOptions with skip_serialize=True for cross-version compatibility
         name = options.name
@@ -593,6 +604,7 @@ class Sandbox:
         ports = options.ports
         upstream = options.upstream
         proxy_port = options.proxy_port
+        sandbox_type = options.sandbox_type
         before_checkpoint_func = options.before_checkpoint_func
         after_restore_func = options.after_restore_func
         self._proxy_port = proxy_port
@@ -600,6 +612,8 @@ class Sandbox:
         opt = yr.InvokeOptions()
         opt.skip_serialize = True
         opt.idle_timeout = idle_timeout
+        if sandbox_type:
+            opt.custom_extensions["sandbox_type"] = sandbox_type
 
         if name is not None:
             opt.name = name

@@ -394,6 +394,8 @@ global:
   common:
     # system auth mode: { "", "AK/SK" }
     systemAuthMode: ""
+    # k8s api version: {"v2", "v2beta2"}
+    k8sAPIVersion: "v2"
     # code deploy dir, default /dcache
     deployDir: /dcache
     # CBC STS GCM NO_CRYPTO

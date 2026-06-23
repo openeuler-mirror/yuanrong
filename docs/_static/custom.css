@@ -170,3 +170,12 @@ html {
     left: auto !important;
     z-index: 99999 !important;
 }
+
+/* ========== 语言切换器样式 ========== */
+
+/* 覆盖全局 dropdown-menu 的 right 定位 */
+#language-switcher .dropdown-menu {
+    right: auto !important;
+    left: auto !important;
+    transform: none !important;
+}

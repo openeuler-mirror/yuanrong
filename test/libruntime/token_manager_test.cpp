@@ -33,10 +33,12 @@ namespace Test {
 class TokenManagerTest : public ::testing::Test {
 public:
     void SetUp() override {
+        unsetenv("ENABLE_IAM");
         httpServer_ = std::make_shared<AsyncHttpServer>();
     }
 
     void TearDown() override {
+        unsetenv("ENABLE_IAM");
         if (httpServer_) {
             httpServer_.reset();
         }
@@ -75,14 +77,39 @@ private:
     std::shared_ptr<LibruntimeConfig> librtConfig_;
 };
 
-TEST_F(TokenManagerTest, IsInitToken)
+TEST_F(TokenManagerTest, IsInitToken_EnableIamNotSet)
 {
+    unsetenv("ENABLE_IAM");
     auto librtConfig = std::make_shared<LibruntimeConfig>();
     librtConfig->iamAddress = "https://example.com";
     librtConfig->token = "";
 
     TokenManager tokenManager(librtConfig);
     EXPECT_FALSE(tokenManager.IsInitToken());
+}
+
+TEST_F(TokenManagerTest, IsInitToken_EnableIamFalse)
+{
+    setenv("ENABLE_IAM", "false", 1);
+    auto librtConfig = std::make_shared<LibruntimeConfig>();
+    librtConfig->iamAddress = "https://example.com";
+    librtConfig->token = "";
+
+    TokenManager tokenManager(librtConfig);
+    EXPECT_FALSE(tokenManager.IsInitToken());
+    unsetenv("ENABLE_IAM");
+}
+
+TEST_F(TokenManagerTest, IsInitToken_EnableIamTrueButOtherConditionsNotMet)
+{
+    setenv("ENABLE_IAM", "true", 1);
+    auto librtConfig = std::make_shared<LibruntimeConfig>();
+    librtConfig->iamAddress = "https://example.com";
+    librtConfig->token = "";
+
+    TokenManager tokenManager(librtConfig);
+    EXPECT_FALSE(tokenManager.IsInitToken());
+    unsetenv("ENABLE_IAM");
 }
 
 TEST_F(TokenManagerTest, Init)

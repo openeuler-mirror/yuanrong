@@ -1,3 +1,4 @@
 User-agent: *
-Allow: /
+Allow: /en/latest/
+Disallow: /en/
 Disallow: */search.html

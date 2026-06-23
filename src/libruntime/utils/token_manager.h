@@ -29,6 +29,7 @@ const std::string_view HEADER_AUTH_KEY = "X-Auth";
 const std::string_view HEADER_TENANT_SALT_KEY = "X-Salt";
 const std::string_view HEADER_EXPIRED_TIME_SPAN = "X-Expired-Time-Span";
 const std::string_view ENV_CREDENTIAL_TYPE = "IAM_CREDENTIAL_TYPE";
+const std::string_view ENV_ENABLE_IAM = "ENABLE_IAM";
 const std::string_view CREDENTIAL_TYPE_TOKEN = "token";
 
 struct TokenSalt {

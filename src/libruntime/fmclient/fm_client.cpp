@@ -96,8 +96,13 @@ std::unordered_map<std::string, float> ProcessResources(
 {
     std::unordered_map<std::string, float> result;
     for (auto &resource : resources) {
+        std::string name = resource.first;
+        // Remove trailing '/' from resource name for consistent format
+        if (!name.empty() && name.back() == '/') {
+            name.pop_back();
+        }
         if (resource.second.type() == ResourceType::Value_Type_SCALAR) {
-            result[resource.first] = resource.second.scalar().value();
+            result[name] = resource.second.scalar().value();
         } else if (resource.second.type() == ResourceType::Value_Type_VECTORS) {
             auto values = resource.second.vectors().values();
             auto value = 0;
@@ -107,7 +112,7 @@ std::unordered_map<std::string, float> ProcessResources(
                     break;
                 }
             }
-            result[resource.first] = value;
+            result[name] = value;
         } else {
             YRLOG_DEBUG("unknow type {}: of {}", fmt::underlying(resource.second.type()), resource.first);
             continue;

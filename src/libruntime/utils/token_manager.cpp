@@ -31,6 +31,11 @@ TokenManager::TokenManager(std::shared_ptr<LibruntimeConfig> &librtConfig, int r
 
 bool TokenManager::IsInitToken()
 {
+    auto enableIam = YR::GetEnvValue(std::string(ENV_ENABLE_IAM));
+    if (enableIam != "true" && enableIam != "TRUE") {
+        YRLOG_DEBUG("skip init token, because ENABLE_IAM is not true, value: {}", enableIam);
+        return false;
+    }
     if (librtConfig->iamAddress.empty()) {
         YRLOG_DEBUG("skip init token, because iam address is empty");
         return false;

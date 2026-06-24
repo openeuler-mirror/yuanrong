@@ -417,7 +417,7 @@ def query_function(function_name, user=None):
         return False, resp
 
 
-def query_instances(user=None, page=None, page_size=None, instance_id=None):
+def query_instances(user=None, page=None, page_size=None, instance_id=None, fields=None):
     """Query instance list for a specific tenant"""
     http_client = HTTPClient(
         timeout=30,
@@ -436,6 +436,8 @@ def query_instances(user=None, page=None, page_size=None, instance_id=None):
         query_params["page"] = page
     if page_size is not None:
         query_params["page_size"] = page_size
+    if fields is not None:
+        query_params["fields"] = fields
     url = f"http://{__server_address}/api/instances?{urlencode(query_params)}"
     resp = http_client.request(url, {}, method="GET")
     if resp["success"]:
@@ -1010,6 +1012,24 @@ def get_sandbox_status(instance):
     )
 
 
+def format_resource_quota(value):
+    if value is None or value == "":
+        return "N/A"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def format_runtime_seconds(value):
+    if value is None or value == "":
+        return "N/A"
+    try:
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{seconds}s"
+
+
 def sandbox_instance_matches_runtime(instance, runtime):
     function = str(instance.get("function", "")).lower()
     if runtime == "python3.10":
@@ -1357,7 +1377,7 @@ def list_resources(page, page_size, resource_type):
         if page_size is not None and page_size > QUERY_INSTANCES_MAX_PAGE_SIZE:
             raise click.ClickException(f"--page-size must be less than or equal to {QUERY_INSTANCES_MAX_PAGE_SIZE}")
         # List instances
-        ret, resp = query_instances(__user, page=page, page_size=page_size)
+        ret, resp = query_instances(__user, page=page, page_size=page_size, fields="summary")
         instances, error = get_instance_list(resp) if ret else ([], None)
         if ret and error is not None:
             raise click.ClickException(error["error"])
@@ -1512,7 +1532,7 @@ def sandbox_create(*args, **kwargs):
 )
 def sandbox_list(namespace):
     """List sandbox instances."""
-    ret, resp = query_instances(__user)
+    ret, resp = query_instances(__user, fields="summary")
     if not ret:
         raise click.ClickException(f"failed to list instances: {resp.get('error', resp)}")
 
@@ -1532,13 +1552,22 @@ def sandbox_list(namespace):
         if namespace and not instance_id.startswith(f"{namespace}-"):
             continue
         tenant_id = instance.get("tenantID", "N/A")
-        sandboxes.append((instance_id, tenant_id, get_sandbox_status(instance)))
+        sandboxes.append((
+            instance_id,
+            tenant_id,
+            get_sandbox_status(instance),
+            format_resource_quota(instance.get("required_cpu")),
+            format_resource_quota(instance.get("required_mem")),
+            format_resource_quota(instance.get("required_gpu")),
+            format_resource_quota(instance.get("required_npu")),
+            format_runtime_seconds(instance.get("runtime_seconds")),
+        ))
 
     if not sandboxes:
         print("no sandbox instance found")
         return
 
-    headers = ("INSTANCE_ID", "TENANT_ID", "STATUS")
+    headers = ("INSTANCE_ID", "TENANT_ID", "STATUS", "CPU", "MEMORY", "GPU", "NPU", "RUNTIME")
     widths = [
         max(len(header), *(len(str(row[index])) for row in sandboxes))
         for index, header in enumerate(headers)
@@ -1546,8 +1575,8 @@ def sandbox_list(namespace):
     formatter = "  ".join(f"{{:<{width}}}" for width in widths)
 
     print(formatter.format(*headers).rstrip())
-    for sandbox_id, tenant_id, status in sandboxes:
-        print(formatter.format(sandbox_id, tenant_id, status).rstrip())
+    for sandbox in sandboxes:
+        print(formatter.format(*sandbox).rstrip())
 
 
 @sandbox.command("query")

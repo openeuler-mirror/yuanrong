@@ -632,24 +632,32 @@ bool TaskSubmitter::ScheduleRequest(const RequestResource &resource, std::shared
         customTag->insert({"ENABLE_FORCE_INVOKE", ""});
     }
     invokeSpec->instanceRoute = memoryStore->GetInstanceRoute(invokeSpec->returnIds[0].id);
-    // 如果开启eventstream功能，调用kill signal 把grpc server的ip和端口写入payload
-    if (libRuntimeConfig->enableEvent) {
-        auto it = resource.opts.invokeLabels.find(INSTANCE_REQUIREMENT_ACCEPT);
-        // 如果forceinvoke的是一个sse调用，由于signal无法通知到一个正在优雅退出的实例,这里会卡住，当前没有这个场景
-        if (it != resource.opts.invokeLabels.end() && it->second == INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM) {
-            if (summary.forceInvoke) {
-                memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
-                NotifyRequest fake;
-                fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
-                fake.set_message("sse request fails when instance is gracefully shutting down.");
-                fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
-                HandleInvokeNotify(fake, ErrorInfo());
-                return false;
-            }
-            YRLOG_DEBUG("start to send eventInfo signal, instanceId is {}", requestId);
-            SendEventInfoSignalAndInvoke(libRuntimeConfig->instanceId, summary.instanceId, resource, invokeSpec);
+    auto acceptIt = resource.opts.invokeLabels.find(INSTANCE_REQUIREMENT_ACCEPT);
+    bool isEventStream =
+        acceptIt != resource.opts.invokeLabels.end() && acceptIt->second == INSTANCE_REQUIREMENT_ACCEPT_EVENT_STREAM;
+    if (isEventStream) {
+        if (!libRuntimeConfig->enableEvent) {
+            memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
+            NotifyRequest fake;
+            fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
+            fake.set_message("sse request requires enableEvent=true.");
+            fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
+            HandleInvokeNotify(fake, ErrorInfo());
             return false;
         }
+        // 如果forceinvoke的是一个sse调用，由于signal无法通知到一个正在优雅退出的实例,这里会卡住，当前没有这个场景
+        if (summary.forceInvoke) {
+            memoryStore->AddEventData(invokeSpec->requestId, YR::Libruntime::EVENT_EOF);
+            NotifyRequest fake;
+            fake.set_code(common::ErrorCode(ERR_INNER_SYSTEM_ERROR));
+            fake.set_message("sse request fails when instance is gracefully shutting down.");
+            fake.set_requestid(invokeSpec->requestInvoke->Mutable().requestid());
+            HandleInvokeNotify(fake, ErrorInfo());
+            return false;
+        }
+        YRLOG_DEBUG("start to send eventInfo signal, instanceId is {}", requestId);
+        SendEventInfoSignalAndInvoke(libRuntimeConfig->instanceId, summary.instanceId, resource, invokeSpec);
+        return false;
     }
     SendInvokeReq(resource, invokeSpec);
     return false;

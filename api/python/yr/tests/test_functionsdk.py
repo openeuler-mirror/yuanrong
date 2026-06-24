@@ -29,6 +29,7 @@ from unittest.mock import Mock, patch
 import os
 import logging
 import queue
+from types import SimpleNamespace
 
 
 
@@ -75,6 +76,27 @@ class TestFunctionSdk(TestCase):
         stream = invoke_context.get_stream()
         self.assertEqual(stream._request_id, "request-1")
         self.assertEqual(stream._instance_id, "instance-1")
+
+    @patch("yr.log.get_logger")
+    def test_context_headers_ignore_case_for_sse(self, mock_logger):
+        mock_logger.return_value = logger
+        context_meta = {"funcMetaData": {"timeout": "3"}}
+        context.load_context_meta(context_meta)
+
+        header = {
+            "x-trace-id": "trace-lower",
+            "accept": "text/event-stream",
+            "x-instance-session": json.dumps({"sessionID": "session-lower"}),
+        }
+        fake_fnruntime = SimpleNamespace(get_request_and_instance_id=lambda: ("request-lower", "instance-lower"))
+        with patch.dict("sys.modules", {"yr.fnruntime": fake_fnruntime}):
+            invoke_context = context.init_context_invoke("invoke", header)
+
+        self.assertEqual(invoke_context.get_trace_id(), "trace-lower")
+        self.assertEqual(invoke_context.get_session_id(), "session-lower")
+        stream = invoke_context.get_stream()
+        self.assertEqual(stream._request_id, "request-lower")
+        self.assertEqual(stream._instance_id, "instance-lower")
 
     @patch("yr.log.get_logger")
     @patch("yr.runtime_holder.global_runtime.get_runtime")

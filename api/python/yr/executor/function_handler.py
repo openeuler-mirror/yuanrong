@@ -191,7 +191,7 @@ class FunctionHandler(HandlerIntf):
         Returns:
             ErrorInfo: Error information if hook execution failed.
         """
-        log.get_logger().debug("Trigger before_snapshot hook")
+        _logger.debug("Trigger before_snapshot hook")
         instance = InstanceManager().instance()
         return self.__before_snapshot(instance)
 
@@ -202,7 +202,7 @@ class FunctionHandler(HandlerIntf):
         Returns:
             ErrorInfo: Error information if hook execution failed.
         """
-        log.get_logger().debug("Trigger after_snapstart hook")
+        _logger.debug("Trigger after_snapstart hook")
         instance = InstanceManager().instance()
         return self.__after_snapstarted(instance)
 
@@ -217,20 +217,20 @@ class FunctionHandler(HandlerIntf):
             )
 
         if not hasattr(instance, USER_BEFORE_SNAPSHOT_FUNC_NAME):
-            log.get_logger().debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} not defined, skipping")
+            _logger.debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} not defined, skipping")
             return ErrorInfo()
 
         snapshot_hook = getattr(instance, USER_BEFORE_SNAPSHOT_FUNC_NAME)
         if not callable(snapshot_hook):
-            log.get_logger().debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} is not callable, skipping")
+            _logger.debug(f"User hook {USER_BEFORE_SNAPSHOT_FUNC_NAME} is not callable, skipping")
             return ErrorInfo()
 
-        log.get_logger().debug(f"Start to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
+        _logger.debug(f"Start to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
         try:
             snapshot_hook()
-            log.get_logger().info(f"Succeeded to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
+            _logger.info(f"Succeeded to call user snapshot hook {USER_BEFORE_SNAPSHOT_FUNC_NAME}")
         except Exception as e:
-            log.get_logger().exception(e)
+            _logger.exception(e)
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
         return ErrorInfo()
 
@@ -245,20 +245,20 @@ class FunctionHandler(HandlerIntf):
             )
 
         if not hasattr(instance, USER_AFTER_SNAPSTART_FUNC_NAME):
-            log.get_logger().debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} not defined, skipping")
+            _logger.debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} not defined, skipping")
             return ErrorInfo()
 
         snapstart_hook = getattr(instance, USER_AFTER_SNAPSTART_FUNC_NAME)
         if not callable(snapstart_hook):
-            log.get_logger().debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} is not callable, skipping")
+            _logger.debug(f"User hook {USER_AFTER_SNAPSTART_FUNC_NAME} is not callable, skipping")
             return ErrorInfo()
 
-        log.get_logger().debug(f"Start to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
+        _logger.debug(f"Start to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
         try:
             snapstart_hook()
-            log.get_logger().info(f"Succeeded to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
+            _logger.info(f"Succeeded to call user snapstart hook {USER_AFTER_SNAPSTART_FUNC_NAME}")
         except Exception as e:
-            log.get_logger().exception(e)
+            _logger.exception(e)
             return ErrorInfo(ErrorCode.ERR_INNER_SYSTEM_ERROR, ModuleCode.RUNTIME, err_to_str(e))
         return ErrorInfo()
 

@@ -50,6 +50,18 @@ _SESSION_ID_KEY: str = "sessionID"
 _logger = logging.getLogger(__name__)
 
 
+def _get_header(header: dict, key: str, default: str = ""):
+    if not header:
+        return default
+    if key in header:
+        return header[key]
+    lower_key = key.lower()
+    for header_key, value in header.items():
+        if isinstance(header_key, str) and header_key.lower() == lower_key:
+            return value
+    return default
+
+
 def load_context_meta(context_meta: dict):
     """
     load context meta
@@ -82,10 +94,10 @@ def init_context_invoke(stage: str, header: dict):
     global _ENV_STORAGE
     _ENV_STORAGE.update_user_agency(header)
     context = init_context(stage)
-    trace_id = header.get(_HEADER_TRACE_ID) or header.get(_HEADER_REQUEST_ID, "")
+    trace_id = _get_header(header, _HEADER_TRACE_ID) or _get_header(header, _HEADER_REQUEST_ID, "")
     if trace_id:
         context.set_trace_id(trace_id)
-    if header.get(_HEADER_EVENT_STREAM) == _HEADER_EVENT_STREAM_VALUE:
+    if _get_header(header, _HEADER_EVENT_STREAM) == _HEADER_EVENT_STREAM_VALUE:
         try:
             from yr.fnruntime import get_request_and_instance_id
 
@@ -94,9 +106,10 @@ def init_context_invoke(stage: str, header: dict):
             context.set_instance_id(instance_id)
         except Exception:
             pass
-    if header.get(_HEADER_X_INSTANCE_SESSION):
+    instance_session = _get_header(header, _HEADER_X_INSTANCE_SESSION)
+    if instance_session:
         try:
-            session_obj = json.loads(header[_HEADER_X_INSTANCE_SESSION])
+            session_obj = json.loads(instance_session)
             if isinstance(session_obj, dict) and _SESSION_ID_KEY in session_obj:
                 context.set_session_id(session_obj[_SESSION_ID_KEY] or "")
         except (json.decoder.JSONDecodeError, TypeError) as e:

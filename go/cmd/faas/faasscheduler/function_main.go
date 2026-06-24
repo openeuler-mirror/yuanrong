@@ -181,6 +181,11 @@ func SignalHandlerLibruntime(signal int, payload []byte) error {
 	return nil
 }
 
+// HealthCheckHandlerLibruntime reports the scheduler control-plane function health to libruntime.
+func HealthCheckHandlerLibruntime() (api.HealthType, error) {
+	return api.Healthy, nil
+}
+
 func setupFunctionSchedulerLibruntime(fsClient api.LibruntimeAPI) error {
 	rollout.SetRolloutSdkClient(fsClient)
 	if err := registry.InitRegistry(stopCh); err != nil {

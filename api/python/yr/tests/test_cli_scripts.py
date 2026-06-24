@@ -216,14 +216,14 @@ class TestCliScripts(unittest.TestCase):
         setattr(scripts, "__user", "tenant-a")
         calls = []
 
-        def fake_query_instances(user=None, page=None, page_size=None):
-            calls.append((user, page, page_size))
+        def fake_query_instances(user=None, page=None, page_size=None, fields=None):
+            calls.append((user, page, page_size, fields))
             return True, {"instances": [{"id": "instance-a", "tenantID": "tenant-a"}]}
 
         with mock.patch.object(scripts, "query_instances", fake_query_instances), redirect_stdout(io.StringIO()):
             scripts.list(3, 25, "instance")
 
-        self.assertEqual(calls, [("tenant-a", 3, 25)])
+        self.assertEqual(calls, [("tenant-a", 3, 25, "summary")])
 
     def test_list_instances_rejects_oversized_page_size(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
@@ -247,7 +247,7 @@ class TestCliScripts(unittest.TestCase):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__user", "tenant-a")
 
-        def fake_query_instances(user=None, page=None, page_size=None):
+        def fake_query_instances(user=None, page=None, page_size=None, fields=None):
             return True, {"error": "unexpected response"}
 
         with (
@@ -709,14 +709,24 @@ class TestCliScripts(unittest.TestCase):
             proxy_port=8766,
         )
 
-    def test_sandbox_list_prints_header_and_status(self):
+    def test_sandbox_list_prints_header_status_and_resource_quota(self):
         scripts = self.load_cli_scripts_with_stubbed_deps()
         setattr(scripts, "__user", "tenant-a")
 
-        def fake_query_instances(user=None):
+        def fake_query_instances(user=None, fields=None):
+            self.assertEqual(fields, "summary")
             return True, {
                 "instances": [
-                    {"id": "tenant-a-box", "tenantID": "tenant-a", "status": "running"},
+                    {
+                        "id": "tenant-a-box",
+                        "tenantID": "tenant-a",
+                        "status": "running",
+                        "required_cpu": 500,
+                        "required_mem": 1024,
+                        "required_gpu": 1,
+                        "required_npu": 0,
+                        "runtime_seconds": 125,
+                    },
                     {"id": "app-not-sandbox", "tenantID": "tenant-a", "status": "running"},
                 ]
             }
@@ -726,7 +736,10 @@ class TestCliScripts(unittest.TestCase):
 
         self.assertEqual(
             output.getvalue().splitlines(),
-            ["INSTANCE_ID   TENANT_ID  STATUS", "tenant-a-box  tenant-a   running"],
+            [
+                "INSTANCE_ID   TENANT_ID  STATUS   CPU  MEMORY  GPU  NPU  RUNTIME",
+                "tenant-a-box  tenant-a   running  500  1024    1    0    125s",
+            ],
         )
 
     def test_delete_sandbox_via_sdk_uses_async_terminate(self):

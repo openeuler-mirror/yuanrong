@@ -530,6 +530,22 @@ async def _drain_websocket(ws, should_exit, quiet=False, writer=None, process_ex
         should_exit.set()
 
 
+def _connect_copy_websocket(uri, ssl_context):
+    """Open a copy websocket without the websockets library keepalive.
+
+    File copy streams can be quiet for longer than the library's default
+    ping_timeout on slow or jittery links. The copy protocol already finishes
+    by draining stdout until "[Process exited]" / EOF, so library-level pings
+    must not tear down a long-running transfer.
+    """
+    return websockets.connect(
+        uri,
+        ssl=ssl_context,
+        ping_interval=None,
+        ping_timeout=None,
+    )
+
+
 def _create_tar_archive(source_path: Path, root_name: str) -> str:
     """Create a tar archive for a file or directory and return the temp path."""
     archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
@@ -619,12 +635,11 @@ async def copy_to_remote(
     )
 
     try:
-        async with websockets.connect(uri, ssl=ssl_context) as ws:
+        async with _connect_copy_websocket(uri, ssl_context) as ws:
             should_exit = asyncio.Event()
             process_exited = asyncio.Event()
             tasks = [
                 asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True, process_exited=process_exited)),
-                asyncio.create_task(heartbeat_loop(ws, should_exit)),
             ]
             try:
                 with open(archive_path, "rb") as file_obj:
@@ -694,12 +709,11 @@ async def copy_from_remote(
     archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
     archive_file.close()
     try:
-        async with websockets.connect(uri, ssl=ssl_context) as ws:
+        async with _connect_copy_websocket(uri, ssl_context) as ws:
             should_exit = asyncio.Event()
             with open(archive_file.name, "wb") as file_obj:
                 tasks = [
                     asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True, writer=file_obj)),
-                    asyncio.create_task(heartbeat_loop(ws, should_exit)),
                 ]
                 try:
                     await should_exit.wait()
@@ -789,12 +803,11 @@ async def copy_to_remote_streaming(
     loop = asyncio.get_event_loop()
     chunk_size = 64 * 1024
 
-    async with websockets.connect(uri, ssl=ssl_context) as ws:
+    async with _connect_copy_websocket(uri, ssl_context) as ws:
         should_exit = asyncio.Event()
         process_exited = asyncio.Event()
         tasks = [
             asyncio.create_task(_drain_websocket(ws, should_exit, quiet=True, process_exited=process_exited)),
-            asyncio.create_task(heartbeat_loop(ws, should_exit)),
         ]
         try:
             server_closed_early = False
@@ -930,7 +943,7 @@ async def copy_from_remote_streaming(
     extract_thread.start()
 
     try:
-        async with websockets.connect(uri, ssl=ssl_context) as ws:
+        async with _connect_copy_websocket(uri, ssl_context) as ws:
             should_exit = asyncio.Event()
             w_file = os.fdopen(w_fd, "wb", buffering=0)
             w_fd = -1  # ownership transferred
@@ -953,7 +966,6 @@ async def copy_from_remote_streaming(
 
             tasks = [
                 asyncio.create_task(_recv_and_pipe()),
-                asyncio.create_task(heartbeat_loop(ws, should_exit)),
             ]
             try:
                 await should_exit.wait()

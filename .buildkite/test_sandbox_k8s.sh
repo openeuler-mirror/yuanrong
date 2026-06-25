@@ -532,6 +532,48 @@ run_smoke() {
         2>&1 | tee "${SMOKE_LOG_DIR}/smoke.log"
 }
 
+patch_frontend_enable_event_for_smoke() {
+    if ! [[ "${YR_K8S_SMOKE_ENABLE_EVENT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+        printf 'Skipping frontend event enablement because YR_K8S_SMOKE_ENABLE_EVENT=%s.\n' \
+            "${YR_K8S_SMOKE_ENABLE_EVENT:-}" >&2
+        return 0
+    fi
+
+    local deployments deployment
+    deployments="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
+        --namespace "${NAMESPACE}" \
+        -l app.kubernetes.io/instance=yr-k8s,app.kubernetes.io/component=frontend \
+        -o name 2>/dev/null || true)"
+    if [ -z "${deployments}" ]; then
+        deployments="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
+            --namespace "${NAMESPACE}" \
+            -l app.kubernetes.io/instance=yr,app.kubernetes.io/component=frontend \
+            -o name 2>/dev/null || true)"
+    fi
+    if [ -z "${deployments}" ]; then
+        deployments="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
+            --namespace "${NAMESPACE}" \
+            -l app.kubernetes.io/component=frontend \
+            -o name 2>/dev/null || true)"
+    fi
+
+    if [ "$(printf '%s\n' "${deployments}" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 1 ]; then
+        printf 'Expected exactly one frontend deployment in namespace %s, found:\n%s\n' \
+            "${NAMESPACE}" "${deployments}" >&2
+        return 1
+    fi
+
+    deployment="${deployments}"
+    printf 'Enabling frontend event mode for smoke by patching %s args.\n' "${deployment}" >&2
+    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" patch "${deployment}" \
+        --namespace "${NAMESPACE}" \
+        --type strategic \
+        -p '{"spec":{"template":{"spec":{"containers":[{"name":"frontend","args":["-s","frontend.args.enableEvent=true"]}]}}}}'
+    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout status "${deployment}" \
+        --namespace "${NAMESPACE}" \
+        --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-20m}"
+}
+
 main() {
     ensure_kubectl
     ensure_helm
@@ -559,6 +601,7 @@ main() {
     export HELM_BIN
 
     bash deploy/sandbox/k8s/deploy.sh
+    patch_frontend_enable_event_for_smoke
 
     if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
         local server_address

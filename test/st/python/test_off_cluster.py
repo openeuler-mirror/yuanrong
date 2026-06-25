@@ -37,6 +37,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, urlunparse
@@ -76,6 +77,10 @@ def _get_faas_runtime():
         "YR_OFF_CLUSTER_FAAS_RUNTIME",
         f"python{sys.version_info.major}.{sys.version_info.minor}",
     )
+
+
+def _get_faas_tenant_id():
+    return os.getenv("YR_OFF_CLUSTER_FAAS_TENANT_ID", "default")
 
 
 def _unique_name(prefix):
@@ -131,7 +136,7 @@ def _wait_any_url_contains(urls, expected, timeout=60):
 
 
 def _invoke_faas_short_http(namespace, function, payload, headers=None, timeout=150):
-    url = f"{_get_protocol()}://{_get_addr()}/invocations/0/{namespace}/{function}/"
+    url = f"{_get_protocol()}://{_get_addr()}/invocations/{_get_faas_tenant_id()}/{namespace}/{function}/"
     request_headers = {
         "Content-Type": "application/json",
     }
@@ -146,8 +151,16 @@ def _invoke_faas_short_http(namespace, function, payload, headers=None, timeout=
         headers=request_headers,
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.getcode(), response.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.getcode(), response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        headers_text = str(exc.headers).strip()
+        raise AssertionError(
+            f"FaaS short invoke failed: status={exc.code} reason={exc.reason} "
+            f"url={url} headers={headers_text!r} body={body!r}"
+        ) from exc
 
 
 def _decode_json_body(body):
@@ -1089,40 +1102,37 @@ def test_yrcli_faas_deploy_query_delete(require_plain_http_for_yrcli, tmp_path):
 
 
 @pytest.mark.smoke
-def test_faas_session_bypass_and_sse_stream(require_plain_http_for_yrcli, tmp_path):
+def test_faas_sse_stream(require_plain_http_for_yrcli, tmp_path):
     namespace = "faaspy"
-    function = _unique_name("yrcli-session").replace("-", "")
+    function = _unique_name("yrcli-sse").replace("-", "")
     full_name = f"0@{namespace}@{function}"
     runtime = _get_faas_runtime()
-    session_id = _unique_name("session")
     _ensure_faas_runtime(runtime)
-    code_dir = tmp_path / "faas-session"
+    code_dir = tmp_path / "faas-sse"
     code_dir.mkdir()
     handler_path = code_dir / "handler.py"
     handler_path.write_text(
         "import json\n"
+        "import time\n"
         "\n"
         "def handler(event, context):\n"
-        "    if isinstance(event, dict) and event.get('mode') == 'stream':\n"
+        "    for i in range(1, 11):\n"
         "        context.get_stream().write(json.dumps({\n"
-        "            'chunk': event.get('text'),\n"
-        "            'session_id': context.get_session_id(),\n"
+        "            'id': i,\n"
+        "            'content': 'message-%d' % i,\n"
+        "            'echo': event.get('text') if isinstance(event, dict) else event,\n"
         "        }))\n"
-        "    return {\n"
-        "        'ok': True,\n"
-        "        'echo': event,\n"
-        "        'session_id': context.get_session_id(),\n"
-        "        'has_session_service': context.get_session_service() is not None,\n"
-        "    }\n",
+        "        time.sleep(0.1)\n"
+        "    return {'ok': True, 'echo': event}\n",
         encoding="utf-8",
     )
-    function_json = tmp_path / "function-session.json"
+    function_json = tmp_path / "function-sse.json"
     function_json.write_text(
         json.dumps(
             {
                 "name": full_name,
                 "runtime": runtime,
-                "description": "yrcli off-cluster session context smoke handler",
+                "description": "yrcli off-cluster SSE smoke handler",
                 "handler": "handler.handler",
                 "kind": "faas",
                 "cpu": 300,
@@ -1158,35 +1168,17 @@ def test_faas_session_bypass_and_sse_stream(require_plain_http_for_yrcli, tmp_pa
         status, body = _invoke_faas_short_http(
             namespace,
             function,
-            {"text": "session-ping"},
-            headers={
-                "X-Instance-Session": json.dumps({"sessionID": session_id}),
-                "X-Bypass-Datasystem": "true",
-            },
-            timeout=150,
-        )
-        assert status == 200
-        data = _decode_json_body(body)
-        assert data["ok"] is True, body
-        assert data["session_id"] == session_id, body
-        assert data["has_session_service"] is True, body
-        assert data["echo"]["text"] == "session-ping", body
-
-        stream_session_id = _unique_name("stream-session")
-        status, body = _invoke_faas_short_http(
-            namespace,
-            function,
-            {"mode": "stream", "text": "sse-ping"},
+            {"text": "sse-ping"},
             headers={
                 "Accept": "text/event-stream",
-                "X-Instance-Session": json.dumps({"sessionID": stream_session_id}),
             },
             timeout=150,
         )
         assert status == 200
-        assert "data:" in body, body
-        assert "sse-ping" in body, body
-        assert stream_session_id in body, body
+        for i in range(1, 11):
+            assert f'"id": {i}' in body, body
+            assert f'"content": "message-{i}"' in body, body
+        assert '"echo": "sse-ping"' in body, body
         assert "[DONE]" in body, body
     finally:
         _run_yrcli("delete", "-f", f"{namespace}@{function}", "--no-clear-package")

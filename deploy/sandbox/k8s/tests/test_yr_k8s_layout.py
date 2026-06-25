@@ -901,6 +901,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("cleanup_k8s_node_image_cache", smoke_script)
         self.assertIn("YR_K8S_CLEAN_K8S_NODE_IMAGE_CACHE", smoke_script)
         self.assertIn("crictl --runtime-endpoint unix:///run/containerd/containerd.sock", smoke_script)
+        self.assertIn("patch_frontend_enable_event_for_smoke", smoke_script)
+        self.assertIn("frontend.args.enableEvent=true", smoke_script)
         self.assertIn("trap cleanup EXIT", smoke_script)
         self.assertIn('ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK_OVERRIDE:-${ENABLE_MACOS_SDK:-true}}"', pipeline)
         self.assertIn('ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"', pipeline)

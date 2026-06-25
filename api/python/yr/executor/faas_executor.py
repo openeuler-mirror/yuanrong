@@ -42,6 +42,9 @@ _INDEX_META_DATA = 0
 _INDEX_CALL_USER_EVENT = 1
 _RUNTIME_MAX_RESP_BODY_SIZE = 6 * 1024 * 1024
 _SHUTDOWN_CHECK_INTERVAL = 0.1
+_EVENT_HEADER = "Accept"
+_EVENT_HEADER_VALUE = "text/event-stream"
+_EVENT_EOF = "yuanrong_event_EOF"
 requestQueue = queue.Queue(maxsize=1000)
 
 _logger = logging.getLogger(__name__)
@@ -140,6 +143,7 @@ def faas_call_handler(posix_args: List[Any]) -> str:
                 return transform_call_response_to_str(err_msg, error_code)
         if event is None:
             event = {}
+    is_event_enable = isinstance(header, dict) and header.get(_EVENT_HEADER) == _EVENT_HEADER_VALUE
     context = init_context_invoke(_STAGE_INVOKE, header)
     if len(context.get_trace_id()) == 0:
         context.set_trace_id(trace_id)
@@ -170,6 +174,15 @@ def faas_call_handler(posix_args: List[Any]) -> str:
     finally:
         if not requestQueue.empty():
             requestQueue.get()
+    if is_event_enable:
+        try:
+            from yr.fnruntime import stream_write
+
+            stream_write(_EVENT_EOF, context.get_invoke_id(), context.get_instance_id())
+        except Exception as err:
+            log.get_logger().exception("failed to send event EOF, err: %s", err)
+            error_code = FaasErrorCode.FUNCTION_INVOCATION_EXCEPTION
+            result = f"failed to send event EOF, err: {err}"
     try:
         result_str = transform_call_response_to_str(
             result, error_code, trace_id=header_trace_id

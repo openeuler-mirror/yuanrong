@@ -2744,7 +2744,12 @@ ErrorInfo InvokeAdaptor::StreamWriteEvent(const std::string &streamMessage, cons
     auto &eventRst = eventMessageSpec->Mutable();
     eventRst.set_requestid(requestId);
     eventRst.set_instanceid(instanceId);
-    eventRst.set_message(streamMessage);
+    // Stream events are consumed through the same DataObject framing as objects (GetEvent ->
+    // DataObject::SetBuffer strips the leading MetaDataLen bytes). Prepend the meta header here so
+    // the payload survives intact, symmetric with the call-result path in task_submitter.
+    std::string framedMessage(MetaDataLen, '\0');
+    framedMessage.append(streamMessage);
+    eventRst.set_message(framedMessage);
     fsClient->EventAsync(eventMessageSpec);
     return ErrorInfo();
 }

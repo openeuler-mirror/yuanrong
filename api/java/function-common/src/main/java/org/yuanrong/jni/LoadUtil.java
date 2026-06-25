@@ -33,8 +33,10 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
 import java.util.InvalidPropertiesFormatException;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -52,15 +54,51 @@ public class LoadUtil {
 
     private static final int READ_SIZE = 8192; // 8KB
 
+    private static final Map<String, String> SYMLINK_MAP = new HashMap<>();
+
+    static {
+        SYMLINK_MAP.put("libgrpc++.so.1.65.4", "libgrpc++.so.1.65");
+        SYMLINK_MAP.put("libgrpc.so.42.0.0", "libgrpc.so.42");
+        SYMLINK_MAP.put("libupb_json_lib.so.42.0.0", "libupb_json_lib.so.42");
+        SYMLINK_MAP.put("libupb_textformat_lib.so.42.0.0", "libupb_textformat_lib.so.42");
+        SYMLINK_MAP.put("libutf8_range_lib.so.42.0.0", "libutf8_range_lib.so.42");
+        SYMLINK_MAP.put("libupb_message_lib.so.42.0.0", "libupb_message_lib.so.42");
+        SYMLINK_MAP.put("libupb_base_lib.so.42.0.0", "libupb_base_lib.so.42");
+        SYMLINK_MAP.put("libupb_mem_lib.so.42.0.0", "libupb_mem_lib.so.42");
+        SYMLINK_MAP.put("libgpr.so.42.0.0", "libgpr.so.42");
+        SYMLINK_MAP.put("libaddress_sorting.so.42.0.0", "libaddress_sorting.so.42");
+        SYMLINK_MAP.put("libgflags.so.2.2.2", "libgflags.so.2.2");
+    }
+
+    // Native libraries that must be present for indirect dependencies, but are not loaded explicitly.
+    private static final String[][] EXTRACT_ONLY_LIBS = {
+        {"libgrpc++.so.1.65.4"},
+        {"libgrpc.so.42.0.0"},
+        {"libupb_json_lib.so.42.0.0"},
+        {"libupb_textformat_lib.so.42.0.0"},
+        {"libutf8_range_lib.so.42.0.0"},
+        {"libupb_message_lib.so.42.0.0"},
+        {"libupb_base_lib.so.42.0.0"},
+        {"libupb_mem_lib.so.42.0.0"},
+        {"libgpr.so.42.0.0"},
+        {"libaddress_sorting.so.42.0.0", "libaddress_sorting.42.0.0.dylib"},
+        {"libgflags.so.2.2.2"},
+        {"libbrpc.so"}
+    };
+
     // Native libraries depend on each other and need to be loaded in a stable sequence.
     private static final String[][] LOADING_SEQUENCE = {
         {"libsecurec.so", "libsecurec.dylib"},
         {"libtbb.so.2", "libtbb.2.dylib"},
-        {"libcrypto.so.1.1", "libcrypto.dylib"},
-        {"libssl.so.1.1", "libssl.dylib"},
+        {"libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.dylib"},
+        {"libssl.so.3", "libssl.so.1.1", "libssl.dylib"},
         {"libds-spdlog.so.1.12.0", "libds-spdlog.1.12.0.dylib"},
         {"libzmq.so.5.2.5", "libzmq.5.2.5.dylib"},
-        {"libaddress_sorting.so.42.0.0", "libaddress_sorting.42.0.0.dylib"},
+        {"libabseil_dll.so.2407.0.0"},
+        {"libprotobuf.so.25.5.0"},
+        {"librpc_option_protos.so"},
+        {"libcommon_flags.so"},
+        {"libetcdapi_proto.so"},
         {"libdatasystem.so", "libdatasystem.dylib"},
         {"libspdlog.so.1.12.0", "libspdlog.1.12.0.dylib"},
         {"libyrlogs.so", "libyrlogs.dylib"},
@@ -89,6 +127,7 @@ public class LoadUtil {
             if (!jniDir.exists() && !jniDir.mkdirs()) {
                 throw new ExceptionInInitializerError("Failed to create folder: " + jniDir.getAbsolutePath());
             }
+            extractAndSymlink(properties, libPath);
             for (String[] soFileNames : LOADING_SEQUENCE) {
                 Optional<String> soFileName = findPackagedLibrary(properties, soFileNames);
                 if (!soFileName.isPresent()) {
@@ -104,6 +143,57 @@ public class LoadUtil {
             }
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    private static void extractAndSymlink(Properties properties, String libPath) throws IOException {
+        for (String[] soFileNames : EXTRACT_ONLY_LIBS) {
+            Optional<String> soFileName = findPackagedLibrary(properties, soFileNames);
+            if (!soFileName.isPresent()) {
+                continue;
+            }
+            String libraryName = soFileName.get();
+            String soFileHash = properties.getProperty(libraryName);
+            String soFilePath = Paths.get(libPath, libraryName).toString();
+            extractPackagedLibrary(libraryName, soFilePath, soFileHash);
+            createSymlink(libraryName);
+        }
+    }
+
+    private static void extractPackagedLibrary(String libraryName, String soFilePath, String soFileHash)
+            throws IOException {
+        File localSoFile = Paths.get(DEFAULT_JNI_FOLDER, libraryName).toFile();
+        File lockFile = Paths.get(DEFAULT_JNI_FOLDER, libraryName + ".lock").toFile();
+        try (FileChannel lockChannel = FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE); FileLock ignored = lockChannel.lock()) {
+            boolean isSoFileExist = localSoFile.exists();
+            boolean isCheckSumMatch = isSoFileExist && checkSHA256(localSoFile, soFileHash);
+
+            if (isSoFileExist && isCheckSumMatch && isReadableFile(localSoFile)) {
+                return;
+            }
+
+            if (!prepareLocalSoFile(localSoFile)) {
+                copyTempSoFile(libraryName, soFilePath);
+                return;
+            }
+
+            copySoFile(soFilePath, localSoFile);
+        }
+    }
+
+    private static void createSymlink(String soFileName) {
+        String linkName = SYMLINK_MAP.get(soFileName);
+        if (linkName == null) {
+            return;
+        }
+        try {
+            File linkFile = Paths.get(DEFAULT_JNI_FOLDER, linkName).toFile();
+            File targetFile = Paths.get(DEFAULT_JNI_FOLDER, soFileName).toFile();
+            Files.deleteIfExists(linkFile.toPath());
+            Files.createSymbolicLink(linkFile.toPath(), targetFile.toPath());
+        } catch (IOException e) {
+            LOGGER.warn("Failed to create symlink for {}: {}", soFileName, e.getMessage());
         }
     }
 
@@ -128,6 +218,23 @@ public class LoadUtil {
 
             if (!copyAndLoadSoFile(soFilePath, localSoFile)) {
                 copyAndLoadTempSoFile(libraryName, soFilePath);
+            }
+        }
+    }
+
+    private static void copySoFile(String soFilePath, File localSoFile) throws IOException {
+        if (!localSoFile.exists() && !localSoFile.createNewFile()) {
+            throw new ExceptionInInitializerError("Failed to create file: " + localSoFile.getAbsolutePath());
+        }
+        try (FileChannel outChannel = FileChannel.open(localSoFile.toPath(), StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING); FileLock soLock = outChannel.lock()) {
+            if (soLock == null) {
+                LOGGER.info("Not get lock of file: {}", localSoFile.getAbsolutePath());
+                return;
+            }
+            copyJarSoToLocal(soFilePath, outChannel);
+            if (!localSoFile.setReadOnly()) {
+                LOGGER.warn("set file: {} read permission failed.", localSoFile.getAbsolutePath());
             }
         }
     }
@@ -268,6 +375,18 @@ public class LoadUtil {
                 LOGGER.warn("set file: {} read permission failed.", tempSoFile.getAbsolutePath());
             }
             System.load(tempSoFile.getCanonicalPath());
+        }
+    }
+
+    private static void copyTempSoFile(String soFileName, String soFilePath) throws IOException {
+        File tempSoFile = File.createTempFile("tmp", soFileName, Paths.get(DEFAULT_JNI_FOLDER).toFile());
+        tempSoFile.deleteOnExit();
+        try (FileChannel outChannel = FileChannel.open(tempSoFile.toPath(), StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
+            copyJarSoToLocal(soFilePath, outChannel);
+            if (!tempSoFile.setReadOnly()) {
+                LOGGER.warn("set file: {} read permission failed.", tempSoFile.getAbsolutePath());
+            }
         }
     }
 

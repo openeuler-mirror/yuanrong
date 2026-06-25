@@ -110,6 +110,14 @@ class InstanceHandlerHelper {
                         String apiType = jsonParser.getValueAsString();
                         LOGGER.debug("set apiType = {}", apiType);
                         input.put(Constants.API_TYPE, apiType);
+                    } else if (Constants.INSTANCE_NAME.equals(fieldName)) {
+                        String instanceName = jsonParser.getValueAsString();
+                        LOGGER.debug("set instanceName = {}", instanceName);
+                        input.put(Constants.INSTANCE_NAME, instanceName);
+                    } else if (Constants.INSTANCE_NS.equals(fieldName)) {
+                        String instanceNs = jsonParser.getValueAsString();
+                        LOGGER.debug("set instanceNs = {}", instanceNs);
+                        input.put(Constants.INSTANCE_NS, instanceNs);
                     } else {
                         LOGGER.debug("get fieldName = {}", fieldName);
                     }
@@ -149,6 +157,10 @@ public class InstanceHandler {
 
     private boolean needOrder = true;
 
+    private String name = "";
+
+    private String ns = "";
+
     /**
      * The constructor of the InstanceHandler.
      *
@@ -175,7 +187,10 @@ public class InstanceHandler {
      * @return InstanceFunctionHandler Instance.
      */
     public <R> InstanceFunctionHandler<R> function(YRFunc0<R> func) {
-        return new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        InstanceFunctionHandler<R> handler = new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        handler.setName(this.name);
+        handler.setNs(this.ns);
+        return handler;
     }
 
     /**
@@ -190,7 +205,10 @@ public class InstanceHandler {
      * @snippet{trimleft} InstanceExample.java InstanceHandler function example
      */
     public <T0, R> InstanceFunctionHandler<R> function(YRFunc1<T0, R> func) {
-        return new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        InstanceFunctionHandler<R> handler = new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        handler.setName(this.name);
+        handler.setNs(this.ns);
+        return handler;
     }
 
     /**
@@ -204,7 +222,10 @@ public class InstanceHandler {
      * @return InstanceFunctionHandler Instance.
      */
     public <T0, T1, R> InstanceFunctionHandler<R> function(YRFunc2<T0, T1, R> func) {
-        return new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        InstanceFunctionHandler<R> handler = new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        handler.setName(this.name);
+        handler.setNs(this.ns);
+        return handler;
     }
 
     /**
@@ -219,7 +240,10 @@ public class InstanceHandler {
      * @return InstanceFunctionHandler Instance.
      */
     public <T0, T1, T2, R> InstanceFunctionHandler<R> function(YRFunc3<T0, T1, T2, R> func) {
-        return new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        InstanceFunctionHandler<R> handler = new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        handler.setName(this.name);
+        handler.setNs(this.ns);
+        return handler;
     }
 
     /**
@@ -235,7 +259,10 @@ public class InstanceHandler {
      * @return InstanceFunctionHandler Instance.
      */
     public <T0, T1, T2, T3, R> InstanceFunctionHandler<R> function(YRFunc4<T0, T1, T2, T3, R> func) {
-        return new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        InstanceFunctionHandler<R> handler = new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        handler.setName(this.name);
+        handler.setNs(this.ns);
+        return handler;
     }
 
     /**
@@ -252,7 +279,10 @@ public class InstanceHandler {
      * @return InstanceFunctionHandler Instance.
      */
     public <T0, T1, T2, T3, T4, R> InstanceFunctionHandler<R> function(YRFunc5<T0, T1, T2, T3, T4, R> func) {
-        return new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        InstanceFunctionHandler<R> handler = new InstanceFunctionHandler<>(func, this.instanceId, this.apiType);
+        handler.setName(this.name);
+        handler.setNs(this.ns);
+        return handler;
     }
 
     /**
@@ -347,6 +377,24 @@ public class InstanceHandler {
     }
 
     /**
+     * set instance name.
+     *
+     * @param name instance name.
+     */
+    void setName(String name) {
+        this.name = name;
+    }
+
+    /**
+     * set instance namespace.
+     *
+     * @param ns instance namespace.
+     */
+    void setNs(String ns) {
+        this.ns = ns;
+    }
+
+    /**
      * The member method of the InstanceHandler class is used to recycle cloud Java function instances. It supports
      * synchronous or asynchronous termination.
      *
@@ -423,6 +471,8 @@ public class InstanceHandler {
         out.put(Constants.INSTANCE_KEY, this.instanceId);
         out.put(Constants.API_TYPE, String.valueOf(apiType.getNumber()));
         out.put(Constants.NEED_ORDER, this.needOrder ? "true" : "false");
+        out.put(Constants.INSTANCE_NAME, this.name);
+        out.put(Constants.INSTANCE_NS, this.ns);
         Runtime runtime = YR.getRuntime();
         out.put(Constants.INSTANCE_ROUTE, runtime.getInstanceRoute(this.instanceId));
         if (this.realInstanceId.isEmpty()) {
@@ -448,6 +498,8 @@ public class InstanceHandler {
         this.apiType = ApiType.valueOf(Integer.parseInt(SdkUtils.defaultIfNotFound(input, Constants.API_TYPE, "0")));
         this.realInstanceId = SdkUtils.defaultIfNotFound(input, Constants.INSTANCE_ID, "");
         this.needOrder = !"false".equals(SdkUtils.defaultIfNotFound(input, Constants.NEED_ORDER, "false"));
+        this.name = SdkUtils.defaultIfNotFound(input, Constants.INSTANCE_NAME, "");
+        this.ns = SdkUtils.defaultIfNotFound(input, Constants.INSTANCE_NS, "");
         String instanceRoute = SdkUtils.defaultIfNotFound(input, Constants.INSTANCE_ROUTE, "");
         InvokeOptions opts = new InvokeOptions();
         opts.setNeedOrder(needOrder);

@@ -423,6 +423,37 @@ public class ActorTest {
     }
 
     /*case
+     * @title: java创建具名实例并调用方法验证返回值
+     * @precondition:
+     * @step:   1.使用YR.instance创建具名实例，名称为counter-1，命名空间为demo
+     * @step:   2.调用addOne方法3次
+     * @step:   3.使用相同name/ns再次获取具名实例，调用get方法
+     * @expect: 1.第3次addOne返回3
+     * @expect: 2.get方法返回3，共享同一实例的状态
+     */
+    @Test
+    public void test_named_instance_invoke_successfully() throws Exception {
+        TestUtils.initYR();
+        try {
+            InstanceHandler counter = YR.instance(Counter::new, "counter-1", "demo").invoke();
+            ObjectRef ref1 = counter.function(Counter::addOne).invoke();
+            Assert.assertEquals(YR.get(ref1, 10), 1);
+            ObjectRef ref2 = counter.function(Counter::addOne).invoke();
+            Assert.assertEquals(YR.get(ref2, 10), 2);
+            ObjectRef ref3 = counter.function(Counter::addOne).invoke();
+            Assert.assertEquals(YR.get(ref3, 10), 3);
+
+            InstanceHandler counterExist = YR.instance(Counter::new, "counter-1", "demo").invoke();
+            ObjectRef refGet = counterExist.function(Counter::get).invoke();
+            Assert.assertEquals(YR.get(refGet, 10), 3);
+
+            counter.terminate();
+        } finally {
+            YR.Finalize();
+        }
+    }
+
+    /*case
      * @title: Concurrency为1时默认开启保序，大于1时默认关闭保序
      * @precondition:
      * @step:   1.设置Concurrency为10和1，验证InvokeOptions的保序配置值

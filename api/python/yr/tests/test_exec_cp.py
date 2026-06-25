@@ -71,6 +71,23 @@ class TestCopyPathParsing(unittest.TestCase):
 
 class TestCopyTransport(unittest.TestCase):
 
+    def test_copy_websocket_disables_library_keepalive(self):
+        calls = []
+        sentinel = object()
+
+        def fake_connect(*args, **kwargs):
+            calls.append((args, kwargs))
+            return sentinel
+
+        with patch.object(exec_cli.websockets, "connect", new=fake_connect):
+            result = exec_cli._connect_copy_websocket("ws://example/ws", ssl_context=None)
+
+        self.assertIs(result, sentinel)
+        self.assertEqual(calls[0][0], ("ws://example/ws",))
+        self.assertIsNone(calls[0][1]["ssl"])
+        self.assertIsNone(calls[0][1]["ping_interval"])
+        self.assertIsNone(calls[0][1]["ping_timeout"])
+
     def test_copy_to_remote_streams_file_tar(self):
         payload = b"\x00copy-to-remote\npayload\xff"
         port = _find_free_port()

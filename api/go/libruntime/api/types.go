@@ -257,7 +257,8 @@ type InvokeOptions struct {
 	AcquireTimeout       int
 	TrafficLimited       bool
 	ForceInvoke          bool
-    IsInterrupted        bool
+	IsInterrupted        bool
+	SessionCtxID         string
 }
 
 // InstanceAllocation holds the allocation of instance

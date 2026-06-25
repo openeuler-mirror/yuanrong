@@ -183,6 +183,8 @@ struct InvokeOptions {
     std::string workingDir;
 
     bool isInterrupted = false;
+
+    std::string sessionCtxId;
 };
 
 struct FunctionMeta {

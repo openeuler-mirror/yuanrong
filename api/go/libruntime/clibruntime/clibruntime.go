@@ -1954,6 +1954,7 @@ func cAcquireOptions(acquireOpt api.InvokeOptions) *C.CInvokeOptions {
 		timeout:                   C.int(acquireOpt.Timeout),
 		acquireTimeout:            C.int(acquireOpt.AcquireTimeout),
 		trafficLimited:            C.char(btoi(acquireOpt.TrafficLimited)),
+		sessionCtxId:              C.CString(acquireOpt.SessionCtxID),
 	}
 	return &cAcquireOpt
 }
@@ -2013,6 +2014,7 @@ func cInvokeOptions(invokeOpt api.InvokeOptions) *C.CInvokeOptions {
 		scheduleTimeoutMs:         C.int64_t(invokeOpt.ScheduleTimeoutMs),
 		forceInvoke:               C.char(btoi(invokeOpt.ForceInvoke)),
 		isInterrupted:             C.char(btoi(invokeOpt.IsInterrupted)),
+		sessionCtxId:              C.CString(invokeOpt.SessionCtxID),
 	}
 	if invokeOpt.InstanceSession != nil {
 		cCInstanceSession := (*C.CInstanceSession)(C.malloc(C.sizeof_CInstanceSession))
@@ -2040,6 +2042,7 @@ func freeCInvokeOptions(cInvokeOpt *C.CInvokeOptions) {
 		CSafeFree(cInvokeOpt.instanceSession.sessionId)
 		C.free(unsafe.Pointer(cInvokeOpt.instanceSession))
 	}
+	CSafeFree(cInvokeOpt.sessionCtxId)
 }
 
 func cScheduleAffinities(schedAffinities []api.Affinity) (*C.CAffinity, C.int) {

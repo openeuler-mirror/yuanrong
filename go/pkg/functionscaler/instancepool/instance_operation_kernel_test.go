@@ -260,6 +260,21 @@ func TestPrepareCreateOptions(t *testing.T) {
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(delegateEnv[enableMetricsEnvKey], convey.ShouldEqual, "true")
 		convey.So(delegateEnv["ENABLE_AGENT_SESSION"], convey.ShouldEqual, "true")
+
+		sessionCtxID := "ctx-1"
+		createOpt, err = prepareCreateOptions(createInstanceRequest{
+			funcSpec:        funcSpec,
+			nuwaRuntimeInfo: &wisecloudTypes.NuwaRuntimeInfo{},
+			resKey:          resKey,
+			instanceType:    insType,
+			sessionCtxID:    &sessionCtxID,
+		}, &resspeckey.ResourceSpecification{})
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(createOpt[constant.SessionCtxID], convey.ShouldEqual, sessionCtxID)
+		delegateEnv = map[string]string{}
+		err = json.Unmarshal([]byte(createOpt[commonconstant.DelegateEnvVar]), &delegateEnv)
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(delegateEnv[sessionCtxEnvKey], convey.ShouldEqual, sessionCtxID)
 		os.Setenv("CUSTOM_CONTAINER_IMAGE_PULL_POLICY", "")
 	})
 }

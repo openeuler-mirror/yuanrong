@@ -410,6 +410,7 @@ type Instance struct {
 	PodID             string
 	PodDeploymentName string
 	AZ                string
+	SessionCtxID      *string
 }
 
 // Copy -
@@ -437,6 +438,7 @@ func (i *Instance) Copy() *Instance {
 		PodID:             i.PodID,
 		PodDeploymentName: i.PodDeploymentName,
 		AZ:                i.AZ,
+		SessionCtxID:      i.SessionCtxID,
 	}
 }
 
@@ -494,6 +496,7 @@ type InstanceAcquireRequest struct {
 	StateID             string
 	CallerPodName       string
 	TrafficLimited      bool
+	SessionCtxID        string
 
 	SkipWaitPending bool
 }

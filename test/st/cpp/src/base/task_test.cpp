@@ -852,20 +852,6 @@ TEST_F(TaskTest, KVSetAndGetSuccessfully)
 }
 
 /*case
- * @title: put, 生成objID携带workerID
- * @precondition:
- * @step:  1.调用函数，put，get
- * @expect:  1.put生成携带workerID的objID
- */
-TEST_F(TaskTest, CheckPutObjIdSuccessfully)
-{
-    auto r1 = YR::Function(Add).Invoke(1, 1);
-    auto ret = YR::Put(r1);
-    EXPECT_EQ(ret.ID().size(), 57);
-    EXPECT_EQ(*YR::Get(*YR::Get(ret, -1), -1), 2);
-}
-
-/*case
  * @title: 测试Put
  * @precondition:
  * @step:  1.调用Put

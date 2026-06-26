@@ -1383,6 +1383,33 @@ func TestFaaSScheduler_parseExtraData(t *testing.T) {
 			_, err := parseExtraData(dataBytes)
 			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
 		})
+		convey.Convey("session context ID", func() {
+			dataBytes, _ := json.Marshal(map[string][]byte{
+				constant.SessionCtxID: []byte("ctx-1"),
+			})
+			dataInfo, err := parseExtraData(dataBytes)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.sessionCtxID, convey.ShouldEqual, "ctx-1")
+		})
+		convey.Convey("session context ID too long", func() {
+			longSessionCtxID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			dataBytes, _ := json.Marshal(map[string][]byte{
+				constant.SessionCtxID: []byte(longSessionCtxID),
+			})
+			dataInfo, err := parseExtraData(dataBytes)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.sessionCtxID, convey.ShouldEqual, longSessionCtxID)
+
+			err = validateAndNormalizeSessionCtxID(&types.FunctionSpecification{}, dataInfo)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.sessionCtxID, convey.ShouldBeEmpty)
+
+			dataInfo.sessionCtxID = longSessionCtxID
+			err = validateAndNormalizeSessionCtxID(&types.FunctionSpecification{
+				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableSessionCtx: true},
+			}, dataInfo)
+			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+		})
 	})
 }
 
@@ -1404,12 +1431,12 @@ func TestFaaSScheduler_handleQuerySession(t *testing.T) {
 
 		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
 			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
-			return &types.FunctionSpecification{
-				FuncKey:            funcKey,
-				FuncMetaSignature:  "sig-1",
-				ExtendedMetaData:   commonTypes.ExtendedMetaData{EnableAgentSession: true},
-			}
-		})
+				return &types.FunctionSpecification{
+					FuncKey:           funcKey,
+					FuncMetaSignature: "sig-1",
+					ExtendedMetaData:  commonTypes.ExtendedMetaData{EnableAgentSession: true},
+				}
+			})
 		patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "QuerySession",
 			func(_ *instancepool.PoolManager, _ string, _ string) (string, error) {
 				return "instance-123", nil
@@ -1428,11 +1455,11 @@ func TestFaaSScheduler_handleQuerySession(t *testing.T) {
 		defer patches.Reset()
 		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
 			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
-			return &types.FunctionSpecification{
-				FuncKey:          funcKey,
-				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: false},
-			}
-		})
+				return &types.FunctionSpecification{
+					FuncKey:          funcKey,
+					ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: false},
+				}
+			})
 
 		resp = fs.handleQuerySession(funcKey, extraDataBytes, "trace-2")
 		convey.So(resp, convey.ShouldNotBeNil)
@@ -1443,11 +1470,11 @@ func TestFaaSScheduler_handleQuerySession(t *testing.T) {
 		defer patches.Reset()
 		patches.ApplyMethod(reflect.TypeOf(registry.GlobalRegistry), "GetFuncSpec",
 			func(_ *registry.Registry, _ string) *types.FunctionSpecification {
-			return &types.FunctionSpecification{
-				FuncKey:          funcKey,
-				ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: true},
-			}
-		})
+				return &types.FunctionSpecification{
+					FuncKey:          funcKey,
+					ExtendedMetaData: commonTypes.ExtendedMetaData{EnableAgentSession: true},
+				}
+			})
 		patches.ApplyMethod(reflect.TypeOf(fs.PoolManager), "QuerySession",
 			func(_ *instancepool.PoolManager, _ string, gotSessionID string) (string, error) {
 				convey.So(gotSessionID, convey.ShouldEqual, sessionID)

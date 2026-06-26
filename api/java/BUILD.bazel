@@ -347,6 +347,7 @@ genrule(
         "libcommon_flags.so"
         "librpc_option_protos.so"
         "libprotobuf.so.25.5.0"
+        "libprotoc.so.25.5.0",
         "libabseil_dll.so.2407.0.0"
         "libtbb.so.2"
         "libds-spdlog.so.1.12.0"
@@ -366,7 +367,7 @@ genrule(
         "libgpr.so.42.0.0"
         "libgrpc.so.42.0.0"
         "libgrpc++.so.1.65.4"
-        "libgflags.so.2.2"
+        "libgflags.so.2.2.2"
         "libbrpc.so"
         "libetcdapi_proto.so"
         "libdatasystem.so"

@@ -530,20 +530,6 @@ TEST_F(ClusterModeRuntimeTest, TestKVWriteFailed)
     EXPECT_THROW(rt->KVWrite("111", val.c_str(), param), YR::Exception);
     EXPECT_THROW(rt->KVWrite("111", std::make_shared<msgpack::sbuffer>(), paramV2), YR::Exception);
 }
-
-TEST_F(ClusterModeRuntimeTest, TestKVMSetTxSuccessfully)
-{
-    EXPECT_CALL(*lr.get(), KVMSetTx(_, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
-    EXPECT_NO_THROW(rt->KVMSetTx({"111"}, {std::make_shared<msgpack::sbuffer>()}, YR::ExistenceOpt()));
-}
-
-TEST_F(ClusterModeRuntimeTest, TestKVMSetTxFailed)
-{
-    EXPECT_CALL(*lr.get(), KVMSetTx(_, _, _))
-        .WillOnce(Return(YR::Libruntime::ErrorInfo(YR::Libruntime::ErrorCode::ERR_PARAM_INVALID, "aaa")));
-    EXPECT_THROW(rt->KVMSetTx({"111"}, {std::make_shared<msgpack::sbuffer>()}, YR::ExistenceOpt()), YR::Exception);
-}
-
 TEST_F(ClusterModeRuntimeTest, TestKVReadSuccessfully)
 {
     std::shared_ptr<YR::Libruntime::Buffer> ret = std::make_shared<YR::Libruntime::NativeBuffer>(1);

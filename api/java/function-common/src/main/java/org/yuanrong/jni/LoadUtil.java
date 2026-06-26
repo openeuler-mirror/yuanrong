@@ -81,6 +81,7 @@ public class LoadUtil {
         "libgpr.so.42.0.0",
         "libaddress_sorting.so.42.0.0",
         "libgflags.so.2.2.2",
+        "libprotoc.so.25.5.0",
         "libbrpc.so"  // unversioned .so, no SYMLINK_MAP entry needed
     };
 
@@ -97,6 +98,7 @@ public class LoadUtil {
         "librpc_option_protos.so",
         "libcommon_flags.so",
         "libetcdapi_proto.so",
+        "libprotoc.so.25.5.0",
         "libdatasystem.so",
         "libspdlog.so.1.12.0",
         "libyrlogs.so",

@@ -7,6 +7,7 @@ cc_library(
         "lib/libsecurec.so",
         "lib/libzmq.so.5",
         "lib/libprotobuf.so.25.5.0",
+        "lib/libprotoc.so.25.5.0",
         "lib/librpc_option_protos.so",
         "lib/libabseil_dll.so.2407.0.0",
         "lib/libcommon_flags.so",

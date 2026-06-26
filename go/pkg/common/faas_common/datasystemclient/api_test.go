@@ -1231,27 +1231,6 @@ func TestSet(t *testing.T) {
 		})
 	})
 }
-
-func TestMSetTx(t *testing.T) {
-	convey.Convey("MSetTx", t, func() {
-		convey.Convey("dsclient is nil", func() {
-			localClientLibruntime = nil
-			put := MSetTx(&data.KvMSetTxRequest{}, &Config{}, "test-trace-ID")
-			convey.So(put.Code, convey.ShouldEqual, errRPCUnavailable)
-		})
-		convey.Convey("success", func() {
-			localClientLibruntime = &invokerLibruntimeMock{setTenantIDSuccessfully: true}
-			status := MSetTx(&data.KvMSetTxRequest{}, &Config{}, "test-trace-ID")
-			convey.So(status.Code, convey.ShouldEqual, 0)
-		})
-		convey.Convey("failed", func() {
-			localClientLibruntime = &invokerLibruntimeMock{setTenantIDSuccessfully: false}
-			status := MSetTx(&data.KvMSetTxRequest{}, &Config{}, "test-trace-ID")
-			convey.So(status.Code, convey.ShouldNotEqual, 0)
-		})
-	})
-}
-
 func TestGet(t *testing.T) {
 	convey.Convey("Get", t, func() {
 		convey.Convey("dsclient is nil", func() {

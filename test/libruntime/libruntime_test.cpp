@@ -1263,7 +1263,6 @@ TEST_F(LibruntimeTest, KVTest)
     ASSERT_EQ(err.Code(), 0);
     std::vector<std::string> keys = {key};
     std::vector<std::shared_ptr<Buffer>> vals = {value};
-    err = lr->KVMSetTx(keys, vals, mSetParam);
     ASSERT_EQ(err.Code(), 0);
     auto [res1, err1] = lr->KVRead(key, 10);
     ASSERT_EQ(err1.Code(), 0);

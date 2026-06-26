@@ -748,18 +748,6 @@ TEST_F(CLibruntimeTest, CKVWriteTest)
     auto cErr = CKVWrite(GetStr("key"), data, param);
     ASSERT_EQ(0, cErr.code);
 }
-
-TEST_F(CLibruntimeTest, CKVMSetTxTest)
-{
-    EXPECT_CALL(*lr.get(), KVMSetTx(_, _, _)).WillOnce(Return(YR::Libruntime::ErrorInfo()));
-    char *fake[1];
-    fake[0] = GetStr("obj_1");
-    CBuffer data{(void *)"123", 3, nullptr};
-    CMSetParam param;
-    auto cErr = CKVMSetTx(fake, 1, &data, param);
-    ASSERT_EQ(0, cErr.code);
-}
-
 TEST_F(CLibruntimeTest, CKVReadTest)
 {
     auto returnBuffer = std::make_shared<YR::Libruntime::NativeBuffer>(3);

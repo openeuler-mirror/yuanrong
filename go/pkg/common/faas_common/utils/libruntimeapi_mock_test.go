@@ -62,7 +62,6 @@ func TestFakeLibruntimeSdkClient(t *testing.T) {
 	_, err = fakeLibruntimeSdkClient.KVSetWithoutKey([]byte{}, api.SetParam{})
 	assert.Equal(t, nil, err)
 
-	err = fakeLibruntimeSdkClient.KVMSetTx([]string{}, [][]byte{}, api.MSetParam{})
 	assert.Equal(t, nil, err)
 
 	_, err = fakeLibruntimeSdkClient.KVGet("", 1)

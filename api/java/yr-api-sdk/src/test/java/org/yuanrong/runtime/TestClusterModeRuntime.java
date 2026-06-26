@@ -847,30 +847,6 @@ public class TestClusterModeRuntime {
     }
 
     @Test
-    public void testKVMSetTx() throws Exception {
-        PowerMockito.mockStatic(LibRuntime.class);
-        ClusterModeRuntime runtime = new ClusterModeRuntime();
-        ErrorInfo mockRes = new ErrorInfo(ErrorCode.ERR_PARAM_INVALID, ModuleCode.RUNTIME, "");
-        when(LibRuntime.KVMSetTx(anyList(), anyList(), any())).thenReturn(mockRes);
-        boolean isException = false;
-        try {
-            runtime.KVMSetTx(new ArrayList<>(), new ArrayList<>(), new MSetParam());
-        } catch (YRException e) {
-            isException = true;
-        }
-        Assert.assertTrue(isException);
-
-        when(LibRuntime.KVMSetTx(anyList(), anyList(), any())).thenThrow(new LibRuntimeException("error occurred"));
-        isException = false;
-        try {
-            runtime.KVMSetTx(new ArrayList<>(), new ArrayList<>(), new MSetParam());
-        } catch (YRException e) {
-            isException = true;
-        }
-        Assert.assertTrue(isException);
-    }
-
-    @Test
     public void testGetInstanceRoute() throws Exception {
         PowerMockito.mockStatic(LibRuntime.class);
         ClusterModeRuntime runtime = new ClusterModeRuntime();

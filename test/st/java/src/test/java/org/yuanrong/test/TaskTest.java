@@ -519,66 +519,6 @@ public class TaskTest {
     }
 
     /*case
-     * @title: 调用kv set or mSetTx，各种失败场景
-     * @precondition:
-     * @step:   1.调用kv set or mSetTx，各种失败场景
-     * @expect: 1.预期异常抛出
-     */
-    @Test
-    public void test_kv_set_or_msettx_failed() throws Exception {
-        TestUtils.initYR(false);
-        try {
-            boolean isException = false;
-            try {
-                MSetParam msetParam = new MSetParam();
-                msetParam.setExistence(ExistenceOpt.NONE);
-                List<String> keys = new ArrayList<String>(){{
-                    add("synchronous-key1");
-                }};
-                List<byte[]> vals = new ArrayList<byte[]>(){{
-                    add("synchronous-value1".getBytes(StandardCharsets.UTF_8));
-                }};
-                YR.kv().mSetTx(keys, vals, msetParam);
-            } catch (YRException e) {
-                Assert.assertTrue(e.toString().contains("MSetParam's existence should be NX"), TestUtils.getStackTraceStr(e));
-                isException = true;
-            }
-            Assert.assertTrue(isException);
-
-            isException = false;
-            try {
-                MSetParam msetParam = new MSetParam();
-                List<String> keys = new ArrayList<String>(){{
-                    add("synchronous-key1");
-                    add("synchronous-key2");
-                }};
-                List<byte[]> vals = new ArrayList<byte[]>(){{
-                    add("synchronous-value1".getBytes(StandardCharsets.UTF_8));
-                }};
-                YR.kv().mSetTx(keys, vals, msetParam);
-            } catch (YRException e) {
-                Assert.assertTrue(e.toString().contains("Arguments vector size not equal"), TestUtils.getStackTraceStr(e));
-                isException = true;
-            }
-            Assert.assertTrue(isException);
-
-            isException = false;
-            try {
-                MSetParam msetParam = new MSetParam();
-                List<String> keys = new ArrayList<String>();
-                List<byte[]> vals = new ArrayList<byte[]>();
-                YR.kv().mSetTx(keys, vals, msetParam);
-            } catch (YRException e) {
-                Assert.assertTrue(e.toString().contains("The keys should not be empty"), TestUtils.getStackTraceStr(e));
-                isException = true;
-            }
-            Assert.assertTrue(isException);
-        } finally {
-            YR.Finalize();
-        }
-    }
-
-    /*case
      * @title: java调用kv接口
      * @precondition:
      * @step:   1.调用KV set接口

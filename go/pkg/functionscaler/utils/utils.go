@@ -407,6 +407,7 @@ func BuildInstanceFromInsSpec(insSpec *commonTypes.InstanceSpecification,
 		PodID:             insSpec.Extensions.PodNamespace + ":" + insSpec.Extensions.PodName,
 		PodDeploymentName: insSpec.Extensions.PodDeploymentName,
 		AZ:                insSpec.Extensions.AZ,
+		SessionCtxID:      insSpec.Extensions.SessionCtxID,
 	}
 }
 
@@ -422,6 +423,11 @@ func CheckInstanceSessionValid(insSess commonTypes.InstanceSessionConfig) bool {
 		return false
 	}
 	return true
+}
+
+// CheckSessionCtxIDValid checks whether a session context ID follows the session ID length limit.
+func CheckSessionCtxIDValid(sessionCtxID string) bool {
+	return len(sessionCtxID) <= maxSessionLength
 }
 
 // GetInvokeLabelFromResKey get invoke label from res key

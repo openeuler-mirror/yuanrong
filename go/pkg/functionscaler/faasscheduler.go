@@ -491,6 +491,10 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 		logger.Errorf("failed to parse extraData error :%v", err)
 		return generateInstanceResponse(nil, err, startTime)
 	}
+	if err = validateAndNormalizeSessionCtxID(funcSpec, dataInfo); err != nil {
+		logger.Errorf("invalid session context ID: %v", err)
+		return generateInstanceResponse(nil, err, startTime)
+	}
 	resSpec, err := getResourceSpecification(dataInfo.resourceData, dataInfo.invokeLabel, funcSpec)
 	if err != nil {
 		logger.Errorf("failed get resSpec error %v", err)
@@ -510,6 +514,7 @@ func (fs *FaaSScheduler) handleInstanceAcquire(targetName string, extraData []by
 		CallerPodName:       dataInfo.callerPodName,
 		TrafficLimited:      dataInfo.trafficLimited,
 		InstanceSession:     dataInfo.instanceSession,
+		SessionCtxID:        dataInfo.sessionCtxID,
 	})
 	if err != nil {
 		logger.Errorf("failed to acquire instance of function %s traceID %s error %s", funcSpec.FuncKey, traceID,
@@ -638,10 +643,25 @@ func parseExtraData(extraData []byte) (*extraDataInfo, snerror.SNError) {
 		}
 		dataInfo.instanceSession = insSessConfig
 	}
+	if sessionCtxID, ok := extraDataMap[constant.SessionCtxID]; ok {
+		dataInfo.sessionCtxID = string(sessionCtxID)
+	}
 	if invokeLabel, ok := extraDataMap[constant.InstanceRequirementInvokeLabel]; ok {
 		dataInfo.invokeLabel = invokeLabel
 	}
 	return dataInfo, nil
+}
+
+func validateAndNormalizeSessionCtxID(funcSpec *types.FunctionSpecification,
+	dataInfo *extraDataInfo) snerror.SNError {
+	if !funcSpec.ExtendedMetaData.EnableSessionCtx {
+		dataInfo.sessionCtxID = ""
+		return nil
+	}
+	if !utils.CheckSessionCtxIDValid(dataInfo.sessionCtxID) {
+		return snerror.New(statuscode.InstanceSessionInvalidErrCode, "session context ID is too long")
+	}
+	return nil
 }
 
 type extraDataInfo struct {
@@ -654,6 +674,7 @@ type extraDataInfo struct {
 	invokeLabel           []byte
 	trafficLimited        bool
 	instanceSession       commonTypes.InstanceSessionConfig
+	sessionCtxID          string
 }
 
 func judgeForwardToOtherCluster(funcURN string, logger api.FormatLogger) (bool, string, snerror.SNError) {

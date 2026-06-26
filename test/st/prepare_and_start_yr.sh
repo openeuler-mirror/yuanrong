@@ -102,12 +102,33 @@ function prepend_python_runtime_ld_path() {
     esac
 }
 
+function resolve_metrics_config_file() {
+    local candidate
+    for candidate in \
+        "${YUANRONG_DIR}/functionsystem/config/metrics/metrics_config.json" \
+        "${YUANRONG_DIR}/functionsystem/scripts/config/metrics/metrics_config.json"; do
+        if [ -f "${candidate}" ]; then
+            readlink -f "${candidate}"
+            return
+        fi
+    done
+}
+
 function start_yr() {
     cd "${YUANRONG_DIR}/"
     local services_file="${BASE_DIR}/services.yaml"
     local absolute_cpp_code_path=$(readlink -f "${DEPLOY_PATH}/pkg")
     local absolute_python_code_path=$(readlink -f "${BASE_DIR}/python")
     local absolute_java_code_path=$(readlink -f "${DEPLOY_PATH}/pkg")
+    local metrics_config_file
+    metrics_config_file=$(resolve_metrics_config_file)
+    local metrics_config_args=()
+    if [ -n "${metrics_config_file}" ]; then
+        metrics_config_args=(
+            --metrics_config_file "${metrics_config_file}"
+            --runtime_metrics_config_file "${metrics_config_file}"
+        )
+    fi
     cp -f "$services_file" ${DEPLOY_PATH}
     sed -i "s#codePath: /cpp#codePath: ${absolute_cpp_code_path}/#g" "${DEPLOY_PATH}/services.yaml"
     sed -i "s#codePath: /python#codePath: ${absolute_python_code_path}/#g" "${DEPLOY_PATH}/services.yaml"
@@ -135,7 +156,8 @@ function start_yr() {
         --disable_nc_check \
         --npu_collection_mode off \
         --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
-        --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]"
+        --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
+        "${metrics_config_args[@]}"
     for((k=0;k<"${AGENT_NUM}";k++))
     do
         nohup bash deploy/process/yr_agent.sh --master_info "$(cat ${DEPLOY_PATH}/yr_master/master.info)" \
@@ -151,7 +173,8 @@ function start_yr() {
             -c 10000 -m 20000 -s 2048 \
             --npu_collection_mode off \
             --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
-            --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" > ${DEPLOY_PATH}/nohup_start.log 2>&1 &
+            --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
+            "${metrics_config_args[@]}" > ${DEPLOY_PATH}/nohup_start.log 2>&1 &
     done
     wait_cluster_readiness
     echo "Succeed to start yuanrong"

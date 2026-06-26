@@ -25,8 +25,10 @@ TRAEFIK_PORT_FORWARD_ADDRESS="${YR_K8S_TRAEFIK_PORT_FORWARD_ADDRESS:-127.0.0.1}"
 TRAEFIK_PORT_FORWARD_PORT="${YR_K8S_TRAEFIK_PORT_FORWARD_PORT:-18888}"
 TRAEFIK_PORT_FORWARD_TARGET_PORT="${YR_K8S_TRAEFIK_PORT_FORWARD_TARGET_PORT:-18888}"
 TRAEFIK_PORT_FORWARD_EXTRA_PORTS="${YR_K8S_TRAEFIK_PORT_FORWARD_EXTRA_PORTS:-8888:8888}"
+TRAEFIK_GATEWAY_PORT="${YR_K8S_TRAEFIK_GATEWAY_PORT:-8888}"
 PORT_FORWARD_PID=""
 TRAEFIK_PORT_FORWARD_SERVER_ADDRESS=""
+TRAEFIK_GATEWAY_ADDRESS=""
 
 host_arch() {
     case "$(uname -m)" in
@@ -479,6 +481,7 @@ start_traefik_port_forward() {
         fi
     done
     TRAEFIK_PORT_FORWARD_SERVER_ADDRESS="${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_PORT_FORWARD_PORT}"
+    TRAEFIK_GATEWAY_ADDRESS="${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_GATEWAY_PORT}"
 }
 
 wait_for_smoke_ready() {
@@ -521,8 +524,14 @@ run_smoke() {
         pytest_args=(-m smoke)
     fi
 
-    printf 'Running yr-k8s off-cluster smoke against %s with %s\n' "${server_address}" "${SMOKE_PYTHON}" >&2
+    local gateway_address="${YR_K8S_TRAEFIK_GATEWAY_ADDRESS:-${TRAEFIK_GATEWAY_ADDRESS}}"
+    if [ -z "${gateway_address}" ]; then
+        gateway_address="${TRAEFIK_PORT_FORWARD_ADDRESS}:${TRAEFIK_GATEWAY_PORT}"
+    fi
+    printf 'Running yr-k8s off-cluster smoke against %s (gateway %s) with %s\n' \
+        "${server_address}" "${gateway_address}" "${SMOKE_PYTHON}" >&2
     YR_ENABLE_TLS="${YR_ENABLE_TLS:-false}" \
+    YR_GATEWAY_ADDRESS="${gateway_address}" \
     YR_OFF_CLUSTER_WHEEL_DIR="${RELEASE_ARTIFACT_DIR}" \
     YR_OFF_CLUSTER_USE_UV_VENV=false \
     YR_OFF_CLUSTER_TEST_TIMEOUT="${YR_OFF_CLUSTER_TEST_TIMEOUT:-1200}" \
@@ -530,48 +539,6 @@ run_smoke() {
     YR_LOG_LEVEL="${YR_K8S_SMOKE_LOG_LEVEL:-INFO}" \
     bash test/st/run_off_cluster_test.sh -a "${server_address}" --no-uv-venv -p "${SMOKE_PYTHON}" -- "${pytest_args[@]}" \
         2>&1 | tee "${SMOKE_LOG_DIR}/smoke.log"
-}
-
-patch_frontend_enable_event_for_smoke() {
-    if ! [[ "${YR_K8S_SMOKE_ENABLE_EVENT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-        printf 'Skipping frontend event enablement because YR_K8S_SMOKE_ENABLE_EVENT=%s.\n' \
-            "${YR_K8S_SMOKE_ENABLE_EVENT:-}" >&2
-        return 0
-    fi
-
-    local deployments deployment
-    deployments="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
-        --namespace "${NAMESPACE}" \
-        -l app.kubernetes.io/instance=yr-k8s,app.kubernetes.io/component=frontend \
-        -o name 2>/dev/null || true)"
-    if [ -z "${deployments}" ]; then
-        deployments="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
-            --namespace "${NAMESPACE}" \
-            -l app.kubernetes.io/instance=yr,app.kubernetes.io/component=frontend \
-            -o name 2>/dev/null || true)"
-    fi
-    if [ -z "${deployments}" ]; then
-        deployments="$("${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" get deploy \
-            --namespace "${NAMESPACE}" \
-            -l app.kubernetes.io/component=frontend \
-            -o name 2>/dev/null || true)"
-    fi
-
-    if [ "$(printf '%s\n' "${deployments}" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 1 ]; then
-        printf 'Expected exactly one frontend deployment in namespace %s, found:\n%s\n' \
-            "${NAMESPACE}" "${deployments}" >&2
-        return 1
-    fi
-
-    deployment="${deployments}"
-    printf 'Enabling frontend event mode for smoke by patching %s args.\n' "${deployment}" >&2
-    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" patch "${deployment}" \
-        --namespace "${NAMESPACE}" \
-        --type strategic \
-        -p '{"spec":{"template":{"spec":{"containers":[{"name":"frontend","args":["-s","frontend.args.enableEvent=true"]}]}}}}'
-    "${KUBECTL_BIN}" --kubeconfig "${KUBECONFIG_PATH}" rollout status "${deployment}" \
-        --namespace "${NAMESPACE}" \
-        --timeout="${YR_K8S_ROLLOUT_TIMEOUT:-20m}"
 }
 
 main() {
@@ -599,9 +566,13 @@ main() {
     export YR_K8S_RUNTIME_IMAGE_TAG_CP312="${YR_K8S_RUNTIME_IMAGE_TAG_CP312:-${YR_K8S_IMAGE_TAG}-cp312}"
     export YR_K8S_REGISTRY_REPO="${YR_K8S_REGISTRY_REPO:-$(json_field registry)}"
     export HELM_BIN
+    if [[ "${YR_K8S_SMOKE_ENABLE_EVENT:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+        export YR_K8S_EXTRA_VALUES_FILE="${ROOT_DIR}/deploy/sandbox/k8s/k8s/values.buildkite-smoke.yaml"
+    else
+        unset YR_K8S_EXTRA_VALUES_FILE
+    fi
 
     bash deploy/sandbox/k8s/deploy.sh
-    patch_frontend_enable_event_for_smoke
 
     if [[ "${YR_K8S_RUN_SMOKE:-true}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
         local server_address

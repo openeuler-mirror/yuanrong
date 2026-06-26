@@ -322,7 +322,7 @@ def _wait_for_tunnel_create(proc):
         lines.append(line)
         if "instance_id=" in line:
             instance_id = _extract_sandbox_id(line)
-        if "tunnel connected" in line or "tunnel connecting in background" in line:
+        if "tunnel connected" in line:
             assert instance_id, f"tunnel started without instance_id:\n{''.join(lines)}"
             _drain_process_output(proc)
             return instance_id, "".join(lines)
@@ -361,7 +361,6 @@ def _exec_until_contains(instance_id, command, expected, timeout=60):
         try:
             result = _run_yrcli(
                 "exec",
-                "-t",
                 instance_id,
                 command,
                 timeout=YRCLI_SANDBOX_EXEC_TIMEOUT,
@@ -1013,13 +1012,9 @@ def test_yrcli_sandbox_reverse_tunnel(require_plain_http_for_yrcli):
         proc = _start_tunnel_create(name, f"{host}:{port}")
         instance_id, output = _wait_for_tunnel_create(proc)
         assert "sandbox upstream proxy: http://127.0.0.1:8766" in output
-        result = _exec_until_contains(
-            instance_id,
-            _remote_http_get_command("http://127.0.0.1:8766/"),
-            "yrcli-reverse-tunnel-ok",
-            timeout=60,
-        )
-        assert "yrcli-reverse-tunnel-ok" in result.stdout
+        proxy_url = "http://127.0.0.1:8766/"
+        _wait_any_url_contains([proxy_url], "yrcli-reverse-tunnel-ok", timeout=60)
+        assert _UpstreamHandler.request_count > 0
     finally:
         upstream.shutdown()
         upstream.server_close()

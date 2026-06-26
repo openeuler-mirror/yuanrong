@@ -10,6 +10,7 @@ KUBECONFIG_PATH="${YR_K8S_KUBECONFIG:-${HOME}/.kube/beijing4.yaml}"
 RELEASE_NAME="${YR_K8S_RELEASE:-yr-k8s}"
 NAMESPACE="${YR_K8S_NAMESPACE:-yr}"
 VALUES_FILE="${YR_K8S_VALUES_FILE:-${SCRIPT_DIR}/k8s/values.local.yaml}"
+EXTRA_VALUES_FILE="${YR_K8S_EXTRA_VALUES_FILE:-}"
 FULLNAME_OVERRIDE="${YR_K8S_FULLNAME_OVERRIDE:-yr}"
 ETCD_ADDR_LIST="${YR_K8S_ETCD_ADDR_LIST:-${FULLNAME_OVERRIDE}-etcd.${NAMESPACE}.svc.cluster.local:2379}"
 ETCD_META_STORE_ADDRESS="${YR_K8S_ETCD_META_STORE_ADDRESS:-http://${ETCD_ADDR_LIST}}"
@@ -270,6 +271,13 @@ helm_deploy() {
     --set global.images.traefik.repository="traefik" \
     --set global.images.traefik.tag="v2.11.14"
   )
+  if [ -n "${EXTRA_VALUES_FILE}" ]; then
+    if [ ! -f "${EXTRA_VALUES_FILE}" ]; then
+      printf 'Missing extra values file: %s\n' "${EXTRA_VALUES_FILE}" >&2
+      exit 1
+    fi
+    helm_args+=(-f "${EXTRA_VALUES_FILE}")
+  fi
   if has_registry_credentials; then
     helm_args+=(--set "global.imagePullSecrets[0].name=${PULL_SECRET_NAME}")
   fi

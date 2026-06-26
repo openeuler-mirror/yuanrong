@@ -591,6 +591,7 @@ class YrK8sLayoutTests(unittest.TestCase):
         frontend_container = find_container(frontend_dep, "frontend")
         self.assertEqual(frontend_container["image"], controlplane_image)
         self.assertEqual(frontend_container["command"], ["/usr/local/bin/start-frontend.sh"])
+        self.assertNotIn("args", frontend_container)
         self.assertEqual(find_env(frontend_container, "YR_MASTER_IP"), master_access_name)
         self.assertEqual(
             find_env(frontend_container, "YR_FAAS_FRONTEND_HTTP_PORT"),
@@ -688,6 +689,20 @@ class YrK8sLayoutTests(unittest.TestCase):
         override_frontend_container = find_container(override_frontend, "frontend")
         self.assertEqual(find_env(override_frontend_container, "IAM_SERVER_ADDRESS"), "iam.example.com:31112")
 
+    def test_buildkite_smoke_overlay_enables_frontend_event_args(self):
+        overlay = ROOT / "k8s/values.buildkite-smoke.yaml"
+        self.assertTrue(overlay.is_file())
+        overlay_values = load_yaml_file(overlay)
+        self.assertTrue(overlay_values["frontend"]["enableEvent"])
+
+        manifests = render_chart("-f", str(overlay))
+        components_cm = find_manifest(manifests, "ConfigMap", "yr-components")
+        self.assertIn("enableEvent = true", components_cm["data"]["config.toml"])
+
+        frontend_dep = find_manifest(manifests, "Deployment", "yr-frontend")
+        frontend_container = find_container(frontend_dep, "frontend")
+        self.assertNotIn("args", frontend_container)
+
     def test_chart_renders_image_pull_secret_into_workload_templates(self):
         manifests = render_chart("--set", "global.imagePullSecrets[0].name=swr-pull-secret")
 
@@ -750,6 +765,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertNotIn("Build macOS SDK", pipeline)
         self.assertIn("deploy.sh", deploy_script)
         self.assertNotIn("deploy-beijing4.sh", deploy_script)
+        self.assertIn("values.buildkite-smoke.yaml", deploy_script)
+        self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script)
         self.assertIn('KUBECONFIG_PATH="/var/run/yr-k8s/target/kubeconfig"', deploy_script)
         self.assertNotIn("YR_K8S_KUBECONFIG:-", deploy_script)
         self.assertIn("YR_K8S_ROLLOUT_TIMEOUT:-20m", deploy_script_k8s)
@@ -769,6 +786,8 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("reset_etcd_state", deploy_script_k8s)
         self.assertIn("seed_traefik_etcd_state", deploy_script_k8s)
         self.assertIn('RESET_ETCD_STATE="${YR_K8S_RESET_ETCD_STATE:-true}"', deploy_script_k8s)
+        self.assertIn("EXTRA_VALUES_FILE", deploy_script_k8s)
+        self.assertIn("YR_K8S_EXTRA_VALUES_FILE", deploy_script_k8s)
         self.assertIn("Stopping existing runtime workloads before resetting sandbox etcd state", deploy_script_k8s)
         self.assertIn("Resetting sandbox etcd state", deploy_script_k8s)
         self.assertIn("Seeded Traefik etcd root key", deploy_script_k8s)
@@ -901,8 +920,9 @@ class YrK8sLayoutTests(unittest.TestCase):
         self.assertIn("cleanup_k8s_node_image_cache", smoke_script)
         self.assertIn("YR_K8S_CLEAN_K8S_NODE_IMAGE_CACHE", smoke_script)
         self.assertIn("crictl --runtime-endpoint unix:///run/containerd/containerd.sock", smoke_script)
-        self.assertIn("patch_frontend_enable_event_for_smoke", smoke_script)
-        self.assertIn("frontend.args.enableEvent=true", smoke_script)
+        self.assertIn("values.buildkite-smoke.yaml", smoke_script)
+        self.assertIn("YR_K8S_EXTRA_VALUES_FILE", smoke_script)
+        self.assertNotIn("patch_frontend_enable_event_for_smoke", smoke_script)
         self.assertIn("trap cleanup EXIT", smoke_script)
         self.assertIn('ENABLE_MACOS_SDK="${ENABLE_MACOS_SDK_OVERRIDE:-${ENABLE_MACOS_SDK:-true}}"', pipeline)
         self.assertIn('ENABLE_RUNTIME_X86="${ENABLE_RUNTIME_X86:-true}"', pipeline)

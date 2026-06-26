@@ -83,6 +83,7 @@ public class LoadUtil {
         {"libgpr.so.42.0.0"},
         {"libaddress_sorting.so.42.0.0", "libaddress_sorting.42.0.0.dylib"},
         {"libgflags.so.2.2.2"},
+        {"libprotoc.so.25.5.0"},
         {"libbrpc.so"}
     };
 
@@ -99,6 +100,7 @@ public class LoadUtil {
         {"librpc_option_protos.so"},
         {"libcommon_flags.so"},
         {"libetcdapi_proto.so"},
+        {"libprotoc.so.25.5.0"},
         {"libdatasystem.so", "libdatasystem.dylib"},
         {"libspdlog.so.1.12.0", "libspdlog.1.12.0.dylib"},
         {"libyrlogs.so", "libyrlogs.dylib"},

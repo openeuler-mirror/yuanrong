@@ -365,6 +365,7 @@ genrule(
         "libaddress_sorting.42.0.0.dylib"
         "libabseil_dll.so.2407.0.0"
         "libprotobuf.so.25.5.0"
+        "libprotoc.so.25.5.0"
         "librpc_option_protos.so"
         "libcommon_flags.so"
         "libupb_json_lib.so.42.0.0"

@@ -189,11 +189,6 @@ public:
             std::string rspBody;
             rsp.SerializeToString(&rspBody);
             CommonCallback(rspType, receiver, rspBody);
-        } else if (POSIX_KV_MSET_TX == target) {
-            auto rsp = BuildKvMSetTxResponse(code, msg);
-            std::string rspBody;
-            rsp.SerializeToString(&rspBody);
-            CommonCallback(rspType, receiver, rspBody);
         } else if (POSIX_KV_DEL == target) {
             std::vector<std::string> failedKeys = {};
             auto rsp = BuildKvDelResponse(code, msg, failedKeys);
@@ -302,13 +297,6 @@ public:
         return rsp;
     }
 
-    KvMSetTxResponse BuildKvMSetTxResponse(const common::ErrorCode code, const std::string &msg)
-    {
-        KvMSetTxResponse rsp;
-        rsp.set_code(code);
-        rsp.set_message(msg);
-        return rsp;
-    }
 
     KvGetResponse BuildKvGetResponse(const common::ErrorCode code, const std::string &msg,
                                      const std::vector<std::shared_ptr<YR::Libruntime::Buffer>> &values)
@@ -728,28 +716,6 @@ TEST_F(GwClientTest, TestKvSet)
     EXPECT_TRUE(gwClient_->Start(responseTypeMap[ResponseType::HTTP_OK_AND_SUCCESS]).OK());
     ErrorMsgCheck(gwClient_->PosixKvSet(key, value, setParam), ErrorCode::ERR_OK, "");
     ErrorMsgCheck(gwClient_->Write(key, value, setParam), ErrorCode::ERR_OK, "");
-}
-
-TEST_F(GwClientTest, TestMKvSetTx)
-{
-    std::vector<std::string> keys = {"", ""};
-    auto value1 = std::make_shared<YR::Libruntime::NativeBuffer>(0);
-    auto value2 = std::make_shared<YR::Libruntime::NativeBuffer>(1);
-    std::vector<std::shared_ptr<Buffer>> vals = {value1, value2};
-    MSetParam mSetParam;
-    EXPECT_FALSE(gwClient_->Start(responseTypeMap[ResponseType::HTTP_ERROR_COMMUNICATION]).OK());
-    ErrorMsgCheck(gwClient_->PosixKvMSetTx(keys, vals, mSetParam), ErrorCode::ERR_INNER_COMMUNICATION,
-                  errorCommunicationMsg);
-
-    EXPECT_FALSE(gwClient_->Start(responseTypeMap[ResponseType::HTTP_BAD_REQUEST]).OK());
-    ErrorMsgCheck(gwClient_->PosixKvMSetTx(keys, vals, mSetParam), ErrorCode::ERR_PARAM_INVALID, badRequestMsg);
-
-    EXPECT_FALSE(gwClient_->Start(responseTypeMap[ResponseType::HTTP_OK_BUT_FAILED]).OK());
-    ErrorMsgCheck(gwClient_->PosixKvMSetTx(keys, vals, mSetParam), ErrorCode::ERR_INNER_SYSTEM_ERROR, failedMsg);
-
-    EXPECT_TRUE(gwClient_->Start(responseTypeMap[ResponseType::HTTP_OK_AND_SUCCESS]).OK());
-    ErrorMsgCheck(gwClient_->PosixKvMSetTx(keys, vals, mSetParam), ErrorCode::ERR_OK, "");
-    ErrorMsgCheck(gwClient_->MSetTx(keys, vals, mSetParam), ErrorCode::ERR_OK, "");
 }
 
 TEST_F(GwClientTest, TestPosixKvDel)

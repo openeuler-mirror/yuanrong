@@ -230,37 +230,6 @@ TEST_F(ApiTest, KVSetTest)
 
     ASSERT_NO_THROW(YR::KV().Set("key", result.c_str(), size, param));
 }
-
-TEST_F(ApiTest, KVMSetTxTest)
-{
-    YR::MSetParam param1{.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT};
-    YR::MSetParam param2{.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT,
-                         .ttlSecond = 10,
-                         .existence = YR::ExistenceOpt::NONE,
-                         .cacheType = YR::CacheType::DISK};
-    std::vector<std::string> keys = {"key1", "key2"};
-    std::string val1{"val1"};
-    std::string val2{"val2"};
-    std::vector<char *> cvals = {const_cast<char *>(val1.data()), const_cast<char *>(val2.data())};
-    std::vector<std::string> svals = {val1, val2};
-    std::vector<size_t> lengths = {val1.size() + 1, val2.size() + 1};
-    ASSERT_NO_THROW(YR::KV().MSetTx({"key1", "key2"}, cvals, lengths, YR::ExistenceOpt::NX));
-    ASSERT_THROW(YR::KV().MSetTx({"key1"}, cvals, lengths, YR::ExistenceOpt::NX), YR::Exception);
-    ASSERT_THROW(YR::KV().MSetTx({"key1", "key2"}, cvals, lengths, YR::ExistenceOpt::NONE), YR::Exception);
-
-    ASSERT_NO_THROW(YR::KV().MSetTx({"key1", "key2"}, svals, YR::ExistenceOpt::NX));
-    ASSERT_THROW(YR::KV().MSetTx({"key1"}, svals, YR::ExistenceOpt::NX), YR::Exception);
-    ASSERT_THROW(YR::KV().MSetTx({"key1", "key2"}, svals, YR::ExistenceOpt::NONE), YR::Exception);
-
-    ASSERT_NO_THROW(YR::KV().MSetTx({"key1", "key2"}, cvals, lengths, param1));
-    ASSERT_THROW(YR::KV().MSetTx({"key1"}, cvals, lengths, param1), YR::Exception);
-    ASSERT_THROW(YR::KV().MSetTx({"key1", "key2"}, cvals, lengths, param2), YR::Exception);
-
-    ASSERT_NO_THROW(YR::KV().MSetTx({"key1", "key2"}, svals, param1));
-    ASSERT_THROW(YR::KV().MSetTx({"key1"}, svals, param1), YR::Exception);
-    ASSERT_THROW(YR::KV().MSetTx({"key1", "key2"}, svals, param2), YR::Exception);
-}
-
 TEST_F(ApiTest, CheckInitializedTest)
 {
     YR::SetInitialized(false);

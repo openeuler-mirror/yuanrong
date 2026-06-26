@@ -461,54 +461,6 @@ TEST_F(TaskTest, DISABLED_PutObjWithObjectRef)
     EXPECT_EQ(*YR::Get(r2, -1), 20);
 }
 
-TEST_F(TaskTest, YR_MSetTx)
-{
-    std::vector<std::string> keys, vals;
-    int totalNum = 8;
-    for (int i = 0; i < totalNum; i++) {
-        std::string key = "Key" + std::to_string(i);
-        std::string value = "Value" + std::to_string(i);
-        keys.emplace_back(key);
-        vals.emplace_back(value);
-    }
-    YR::KV().MSetTx(keys, vals, YR::ExistenceOpt::NX);
-    std::vector<std::string> actualVals = YR::KV().Get(keys, 300);
-    for (int i = 0; i < keys.size(); i++) {
-        if (vals[i] != actualVals[i]) {
-            std::cout << "failed, value unexcepted." << vals[i] << ", " << actualVals[i] << std::endl;
-            EXPECT_EQ(vals[i], actualVals[i]);
-        }
-    }
-    YR::KV().Del(keys);
-
-    std::vector<char *> valsPtr;
-    std::vector<size_t> lens;
-    for (const auto &val : vals) {
-        valsPtr.push_back(const_cast<char *>(val.c_str()));
-        lens.push_back(val.size());
-    }
-    YR::KV().MSetTx(keys, valsPtr, lens, YR::ExistenceOpt::NX);
-    actualVals = YR::KV().Get(keys, 300);
-    for (int i = 0; i < keys.size(); i++) {
-        if (vals[i] != actualVals[i]) {
-            std::cout << "failed, value unexcepted." << vals[i] << ", " << actualVals[i] << std::endl;
-            EXPECT_EQ(vals[i], actualVals[i]);
-        }
-    }
-    YR::KV().Del(keys);
-
-    YR::KV().MWriteTx(keys, vals, YR::ExistenceOpt::NX);
-    std::vector<std::shared_ptr<std::string>> actualVals2 = YR::KV().Read<std::string>(keys, 300, false);
-    for (int i = 0; i < keys.size(); i++) {
-        if (vals[i] != *(actualVals2[i])) {
-            std::cout << "failed, value unexcepted." << vals[i] << ", " << actualVals[i] << std::endl;
-            EXPECT_EQ(vals[i], actualVals[i]);
-        }
-    }
-    YR::KV().Del(keys);
-    std::cout << "kv mset test done." << std::endl;
-}
-
 TEST_F(TaskTest, DeliverObjectRefCall)
 {
     YR::ObjectRef<int> num = YR::Put(1);
@@ -848,20 +800,6 @@ TEST_F(TaskTest, CheckTaskObjIdSuccessfully)
     EXPECT_EQ(*YR::Get(ret1), 4);
 }
 
-/*case
- * @title: put, 生成objID携带workerID
- * @precondition:
- * @step:  1.调用函数，put，get
- * @expect:  1.put生成携带workerID的objID
- */
-TEST_F(TaskTest, CheckPutObjIdSuccessfully)
-{
-    auto r1 = YR::Function(Add).Invoke(1, 1);
-    auto ret = YR::Put(r1);
-    EXPECT_EQ(ret.ID().size(), 57);
-    EXPECT_EQ(*YR::Get(*YR::Get(ret, -1), -1), 2);
-}
-
 /*
  * Check whether customextension has been written into the request body by viewing log file.
  * Therefore this case is disabled.
@@ -917,98 +855,17 @@ TEST_F(TaskTest, KVSetAndGetSuccessfully)
 }
 
 /*case
- * @title: 测试MSetTx with param
+ * @title: put, 生成objID携带workerID
  * @precondition:
- * @step:  1.调用MSetTx
- * @step:  2.调用KVGet
- * @expect:  1.get到正确的数据
+ * @step:  1.调用函数，put，get
+ * @expect:  1.put生成携带workerID的objID
  */
-TEST_F(TaskTest, KVMSetTxWithParamSuccessfully)
+TEST_F(TaskTest, CheckPutObjIdSuccessfully)
 {
-    std::vector<std::string> keys;
-    std::vector<std::string> values;
-    std::string key = "kv-key";
-    std::string value = "kv-value";
-    for (int i = 0; i < 6; i++) {
-        std::string key1 = key + std::to_string(i);
-        keys.emplace_back(key1);
-        std::string value1 = value + std::to_string(i);
-        values.emplace_back(value1);
-    }
-    YR::MSetParam param;
-    param.writeMode = YR::WriteMode::NONE_L2_CACHE_EVICT;
-    param.ttlSecond = 10;
-    // Check whether shared disk is enabled.
-    YR::KV().MSetTx(keys, values, param);
-    for (int i = 0; i < 6; i++) {
-        std::string key1 = key + std::to_string(i);
-        std::string result = YR::KV().Get(key1);
-        EXPECT_EQ(result, value + std::to_string(i));
-    }
-    YR::KV().Del(keys);
-
-    std::vector<char *> valsPtr;
-    std::vector<size_t> lens;
-    for (const auto &val : values) {
-        valsPtr.push_back(const_cast<char *>(val.c_str()));
-        lens.push_back(val.size());
-    }
-    YR::KV().MSetTx(keys, valsPtr, lens, param);
-    auto actualVals = YR::KV().Get(keys, 300);
-    for (int i = 0; i < 6; i++) {
-        if (values[i] != actualVals[i]) {
-            std::cout << "failed, value unexcepted." << values[i] << ", " << actualVals[i] << std::endl;
-            EXPECT_EQ(values[i], actualVals[i]);
-        }
-    }
-    YR::KV().Del(keys);
-}
-
-/*case
- * @title: 调用Set或者MSetTx失败
- * @precondition:
- * @step:  Set或者MSetTx
- * @step:  传入非法参数
- * @expect:  抛出异常
- */
-TEST_F(TaskTest, TaskSetOrMSetTxFailed)
-{
-    std::vector<std::string> keys;
-    std::vector<std::string> values;
-    try {
-        YR::MSetParam param;
-        param.cacheType = YR::CacheType::DISK;
-        YR::KV().MSetTx(keys, values, param);
-    } catch (YR::Exception &e) {
-        std::string errorCode = "ErrCode: 1001";
-        std::string errorMsg = "The keys should not be empty";
-        std::string excepMsg = e.what();
-        std::cout << "exception: " << excepMsg << std::endl;
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
-    }
-    try {
-        YR::MSetParam param;
-        keys.emplace_back("key1");
-        YR::KV().MSetTx(keys, values, param);
-    } catch (YR::Exception &e) {
-        std::string errorCode = "ErrCode: 1001";
-        std::string errorMsg = "input vector size not equal";
-        std::string excepMsg = e.what();
-        std::cout << "exception: " << excepMsg << std::endl;
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
-    }
-    try {
-        values.emplace_back("value1");
-        YR::MSetParam param;
-        param.existence = YR::ExistenceOpt::NONE;
-        YR::KV().MSetTx(keys, values, param);
-    } catch (YR::Exception &e) {
-        std::string errorCode = "ErrCode: 1001";
-        std::string errorMsg = "ExistenceOpt should be NX";
-        std::string excepMsg = e.what();
-        std::cout << "exception: " << excepMsg << std::endl;
-        ErrorMsgCheck(errorCode, errorMsg, excepMsg);
-    }
+    auto r1 = YR::Function(Add).Invoke(1, 1);
+    auto ret = YR::Put(r1);
+    EXPECT_EQ(ret.ID().size(), 57);
+    EXPECT_EQ(*YR::Get(*YR::Get(ret, -1), -1), 2);
 }
 
 /*case

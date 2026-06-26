@@ -103,6 +103,21 @@ LOG_ROTATE_CONFIG="{{logConfigPath}}/runtime-*.out {{logConfigPath}}/runtime-*.e
 }
 "
 
+function default_metrics_config_file() {
+  local candidate
+  for candidate in \
+    "${BASE_DIR}/../../functionsystem/config/metrics/metrics_config.json" \
+    "${BASE_DIR}/../../../functionsystem/config/metrics/metrics_config.json" \
+    "${BASE_DIR}/../../functionsystem/scripts/config/metrics/metrics_config.json" \
+    "${BASE_DIR}/../../../functionsystem/scripts/config/metrics/metrics_config.json"; do
+    if [ -f "${candidate}" ]; then
+      readlink -m "${candidate}"
+      return
+    fi
+  done
+  echo ""
+}
+
 # General Configuration
 FUNCTION_MASTER_IP=""
 ENABLE_MASTER="false"
@@ -150,7 +165,7 @@ TRAEFIK_FORWARD_TIMEOUT_MS=3000
 RUNTIME_TRACE_CONFIG=""
 ENABLE_METRICS=true
 METRICS_CONFIG=""
-METRICS_CONFIG_FILE=$(readlink -m '${BASE_DIR}/../../../functionsystem/config/metrics/metrics_config.json')
+METRICS_CONFIG_FILE=$(default_metrics_config_file)
 RUNTIME_METRICS_CONFIG=""
 RUNTIME_METRICS_CONFIG_FILE=""
 STATE_STORAGE_TYPE="datasystem"

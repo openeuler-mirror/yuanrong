@@ -365,8 +365,8 @@ def _exec_until_contains(instance_id, command, expected, timeout=60):
                 command,
                 timeout=YRCLI_SANDBOX_EXEC_TIMEOUT,
             )
-            last_output = result.stdout
-            if expected in result.stdout:
+            last_output = result.stdout + result.stderr
+            if expected in last_output:
                 return result
         except Exception as exc:
             last_error = exc
@@ -1012,8 +1012,14 @@ def test_yrcli_sandbox_reverse_tunnel(require_plain_http_for_yrcli):
         proc = _start_tunnel_create(name, f"{host}:{port}")
         instance_id, output = _wait_for_tunnel_create(proc)
         assert "sandbox upstream proxy: http://127.0.0.1:8766" in output
-        proxy_url = "http://127.0.0.1:8766/"
-        _wait_any_url_contains([proxy_url], "yrcli-reverse-tunnel-ok", timeout=60)
+        assert "tunnel connected" in output
+        result = _exec_until_contains(
+            instance_id,
+            _remote_http_get_command("http://127.0.0.1:8766/"),
+            "yrcli-reverse-tunnel-ok",
+            timeout=60,
+        )
+        assert "yrcli-reverse-tunnel-ok" in result.stdout
         assert _UpstreamHandler.request_count > 0
     finally:
         upstream.shutdown()

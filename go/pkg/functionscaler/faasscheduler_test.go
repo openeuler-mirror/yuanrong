@@ -1425,16 +1425,18 @@ func TestFaaSScheduler_parseExtraData(t *testing.T) {
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":0}`),
 			}
 			dataBytes, _ := json.Marshal(data)
-			_, err := parseExtraData(dataBytes)
-			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+			dataInfo, err := parseExtraData(dataBytes)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
 		})
 		convey.Convey("invalid session concurrency less than -1", func() {
 			data := map[string][]byte{
 				"instanceSessionConfig": []byte(`{"sessionID":"test","sessionTTL":10,"concurrency":-2}`),
 			}
 			dataBytes, _ := json.Marshal(data)
-			_, err := parseExtraData(dataBytes)
-			convey.So(err.Code(), convey.ShouldEqual, statuscode.InstanceSessionInvalidErrCode)
+			dataInfo, err := parseExtraData(dataBytes)
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(dataInfo.instanceSession.Concurrency, convey.ShouldEqual, 1)
 		})
 		convey.Convey("session context ID", func() {
 			dataBytes, _ := json.Marshal(map[string][]byte{

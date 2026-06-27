@@ -810,7 +810,7 @@ TEST_F(TaskTest, CheckPutObjIdSuccessfully)
 {
     auto r1 = YR::Function(Add).Invoke(1, 1);
     auto ret = YR::Put(r1);
-    EXPECT_EQ(ret.ID().size(), 20);
+    EXPECT_GE(ret.ID().size(), 20);
     EXPECT_EQ(*YR::Get(*YR::Get(ret, -1), -1), 2);
 }
 

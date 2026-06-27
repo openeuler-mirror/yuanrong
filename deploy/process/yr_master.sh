@@ -23,6 +23,26 @@ BASE_DIR=$(
 # Permission control: remove others' permissions of directories and files
 umask -p 027
 
+function wait_times_from_system_timeout() {
+  local default_wait_times=30
+  if [[ "${SYSTEM_TIMEOUT}" =~ ^[0-9]+$ ]]; then
+    local wait_times=$(((SYSTEM_TIMEOUT + 1999) / 2000))
+    if [ ${wait_times} -gt ${default_wait_times} ]; then
+      echo ${wait_times}
+      return
+    fi
+  fi
+  echo ${default_wait_times}
+}
+
+function dump_deploy_log_tail() {
+  local deploy_log=$1
+  if [ -f "${deploy_log}" ]; then
+    log_error "tail deploy log: ${deploy_log}"
+    tail -100 "${deploy_log}"
+  fi
+}
+
 function main() {
   local ret_code
   source ${BASE_DIR}/config.sh "$@" --master -g ON --only_check_param
@@ -46,12 +66,20 @@ function main() {
     bash ${BASE_DIR}/deploy.sh "$@" --master --master_info_output ${MASTER_INFO_OUT_FILE} -g TRUE -a ${IP_ADDRESS}
     return 0
   fi
+  local deploy_log="${LOG_ROOT}/${NODE_ID}-deploy${STD_LOG_SUFFIX}"
   nohup bash ${BASE_DIR}/deploy.sh "$@" --master --master_info_output ${MASTER_INFO_OUT_FILE} -g TRUE -a ${IP_ADDRESS} \
-   > "${LOG_ROOT}/${NODE_ID}-deploy${STD_LOG_SUFFIX}" 2>&1 &
+   > "${deploy_log}" 2>&1 &
+  local deploy_pid=$!
   log_info "wait start control plane..."
   local t master_pid_info master_port_info
   for ((t = 1; t < 30; t++ )); do
     sleep 2
+    if ! kill -0 ${deploy_pid} 2>/dev/null; then
+      wait ${deploy_pid}
+      log_error "deploy process exited before control plane ready"
+      dump_deploy_log_tail "${deploy_log}"
+      return 98
+    fi
     if [ -f "${master_pid_info_file}" ]; then
       master_pid_info=$( head -n 1 $master_pid_info_file )
       if [ "X${master_pid_info}" = "X" ]; then
@@ -73,15 +101,24 @@ function main() {
   fi
   log_info "wait start data plane..."
   local master_info_string
-  for ((t = 1; t < 30; t++ )); do
+  local data_plane_wait_times
+  data_plane_wait_times=$(wait_times_from_system_timeout)
+  for ((t = 1; t < data_plane_wait_times; t++ )); do
     sleep 2
     if [ -f "${MASTER_INFO_OUT_FILE}" ]; then
       master_info_string=$( head -n 1 $MASTER_INFO_OUT_FILE )
       echo "${master_info_string}"
       return 0
     fi
+    if ! kill -0 ${deploy_pid} 2>/dev/null; then
+      wait ${deploy_pid}
+      log_error "deploy process exited before data plane ready"
+      dump_deploy_log_tail "${deploy_log}"
+      return 98
+    fi
   done
   log_error "wait start data plane timeout."
+  dump_deploy_log_tail "${deploy_log}"
   return 98
 }
 

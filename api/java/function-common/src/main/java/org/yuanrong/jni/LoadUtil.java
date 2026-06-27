@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -165,12 +166,42 @@ public class LoadUtil {
             boolean isCheckSumMatch = checkSHA256(localSoFile, soFileHash);
 
             if (isSoFileExist && !isCheckSumMatch) {
-                throw new InvalidPropertiesFormatException("the hash is not match for " + soFileName);
-            }
-            if (!isSoFileExist) {
+                // Stale or partially-written file (e.g. another JVM was interrupted mid-copy).
+                // Re-extract from the SDK jar instead of failing the whole load.
+                LOGGER.warn("Hash mismatch for {}, re-extracting from SDK jar", soFileName);
+                if (!localSoFile.delete() && localSoFile.exists()) {
+                    throw new InvalidPropertiesFormatException("the hash is not match for " + soFileName
+                            + " and the stale file could not be deleted: " + localSoFile.getAbsolutePath());
+                }
                 copySoFile(soFilePath, localSoFile);
+                verifyExtractedSoFile(soFileName, localSoFile, soFileHash);
+            } else if (!isSoFileExist) {
+                copySoFile(soFilePath, localSoFile);
+                verifyExtractedSoFile(soFileName, localSoFile, soFileHash);
+            } else {
+                // Cache hit: local .so exists and its hash already matches — nothing to extract.
+                LOGGER.debug("Cache hit for {}, skip extraction", soFileName);
             }
             createSymlink(soFileName);
+        }
+    }
+
+    /**
+     * Verify the integrity
+     *
+     * @param soFileName name of the .so file, used to build the failure message
+     * @param localSoFile the freshly extracted local .so file to verify
+     * @param soFileHash the expected SHA-256 hex digest read from so.properties
+     *
+     * @throws InvalidPropertiesFormatException if the recomputed hash does not
+     *     match
+     * @throws IOException if an I/O error occurs while reading the file
+     */
+    private static void verifyExtractedSoFile(String soFileName, File localSoFile, String soFileHash)
+            throws IOException {
+        if (!checkSHA256(localSoFile, soFileHash)) {
+            throw new InvalidPropertiesFormatException("the hash is not match for " + soFileName
+                    + " after re-extraction from SDK jar: " + localSoFile.getAbsolutePath());
         }
     }
 
@@ -244,13 +275,18 @@ public class LoadUtil {
             return false;
         }
         MessageDigest md;
-        try (InputStream in = Files.newInputStream(file.toPath())) {
+        // Hold a shared file lock while reading so concurrent writers (another JVM
+        // copying the .so from the SDK jar) cannot expose a half-written file.
+        // Read directly via ByteBuffer (not Channels.newInputStream) so the lock is
+        // released before the channel closes — no double-close interaction.
+        try (FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.READ);
+                FileLock lock = channel.lock(0, Long.MAX_VALUE, true)) {
             md = MessageDigest.getInstance("SHA-256");
-            byte[] buf = new byte[READ_SIZE];
-            int len = in.read(buf);
-            while (len > 0) {
-                md.update(buf, 0, len);
-                len = in.read(buf);
+            ByteBuffer buf = ByteBuffer.allocate(READ_SIZE);
+            while (channel.read(buf) != -1) {
+                buf.flip();
+                md.update(buf);
+                buf.clear();
             }
         } catch (IOException | NoSuchAlgorithmException e) {
             throw new ExceptionInInitializerError(e);

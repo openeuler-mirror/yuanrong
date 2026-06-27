@@ -99,7 +99,7 @@ class InstanceCreator:
         return self.__user_class_descriptor__
 
     @classmethod
-    def create_from_user_class(cls, user_class, invoke_options):
+    def create_from_user_class(cls, user_class, invoke_options=None):
         """
         Create from user class.
 

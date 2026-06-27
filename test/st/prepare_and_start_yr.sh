@@ -114,6 +114,22 @@ function resolve_metrics_config_file() {
     done
 }
 
+function dump_process_deploy_diagnostics() {
+    echo "[st-diagnose] YUANRONG_DIR=${YUANRONG_DIR}"
+    echo "[st-diagnose] DEPLOY_PATH=${DEPLOY_PATH}"
+    echo "[st-diagnose] list deploy path"
+    find "${DEPLOY_PATH}" -maxdepth 3 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' 2>/dev/null | sort | tail -80 || true
+    echo "[st-diagnose] tail key logs"
+    find "${DEPLOY_PATH}" -maxdepth 4 -type f \
+        \( -name '*std.log' -o -name '*.log' -o -name 'master.info' -o -name 'master_pid_port.txt' \) \
+        -print 2>/dev/null | sort | while read -r log_file; do
+            echo "[st-diagnose] ===== ${log_file} ====="
+            tail -80 "${log_file}" || true
+        done
+    echo "[st-diagnose] related process snapshot"
+    ps -ef | grep -E 'function_master|function_proxy|function_agent|runtime_launcher|ds_worker|ds_master|etcd' | grep -v grep || true
+}
+
 function start_yr() {
     cd "${YUANRONG_DIR}/"
     local services_file="${BASE_DIR}/services.yaml"
@@ -142,7 +158,7 @@ function start_yr() {
         direct_call="true"
     fi
     prepend_python_runtime_ld_path
-    bash deploy/process/yr_master.sh -d ${DEPLOY_PATH}/yr_master \
+    if ! bash deploy/process/yr_master.sh -d ${DEPLOY_PATH}/yr_master \
         -a ${LOCAL_IP} -l DEBUG -s 2048 -c 10000 -m 22048 \
         -o ${DEPLOY_PATH}/yr_master/master.info \
         --services_path "${DEPLOY_PATH}/services.yaml" \
@@ -157,7 +173,10 @@ function start_yr() {
         --npu_collection_mode off \
         --local_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
         --domain_schedule_plugins "[\"Label\", \"ResourceSelector\", \"Default\"]" \
-        "${metrics_config_args[@]}"
+        "${metrics_config_args[@]}"; then
+        dump_process_deploy_diagnostics
+        return 1
+    fi
     for((k=0;k<"${AGENT_NUM}";k++))
     do
         nohup bash deploy/process/yr_agent.sh --master_info "$(cat ${DEPLOY_PATH}/yr_master/master.info)" \

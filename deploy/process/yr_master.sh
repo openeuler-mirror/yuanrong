@@ -25,10 +25,25 @@ umask -p 027
 
 function dump_deploy_log_tail() {
   local deploy_log=$1
+  log_error "diagnose deploy log path: ${deploy_log}"
   if [ -f "${deploy_log}" ]; then
     log_error "tail deploy log: ${deploy_log}"
     tail -100 "${deploy_log}"
+  else
+    log_error "deploy log does not exist"
+    local deploy_log_dir
+    deploy_log_dir=$(dirname "${deploy_log}")
+    if [ -d "${deploy_log_dir}" ]; then
+      log_error "list deploy log dir: ${deploy_log_dir}"
+      ls -al "${deploy_log_dir}"
+    fi
+    if [ -d "${LOG_ROOT}" ]; then
+      log_error "recent files under LOG_ROOT: ${LOG_ROOT}"
+      find "${LOG_ROOT}" -maxdepth 2 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %p\n' | sort | tail -50
+    fi
   fi
+  log_error "related process snapshot"
+  ps -ef | grep -E 'function_master|function_proxy|function_agent|runtime_launcher|ds_worker|ds_master|etcd' | grep -v grep || true
 }
 
 function main() {

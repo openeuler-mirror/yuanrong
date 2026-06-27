@@ -102,6 +102,30 @@ function prepend_python_runtime_ld_path() {
     esac
 }
 
+function stage_functionsystem_runtime_libs() {
+    local fs_lib_dir="${YUANRONG_DIR}/functionsystem/lib"
+    if [ ! -d "${fs_lib_dir}" ]; then
+        return 0
+    fi
+    if compgen -G "${fs_lib_dir}/libprotoc.so*" >/dev/null; then
+        return 0
+    fi
+
+    local lib_src_dir
+    for lib_src_dir in \
+        "${YUANRONG_DIR}/datasystem/sdk/cpp/lib" \
+        "${YUANRONG_DIR}/datasystem/service/lib" \
+        "${YUANRONG_DIR}/runtime/service/python/yr" \
+        "${YUANRONG_DIR}/runtime/sdk/cpp/lib"; do
+        if compgen -G "${lib_src_dir}/libprotoc.so*" >/dev/null; then
+            echo "[gate-st] stage libprotoc from ${lib_src_dir} to ${fs_lib_dir}"
+            cp -P "${lib_src_dir}"/libprotoc.so* "${fs_lib_dir}/"
+            return 0
+        fi
+    done
+    echo "[gate-st] warning: libprotoc.so* not found for functionsystem runtime"
+}
+
 function resolve_metrics_config_file() {
     local candidate
     for candidate in \
@@ -157,6 +181,7 @@ function start_yr() {
     if [ "X${RUNTIME_DIRECT_CONNECTION_ENABLE}" == "Xtrue" ]; then
         direct_call="true"
     fi
+    stage_functionsystem_runtime_libs
     prepend_python_runtime_ld_path
     if ! bash deploy/process/yr_master.sh -d ${DEPLOY_PATH}/yr_master \
         -a ${LOCAL_IP} -l DEBUG -s 2048 -c 10000 -m 22048 \

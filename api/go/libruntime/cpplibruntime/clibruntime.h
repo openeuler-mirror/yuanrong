@@ -254,6 +254,7 @@ typedef struct tagCInvokeOptions {
     int64_t scheduleTimeoutMs;
     char forceInvoke;
     char isInterrupted;
+    char *sessionCtxId;
 } CInvokeOptions;
 
 typedef struct tagCErrorObject {

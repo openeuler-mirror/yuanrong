@@ -79,6 +79,7 @@ type ExtendedMetaData struct {
 	LogTankService         LogTankService         `json:"log_tank_service" valid:",optional"`
 	CustomHealthCheck      CustomHealthCheck      `json:"custom_health_check" valid:",optional"`
 	CustomGracefulShutdown CustomGracefulShutdown `json:"runtime_graceful_shutdown"`
+	EnableSessionCtx       bool                   `json:"enable_session_ctx,omitempty"`
 }
 
 // LogTankService -
@@ -144,6 +145,7 @@ type InvokeRequest struct {
 	StateID        string            `json:"stateID"`
 	Params         map[string]string `json:"params"`
 	FuncUrn        string
+	SessionCtxID   string            `json:"sessionCtxID,omitempty"`
 }
 
 // InvokeResponse -

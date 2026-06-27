@@ -27,18 +27,6 @@ if [ "X$YR_NODE_ID" != "X" ]; then
   NODE_ID=${YR_NODE_ID:0-20}
 fi
 
-function wait_times_from_system_timeout() {
-  local default_wait_times=30
-  if [[ "${SYSTEM_TIMEOUT}" =~ ^[0-9]+$ ]]; then
-    local wait_times=$(((SYSTEM_TIMEOUT + 1999) / 2000))
-    if [ ${wait_times} -gt ${default_wait_times} ]; then
-      echo ${wait_times}
-      return
-    fi
-  fi
-  echo ${default_wait_times}
-}
-
 function dump_deploy_log_tail() {
   local deploy_log=$1
   if [ -f "${deploy_log}" ]; then
@@ -57,9 +45,7 @@ function main() {
       > "${deploy_log}" 2>&1 &
     local deploy_pid=$!
     local master_info_string
-    local data_plane_wait_times
-    data_plane_wait_times=$(wait_times_from_system_timeout)
-    for ((t = 1; t < data_plane_wait_times; t++ )); do
+    for ((t = 1; t < 30; t++ )); do
       sleep 2
       if [ -f "${MASTER_INFO_OUT_FILE}" ]; then
         master_info_string=$( head -n 1 $MASTER_INFO_OUT_FILE )

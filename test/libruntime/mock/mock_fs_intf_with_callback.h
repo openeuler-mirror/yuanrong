@@ -126,6 +126,7 @@ public:
                 smallObject->set_value(serializeFuncMeta);
             } else if (needCheckArgs) {
                 std::string value = req->Mutable().args(1).value();
+                lastInstanceRequirement = value;
                 std::size_t found = value.find("instanceInvokeLabel");
                 nlohmann::json instanceResp;
                 if (found != std::string::npos) {
@@ -203,6 +204,7 @@ public:
     std::string eventServerIp;
     int eventServerPort = 0;
     std::string eventServerInstanceId;
+    std::string lastInstanceRequirement;
     std::promise<int> callbackPromise = std::promise<int>();
     std::promise<int> killCallbackPromise = std::promise<int>();
     std::shared_future<int> callbackFuture = callbackPromise.get_future();

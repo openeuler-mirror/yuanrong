@@ -129,3 +129,53 @@ func TestSetStain(t *testing.T) {
 		Proxy.Remove("faasscheduler")
 	})
 }
+
+func Test_schedulerProxy_GetWithSessionCtx(t *testing.T) {
+	convey.Convey("GetWithSessionCtx", t, func() {
+		convey.Convey("empty sessionCtx uses funcKey only", func() {
+			var capturedName string
+			patches := []*gomonkey.Patches{
+				gomonkey.ApplyMethod(reflect.TypeOf(&loadbalance.ConcurrentCHGeneric{}), "Next",
+					func(_ *loadbalance.ConcurrentCHGeneric, name string, move bool) interface{} {
+						capturedName = name
+						return "instance1"
+					}),
+			}
+			defer func() {
+				for _, patch := range patches {
+					time.Sleep(100 * time.Millisecond)
+					patch.Reset()
+				}
+			}()
+			Proxy.Add("instance1")
+			instanceID, err := Proxy.GetWithSessionCtx("functionKey", "")
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(instanceID, convey.ShouldEqual, "instance1")
+			convey.So(capturedName, convey.ShouldEqual, "functionKey")
+			Proxy.Remove("instance1")
+		})
+
+		convey.Convey("non-empty sessionCtx uses funcKey#sessionCtx", func() {
+			var capturedName string
+			patches := []*gomonkey.Patches{
+				gomonkey.ApplyMethod(reflect.TypeOf(&loadbalance.ConcurrentCHGeneric{}), "Next",
+					func(_ *loadbalance.ConcurrentCHGeneric, name string, move bool) interface{} {
+						capturedName = name
+						return "instance1"
+					}),
+			}
+			defer func() {
+				for _, patch := range patches {
+					time.Sleep(100 * time.Millisecond)
+					patch.Reset()
+				}
+			}()
+			Proxy.Add("instance1")
+			instanceID, err := Proxy.GetWithSessionCtx("functionKey", "ctx-a")
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(instanceID, convey.ShouldEqual, "instance1")
+			convey.So(capturedName, convey.ShouldEqual, "functionKey#ctx-a")
+			Proxy.Remove("instance1")
+		})
+	})
+}

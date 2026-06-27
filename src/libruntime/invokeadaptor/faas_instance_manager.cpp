@@ -30,6 +30,7 @@ const std::string HOST_NAME_ENV = "HOSTNAME";
 const std::string POD_NAME_ENV = "POD_NAME";
 const std::string INSTANCE_CALLER_POD_NAME = "instanceCallerPodName";
 const std::string INSTANCE_SESSION_CONFIG = "instanceSessionConfig";
+const std::string SESSION_CTX_ID = "sessionCtxID";
 [[maybe_unused]] const int64_t BEFOR_RETAIN_TIME = 30;  // millisecond
 const int64_t RETAIN_TIME_RATE = 2;
 const int RELEASE_DELAYTIME = 100;  // millisecond
@@ -663,7 +664,13 @@ std::shared_ptr<InvokeSpec> FaasInsManager::BuildAcquireRequest(std::shared_ptr<
     if (!schedulerId.empty()) {
         acquireSpec->invokeInstanceId = schedulerId;
     } else {
-        schedulerId = csHash->NextRetry(invokeSpec->functionMeta.functionId);
+        std::string hashKey = invokeSpec->functionMeta.functionId;
+        if (!invokeSpec->opts.sessionCtxId.empty()) {
+            hashKey = invokeSpec->functionMeta.functionId + "#" + invokeSpec->opts.sessionCtxId;
+            YRLOG_DEBUG("acquire with sessionCtx routing, functionId={}, sessionCtxId={}, hashKey={}",
+                invokeSpec->functionMeta.functionId, invokeSpec->opts.sessionCtxId, hashKey);
+        }
+        schedulerId = csHash->NextRetry(hashKey);
         acquireSpec->invokeInstanceId = schedulerId;
     }
 
@@ -727,6 +734,14 @@ std::shared_ptr<InvokeSpec> FaasInsManager::BuildAcquireRequest(std::shared_ptr<
         std::string instanceSessionJsonString = instanceSessionJson.dump();
         std::vector<unsigned char> vec(instanceSessionJsonString.begin(), instanceSessionJsonString.end());
         instanceRequirement[INSTANCE_SESSION_CONFIG] = vec;
+    }
+    {
+        // sessionCtxId is written only when non-empty.
+        if (!invokeSpec->opts.sessionCtxId.empty()) {
+            std::vector<unsigned char> vec(invokeSpec->opts.sessionCtxId.begin(),
+                                           invokeSpec->opts.sessionCtxId.end());
+            instanceRequirement[SESSION_CTX_ID] = vec;
+        }
     }
     nlohmann::json instanceRequirementJson = instanceRequirement;
     std::string instanceRequirementStr = instanceRequirementJson.dump();
@@ -880,6 +895,14 @@ std::vector<unsigned char> BuildReacquireInstanceData(const RequestResource &res
         std::string instanceSessionJsonString = instanceSessionJson.dump();
         std::vector<unsigned char> vec(instanceSessionJsonString.begin(), instanceSessionJsonString.end());
         reacquireData["instanceSessionConfig"] = vec;
+    }
+    {
+        // sessionCtxId is written only when non-empty, consistent with acquire path.
+        if (!resource.opts.sessionCtxId.empty()) {
+            std::vector<unsigned char> vec(resource.opts.sessionCtxId.begin(),
+                                           resource.opts.sessionCtxId.end());
+            reacquireData[SESSION_CTX_ID] = vec;
+        }
     }
     if (!resource.opts.invokeLabels.empty()) {
         nlohmann::json invokeLabelsJson = resource.opts.invokeLabels;

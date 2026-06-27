@@ -1992,6 +1992,7 @@ func cBaseInvokeOptions(invokeOpt api.InvokeOptions) C.CInvokeOptions {
 		timeout:                   C.int(invokeOpt.Timeout),
 		acquireTimeout:            C.int(invokeOpt.AcquireTimeout),
 		trafficLimited:            C.char(btoi(invokeOpt.TrafficLimited)),
+		sessionCtxId:              CSafeString(invokeOpt.SessionCtxID),
 	}
 }
 
@@ -2071,6 +2072,7 @@ func freeCInvokeOptions(cInvokeOpt *C.CInvokeOptions) {
 		CSafeFree(cInvokeOpt.instanceSession.sessionId)
 		C.free(unsafe.Pointer(cInvokeOpt.instanceSession))
 	}
+	CSafeFree(cInvokeOpt.sessionCtxId)
 }
 
 func cScheduleAffinities(schedAffinities []api.Affinity) (*C.CAffinity, C.int) {

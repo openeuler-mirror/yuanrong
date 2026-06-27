@@ -750,6 +750,9 @@ static InvokeOptions BuildInvokeOptions(CInvokeOptions *cInvokeOpts)
     if (cInvokeOpts->bypassDatasystem != 0) {
         invokeOpts.bypassDatasystem = true;
     }
+    if (cInvokeOpts->sessionCtxId != nullptr) {
+        invokeOpts.sessionCtxId = cInvokeOpts->sessionCtxId;
+    }
     for (int i = 0; i < cInvokeOpts->size_invokeLabels; i++) {
         invokeOpts.invokeLabels.emplace(cInvokeOpts->invokeLabels[i].key, cInvokeOpts->invokeLabels[i].value);
     }

@@ -439,6 +439,18 @@ func (ch *CustomContainerHandler) handleInvoke(w http.ResponseWriter, r *http.Re
 		response.ErrorMessage = fmt.Sprintf("failed to unmarshal request body error %s", err.Error())
 		return
 	}
+	agentSession := r.Header.Get("X-Agent-Session")
+	if agentSession != "" {
+		agentSessionConfig := struct {
+			SessionCtx string `json:"sessionCtx"`
+		}{}
+		if err = json.Unmarshal([]byte(agentSession), &agentSessionConfig); err != nil {
+			response.StatusCode = constants.FaaSError
+			response.ErrorMessage = fmt.Sprintf("failed to unmarshal agent session header error %s", err.Error())
+			return
+		}
+		request.SessionCtxID = agentSessionConfig.SessionCtx
+	}
 	objectID := uuid.New().String()
 	ch.Lock()
 	ch.futureMap[objectID] = make(chan types.GetFutureResponse, 1)
@@ -520,6 +532,9 @@ func (ch *CustomContainerHandler) processInvoke(request types.InvokeRequest, obj
 				TraceID:             request.TraceID,
 				Timeout:             int(request.Timeout),
 				AcquireTimeout:      acquireTimeout,
+			}
+			if ch.funcSpec.ExtendedMetaData.EnableSessionCtx {
+				invokeOptions.SessionCtxID = request.SessionCtxID
 			}
 			returnObjectID, InvokeErr := ch.sdkClient.InvokeByFunctionName(functionMeta, arg, invokeOptions)
 			if InvokeErr != nil {
@@ -607,7 +622,13 @@ func (ch *CustomContainerHandler) processInvokeByState(request types.InvokeReque
 	if err != nil {
 		return err
 	}
-	schedulerID, err := faasscheduler.Proxy.Get(funcKey)
+	var schedulerID string
+	if ch.funcSpec.ExtendedMetaData.EnableSessionCtx {
+		loggerWith.Debugf("acquire with sessionCtx routing, funcKey=%s, sessionCtxID=%q", funcKey, request.SessionCtxID)
+		schedulerID, err = faasscheduler.Proxy.GetWithSessionCtx(funcKey, request.SessionCtxID)
+	} else {
+		schedulerID, err = faasscheduler.Proxy.Get(funcKey)
+	}
 	if err != nil {
 		return err
 	}
@@ -618,6 +639,9 @@ func (ch *CustomContainerHandler) processInvokeByState(request types.InvokeReque
 		TraceID:              request.TraceID,
 		Timeout:              120, // 120 seconds
 		AcquireTimeout:       120,
+	}
+	if ch.funcSpec.ExtendedMetaData.EnableSessionCtx {
+		option.SessionCtxID = request.SessionCtxID
 	}
 	stateMgr := ch.getStateMgr()
 	if stateMgr == nil {

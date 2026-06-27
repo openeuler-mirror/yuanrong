@@ -189,6 +189,8 @@ struct InvokeOptions {
     DebugConfig debug;
 
     std::string workingDir;
+
+    std::string sessionCtxId;
 };
 
 struct FunctionMeta {

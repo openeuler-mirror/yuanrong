@@ -529,8 +529,8 @@ func (fs *FaaSScheduler) handleInstanceAcquireWithTraceParent(targetName string,
 		logger.Errorf("failed get resSpec error %v", err)
 		return generateInstanceResponse(nil, err, startTime)
 	}
-	logger.Infof("handling instance acquire for resSpec %v instanceID %s instanceSession %v traceID %s", resSpec,
-		dataInfo.designateInstanceID, dataInfo.instanceSession, traceID)
+	logger.Infof("handling instance acquire for resSpec %v instanceID %s instanceSession %v sessionCtxID %s traceID %s", resSpec,
+		dataInfo.designateInstanceID, dataInfo.instanceSession, dataInfo.sessionCtxID, traceID)
 	poolLabel := getPoolLabel(dataInfo.poolLabel, funcSpec.InstanceMetaData.PoolLabel)
 	insAlloc, err = fs.PoolManager.AcquireInstanceThread(&types.InstanceAcquireRequest{
 		FuncSpec:            funcSpec, // etcd

@@ -261,6 +261,7 @@ type InvokeOptions struct {
 	ForceInvoke          bool
 	IsInterrupted        bool
 	BypassDataSystem     bool
+	SessionCtxID         string
 }
 
 // InstanceAllocation holds the allocation of instance

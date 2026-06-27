@@ -571,5 +571,94 @@ TEST_F(FaasInstanceManagerTest, AcquireCallbackTest)
     insManager->AcquireCallback(acquireSpec, err, InstanceResponse{}, invokeSpec);
     ASSERT_EQ(outputErr.Code(), YR::Libruntime::ErrorCode::ERR_ALL_SCHEDULER_UNAVALIABLE);
 }
+
+TEST_F(FaasInstanceManagerTest, BuildAcquireRequestWithSessionCtx)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    std::vector<DataObject> returnObjs{DataObject("returnID")};
+    spec->returnIds = returnObjs;
+    spec->jobId = "jobId";
+    spec->requestId = "requestId";
+    spec->traceId = "traceId";
+    spec->instanceId = "instanceId";
+    spec->invokeLeaseId = "leaseId";
+    spec->invokeInstanceId = "insId";
+    spec->functionMeta = {"", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "poollabel", libruntime::ApiType::Function};
+    InvokeOptions opts;
+    opts.schedulerFunctionId = "funcKey";
+    opts.sessionCtxId = "useraaa";
+    std::unordered_map<std::string, std::string> invokelabels;
+    invokelabels["xxx"] = "xxx";
+    opts.invokeLabels = invokelabels;
+    spec->opts = opts;
+    auto mockFs = std::dynamic_pointer_cast<MockFsIntf>(mockFsIntf);
+    mockFs->isAcquireResponse = false;
+    mockFs->isReqNormal = false;
+    mockFs->needCheckArgs = true;
+    auto [instanceAllocation, err] = insManager->AcquireInstance("", spec);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    // verify sessionCtxID is written to instanceRequirement
+    // DataObject prepends a MetaDataLen (16-byte) meta header before the actual JSON data
+    auto reqJson = nlohmann::json::parse(mockFs->lastInstanceRequirement.substr(MetaDataLen));
+    ASSERT_TRUE(reqJson.contains("sessionCtxID"));
+    std::string ctxId;
+    for (const auto &c : reqJson["sessionCtxID"]) {
+        ctxId.push_back(static_cast<char>(c.get<int>()));
+    }
+    ASSERT_EQ(ctxId, "useraaa");
+}
+
+TEST_F(FaasInstanceManagerTest, BuildAcquireRequestWithoutSessionCtx)
+{
+    auto spec = std::make_shared<InvokeSpec>();
+    std::vector<DataObject> returnObjs{DataObject("returnID")};
+    spec->returnIds = returnObjs;
+    spec->jobId = "jobId";
+    spec->requestId = "requestId";
+    spec->traceId = "traceId";
+    spec->instanceId = "instanceId";
+    spec->invokeLeaseId = "leaseId";
+    spec->invokeInstanceId = "insId";
+    spec->functionMeta = {"", "", "funcname", "classname", libruntime::LanguageType::Cpp, "", "", "poollabel", libruntime::ApiType::Function};
+    InvokeOptions opts;
+    opts.schedulerFunctionId = "funcKey";
+    std::unordered_map<std::string, std::string> invokelabels;
+    invokelabels["xxx"] = "xxx";
+    opts.invokeLabels = invokelabels;
+    spec->opts = opts;
+    auto mockFs = std::dynamic_pointer_cast<MockFsIntf>(mockFsIntf);
+    mockFs->isAcquireResponse = false;
+    mockFs->isReqNormal = false;
+    mockFs->needCheckArgs = true;
+    auto [instanceAllocation, err] = insManager->AcquireInstance("", spec);
+    ASSERT_EQ(err.Code(), ErrorCode::ERR_OK);
+    // verify sessionCtxID is NOT in instanceRequirement
+    ASSERT_EQ(mockFs->lastInstanceRequirement.find("sessionCtxID"), std::string::npos);
+}
+
+TEST_F(FaasInstanceManagerTest, BuildReacquireInstanceDataWithSessionCtx)
+{
+    RequestResource r1;
+    r1.opts.sessionCtxId = "useraaa";
+    r1.opts.invokeLabels["label1"] = "1";
+    std::vector<unsigned char> vec = BuildReacquireInstanceData(r1);
+    std::string str(vec.begin(), vec.end());
+    auto reacquireJson = nlohmann::json::parse(str);
+    ASSERT_TRUE(reacquireJson.contains("sessionCtxID"));
+    std::string ctxId;
+    for (const auto &c : reacquireJson["sessionCtxID"]) {
+        ctxId.push_back(static_cast<char>(c.get<int>()));
+    }
+    ASSERT_EQ(ctxId, "useraaa");
+}
+
+TEST_F(FaasInstanceManagerTest, BuildReacquireInstanceDataWithoutSessionCtx)
+{
+    RequestResource r1;
+    r1.opts.invokeLabels["label1"] = "1";
+    std::vector<unsigned char> vec = BuildReacquireInstanceData(r1);
+    std::string str(vec.begin(), vec.end());
+    ASSERT_EQ(str.find("sessionCtxID"), std::string::npos);
+}
 }  // namespace test
 }  // namespace YR

@@ -270,6 +270,7 @@ typedef struct tagCInvokeOptions {
     char forceInvoke;
     char isInterrupted;
     char bypassDatasystem;
+    char *sessionCtxId;
 } CInvokeOptions;
 
 typedef struct tagCErrorObject {

@@ -68,9 +68,24 @@ func (im *schedulerProxy) Remove(faaSSchedulerID string) {
 
 // Get an instance for this request
 func (im *schedulerProxy) Get(funcKey string) (string, error) {
-	logger.GetLogger().Infof("Getting instance from scheduler for funcKey: %s", funcKey)
+	return im.getByHashKey(funcKey)
+}
+
+// GetWithSessionCtx gets scheduler with session ctx for session ctx routing.
+// When sessionCtx is not empty, it uses funcKey + "#" + sessionCtx as the hash key.
+func (im *schedulerProxy) GetWithSessionCtx(funcKey, sessionCtx string) (string, error) {
+	hashKey := funcKey
+	if sessionCtx != "" {
+		hashKey = funcKey + "#" + sessionCtx
+	}
+	return im.getByHashKey(hashKey)
+}
+
+// getByHashKey gets scheduler by hash key
+func (im *schedulerProxy) getByHashKey(hashKey string) (string, error) {
+	logger.GetLogger().Infof("Getting instance from scheduler for hashKey: %s", hashKey)
 	// select one FaaSScheduler by the func key
-	next := im.loadBalance.Next(funcKey, false)
+	next := im.loadBalance.Next(hashKey, false)
 	faaSSchedulerID, ok := next.(string)
 	if !ok {
 		return "", fmt.Errorf("failed to parse the result of loadbanlance: %+v", next)

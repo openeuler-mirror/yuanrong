@@ -439,7 +439,7 @@ func (ch *CustomContainerHandler) handleInvoke(w http.ResponseWriter, r *http.Re
 		response.ErrorMessage = fmt.Sprintf("failed to unmarshal request body error %s", err.Error())
 		return
 	}
-	agentSession := r.Header.Get("X-Agent-Session")
+	agentSession := r.Header.Get("X-Session-Context")
 	if agentSession != "" {
 		agentSessionConfig := struct {
 			SessionCtx string `json:"sessionCtx"`

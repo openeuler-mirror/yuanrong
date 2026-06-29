@@ -208,6 +208,7 @@ func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey st
 			InstanceMetaData: funcMetaInfo.InstanceMetaData,
 			ExtendedMetaData: funcMetaInfo.ExtendedMetaData,
 			RootfsSpecMeta:   funcMetaInfo.RootfsSpecMeta,
+			SandboxType:      funcMetaInfo.SandboxType,
 		}
 	} else {
 		funcSpec = oldFuncSpec
@@ -222,6 +223,7 @@ func createOrUpdateFuncSpec(oldFuncSpec *types.FunctionSpecification, funcKey st
 		funcSpec.InstanceMetaData = funcMetaInfo.InstanceMetaData
 		funcSpec.ExtendedMetaData = funcMetaInfo.ExtendedMetaData
 		funcSpec.RootfsSpecMeta = funcMetaInfo.RootfsSpecMeta
+		funcSpec.SandboxType=   funcMetaInfo.SandboxType
 	}
 	return funcSpec
 }

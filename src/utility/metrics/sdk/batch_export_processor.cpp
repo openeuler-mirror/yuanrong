@@ -25,6 +25,7 @@ BatchExportProcessor::BatchExportProcessor(
 {
     observability::metrics::ValidateExportConfigs(exportConfigs);
     processorActor_ = std::make_shared<ProcessorActor>(std::move(exporter), std::move(exportConfigs));
+    processorActor_->Start();
 }
 
 BatchExportProcessor::~BatchExportProcessor()

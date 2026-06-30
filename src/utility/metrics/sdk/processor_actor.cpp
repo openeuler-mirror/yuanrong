@@ -207,6 +207,7 @@ void ProcessorActor::Export(const MetricData &data)
         }
     }
 
+    bool shouldExport = false;
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         metricDataQueue_.push_back(data);
@@ -216,8 +217,11 @@ void ProcessorActor::Export(const MetricData &data)
         if (metricDataQueue_.size() >= exportConfigs_.batchSize) {
             METRICS_LOG_DEBUG("{} metric queue {} exceeds exportConfigs batchSize {}", exportConfigs_.exporterName,
                               metricDataQueue_.size(), exportConfigs_.batchSize);
-            ExportMetricQueueData();
+            shouldExport = true;
         }
+    }
+    if (shouldExport) {
+        ExportMetricQueueData();
     }
 }
 

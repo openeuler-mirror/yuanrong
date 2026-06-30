@@ -27,6 +27,7 @@ ImmediatelyExportProcessor::ImmediatelyExportProcessor(std::shared_ptr<MetricsEx
     auto exportConfigs = ExportConfigs { .exporterName = "immediatelyExporterDefault",
                                          .exportMode = ExportMode::IMMEDIATELY, .batchSize = 1 };
     processorActor_ = std::make_shared<ProcessorActor>(std::move(exporter), std::move(exportConfigs));
+    processorActor_->Start();
 }
 
 ImmediatelyExportProcessor::ImmediatelyExportProcessor(
@@ -35,6 +36,7 @@ ImmediatelyExportProcessor::ImmediatelyExportProcessor(
     observability::metrics::ValidateExportConfigs(exportConfigs);
     exportConfigs.batchSize = 1;
     processorActor_ = std::make_shared<ProcessorActor>(std::move(exporter), std::move(exportConfigs));
+    processorActor_->Start();
 }
 
 AggregationTemporality ImmediatelyExportProcessor::GetAggregationTemporality(

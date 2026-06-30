@@ -1537,6 +1537,20 @@ TEST_F(InvokeAdaptorTest, MetricsTest)
     Config::Instance().ENABLE_METRICS_ = false;
 }
 
+TEST_F(InvokeAdaptorTest, MetricsEnabledFallsBackToInstanceConfigWhenInvokeMetaOmitsFlag)
+{
+    Config::Instance().ENABLE_METRICS_ = false;
+    libConfig->enableMetrics = true;
+
+    libruntime::MetaData metaData;
+    metaData.mutable_config()->set_enablemetrics(false);
+
+    ASSERT_TRUE(invokeAdaptor->IsMetricsEnabled());
+    ASSERT_TRUE(invokeAdaptor->IsMetricsEnabled(metaData));
+
+    libConfig->enableMetrics = false;
+}
+
 TEST_F(InvokeAdaptorTest, StreamWriteEventTest)
 {
     threadLocalRequestId = "request123";

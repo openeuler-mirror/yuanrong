@@ -255,6 +255,8 @@ private:
     // load user function libraries
     CallResult InitCall(const CallRequest &req, const libruntime::MetaData &metaData);
 
+    bool IsMetricsEnabled() const;
+    bool IsMetricsEnabled(const libruntime::MetaData &metaData) const;
     void InitMetricsAdaptor(bool userEnable);
     void ReportMetrics(const std::string &requestId, const std::string &traceId, int value);
 

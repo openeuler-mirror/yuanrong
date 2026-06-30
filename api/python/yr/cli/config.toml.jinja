@@ -128,7 +128,7 @@ initial-cluster-token = "etcd-cluster-1"
 {% endif -%}
 
 [ds_master]
-bin_path = "{{ values.yr_package_path }}/datasystem/datasystem_worker"
+bin_path = "{{ values.ds_bin }}/datasystem_worker"
 
 [ds_master.health_check]
 enable = true
@@ -136,7 +136,7 @@ timeout = 65
 endpoint = "{{ values.deploy_path }}/ds_master_{{ values.pid }}/master/health"
 
 [ds_master.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/datasystem/lib"
+LD_LIBRARY_PATH = "{{ values.ds_bin }}/lib"
 
 [ds_master.args]
 master_address = "{{ values.ds_master.ip }}:{{ values.ds_master.port }}"
@@ -179,7 +179,7 @@ enable_distributed_master = false
 stderrthreshold = 3
 
 [ds_worker]
-bin_path = "{{ values.yr_package_path }}/datasystem/datasystem_worker"
+bin_path = "{{ values.ds_bin }}/datasystem_worker"
 
 [ds_worker.health_check]
 enable = true
@@ -187,7 +187,7 @@ timeout = 65
 endpoint = "{{ values.deploy_path }}/ds_worker_{{ values.pid }}/worker/health"
 
 [ds_worker.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/datasystem/lib"
+LD_LIBRARY_PATH = "{{ values.ds_bin }}/lib"
 
 [ds_worker.args]
 master_address = "{% if values.etcd.enable_multi_master %}{% else %}{{ values.ds_master.ip ~ ':' ~ values.ds_master.port }}{% endif %}"
@@ -278,7 +278,7 @@ enable_persistence = false
 meta_store_mode = "{{ values.meta_store.mode }}"
 meta_store_excluded_keys = ","
 election_mode = "{{ 'etcd' if values.etcd.enable_multi_master else 'standalone' }}"
-services_path = "{{ values.yr_package_path }}/cli/services.yaml"
+services_path = "{{ values.yr_package_path }}/deploy/process/services.yaml"
 lib_path = "{{ values.yr_package_path }}/functionsystem/lib"
 etcd_auth_type = "{{ values.etcd.auth_type }}"
 etcd_root_ca_file = "{{ values.etcd.auth.ca_file }}"
@@ -294,7 +294,7 @@ ssl_cert_file = "{{ values.fs.tls.cert_file }}"
 ssl_key_file = "{{ values.fs.tls.key_file }}"
 meta_store_max_flush_concurrency = 100
 meta_store_max_flush_batch_size = 50
-function_meta_path = "{{ values.yr_package_path }}/faas/executor-meta" # require openyuanrong-faas installed
+function_meta_path = "{{ values.faas_root }}/executor-meta" # require openyuanrong-faas installed
 
 [function_proxy]
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_proxy"
@@ -305,7 +305,7 @@ timeout = 60
 endpoint = "{{ 'https' if values.fs.tls.enable else 'http' }}://{{ values.function_proxy.ip }}:{{ values.function_proxy.port }}/local-scheduler/healthy"
 
 [function_proxy.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.yr_package_path }}/datasystem/lib" # datasystem lib is needed for libds_router_client.so which needs v1.1 libssl and libcrypto
+LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.ds_bin }}/lib" # datasystem lib is needed for libds_router_client.so which needs v1.1 libssl and libcrypto
 LD_PRELOAD = "" # for jemalloc use
 {% if values.runtime_launcher.enable %}
 CONTAINER_EP = "unix://{{ values.runtime_launcher.socket }}"
@@ -334,7 +334,7 @@ meta_store_address = "{{ etcd_cluster }}"
 log_config = '''{{ fs_log_config | tojson }}'''
 etcd_address = "{{ etcd_cluster }}"
 node_id = "{{ values.node_id }}"
-services_path = "{{ values.yr_package_path }}/cli/services.yaml"
+services_path = "{{ values.yr_package_path }}/deploy/process/services.yaml"
 lib_path = "{{ values.yr_package_path }}/functionsystem/lib"
 enable_metrics = false
 metrics_config = "{{ values.fs.metrics.metrics_config }}"
@@ -395,7 +395,7 @@ ssl_downgrade_enable = true
 enable_print_perf = false
 is_partial_watch_instances = false
 runtime_instance_debug_enable = false
-function_meta_path = "{{ values.yr_package_path }}/faas/executor-meta" # require openyuanrong-faas installed
+function_meta_path = "{{ values.faas_root }}/executor-meta" # require openyuanrong-faas installed
 enable_merge_process = false
 agent_listen_port = {{ values.function_proxy.port }}
 local_scheduler_address = "{{ values.function_proxy.ip }}:{{ values.function_proxy.port }}"
@@ -454,7 +454,7 @@ force_low_reliability_instance = false
 bin_path = "{{ values.yr_package_path }}/functionsystem/bin/function_agent"
 
 [function_agent.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.yr_package_path }}/datasystem/lib"
+LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.ds_bin }}/lib"
 RUNTIME_METRICS_CONFIG = "{{ values.fs.metrics.metrics_config }}"
 RUNTIME_METRICS_CONFIG_FILE = "{{ values.fs.metrics.metrics_config_file }}"
 INIT_LABELS = ""
@@ -536,13 +536,13 @@ local_node_id = "{{ values.node_id }}"
 
 [function_scheduler]
 bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"
-src_init_config_path = "{{ values.yr_package_path }}/faas/init_scheduler_args.json"
+src_init_config_path = "{{ values.faas_root }}/init_scheduler_args.json"
 
 [function_scheduler.env]
 LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.yr_package_path }}/runtime/service/go/bin"
 GO_RUNTIME_BIN="{{ values.yr_package_path }}/runtime/service/go/bin"
 POD_NAME="scheduler-process"
-FUNCTION_LIB_PATH="{{ values.yr_package_path }}/faas/faasscheduler/faasscheduler.so"
+FUNCTION_LIB_PATH="{{ values.faas_root }}/faasscheduler/faasscheduler.so"
 INIT_ARGS_FILE_PATH="{{ values.deploy_path }}/function_scheduler_init_args.json"
 ENABLE_SERVER_MODE="true"
 INIT_HANDLER="faasscheduler.InitHandler"
@@ -552,7 +552,7 @@ RECOVER_HANDLER="faasscheduler.RecoverHandler"
 SHUTDOWN_HANDLER="faasscheduler.ShutdownHandler"
 SIGNAL_HANDLER="faasscheduler.SignalHandler"
 HEALTH_CHECK_HANDLER="faasscheduler.HealthCheckHandler"
-YR_FUNCTION_LIB_PATH="{{ values.yr_package_path }}/faas/faasscheduler/"
+YR_FUNCTION_LIB_PATH="{{ values.faas_root }}/faasscheduler/"
 GLOG_log_dir="{{ values.fs.log.path }}"
 YR_LOG_LEVEL="{{ values.fs.log.level }}"
 POD_IP="{{ values.host_ip }}"
@@ -585,7 +585,7 @@ enableDsEncrypt =  "{{ 'true' if values.ds.curve.enable else 'false' }}"
 
 [frontend]
 bin_path = "{{ values.yr_package_path }}/runtime/service/go/bin/goruntime"
-src_init_config_path = "{{ values.yr_package_path }}/faas/init_frontend_args.json"
+src_init_config_path = "{{ values.faas_root }}/init_frontend_args.json"
 ip = "{{ values.host_ip }}"
 port = "{{ 8888|check_port() }}"
 ssl_enable = {{ values.frontend.ssl_enable | lower }}
@@ -596,7 +596,7 @@ enable_function_token_auth = {{ values.frontend.enable_function_token_auth | low
 LD_LIBRARY_PATH = "{{ values.yr_package_path }}/functionsystem/lib:{{ values.yr_package_path }}/runtime/service/go/bin"
 GO_RUNTIME_BIN="{{ values.yr_package_path }}/runtime/service/go/bin"
 POD_NAME="frontend-process"
-FUNCTION_LIB_PATH="{{ values.yr_package_path }}/faas/faasfrontend/faasfrontend.so"
+FUNCTION_LIB_PATH="{{ values.faas_root }}/faasfrontend/faasfrontend.so"
 INIT_ARGS_FILE_PATH="{{ values.deploy_path }}/frontend_init_args.json"
 ENABLE_SERVER_MODE="true"
 INIT_HANDLER="faasfrontend.InitHandler"
@@ -606,7 +606,7 @@ RECOVER_HANDLER="faasfrontend.RecoverHandler"
 SHUTDOWN_HANDLER="faasfrontend.ShutdownHandler"
 SIGNAL_HANDLER="faasfrontend.SignalHandler"
 HEALTH_CHECK_HANDLER="faasfrontend.HealthCheckHandler"
-YR_FUNCTION_LIB_PATH="{{ values.yr_package_path }}/faas/faasfrontend/"
+YR_FUNCTION_LIB_PATH="{{ values.faas_root }}/faasfrontend/"
 GLOG_log_dir="{{ values.fs.log.path }}"
 YR_LOG_LEVEL="{{ values.fs.log.level }}"
 POD_IP="{{ values.host_ip }}"
@@ -664,7 +664,7 @@ enable = true
 timeout = 60
 
 [collector.env]
-LD_LIBRARY_PATH = "{{ values.yr_package_path }}/datasystem/lib:{{ values.yr_package_path }}/runtime/service/go/bin" # old cli scripts use datasystem/sdk/go/lib
+LD_LIBRARY_PATH = "{{ values.ds_bin }}/lib:{{ values.yr_package_path }}/runtime/service/go/bin" # old cli scripts use datasystem/sdk/go/lib
 
 [collector.args]
 collect_id = "{{ values.node_id }}"

@@ -59,6 +59,23 @@ class ConfigResolver:
         self.mode = mode
         self.yr_package_path = cli_dir.parent
         self.env_subst_keys = env_subst_keys
+        # full wheel bundles binaries under yr/inner/; sanbao's yr/inner/ holds
+        # only the legacy run_yr script, so detect by a binary dir unique to full.
+        inner = self.yr_package_path / "inner"
+        self.is_full_layout = (inner / "third_party").is_dir()
+        self.binary_root = inner if self.is_full_layout else self.yr_package_path
+        # full nests datasystem worker+lib under datasystem/service/.
+        self.ds_bin = (
+            self.binary_root / "datasystem" / "service"
+            if self.is_full_layout
+            else self.binary_root / "datasystem"
+        )
+        # full places faas under pattern/pattern_faas/ instead of faas/.
+        self.faas_root = (
+            self.binary_root / "pattern" / "pattern_faas"
+            if self.is_full_layout
+            else self.binary_root / "faas"
+        )
         if render:
             self.runtime_context = self._build_runtime_context()
             self.jinja_env = Environment(
@@ -70,7 +87,9 @@ class ConfigResolver:
             )
             self.jinja_env.globals.update(
                 {
-                    "yr_package_path": self.yr_package_path,
+                    "yr_package_path": self.binary_root,
+                    "ds_bin": self.ds_bin,
+                    "faas_root": self.faas_root,
                     "hostname": self.runtime_context["hostname"],
                     "pid": self.runtime_context["pid"],
                     "node_id": self.runtime_context["node_id"],

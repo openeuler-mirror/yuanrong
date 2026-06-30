@@ -201,7 +201,7 @@ elif setup_type_env == "full":
     ]
     setup_spec.entry_points = {
         "console_scripts": [
-            "yr=yr.inner.scripts:run_yr",
+            "yr=yr.cli.main:main",
             "yrcli=yr.cli.scripts:main",
         ]
     }

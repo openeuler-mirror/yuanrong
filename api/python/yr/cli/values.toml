@@ -2,6 +2,8 @@
 host_ip = "{{ ip }}"
 deploy_path = "{{ deploy_path }}"
 yr_package_path = "{{ yr_package_path }}"
+ds_bin = "{{ ds_bin }}"
+faas_root = "{{ faas_root }}"
 cpu_num = "{{ cpu_millicores }}" # in millicores
 memory_num = "{{ memory_num_mb }}" # in MB
 shared_memory_num = "{{ memory_num_mb // 3 }}" # in MB

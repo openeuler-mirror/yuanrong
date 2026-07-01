@@ -21,6 +21,7 @@ POST /serverless/v1/functions/{functionVersionURN}/invocations
 | **参数** | **是否必选** | **参数类型** | **描述** |
 | ---------- | ----- | ---------- | ------------------------- |
 | Content-Type               | 是 | string | 消息体类型。<br> **取值：** 建议填写 application/json。 |
+| Accept                     | 否 | string | 是否使用 SSE 流式返回。<br> **取值：** text/event-stream。 |
 | X-Instance-Cpu             | 否 | string | 函数实例所需 CPU。 |
 | X-Instance-Memory          | 否 | string | 函数实例所需 Memory。 |
 | X-Instance-Custom-Resource | 否 | string | 函数实例所需自定义资源。 |

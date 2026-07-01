@@ -7,6 +7,7 @@
 
    function-configuration
    version-management
+   response-stream
 ```
 
 openYuanrong provides function service capabilities, supporting openYuanrong functions to run as Serverless services, accessible via HTTP requests. Service instances automatically scale elastically based on request concurrency, scaling down to 0 when there are no requests. Function services define Handler methods as request processing entry points, with the following signatures.
@@ -464,3 +465,4 @@ openYuanrong supports configuring different request scheduling policies for func
 
 - [Configuring Functions](./function-configuration.md)
 - [Version Management](./version-management.md)
+- [Stream Response](./response-stream.md)

@@ -21,6 +21,7 @@ Request Header Parameters
 | **Parameter** | **Required** | **Type** | **Description** |
 | ---------- | ----- | ---------- | ------------------------- |
 | Content-Type               | Yes | string | Message body type.<br> **Value:** It is recommended to use application/json. |
+| Accept                     | No | string | Whether to use SSE streaming return.<br> **Value:** text/event-stream. |
 | X-Instance-Cpu             | No | string | CPU required for the function instance. |
 | X-Instance-Memory          | No | string | Memory required for the function instance. |
 | X-Instance-Custom-Resource | No | string | Custom resources required for the function instance. |

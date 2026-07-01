@@ -61,15 +61,7 @@ bin  include  lib  VERSION
 
 ### Java SDK
 
-[安装 openYuanrong](install-yuanrong-with-pip)后，参考如下命令查看 Java SDK 路径。其中 `yr-api-sdk-xxx.jar` 为单机程序分布式并行化 SDK，`faas-function-sdk-xxx.jar` 为函数服务 SDK，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
-
-```console
-[xxx]# python3 -c "import yr;print(yr.__path__[0])"
-/usr/local/lib/python3.9/site-packages/yr
-
-[xxx]# ls /usr/local/lib/python3.9/site-packages/yr/java/
-yr-api-sdk-1.0.0.jar faas-function-sdk-1.0.0.jar pom.xml
-```
+参考[下载 openYuanrong](../reference/releases.md)获取版本的全量包 `openyuanrong-x.x.x.tar.gz`，Java SDK 在 `openyuanrong/runtime/sdk/java` 路径下。其中 `yr-api-sdk-xxx.jar` 为单机程序分布式并行化 SDK，`faas-function-sdk-xxx.jar` 为函数服务 SDK，应用开发请参考[开发指南](../multi_language_function_programming_interface/development_guide/index.md)。
 
 如果您通过 Maven 管理 Java 项目，可参考如下命令安装 openYuanrong Java SDK，并在项目 `pom.xml` 文件中引入依赖。
 

@@ -42,7 +42,7 @@ genrule(
         cp -R $(locations :go_strip) $$GO_OUT_DIR &&
         for f in $(SRCS); do
             case "$$(basename "$$f")" in
-                libtbb.so|libtbb.so.2|libtbb.2.dylib|libdatasystem.so|libdatasystem.dylib|libobservability-*.so|libobservability-*.dylib)
+                *.so|*.so.*|*.dylib|*.dylib.*)
                     [ -f "$$f" ] && cp -R "$$f" $$GO_OUT_DIR || true
                     ;;
             esac

@@ -107,6 +107,9 @@ log_fatal() {
 }
 
 function sync_submodules_for_build() {
+    local submodule
+    local missing_submodules=()
+
     if [ "$BAZEL_COMMAND" == "clean" ] || [ "${YR_SKIP_SUBMODULE_SYNC:-0}" == "1" ]; then
         return
     fi
@@ -114,9 +117,21 @@ function sync_submodules_for_build() {
         return
     fi
 
-    log_info "sync submodules for current checkout"
+    for submodule in datasystem frontend functionsystem; do
+        if [ -d "${BASE_DIR}/${submodule}" ]; then
+            log_info "skip existing submodule path: ${submodule}"
+            continue
+        fi
+        missing_submodules+=("${submodule}")
+    done
+
+    if [ ${#missing_submodules[@]} -eq 0 ]; then
+        return
+    fi
+
+    log_info "sync missing submodules for current checkout: ${missing_submodules[*]}"
     git -C "${BASE_DIR}" submodule sync --recursive
-    git -C "${BASE_DIR}" submodule update --init --recursive --jobs "${YR_SUBMODULE_JOBS:-8}"
+    git -C "${BASE_DIR}" submodule update --init --recursive --jobs "${YR_SUBMODULE_JOBS:-8}" -- "${missing_submodules[@]}"
 }
 
 function pip_flags_for_python() {

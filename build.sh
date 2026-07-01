@@ -108,6 +108,7 @@ log_fatal() {
 
 function sync_submodules_for_build() {
     local submodule
+    local submodule_path
     local missing_submodules=()
 
     if [ "$BAZEL_COMMAND" == "clean" ] || [ "${YR_SKIP_SUBMODULE_SYNC:-0}" == "1" ]; then
@@ -118,9 +119,13 @@ function sync_submodules_for_build() {
     fi
 
     for submodule in datasystem frontend functionsystem; do
-        if [ -d "${BASE_DIR}/${submodule}" ]; then
+        submodule_path="${BASE_DIR}/${submodule}"
+        if [ -d "${submodule_path}" ] && find "${submodule_path}" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
             log_info "skip existing submodule path: ${submodule}"
             continue
+        fi
+        if [ -d "${submodule_path}" ]; then
+            log_info "sync empty submodule path: ${submodule}"
         fi
         missing_submodules+=("${submodule}")
     done

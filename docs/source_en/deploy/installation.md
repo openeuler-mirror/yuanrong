@@ -61,15 +61,7 @@ bin  include  lib  VERSION
 
 ### Java SDK
 
-After [installing openYuanrong](install-yuanrong-with-pip), refer to the following commands to view the Java SDK path. Among them, `yr-api-sdk-xxx.jar` is the single-machine program distributed parallelization SDK, `faas-function-sdk-xxx.jar` is the function service SDK. For application development, refer to [Development Guide](../multi_language_function_programming_interface/development_guide/index.md).
-
-```console
-[xxx]# python3 -c "import yr;print(yr.__path__[0])"
-/usr/local/lib/python3.9/site-packages/yr
-
-[xxx]# ls /usr/local/lib/python3.9/site-packages/yr/java/
-yr-api-sdk-1.0.0.jar faas-function-sdk-1.0.0.jar pom.xml
-```
+Refer to [Download openYuanrong](../reference/releases.md) to obtain the full package `openyuanrong-x.x.x.tar.gz` for the version. The Java SDK is located under the `openyuanrong/runtime/sdk/java` path. Among them, `yr-api-sdk-xxx.jar` is the single-machine program distributed parallelization SDK, `faas-function-sdk-xxx.jar` is the function service SDK. For application development, refer to [Development Guide](../multi_language_function_programming_interface/development_guide/index.md).
 
 If you manage Java projects through Maven, refer to the following commands to install openYuanrong Java SDK, and introduce dependencies in the project `pom.xml` file.
 

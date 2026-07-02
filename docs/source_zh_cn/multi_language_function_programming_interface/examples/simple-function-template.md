@@ -1047,7 +1047,7 @@
     ```java
     package org.yuanrong.demo;
 
-    import com.services.runtime.Context;
+    import org.yuanrong.services.runtime.Context;
     import com.google.gson.JsonObject;
     import java.time.LocalDate;
 
@@ -1634,7 +1634,7 @@ curl -X POST -i ${META_SERVICE_ENDPOINT}/serverless/v1/podpools -H 'Content-Type
     ```java
     package org.yuanrong.demo;
 
-    import com.services.runtime.Context;
+    import org.yuanrong.services.runtime.Context;
     import com.google.gson.JsonObject;
     import java.time.LocalDate;
 

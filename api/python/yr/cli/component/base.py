@@ -177,7 +177,7 @@ class ComponentLauncher:
 
         return process
 
-    def terminate(self, force: bool = False):
+    def terminate(self, force: bool = False, timeout: int = 5):
         if not self.component_config.process:
             return
 
@@ -190,7 +190,7 @@ class ComponentLauncher:
                 process.terminate()
                 logger.info(f"Terminated {self.name} (PID: {process.pid})")
             try:
-                process.wait(timeout=5)
+                process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 process.kill()
                 logger.info(f"Force killed {self.name} after timeout")

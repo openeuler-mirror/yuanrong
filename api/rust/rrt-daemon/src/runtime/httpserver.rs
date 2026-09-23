@@ -210,6 +210,12 @@ pub(crate) async fn serve_listener(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConnectionDisposition {
+    KeepAlive,
+    Close,
+}
+
 async fn handle_conn(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
@@ -222,28 +228,31 @@ async fn handle_conn(
         if sock.peek(&mut first).await? == 0 {
             return Ok(());
         }
-        handle_one_request(sock, token.clone()).await?;
+        if handle_one_request(sock, token.clone()).await? == ConnectionDisposition::Close {
+            return Ok(());
+        }
     }
 }
 
 async fn handle_one_request(
     sock: &mut tokio::net::TcpStream,
     token: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<ConnectionDisposition, Box<dyn std::error::Error>> {
     // Read until the header terminator (\r\n\r\n). Bodies support Content-Length or chunked encoding.
     let mut buf = Vec::with_capacity(4096);
     let mut tmp = [0u8; IO_BUFFER_SIZE];
     let header_end = loop {
         let n = sock.read(&mut tmp).await?;
         if n == 0 {
-            return Ok(()); // Connection closed.
+            return Ok(ConnectionDisposition::Close);
         }
         buf.extend_from_slice(&tmp[..n]);
         if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
             break pos + 4;
         }
         if buf.len() > 1 << 20 {
-            return write_resp(sock, 431, "{\"error\":\"headers too large\"}").await;
+            write_resp(sock, 431, "{\"error\":\"headers too large\"}").await?;
+            return Ok(ConnectionDisposition::KeepAlive);
         }
     };
     let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
@@ -272,7 +281,8 @@ async fn handle_one_request(
 
     // Health checks do not need a body.
     if method == "GET" && route == "/healthz" {
-        return write_resp(sock, 200, "{\"status\":\"ok\"}").await;
+        write_resp(sock, 200, "{\"status\":\"ok\"}").await?;
+        return Ok(ConnectionDisposition::KeepAlive);
     }
     if method == "GET" && route == "/metrics" {
         let metrics = super::cmd::command_metrics();
@@ -287,12 +297,14 @@ async fn handle_one_request(
             metrics.id_conflict_total,
             COMMAND_WATCHERS.load(std::sync::atomic::Ordering::Relaxed),
         );
-        return write_resp(sock, 200, &body).await;
+        write_resp(sock, 200, &body).await?;
+        return Ok(ConnectionDisposition::KeepAlive);
     }
     // Auth: RRT requires token authentication. /invoke, /upload, and /download are all control-plane capabilities.
     if let Some(expect) = token.as_deref() {
         if auth.as_deref() != Some(expect) {
-            return write_resp(sock, 401, "{\"error\":\"unauthorized\"}").await;
+            write_resp(sock, 401, "{\"error\":\"unauthorized\"}").await?;
+            return Ok(ConnectionDisposition::KeepAlive);
         }
     }
 
@@ -300,7 +312,8 @@ async fn handle_one_request(
         && route == "/commands/watch"
         && header_has_token(&head, "upgrade", "websocket")
     {
-        return handle_command_watch(sock, &head).await;
+        handle_command_watch(sock, &head).await?;
+        return Ok(ConnectionDisposition::Close);
     }
 
     // Ordinary atomic operations are data activity. The long-lived command
@@ -308,13 +321,15 @@ async fn handle_one_request(
     let _active = super::activity::enter(super::activity::ActivitySource::DirectHttp);
 
     if method == "GET" && route == "/upload/status" {
-        return handle_upload_status(sock, &path).await;
+        handle_upload_status(sock, &path).await?;
+        return Ok(ConnectionDisposition::KeepAlive);
     }
     if method == "POST" && route == "/upload/commit" {
-        return handle_upload_commit(sock, &path).await;
+        handle_upload_commit(sock, &path).await?;
+        return Ok(ConnectionDisposition::KeepAlive);
     }
     if method == "POST" && route == "/upload" {
-        return handle_upload(
+        handle_upload(
             sock,
             &path,
             body_mode,
@@ -322,14 +337,19 @@ async fn handle_one_request(
             &mut tmp,
             trace_id.as_str(),
         )
-        .await;
+        .await?;
+        return Ok(ConnectionDisposition::KeepAlive);
     }
     if method == "GET" && route == "/download" {
-        return handle_download(sock, &path, &head, &mut tmp, trace_id.as_str()).await;
+        // Binary download responses advertise Connection: close. Tar streams
+        // have no Content-Length, so the socket EOF also frames their end.
+        handle_download(sock, &path, &head, &mut tmp, trace_id.as_str()).await?;
+        return Ok(ConnectionDisposition::Close);
     }
 
     if !(method == "POST" && route == "/invoke") {
-        return write_resp(sock, 404, "{\"error\":\"not found\"}").await;
+        write_resp(sock, 404, "{\"error\":\"not found\"}").await?;
+        return Ok(ConnectionDisposition::KeepAlive);
     }
 
     // /invoke needs a JSON body. Read the full body only on this path to avoid buffering large /upload payloads in memory.
@@ -344,7 +364,10 @@ async fn handle_one_request(
 
     let parsed: serde_json::Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
-        Err(e) => return write_resp(sock, 400, &err_json(&format!("bad json: {e}"))).await,
+        Err(e) => {
+            write_resp(sock, 400, &err_json(&format!("bad json: {e}"))).await?;
+            return Ok(ConnectionDisposition::KeepAlive);
+        }
     };
     let action = parsed
         .get("action")
@@ -355,7 +378,8 @@ async fn handle_one_request(
     let request_id = request_id_from(&head, &parsed);
 
     let resp = execute_invoke(request_id, action, kw, trace_id).await;
-    write_resp(sock, resp.status, &resp.body).await
+    write_resp(sock, resp.status, &resp.body).await?;
+    Ok(ConnectionDisposition::KeepAlive)
 }
 
 async fn handle_command_watch(
@@ -1897,6 +1921,59 @@ mod tests {
 
         drop(client);
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn binary_downloads_close_after_complete_response() {
+        let directory = tempfile::tempdir().unwrap();
+        let payload = b"complete binary download";
+        let file = directory.path().join("payload.txt");
+        std::fs::write(&file, payload).unwrap();
+
+        for (path, download_type, content_type) in [
+            (file.as_path(), "file", "application/octet-stream"),
+            (directory.path(), "tar", "application/x-tar"),
+        ] {
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                handle_conn(&mut stream, None).await.unwrap();
+            });
+            let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
+            let request = format!(
+                "GET /download?path={}&type={} HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                path.display(),
+                download_type
+            );
+            client.write_all(request.as_bytes()).await.unwrap();
+
+            let mut response = Vec::new();
+            tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut response))
+                .await
+                .expect("binary download must finish with socket EOF")
+                .unwrap();
+            server.await.unwrap();
+
+            let header_end = response
+                .windows(4)
+                .position(|bytes| bytes == b"\r\n\r\n")
+                .unwrap()
+                + 4;
+            let headers = String::from_utf8_lossy(&response[..header_end]);
+            let body = &response[header_end..];
+            assert!(headers.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert!(headers.contains(&format!("Content-Type: {content_type}\r\n")));
+            assert!(headers.contains("Connection: close\r\n"));
+            if download_type == "file" {
+                assert_eq!(body, payload);
+            } else {
+                assert!(body.windows(payload.len()).any(|bytes| bytes == payload));
+                assert!(body.len() >= 10_240, "tar stream was truncated");
+            }
+        }
     }
 
     use std::ffi::OsStr;

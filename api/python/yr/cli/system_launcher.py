@@ -484,7 +484,21 @@ class SystemLauncher:
     def stop_all(self, force: bool = False):
         logger.info("Stopping system components...")
 
-        for launcher in self.components.values():
+        try:
+            order = list(reversed(self._get_start_order()))
+        except Exception as e:
+            logger.warning(f"Failed to derive stop order ({e}), using reverse registration order")
+            order = list(reversed(self.components.keys()))
+        
+        if "function_proxy" in order and "function_agent" in order:
+            order.remove("function_proxy")
+            agent_idx = order.index("function_agent")
+            order.insert(agent_idx, "function_proxy")
+        
+        for comp_name in order:
+            launcher = self.components.get(comp_name)
+            if launcher is None:
+                continue
             launcher.terminate(force=force)
         self.session_manager.clear_session()
         logger.info("✅ All components stopped.")
@@ -510,7 +524,7 @@ class SystemLauncher:
                 logger.info(f"Killed daemon process (PID: {daemon_pid})")
             else:
                 os.kill(daemon_pid, signal.SIGTERM)
-                timeout_s = 40
+                timeout_s = 60  
                 logger.info(f"Sent SIGTERM to daemon process (PID: {daemon_pid}) with timeout {timeout_s} seconds")
                 exited = wait_pid_exit(daemon_pid, time.time() + timeout_s)
                 if exited:

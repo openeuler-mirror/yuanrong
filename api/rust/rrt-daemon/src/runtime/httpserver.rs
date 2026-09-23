@@ -501,7 +501,9 @@ async fn execute_invoke(
                 .get("error_code")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            let status = if error.is_empty() {
+            let status = if error.is_empty()
+                || (normalized_action == Some("cmd_wait") && error_code == "WAIT_TIMEOUT")
+            {
                 200
             } else {
                 match error_code {
@@ -1870,6 +1872,57 @@ mod tests {
         let mut body = vec![0u8; content_length];
         stream.read_exact(&mut body).await.unwrap();
         (head, body)
+    }
+
+    #[tokio::test]
+    async fn command_wait_timeout_is_an_http_success_with_error_result() {
+        let command_id = format!("http-wait-timeout-{}", std::process::id());
+        let mut start = std::collections::BTreeMap::new();
+        start.insert(
+            "command_id".to_string(),
+            rmpv::Value::from(command_id.clone()),
+        );
+        start.insert("cmd".to_string(), rmpv::Value::from("sleep 30"));
+        super::super::cmd::cmd_start(&start);
+
+        let mut lookup = std::collections::BTreeMap::new();
+        lookup.insert("command_id".to_string(), rmpv::Value::from(command_id));
+        lookup.insert("timeout".to_string(), rmpv::Value::from(0));
+        let response =
+            super::execute_invoke(None, "process.wait".into(), lookup.clone(), "".into()).await;
+        assert_eq!(response.status, 200);
+        let body: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(body["status"], "running");
+        assert_eq!(body["error_code"], "WAIT_TIMEOUT");
+        assert_eq!(body["error"], "command wait timed out");
+
+        let killed = super::super::cmd::cmd_kill(&lookup);
+        assert_eq!(
+            killed
+                .as_map()
+                .and_then(|entries| {
+                    entries
+                        .iter()
+                        .find(|(key, _)| key.as_str() == Some("killed"))
+                })
+                .and_then(|(_, value)| value.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_command_kill_is_an_http_success() {
+        let mut lookup = std::collections::BTreeMap::new();
+        lookup.insert(
+            "command_id".to_string(),
+            rmpv::Value::from(format!("http-missing-kill-{}", std::process::id())),
+        );
+        let response = super::execute_invoke(None, "process.kill".into(), lookup, "".into()).await;
+        assert_eq!(response.status, 200);
+        let body: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(body["status"], "NOT_FOUND");
+        assert_eq!(body["killed"], false);
+        assert!(body["error"].is_null());
     }
 
     #[tokio::test]

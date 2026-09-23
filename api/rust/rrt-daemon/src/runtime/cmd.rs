@@ -934,9 +934,10 @@ pub fn cmd_kill(kw: &BTreeMap<String, Value>) -> Value {
             Some(value) => value,
             None => {
                 return map_value(vec![
+                    ("status", Value::from("NOT_FOUND")),
                     ("killed", Value::from(false)),
-                    ("error_code", Value::from("COMMAND_NOT_FOUND")),
-                    ("error", Value::from(not_found(kw))),
+                    ("error_code", nil()),
+                    ("error", nil()),
                 ])
             }
         }
@@ -948,27 +949,36 @@ pub fn cmd_kill(kw: &BTreeMap<String, Value>) -> Value {
         || exit.killed.load(Ordering::Acquire)
     {
         return map_value(vec![
+            ("status", Value::from("ALREADY_EXITED")),
             ("killed", Value::from(false)),
-            ("error_code", Value::from("COMMAND_NOT_RUNNING")),
-            ("error", Value::from("CommandNotRunning")),
+            ("error_code", nil()),
+            ("error", nil()),
         ]);
     }
     let result = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
     if result == 0 {
         exit.killed.store(true, Ordering::Release);
         map_value(vec![
+            ("status", Value::from("KILLED")),
             ("killed", Value::from(true)),
             ("error_code", nil()),
             ("error", nil()),
         ])
     } else {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            return map_value(vec![
+                ("status", Value::from("ALREADY_EXITED")),
+                ("killed", Value::from(false)),
+                ("error_code", nil()),
+                ("error", nil()),
+            ]);
+        }
         map_value(vec![
+            ("status", Value::from("SIGNAL_FAILED")),
             ("killed", Value::from(false)),
             ("error_code", Value::from("SIGNAL_FAILED")),
-            (
-                "error",
-                Value::from(std::io::Error::last_os_error().to_string()),
-            ),
+            ("error", Value::from(error.to_string())),
         ])
     }
 }
@@ -1108,7 +1118,13 @@ mod tests {
             ("pid".to_string(), field(&started, "pid").clone()),
             ("wait_timeout".to_string(), Value::from(5)),
         ]);
-        assert_eq!(field(&cmd_kill(&lookup), "killed").as_bool(), Some(true));
+        let killed = cmd_kill(&lookup);
+        assert_eq!(field(&killed, "status").as_str(), Some("KILLED"));
+        assert_eq!(field(&killed, "killed").as_bool(), Some(true));
+        let repeated = cmd_kill(&lookup);
+        assert_eq!(field(&repeated, "status").as_str(), Some("ALREADY_EXITED"));
+        assert_eq!(field(&repeated, "killed").as_bool(), Some(false));
+        assert!(field(&repeated, "error").is_nil());
         let result = cmd_poll(&lookup);
         assert_eq!(field(&result, "status").as_str(), Some("done"));
         assert_eq!(field(&result, "exit_code").as_i64(), Some(-1));
@@ -1177,6 +1193,38 @@ mod tests {
     }
 
     #[test]
+    fn wait_timeout_reports_running_without_stopping_command() {
+        let id = format!("test-wait-timeout-{}", now_ms());
+        cmd_start(&args(&id, "sleep 30"));
+        let lookup = BTreeMap::from([
+            ("command_id".to_string(), Value::from(id)),
+            ("timeout".to_string(), Value::from(0)),
+        ]);
+        let result = cmd_wait(&lookup);
+        assert_eq!(field(&result, "status").as_str(), Some("running"));
+        assert_eq!(field(&result, "error_code").as_str(), Some("WAIT_TIMEOUT"));
+        assert!(result
+            .as_map()
+            .unwrap()
+            .iter()
+            .all(|(key, _)| key.as_str() != Some("exit_code")));
+        assert_eq!(field(&cmd_kill(&lookup), "killed").as_bool(), Some(true));
+    }
+
+    #[test]
+    fn kill_missing_command_is_a_successful_noop() {
+        let lookup = BTreeMap::from([(
+            "command_id".to_string(),
+            Value::from(format!("test-missing-kill-{}", now_ms())),
+        )]);
+        let result = cmd_kill(&lookup);
+        assert_eq!(field(&result, "status").as_str(), Some("NOT_FOUND"));
+        assert_eq!(field(&result, "killed").as_bool(), Some(false));
+        assert!(field(&result, "error_code").is_nil());
+        assert!(field(&result, "error").is_nil());
+    }
+
+    #[test]
     fn bounded_output_keeps_the_first_bytes_and_marks_truncation() {
         let mut output = BoundedBuffer {
             data: Vec::new(),
@@ -1200,7 +1248,7 @@ mod tests {
     }
 
     #[test]
-    fn kill_rejects_a_terminal_spawn_failure_without_signalling_negative_pid() {
+    fn kill_noops_on_terminal_spawn_failure_without_signalling_negative_pid() {
         let id = format!("test-spawn-failed-kill-{}", now_ms());
         let mut request = args(&id, "true");
         request.insert(
@@ -1213,6 +1261,7 @@ mod tests {
         let lookup = BTreeMap::from([("command_id".to_string(), Value::from(id))]);
         let killed = cmd_kill(&lookup);
         assert_eq!(field(&killed, "killed").as_bool(), Some(false));
-        assert_eq!(field(&killed, "error").as_str(), Some("CommandNotRunning"));
+        assert_eq!(field(&killed, "status").as_str(), Some("ALREADY_EXITED"));
+        assert!(field(&killed, "error").is_nil());
     }
 }

@@ -18,9 +18,11 @@
 package loadbalance
 
 import (
-	"github.com/smartystreets/goconvey/convey"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/smartystreets/goconvey/convey"
 )
 
 func TestSimpleCHGeneric_Next(t *testing.T) {
@@ -32,6 +34,82 @@ func TestSimpleCHGeneric_Next(t *testing.T) {
 		next1 := generic.Next("function1", false)
 		next2 := generic.Next("function1", false)
 		convey.So(next1, convey.ShouldResemble, next2)
+	})
+}
+
+func TestSimpleCHGenericVirtualNodes(t *testing.T) {
+	nodes := []string{"scheduler-alpha", "scheduler-beta", "scheduler-gamma"}
+	// ideal share per node is 1/3; a single-point ring skews beyond 2x
+	// regularly, virtual nodes should stay within [minShare, maxShare]
+	const (
+		minShare = 0.25
+		maxShare = 0.42
+	)
+
+	convey.Convey("empty ring returns empty owner", t, func() {
+		generic := NewSimpleCHGeneric()
+		convey.So(generic.Next("any-key", false), convey.ShouldResemble, "")
+	})
+
+	convey.Convey("different add orders produce identical routing", t, func() {
+		forward := NewSimpleCHGeneric()
+		reverse := NewSimpleCHGeneric()
+		for _, n := range nodes {
+			forward.Add(n, 0)
+		}
+		for i := len(nodes) - 1; i >= 0; i-- {
+			reverse.Add(nodes[i], 0)
+		}
+		for i := 0; i < 2000; i++ {
+			key := fmt.Sprintf("session-key-%d", i)
+			convey.So(forward.Next(key, false), convey.ShouldResemble, reverse.Next(key, false))
+		}
+	})
+
+	convey.Convey("duplicate add is idempotent", t, func() {
+		generic := NewSimpleCHGeneric()
+		generic.Add(nodes[0], 0)
+		generic.Add(nodes[0], 0)
+		convey.So(len(generic.nodes), convey.ShouldEqual, virtualNodeCount)
+		convey.So(len(generic.owners), convey.ShouldEqual, 1)
+	})
+
+	convey.Convey("remove drops all virtual points of the node", t, func() {
+		generic := NewSimpleCHGeneric()
+		for _, n := range nodes {
+			generic.Add(n, 0)
+		}
+		generic.Remove("scheduler-beta")
+		convey.So(len(generic.nodes), convey.ShouldEqual, (len(nodes)-1)*virtualNodeCount)
+		for i := 0; i < 2000; i++ {
+			owner := generic.Next(fmt.Sprintf("session-key-%d", i), false)
+			convey.So(owner, convey.ShouldNotEqual, "scheduler-beta")
+		}
+		generic.RemoveAll()
+		convey.So(generic.Next("session-key-0", false), convey.ShouldResemble, "")
+		convey.So(len(generic.nodes), convey.ShouldEqual, 0)
+	})
+
+	convey.Convey("virtual nodes spread traffic near-evenly", t, func() {
+		generic := NewSimpleCHGeneric()
+		for _, n := range nodes {
+			generic.Add(n, 0)
+		}
+		const total = 100000
+		counts := make(map[string]int, len(nodes))
+		for i := 0; i < total; i++ {
+			owner, ok := generic.Next(fmt.Sprintf("session-%d", i), false).(string)
+			if !ok {
+				t.Fatalf("Next returned a non-string owner for session-%d", i)
+			}
+			counts[owner]++
+		}
+		convey.So(len(counts), convey.ShouldEqual, len(nodes))
+		for _, n := range nodes {
+			share := float64(counts[n]) / float64(total)
+			convey.So(share, convey.ShouldBeGreaterThan, minShare)
+			convey.So(share, convey.ShouldBeLessThan, maxShare)
+		}
 	})
 }
 

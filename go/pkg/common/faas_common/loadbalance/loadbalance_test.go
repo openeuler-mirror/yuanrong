@@ -164,7 +164,7 @@ func TestSimpleCHGeneric_Add(t *testing.T) {
 	con.Add("n2", 0)
 
 	next := con.Next("n1", false)
-	assert.Equal(t, "n2", next)
+	assert.Contains(t, []string{"n1", "n2"}, next)
 
 	con.Remove("n2")
 	con.RemoveAll()

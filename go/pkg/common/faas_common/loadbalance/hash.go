@@ -18,6 +18,9 @@
 package loadbalance
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"sort"
 	"sync"
@@ -31,6 +34,13 @@ const (
 	// MaxInstanceSize is the max instance size be stored in hash ring
 	MaxInstanceSize = 100
 	defaultMapSize  = 100
+	// virtualNodeCount is how many points each node occupies on the
+	// SimpleCHGeneric ring. One point per node skews traffic badly
+	// (broken-stick), so each node is spread over many virtual points.
+	virtualNodeCount = 256
+	// virtualNodeHashBytes is how many leading bytes of the SHA-256 digest
+	// form a virtual node's position on the ring.
+	virtualNodeHashBytes = 4
 )
 
 type uint32Slice []uint32
@@ -56,33 +66,58 @@ func (u uint32Slice) Less(i, j int) bool {
 	return u[i] < u[j]
 }
 
+// virtualNode is one point of a real node on the SimpleCHGeneric ring.
+type virtualNode struct {
+	hash  uint32
+	owner string
+	index int
+}
+
 // SimpleCHGeneric is the simple generic consistent hash
 type SimpleCHGeneric struct {
-	instanceMap map[uint32]string
-	hashPool    uint32Slice
-	insMutex    sync.RWMutex
+	nodes    []virtualNode
+	owners   map[string]struct{}
+	insMutex sync.RWMutex
 }
 
 // NewSimpleCHGeneric creates generic consistent hash
 func NewSimpleCHGeneric() *SimpleCHGeneric {
 	return &SimpleCHGeneric{
-		hashPool:    make([]uint32, 0, MaxInstanceSize),
-		instanceMap: make(map[uint32]string, defaultMapSize),
+		nodes:  make([]virtualNode, 0, MaxInstanceSize*virtualNodeCount),
+		owners: make(map[string]struct{}, defaultMapSize),
 	}
 }
-func (c *SimpleCHGeneric) getNextHashKey(hashKey uint32) uint32 {
-	// need to be called with insMutex locked
-	if len(c.hashPool) == 0 {
-		return 0
+
+// buildVirtualNodes spreads a real node over virtualNodeCount ring points.
+// Points are placed with SHA-256 instead of CRC32: CRC32 is affine, so
+// "name#i" keys with a shared prefix produce correlated points and keep the
+// ring skewed.
+func buildVirtualNodes(name string) []virtualNode {
+	nodes := make([]virtualNode, 0, virtualNodeCount)
+	for i := 0; i < virtualNodeCount; i++ {
+		sum := sha256.Sum256([]byte(fmt.Sprintf("%s#%d", name, i)))
+		nodes = append(nodes, virtualNode{
+			hash:  binary.BigEndian.Uint32(sum[:virtualNodeHashBytes]),
+			owner: name,
+			index: i,
+		})
 	}
-	nextHashKey := c.hashPool[0]
-	for _, v := range c.hashPool {
-		if v > hashKey {
-			nextHashKey = v
-			break
+	return nodes
+}
+
+// sortVirtualNodes orders points by (hash, owner, index) so that a hash
+// collision resolves to the same owner in every process regardless of the
+// order nodes were added in.
+func sortVirtualNodes(nodes []virtualNode) {
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].hash != nodes[j].hash {
+			return nodes[i].hash < nodes[j].hash
 		}
-	}
-	return nextHashKey
+		if nodes[i].owner != nodes[j].owner {
+			return nodes[i].owner < nodes[j].owner
+		}
+		return nodes[i].index < nodes[j].index
+	})
 }
 
 // Next returns the next scheduled node of a function, move is disable
@@ -90,34 +125,35 @@ func (c *SimpleCHGeneric) Next(name string, move bool) interface{} {
 	// need to be called in a thread safe context
 	hashKey := getHashKeyCRC32([]byte(name))
 	c.insMutex.RLock()
-	instanceHash := c.getNextHashKey(hashKey)
-	instanceKey, exist := c.instanceMap[instanceHash]
-	c.insMutex.RUnlock()
-	// check if node still exists, no maxReqCount limitation
-	if !exist {
+	defer c.insMutex.RUnlock()
+	if len(c.nodes) == 0 {
 		return ""
 	}
-	return instanceKey
+	i := sort.Search(len(c.nodes), func(i int) bool {
+		return c.nodes[i].hash > hashKey
+	})
+	if i == len(c.nodes) {
+		i = 0
+	}
+	return c.nodes[i].owner
 }
 
 // Add will add a node into hash ring
 func (c *SimpleCHGeneric) Add(node interface{}, weight int) {
-	c.insMutex.Lock()
-	defer c.insMutex.Unlock()
 	name, ok := node.(string)
 	if !ok {
 		log.GetLogger().Errorf("unable to convert %T to string", node)
 		return
 	}
-	hashKey := getHashKeyCRC32([]byte(name))
-	_, exist := c.instanceMap[hashKey]
-	if exist {
+	c.insMutex.Lock()
+	defer c.insMutex.Unlock()
+	if _, exist := c.owners[name]; exist {
 		return
 	}
-	c.instanceMap[hashKey] = name
-	c.hashPool = append(c.hashPool, hashKey)
-	sort.Sort(c.hashPool)
-	log.GetLogger().Debugf("add node %s, hashKey %d to hash ring, hashPool is %v", name, hashKey, c.hashPool)
+	c.owners[name] = struct{}{}
+	c.nodes = append(c.nodes, buildVirtualNodes(name)...)
+	sortVirtualNodes(c.nodes)
+	log.GetLogger().Debugf("add node %s to hash ring, %d virtual nodes in total", name, len(c.nodes))
 }
 
 // Remove will remove a node from hash ring
@@ -127,27 +163,27 @@ func (c *SimpleCHGeneric) Remove(node interface{}) {
 		log.GetLogger().Errorf("unable to convert %T to string", node)
 		return
 	}
-	hashKey := getHashKeyCRC32([]byte(name))
 	c.insMutex.Lock()
-	delete(c.instanceMap, hashKey)
-	for i, hash := range c.hashPool {
-		if hash == hashKey {
-			copy(c.hashPool[i:], c.hashPool[i+1:])
-			c.hashPool[len(c.hashPool)-1] = 0
-			c.hashPool = c.hashPool[:len(c.hashPool)-1]
-			break
+	defer c.insMutex.Unlock()
+	if _, exist := c.owners[name]; !exist {
+		return
+	}
+	delete(c.owners, name)
+	kept := c.nodes[:0]
+	for _, n := range c.nodes {
+		if n.owner != name {
+			kept = append(kept, n)
 		}
 	}
+	c.nodes = kept
 	log.GetLogger().Infof("delete node %s from hash ring", name)
-	c.insMutex.Unlock()
-
 }
 
 // RemoveAll will remove all nodes from hash ring
 func (c *SimpleCHGeneric) RemoveAll() {
 	c.insMutex.Lock()
-	c.hashPool = make([]uint32, 0, MaxInstanceSize)
-	c.instanceMap = make(map[uint32]string, defaultMapSize)
+	c.nodes = make([]virtualNode, 0, MaxInstanceSize*virtualNodeCount)
+	c.owners = make(map[string]struct{}, defaultMapSize)
 	c.insMutex.Unlock()
 	return
 }
